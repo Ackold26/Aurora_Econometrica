@@ -1,5 +1,5 @@
 """
-KPI/mode-aware label helpers для AuroraPPTXBuilder (v1.3.2).
+KPI/mode-aware label helpers для AuroraPPTXBuilder (v1.4.0 — Фаза 1a KPI-паспорт).
 
 Mirrors aurora_html/sections.py:_kpi_view contract. Exported в отдельный
 модуль чтобы импортироваться без `aurora_tokens` зависимости (которая
@@ -8,6 +8,10 @@ Mirrors aurora_html/sections.py:_kpi_view contract. Exported в отдельны
 Builder.py reads `data['kpi']` (populated narrative_adapter, ADR-016) и
 условно показывает CPU / Доля вместо ROI/mROAS. legacy ctx без 'kpi' →
 backward compat v1.2.
+
+Фаза 1a (2026-07-11): kpi_type пробрасывается через data['kpi']['kpi_type'].
+kpi_view читает его и подставляет паспортные подписи из kpi_display.get_display.
+При отсутствии kpi_type — прежнее поведение (backward-compat).
 """
 from __future__ import annotations
 
@@ -21,17 +25,48 @@ _DEFAULT_KPI_LABELS = {
 }
 
 
+def _passport(kpi_type: str | None) -> dict | None:
+    """Загружает паспорт KPI из реестра. None при kpi_type=None или ошибке."""
+    if not kpi_type:
+        return None
+    try:
+        from utils.kpi_display import get_display
+        return get_display(kpi_type)
+    except Exception:
+        return None
+
+
 def kpi_view(data):
-    """Extract KPI metadata + labels с v1.2 backward-compat fallback."""
+    """Extract KPI metadata + labels с v1.2 backward-compat fallback.
+
+    Фаза 1a: читает data['kpi']['kpi_type'] и перегенерирует паспортные подписи
+    через kpi_display (target_axis, target_unit, metric_label, cpu_per_label).
+    Если kpi_type отсутствует — работает как раньше (labels из pre-built dict).
+    """
     if not isinstance(data, dict):
         data = {}
     kpi = data.get("kpi") or {}
     kpi_kind = kpi.get("kpi_kind") or "monetary"
     mode = kpi.get("derived_mode") or "roi"
+    kpi_type = kpi.get("kpi_type") or None
     labels = {**_DEFAULT_KPI_LABELS, **(kpi.get("labels") or {})}
+
+    # Фаза 1a: если kpi_type известен — перегенерируем паспортные подписи из реестра.
+    # Это гарантирует актуальность даже если labels были вычислены старым кодом.
+    P = _passport(kpi_type)
+    if P:
+        if P.get("result_axis_label"):
+            labels["target_axis_label"] = P["result_axis_label"]
+        if P.get("result_unit_short"):
+            labels["target_unit_label"] = P["result_unit_short"]
+        if mode != "effectiveness" and kpi_kind == "count" and P.get("cpu_per_label"):
+            labels["metric_label"] = f'CPU, {P["cpu_per_label"]}'
+            labels["metric_short_label"] = "CPU"
+
     return {
         "kpi_kind": kpi_kind,
         "mode": mode,
+        "kpi_type": kpi_type,
         "metric_label": labels["metric_label"],
         "metric_short": labels["metric_short_label"],
         "target_unit": labels["target_unit_label"],
@@ -39,6 +74,7 @@ def kpi_view(data):
         "methodology_label": labels["methodology_label"],
         "vpcu": kpi.get("value_per_count_unit"),
         "vpcu_label": kpi.get("value_per_count_unit_label") or "",
+        "cpu_per_label": P["cpu_per_label"] if (P and P.get("cpu_per_label")) else "₽/ед.",
         "is_legacy": kpi_kind == "monetary" and mode == "roi",
     }
 
@@ -48,7 +84,10 @@ def fmt_metric(value, kpi, fallback="-"):
 
     B4 audit fix: backend convention - per-channel mroas/roi всегда mathematical
     ratio (units_kpi / ₽_spend). Для count это units/₽; CPU = 1/x. Invert
-    before display чтобы «120 ₽/ед.» означало true CPU, не raw units/₽.
+    before display чтобы «120 ₽/лид» означало true CPU, не raw units/₽.
+
+    Фаза 1a: читает kpi['cpu_per_label'] (из kpi_view) вместо жёсткого '₽/ед.'.
+    Если kpi_view не вызывался / cpu_per_label отсутствует — fallback '₽/ед.'.
     """
     if value is None:
         return fallback
@@ -63,9 +102,10 @@ def fmt_metric(value, kpi, fallback="-"):
             return f"{f * 100:.1f}%"
         return f"{f:.0f}%"
     if kind == "count":
-        # Invert units/₽ → CPU ₽/ед. Edge: zero/negative → fallback.
+        # Invert units/₽ → CPU. Edge: zero/negative → fallback.
         if f > 0:
-            return f"{1.0 / f:.0f} ₽/ед."
+            unit = kpi.get("cpu_per_label") or "₽/ед."
+            return f"{1.0 / f:.0f} {unit}"
         return fallback
     return f"{f:.2f}×"
 
@@ -106,11 +146,46 @@ def fmt_metric_with_ci_text(mean, ci_low, ci_high, kpi):
         return base
 
 
+def contrib_scale(kpi, raw_values, money_unit="₽ млн"):
+    """Масштаб+единица столбца «Вклад» (mirror aurora_html.sections._contrib_scale).
+
+    Фикс 2026-07-13 (INV-50): вклад делился на 1e6 безусловно, а единица count-KPI
+    подписывалась без «млн» → клиент видел «1.3 лид.» вместо «1.3 млн лид.»
+    (занижение в 1e6). Масштаб и единица теперь выбираются согласованно.
+    monetary/effectiveness → (1e6, money_unit); count → адаптивно по макс |вклад|.
+    """
+    if kpi.get("kpi_kind") != "count":
+        return 1_000_000.0, money_unit
+    unit = kpi.get("target_unit") or "ед."
+    try:
+        mx = max((abs(float(v or 0)) for v in raw_values), default=0.0)
+    except (TypeError, ValueError):
+        mx = 0.0
+    if mx >= 1_000_000:
+        return 1_000_000.0, f"млн {unit}"
+    if mx >= 10_000:
+        return 1_000.0, f"тыс. {unit}"
+    return 1.0, unit
+
+
+def fmt_contrib(value, scale, fallback="-"):
+    """Значение вклада в масштабе contrib_scale (mirror aurora_html.sections)."""
+    try:
+        x = float(value) / scale
+    except (TypeError, ValueError, ZeroDivisionError):
+        return fallback
+    if scale == 1.0:
+        return f"{x:,.0f}".replace(",", chr(0xA0))
+    return f"{x:.1f}" if abs(x) < 10 else f"{x:.0f}"
+
+
 def weighted_summary_phrase(weighted_value, kpi):
     """Aggregate portfolio metric phrase per kpi/mode.
 
     Narrative_adapter всегда возвращает weighted_roi = contrib / spend. Для
     count KPI это units/₽ (обратное к CPU), потому инвертируем.
+
+    Фаза 1a: читает kpi['cpu_per_label'] (из kpi_view) вместо жёсткого '₽/ед.'.
     """
     if weighted_value is None:
         return ""
@@ -125,31 +200,81 @@ def weighted_summary_phrase(weighted_value, kpi):
     if kind == "count":
         if wv > 0:
             cpu = 1.0 / wv
-            return f"CPU портфеля {cpu:.0f} ₽/ед."
+            unit = kpi.get("cpu_per_label") or "₽/ед."
+            return f"CPU портфеля {cpu:.0f} {unit}"
         return "CPU портфеля недоступен"
     return f"ROI портфеля {wv:.2f}×"
 
 
 def under_breakeven_phrase(kpi):
-    """Условие «канал убыточен» для текстов рекомендаций."""
+    """Условие «канал убыточен» для текстов рекомендаций.
+
+    Фаза 1a: читает kpi['cpu_per_label'] (из kpi_view) вместо жёсткого '₽/ед.'.
+    """
     mode = kpi.get("mode", "roi")
     kind = kpi.get("kpi_kind", "monetary")
     if mode == "effectiveness":
         return "доля < бенчмарка"
     if kind == "count":
         vpcu = kpi.get("vpcu")
+        unit = kpi.get("cpu_per_label") or "₽/ед."
         if vpcu:
-            return f"CPU > {float(vpcu):.0f} ₽/ед. (выше ценности)"
+            return f"CPU > {float(vpcu):.0f} {unit} (выше ценности)"
         return "CPU > ценности единицы (убыточно)"
     return "mROAS < 1×"
 
 
 def table_metric_header(kpi):
-    """Returns (header, unit) для столбца метрики action_table."""
+    """Returns (header, unit) для столбца метрики action_table.
+
+    Фаза 1a: читает kpi['cpu_per_label'] (из kpi_view) вместо жёсткого '₽/ед.'.
+    """
     mode = kpi.get("mode", "roi")
     kind = kpi.get("kpi_kind", "monetary")
     if mode == "effectiveness":
         return ("Доля эффекта", "%")
     if kind == "count":
-        return ("CPU", "₽/ед.")
+        unit = kpi.get("cpu_per_label") or "₽/ед."
+        return ("CPU", unit)
     return ("mROAS", "×")
+
+
+def lift_phrase(lift_pct: float | None, kpi: dict) -> str:
+    """KPI-aware формулировка ожидаемого прироста для PPTX/HTML.
+
+    Пласт 2 (2026-07-11): устраняет «Ожидаемый прирост ROAS» для count/effectiveness.
+    - monetary roi  → «Ожидаемый прирост ROAS: +N пп»
+    - count         → «Ожидаемый прирост результата: +N пп» (прирост в единицах;
+      снижение CPU численно отличается, поэтому не приписываем ему эту величину)
+    - effectiveness → «Ожидаемый прирост доли эффекта: +N пп»
+    - lift=None     → «Ожидаемый эффект – положительный»
+    """
+    if lift_pct is None:
+        return "Ожидаемый эффект – положительный"
+    mode = kpi.get("mode", "roi")
+    kind = kpi.get("kpi_kind", "monetary")
+    if mode == "effectiveness":
+        return f"Ожидаемый прирост доли эффекта: +{lift_pct:.1f} пп"
+    if kind == "count":
+        return f"Ожидаемый прирост результата: +{lift_pct:.1f} пп"
+    # monetary roi (legacy + non-legacy)
+    return f"Ожидаемый прирост ROAS: +{lift_pct:.1f} пп"
+
+
+def hero_vs_leader_quote(hero: str, leader: str, kpi: dict) -> str:
+    """KPI-aware pull quote «лидер vs герой» для PPTX/HTML.
+
+    Пласт 2 (2026-07-11): устраняет «Каждый рубль в {hero} возвращает больше» для
+    count/effectiveness.
+    - monetary roi  → «Каждый рубль в {hero} возвращает больше, чем в {leader}.»
+    - count         → «Каждая единица результата в {hero} обходится дешевле, чем в {leader}.»
+    - effectiveness → «{hero} даёт большую долю эффекта, чем {leader}.»
+    """
+    mode = kpi.get("mode", "roi")
+    kind = kpi.get("kpi_kind", "monetary")
+    if mode == "effectiveness":
+        return f"{hero} даёт большую долю эффекта, чем {leader}."
+    if kind == "count":
+        return f"Каждая единица результата в {hero} обходится дешевле, чем в {leader}."
+    # monetary roi
+    return f"Каждый рубль в {hero} возвращает больше, чем в {leader}."

@@ -29,7 +29,13 @@
 
   /** @param {number | null | undefined} n */
   function formatPct(n) {
-    return formatDelta(n);
+    // C3-N4 (2026-07-03): движковый контракт inverse.py — delta_vs_current
+    // ВСЕГДА доля (1.096 = +109.6%). Эвристика formatDelta/formatPct
+    // «|n|>1 → уже процент» ломалась ровно при удвоении бюджета и выше:
+    // живой прогон показал «260 млн → 545 млн (+1.1%)» вместо «+109.6%».
+    if (n == null || !isFinite(n)) return '-';
+    const pct = n * 100;
+    return `${pct > 0 ? '+' : ''}${pct.toFixed(1)}%`;
   }
 
   /** @param {number} n */
@@ -45,8 +51,25 @@
     if (m === 'flat_response_fallback') return 'оценка при насыщении';
     if (m === 'point') return 'точечная оценка';
     if (m === 'delta') return 'дельта-метод';
-    return 'бисекция';
+    // Мат-аудит 2026-07-02: CI из апостериорного разброса модели (честная
+    // неопределённость вместо прежней константы ±6.4%).
+    if (m === 'delta_posterior') return 'дельта-метод по разбросу модели';
+    return 'подбор делением пополам';
   }
+
+  // Мат-аудит 2026-07-02 (F-01): человекочитаемая строка каналов за диапазоном.
+  /** @param {{name: string, ratio_vs_max: number | null}[]} channels */
+  function extrapolationChannelsLabel(channels) {
+    return (channels ?? [])
+      .map((c) => (c.ratio_vs_max != null ? `${c.name} – ${c.ratio_vs_max}× исторического максимума` : c.name))
+      .join(', ');
+  }
+
+  // OPP-02 (2026-07-03): «бюджет под вероятность» — процент уровня доверия
+  // (result.confidence = 0.8 → «80%»), null = обычный медианный режим.
+  const confidencePct = $derived(
+    result?.confidence != null ? Math.round(result.confidence * 100) : null
+  );
 </script>
 
 <div class="goal-seek-card" class:not-achievable={!result.achievable}>
@@ -57,8 +80,22 @@
     </header>
 
     <section class="main-figure">
-      <div class="figure-label">Требуемый бюджет:</div>
+      <div class="figure-label">
+        {#if confidencePct != null}
+          Бюджет под вероятность {confidencePct}%:
+        {:else}
+          Требуемый бюджет:
+        {/if}
+      </div>
       <div class="figure-value">{formatRub(result.total_budget.p50)}</div>
+      {#if confidencePct != null}
+        <div class="figure-confidence">
+          Цель достигается не менее чем в {confidencePct}% сценариев модели
+          {#if result.expected_sales_median != null}
+            · типичный (медианный) прогноз при этом бюджете: <strong>{formatTarget(result.expected_sales_median)}</strong>
+          {/if}
+        </div>
+      {/if}
       {#if result.total_budget.p10 != null && result.total_budget.p90 != null}
         <div class="figure-ci">
           80% доверительный интервал: {formatRub(result.total_budget.p10)} - {formatRub(result.total_budget.p90)}
@@ -73,6 +110,22 @@
       {/if}
     </section>
 
+    <!-- OPP-02 (INV-50): просили осторожный режим, но модель без апостериорных
+         выборок (OLS/legacy) — честно говорим, что показан медианный расчёт. -->
+    {#if result.confidence_unavailable}
+      <section class="confidence-unavailable-note">
+        <span class="note-icon"><TriangleAlert size={16} strokeWidth={1.5} /></span>
+        <div class="note-body">
+          <strong>Осторожный режим недоступен для этой модели</strong>
+          <p>
+            У модели нет апостериорных выборок (обучение без байесовского вывода),
+            поэтому «бюджет под вероятность» посчитать нельзя. Показан обычный
+            медианный расчёт – бюджет достигает цели примерно в половине сценариев.
+          </p>
+        </div>
+      </section>
+    {/if}
+
     {#if result.flat_response_fallback}
       <section class="saturation-note">
         <span class="note-icon">⚙️</span>
@@ -80,13 +133,41 @@
           <strong>Модель близка к насыщению</strong>
           <p>
             Бюджет найден, но каждый следующий рубль почти не увеличивает результат —
-            отдача вышла на плато. Поэтому интервал требуемого бюджета широкий (±10%),
+            отдача вышла на плато. Поэтому интервал требуемого бюджета широкий,
             а точное значение менее надёжно.
           </p>
           <p class="note-hint">
             💡 Прирост вероятнее получить перераспределением между каналами или
             подключением новых, чем увеличением общего бюджета.
           </p>
+        </div>
+      </section>
+    {/if}
+
+    <!-- Мат-аудит 2026-07-02 (F-01, INV-50): честная пометка экстраполяции —
+         рекомендация требует трат выше наблюдавшихся в данных (Chan & Perry 2017:
+         кривая отклика вне наблюдённого диапазона не подтверждена данными). -->
+    {#if result.extrapolation && result.extrapolation.severity >= 1}
+      <section class="extrapolation-note" class:critical={result.extrapolation.severity >= 2}>
+        <span class="note-icon">📈</span>
+        <div class="note-body">
+          <strong>
+            {result.extrapolation.severity >= 2 ? 'Сильная экстраполяция' : 'Экстраполяция за наблюдавшийся диапазон'}
+          </strong>
+          <p>
+            Рекомендованные траты выходят за диапазон, на котором обучалась модель
+            {#if result.extrapolation.channels?.length}
+              : {extrapolationChannelsLabel(result.extrapolation.channels)}
+            {/if}.
+            Форма кривой отклика в этой зоне не подтверждена данными – фактический
+            результат может заметно отличаться от прогноза.
+          </p>
+          {#if result.extrapolation.severity >= 2}
+            <p class="note-hint">
+              💡 Надёжнее наращивать бюджет поэтапно: частичное увеличение → новые
+              данные → переобучение модели → следующий шаг.
+            </p>
+          {/if}
         </div>
       </section>
     {/if}
@@ -151,13 +232,24 @@
            budget-недостижимости компонуем текст из структурных полей; для прочих
            (non-convex Hill и т.п. — без чисел) показываем backend-message. -->
       {#if result.fallback_max_sales != null}
-        <p>Цель <strong>{formatTarget(result.target_sales ?? targetSales)}</strong> недостижима в доступном диапазоне бюджета.</p>
+        <p>
+          Цель <strong>{formatTarget(result.target_sales ?? targetSales)}</strong>
+          {#if confidencePct != null}
+            недостижима с вероятностью {confidencePct}% в доступном диапазоне бюджета.
+          {:else}
+            недостижима в доступном диапазоне бюджета.
+          {/if}
+        </p>
       {:else}
         <p>{result.message ?? 'Цель за пределами math-валидного диапазона модели.'}</p>
       {/if}
       {#if result.fallback_max_sales}
         <p class="fallback-detail">
-          Максимум достижимых продаж при текущем миксе каналов:
+          {#if confidencePct != null}
+            Максимум продаж, достижимый с вероятностью {confidencePct}% при текущем миксе каналов:
+          {:else}
+            Максимум достижимых продаж при текущем миксе каналов:
+          {/if}
           <strong>{formatTarget(result.fallback_max_sales)}</strong>
           (бюджет {formatRub(result.fallback_budget)}).
         </p>
@@ -209,6 +301,27 @@
     letter-spacing: -0.02em;
   }
   .figure-ci { font-size: 11px; color: var(--text-secondary); }
+  /* OPP-02: строка семантики осторожного режима под главной цифрой. */
+  .figure-confidence {
+    font-size: 11px;
+    color: var(--text-secondary);
+    margin-bottom: 2px;
+  }
+  .figure-confidence strong { color: var(--text-primary); font-weight: 600; }
+
+  /* OPP-02 (INV-50): плашка «осторожный режим недоступен» — warning tier. */
+  .confidence-unavailable-note {
+    display: flex;
+    gap: 12px;
+    padding: 12px 14px;
+    background: color-mix(in srgb, var(--warning, #fbbf24) 8%, transparent);
+    border: 1px solid color-mix(in srgb, var(--warning, #fbbf24) 30%, transparent);
+    border-radius: var(--radius-sm, 8px);
+  }
+  .confidence-unavailable-note .note-icon { line-height: 1.3; color: var(--warning, #fbbf24); }
+  .confidence-unavailable-note .note-body { display: flex; flex-direction: column; gap: 4px; }
+  .confidence-unavailable-note strong { font-size: 13px; font-weight: 600; color: var(--text-primary); }
+  .confidence-unavailable-note p { margin: 0; font-size: 12px; line-height: 1.5; color: var(--text-secondary); }
 
   /* #59 (2026-06-02): баннер насыщения (flat response) — warning tier. */
   .saturation-note {
@@ -224,6 +337,25 @@
   .saturation-note strong { font-size: 13px; font-weight: 600; color: var(--text-primary); }
   .saturation-note p { margin: 0; font-size: 12px; line-height: 1.5; color: var(--text-secondary); }
   .saturation-note .note-hint { color: var(--text-primary); }
+
+  /* Мат-аудит 2026-07-02 (F-01): баннер экстраполяции — warn tier; severity>=2 — danger. */
+  .extrapolation-note {
+    display: flex;
+    gap: 12px;
+    padding: 12px 14px;
+    background: color-mix(in srgb, var(--warning, #fbbf24) 8%, transparent);
+    border: 1px solid color-mix(in srgb, var(--warning, #fbbf24) 30%, transparent);
+    border-radius: var(--radius-sm, 8px);
+  }
+  .extrapolation-note.critical {
+    background: color-mix(in srgb, var(--danger, #ef4444) 8%, transparent);
+    border-color: color-mix(in srgb, var(--danger, #ef4444) 30%, transparent);
+  }
+  .extrapolation-note .note-icon { font-size: 18px; line-height: 1.3; }
+  .extrapolation-note .note-body { display: flex; flex-direction: column; gap: 4px; }
+  .extrapolation-note strong { font-size: 13px; font-weight: 600; color: var(--text-primary); }
+  .extrapolation-note p { margin: 0; font-size: 12px; line-height: 1.5; color: var(--text-secondary); }
+  .extrapolation-note .note-hint { color: var(--text-primary); }
 
   .metrics-row {
     display: grid;

@@ -591,7 +591,7 @@ describe('AppliedModeSummary', () => {
     expertMode.set(true);
     render(AppliedModeSummary, { props: { channels: [] } });
     // .expert-active-note should be present
-    expect(screen.getByText(/Expert mode включён/)).toBeInTheDocument();
+    expect(screen.getByText(/Режим эксперта включён/)).toBeInTheDocument();
   });
 
   it('clicking CTA sets expertMode store = true', async () => {

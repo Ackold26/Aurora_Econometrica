@@ -68,6 +68,9 @@
 
 <div class="causal-page">
   <header class="page-header">
+    <a href="/" class="header-logo-link" title="На главную" aria-label="Aurora AI — на главную">
+      <img src="/logo-horizon.png" alt="Aurora AI" class="header-logo" />
+    </a>
     <div class="title-row">
       <h1>Причинность</h1>
       <span class="version-tag">Sprint 3 backend M0-M4 · v1.0.14-rc</span>
@@ -140,6 +143,18 @@
     display: flex;
     justify-content: space-between;
     align-items: baseline;
+  }
+
+  .header-logo-link {
+    display: inline-flex;
+    align-items: center;
+    flex-shrink: 0;
+    line-height: 0;
+    margin-bottom: 14px;
+  }
+  .header-logo {
+    height: 48px;
+    width: auto;
   }
 
   .version-tag {

@@ -134,6 +134,10 @@ from .kpi_helpers import (
     weighted_summary_phrase as _weighted_summary_phrase_pptx,
     under_breakeven_phrase as _under_breakeven_phrase_pptx,
     table_metric_header as _table_metric_header_pptx,
+    lift_phrase as _lift_phrase_pptx,
+    hero_vs_leader_quote as _hero_vs_leader_quote_pptx,
+    contrib_scale as _contrib_scale_pptx,
+    fmt_contrib as _fmt_contrib_pptx,
 )
 
 
@@ -192,54 +196,60 @@ class AuroraPPTXBuilder:
 
         # --- Meta (Session 4 M4: parametrized via data.meta, fallback = Kagocel pilot) ---
         meta = self.data.get("meta") or {}
+        # B1-fix R-01/R-02 (2026-07-03): live-гейт. Реальный клиентский экспорт
+        # (адаптер прислал channels) НЕ имеет права на wireframe-дефолты: пробел
+        # в данных обязан рендериться честным «—»/«н/д», а не демо-значением
+        # Kagocel-пилота (зонд: ESS 1247 при реальном tail 382.7; период
+        # «W01 W13 2026» при данных 2023–2025). Preview-режим (build без data)
+        # сохраняет прежние wireframe-дефолты — это легитимная демка.
+        self.is_live = bool(self.data.get("channels"))
         self.client = meta.get("client", "Kagocel")
         self.project_id = meta.get("project_id", "KAGOCEL-Q1-2026")
         self.version = meta.get("version", "1.0.11")
         self.report_date = meta.get("report_date", "24 апреля 2026")
-        self.period_label = meta.get("period_label", "Q1 2026")
-        self.forecast_period_label = meta.get("forecast_period_label", "Q3-Q4 2026")
-        self.data_window_label = meta.get("data_window_label", "W01 W13 2026")
+        self.period_label = meta.get(
+            "period_label", None if self.is_live else "Q1 2026")
+        self.forecast_period_label = meta.get(
+            "forecast_period_label", None if self.is_live else "Q3-Q4 2026")
+        self.data_window_label = meta.get(
+            "data_window_label", None if self.is_live else "W01 W13 2026")
         # Stage C.6.3: TOC shrunk to 5 real sections with content (Option B
         # symmetric tier-1 structure). Previous 8-section layout promised
         # sections 4/6/7 (Модель / Оптимизация / Рекомендации) with no
         # dedicated slides; now each section-divider slide precedes real
         # content. Header "01 / 05" honest across the deck.
         self.section_names = meta.get("section_names", [
-            "Executive summary",        # 1: TOC + ataglance + keymsg + SCQAR
-            "Декомпозиция вкладов",     # 2: divider + chart + table + timeline
-            "Методология",              # 3: divider + methodology
-            "Данные и качество",        # 4: divider + sources
-            "Приложение и источники",   # 5: divider + glossary + colophon
+            "Главное",                  # 1: TOC + ataglance + keymsg + SCQAR (B4: было Executive summary)
+            "Декомпозиция вкладов",     # 2: chart + table + timeline
+            "Методология",              # 3: methodology
+            "Данные и качество",        # 4: sources
+            "Приложение и источники",   # 5: glossary + colophon
         ])
         self.total_sections = len(self.section_names)
-        self.total_slides = meta.get("total_slides", 16)
+        # B4-2 (2026-07-03): 12 слайдов — отдельные слайды-дивайдеры убраны
+        # (4 полупустых из 16; стайлгайд §1), секции открывает _section_intro.
+        self.total_slides = meta.get("total_slides", 12)
         # Physical page where each section begins (first content slide).
-        self.toc_page_refs = meta.get("toc_page_refs", [3, 6, 10, 12, 14])
-        # Stage C.6.2/C.6.3: physical-slide → (section_idx, section_label) map.
-        # 16-slide expanded layout: 3 new section dividers (s_div_meth @ 10,
-        # s_div_data @ 12, s_div_appendix @ 14) provide visual anchoring
-        # symmetric to the existing Декомпозиция divider at page 4.
+        self.toc_page_refs = meta.get("toc_page_refs", [3, 6, 9, 10, 11])
+        # Physical-slide → (section_idx, section_label) map (12-slide layout).
         self.slide_to_section = meta.get("slide_to_section") or {
-            2:  (1, "Executive summary"),          # TOC
-            3:  (1, "Executive summary"),          # At a glance
-            4:  (1, "Executive summary"),          # Key message
-            5:  (1, "Executive summary"),          # SCQAR
-            6:  (2, "Декомпозиция вкладов"),       # Section divider
-            7:  (2, "Декомпозиция вкладов"),       # Action chart (mROAS)
-            8:  (2, "Декомпозиция вкладов"),       # Action table (portfolio)
-            9:  (2, "Декомпозиция вкладов"),       # Action timeline
-            10: (3, "Методология"),                # Methodology divider
-            11: (3, "Методология"),                # Methodology content
-            12: (4, "Данные и качество"),          # Data divider
-            13: (4, "Данные и качество"),          # Sources content
-            14: (5, "Приложение и источники"),     # Appendix divider
-            15: (5, "Приложение и источники"),     # Glossary
-            16: (5, "Приложение и источники"),     # Colophon
+            2:  (1, "Главное"),                    # TOC
+            3:  (1, "Главное"),                    # At a glance
+            4:  (1, "Главное"),                    # Key message
+            5:  (1, "Главное"),                    # SCQAR
+            6:  (2, "Декомпозиция вкладов"),       # Action chart (mROAS) + плашка
+            7:  (2, "Декомпозиция вкладов"),       # Action table (portfolio)
+            8:  (2, "Декомпозиция вкладов"),       # Action timeline
+            9:  (3, "Методология"),                # Methodology + плашка
+            10: (4, "Данные и качество"),          # Sources + плашка
+            11: (5, "Приложение и источники"),     # Glossary + плашка
+            12: (5, "Приложение и источники"),     # Colophon
         }
         # Header center label (shown on every content slide)
         self.header_project_label = meta.get(
             "header_project_label",
-            f"{self.client.upper()} . MMM REPORT . {self.period_label}",
+            (f"{self.client.upper()} . ОТЧЁТ MMM . {self.period_label}"
+             if self.period_label else f"{self.client.upper()} . ОТЧЁТ MMM"),
         )
         # Copyright footer on cover - dynamic year for future-proofing
         _year = datetime.now().year
@@ -251,13 +261,74 @@ class AuroraPPTXBuilder:
         self.sources_client_label = meta.get("sources_client_label", self.client)
 
         # --- Diagnostics (Phase 2 numbers - parametrized metric callouts) ---
+        # B1-fix R-01: в live-режиме отсутствующая метрика = None (рендерится
+        # «н/д» через _mstr), НЕ wireframe-число. Демо-значения — только preview.
         diag = self.data.get("diagnostics") or {}
-        self.mqs_score = diag.get("mqs_score", 87)
-        self.mqs_tier_label = diag.get("mqs_tier_label", "GOOD - готовность к production")
-        self.r_squared = diag.get("r_squared", 0.872)
-        self.mape_pct = diag.get("mape_pct", 8.3)
-        self.r_hat_max = diag.get("r_hat_max", 1.008)
-        self.ess_min = diag.get("ess_min", 1247)
+        _d = (lambda key, preview: diag.get(key, None if self.is_live else preview))
+        self.mqs_score = _d("mqs_score", 87)
+        self.mqs_tier_label = _d("mqs_tier_label", "GOOD - готовность к production")
+        self.r_squared = _d("r_squared", 0.872)
+        self.mape_pct = _d("mape_pct", 8.3)
+        self.r_hat_max = _d("r_hat_max", 1.008)
+        self.ess_min = _d("ess_min", 1247)
+        # B1-fix R-16: honesty-контур (вердикт надёжности + preflight) — доставлен
+        # адаптером из движковой диагностики; рендерится на слайде «Данные и качество».
+        self.honesty_verdict = diag.get("honesty_verdict")
+        self.honesty_reasons = diag.get("honesty_reasons") or []
+        self.preflight = diag.get("preflight") or {}
+        # E2 (2026-07-03): калибровка lift-тестами — [CALIBRATED]-пометка у
+        # канала в таблице + строки честности (включая расхождение модель-vs-
+        # тест) на слайде «Данные и качество». Только live (из диагностики).
+        self.calibration = diag.get("calibration") or {}
+        self.calibrated_channels = {
+            str(a.get("channel")) for a in (self.calibration.get("applied") or [])
+        }
+        # E4 (2026-07-03): сбывшиеся рекомендации (только сверенные kept/missed
+        # из адаптера; live-only — wireframe-режима нет).
+        self.promises_summary = (
+            self.data.get("promises_summary") if self.is_live else None
+        ) or None
+        # B1-fix R-03/R-04: честное покрытие данных (n наблюдений / частота /
+        # разрывы) от адаптера; None → строки рендерятся «—» или скрываются.
+        self.data_coverage = self.data.get("data_coverage") or {}
+        # E1+E3 (2026-07-03): вставные слайды честности в секции «ГЛАВНОЕ»
+        # сразу после SCQAR — самые убедительные для продления подписки:
+        #  · «Проверка на истории» (E1, models/backtest.json);
+        #  · «Что изменилось с прошлого квартала» (E3, generation_compare.json).
+        # Оба рисуются ТОЛЬКО с живыми данными — wireframe-режима НЕТ по
+        # построению (урок B1: «замаскированная дефолтом честность»).
+        # Дека 12 (+1 за каждый вставной); хвост и TOC сдвигаются формулой.
+        _bt = self.data.get("backtest") or {}
+        self.backtest = (
+            _bt if (self.is_live and _bt.get("status") == "ok" and _bt.get("windows"))
+            else None
+        )
+        _gc = self.data.get("generation_compare") or {}
+        self.gen_compare = (
+            _gc if (self.is_live and _gc.get("status") == "ok" and _gc.get("channels"))
+            else None
+        )
+        _fc = self.data.get("forecast") or {}
+        self.forecast = (
+            _fc if (self.is_live and _fc.get("status") == "ok" and _fc.get("scenarios"))
+            else None
+        )
+        self._page_shift = int(bool(self.backtest)) + int(bool(self.gen_compare)) + int(bool(self.forecast))
+        if self._page_shift:
+            _s = self._page_shift
+            if "total_slides" not in meta:
+                self.total_slides = 12 + _s
+            if "toc_page_refs" not in meta:
+                self.toc_page_refs = [3, 6 + _s, 9 + _s, 10 + _s, 11 + _s]
+            if not meta.get("slide_to_section"):
+                _map = {n: (1, "Главное") for n in range(2, 6 + _s)}
+                for n in range(6 + _s, 9 + _s):
+                    _map[n] = (2, "Декомпозиция вкладов")
+                _map[9 + _s] = (3, "Методология")
+                _map[10 + _s] = (4, "Данные и качество")
+                _map[11 + _s] = (5, "Приложение и источники")
+                _map[12 + _s] = (5, "Приложение и источники")
+                self.slide_to_section = _map
         # INV-50 F-DELIVERABLE-1 (2026-06-07): data-thinness disclosure.
         # Default None → preview/wireframe (Кагоцел fallback) НЕ фабрикует
         # оговорку о переобучении; она появляется только когда backend реально
@@ -302,6 +373,67 @@ class AuroraPPTXBuilder:
         )
 
     # ---------- Primitives ----------
+
+    # B4-3: семантическая привязка секция → пиктограмма (assets/icons/*.png,
+    # генератор tools/gen_report_icons.py; линейный стиль deep/gold).
+    _SECTION_ICONS = {2: "growth", 3: "lens", 4: "db", 5: "book"}
+
+    def _section_intro(self, slide, num, title, takeaway=None):
+        """B4-2 (2026-07-03, стайлгайд §1): секцию открывает компактная плашка
+        на первом содержательном слайде — вместо отдельного слайда-дивайдера
+        (4 полупустых слайда из 16 = 25% деки; Knaflic: каждый элемент экрана
+        тратит внимание читателя). Строка: «[пиктограмма] 0X · НАЗВАНИЕ — вывод»."""
+        from pathlib import Path
+        text_x = self.safe
+        icon_name = self._SECTION_ICONS.get(num)
+        if icon_name:
+            icon_path = Path(__file__).parent / "assets" / "icons" / f"{icon_name}.png"
+            if icon_path.exists():
+                # graceful: файла нет (дистрибутив без ассетов) — плашка без иконки
+                slide.shapes.add_picture(
+                    str(icon_path), Inches(self.safe), Inches(0.545),
+                    height=Inches(0.20),
+                )
+                text_x = self.safe + 0.28
+        runs = [
+            (f"{num:02d} · {title.upper()}",
+             {"font": self.sans, "size": 9, "bold": True, "color": self.gold}),
+        ]
+        if takeaway:
+            _t = takeaway if len(takeaway) <= 120 else takeaway[:117] + "…"
+            runs.append((f"  –  {_t}",  # П8-1: en-dash вместо em-dash в section_intro
+                         {"font": self.sans, "size": 9, "italic": True, "color": self.deep_60}))
+        self._rich(slide, text_x, 0.56, self.w - text_x - self.safe, 0.2, runs=runs)
+
+    def _mstr(self, value, fmt="{}", na="н/д"):
+        """B1-fix R-01: None-безопасный рендер метрики. Отсутствующее значение
+        в live-режиме — честное «н/д», не wireframe-число."""
+        if value is None:
+            return na
+        try:
+            return fmt.format(value)
+        except (ValueError, TypeError):
+            return na
+
+    def _period_unit_label(self) -> str:
+        """Русская единица периода для заголовков timeline («по неделям» /
+        «по месяцам» / «по периодам»). Реиспользует detect_granularity из
+        aurora_html — П2-паттерн: не врать «недельной» на месячных данных."""
+        ts = (self.time_series or {}) if isinstance(self.time_series, dict) else {}
+        dates = ts.get("dates") or ts.get("weeks") or []
+        if len(dates) < 2:
+            return "по периодам"
+        try:
+            from utils.forecast_validation import detect_granularity
+            g = detect_granularity(dates)
+            if g.get("confidence", 0.0) < 0.5:
+                return "по периодам"
+            return {
+                "D": "по дням", "W": "по неделям", "M": "по месяцам",
+                "Q": "по кварталам", "Y": "по годам",
+            }.get(g.get("granularity"), "по периодам")
+        except Exception:
+            return "по периодам"
 
     def _blank(self):
         return self.prs.slides.add_slide(self.prs.slide_layouts[6])
@@ -563,7 +695,7 @@ class AuroraPPTXBuilder:
         if include_confidential:
             self._text(
                 slide, self.w - self.safe - 4.0, y, 4.0, 0.2,
-                "CONFIDENTIAL",
+                "КОНФИДЕНЦИАЛЬНО",
                 font=self.sans, size=8, italic=True, color=self.deep_60,
                 align=PP_ALIGN.RIGHT,
             )
@@ -724,13 +856,17 @@ class AuroraPPTXBuilder:
         # Honest mode: baseline-dominated → disclose actual media share, not
         # leader's share-of-media (misleading "X% sales" phrasing).
         if honest and media_pct is not None and baseline_pct is not None:
-            f1 = f"Медиа-вклад {_fmt_pct(media_pct)}, baseline {_fmt_pct(baseline_pct)} - модель объясняет продажи через organic"
-            s1 = f"{leader} - лидер среди медиа ({_fmt_pct(leader_contrib_pct)} media-вклада)" if leader_contrib_pct is not None else f"{leader} - лидер среди медиа"
+            f1 = f"Медиа-вклад {_fmt_pct(media_pct)}, базовый спрос {_fmt_pct(baseline_pct)} – модель объясняет продажи через organic"  # П8-2
+            s1 = f"{leader} – лидер среди медиа ({_fmt_pct(leader_contrib_pct)} медиа-вклада)" if leader_contrib_pct is not None else f"{leader} – лидер среди медиа"  # П8-2
         else:
             if leader_contrib_pct is not None and leader_spend_pct is not None:
-                f1 = f"{leader} - {_fmt_pct(leader_contrib_pct)} продаж при {_fmt_pct(leader_spend_pct)} бюджета"
+                # B1-fix R-12 (2026-07-03): leader_share_contrib_pct — доля в
+                # МЕДИА-вкладе, не в продажах (Kagocel: «32% продаж» реально
+                # 32% медиа-вклада = 12% продаж при медиа 38%). Квалификатор
+                # обязателен — иначе клиент завышает роль канала втрое.
+                f1 = f"{leader} - {_fmt_pct(leader_contrib_pct)} медиа-вклада при {_fmt_pct(leader_spend_pct)} бюджета"
             else:
-                f1 = f"{leader} - максимальный вклад в продажи"
+                f1 = f"{leader} - максимальный медиа-вклад в продажи"
             # v1.3.2: KPI-aware portfolio metric (ROI×/CPU/доля).
             if weighted_roi is not None:
                 if self.kpi["is_legacy"]:
@@ -790,20 +926,26 @@ class AuroraPPTXBuilder:
             cut_source = f.get("cut_source_channel")
             scale_dest = f.get("scale_destination_channel")
             f3 = f"Рекомендация: перераспределить {_fmt_mln(reallocation_mln)} млн из {cut_source} в {scale_dest}"
-            s3 = f"Ожидаемый прирост ROAS: +{expected_lift_pct:.1f} пп" if expected_lift_pct is not None else "Ожидаемый эффект - положительный"
+            s3 = _lift_phrase_pptx(expected_lift_pct, self.kpi) if expected_lift_pct is not None else "Ожидаемый эффект - положительный"
         elif reallocation_mln and reallocation_mln >= 0.5 and hero != leader:
             # Legacy fallback when cut_source/scale_destination not yet populated
             f3 = f"Рекомендация: перераспределить {_fmt_mln(reallocation_mln)} млн из {leader} в {hero}"
-            s3 = f"Ожидаемый прирост ROAS: +{expected_lift_pct:.1f} пп" if expected_lift_pct is not None else "Ожидаемый эффект - положительный"
+            s3 = _lift_phrase_pptx(expected_lift_pct, self.kpi) if expected_lift_pct is not None else "Ожидаемый эффект - положительный"
         else:
             f3 = "Рекомендация: сохранить текущую аллокацию по лидеру портфеля"
-            s3 = f"Ожидаемый прирост ROAS: +{expected_lift_pct:.1f} пп" if expected_lift_pct is not None else "Портфель близок к оптимуму"
+            # B1-fix R-09/R-13: «+0.0 пп» — пустое обещание; при незначимом lift
+            # честная формулировка вместо нулевого числа.
+            if expected_lift_pct is not None and expected_lift_pct >= 0.5:
+                s3 = _lift_phrase_pptx(expected_lift_pct, self.kpi)
+            else:
+                s3 = "Перераспределение не даёт ощутимого прироста - портфель у оптимума"
 
         # Finding 4 - verdict distribution (how portfolio looks)
         # Stage C.3: idiomatic Russian plural forms (no lazy "канал(ов)" hack).
         verdicts = [c.get("verdict") for c in self.channels]
         scale_n = sum(1 for v in verdicts if v == "Scale")
         cut_n = sum(1 for v in verdicts if v in ("Cut", "Reduce"))
+        uncertain_n = sum(1 for v in verdicts if v == "Uncertain")
         def _ru_channels(n: int) -> str:
             if n == 0:
                 return "ни одного канала"
@@ -812,8 +954,18 @@ class AuroraPPTXBuilder:
             if n % 10 in (2, 3, 4) and n % 100 not in (12, 13, 14):
                 return f"{n} канала"
             return f"{n} каналов"
-        f4 = f"Портфель: {_ru_channels(scale_n)} к росту, {_ru_channels(cut_n)} к сокращению"
-        s4 = f"Из {len(self.channels)} активных каналов - чёткая рекомендация по каждому"
+        # B1-fix R-14 (2026-07-03): при неопределённых вердиктах (широкие
+        # posterior-интервалы) «чёткая рекомендация по каждому» — ложь.
+        # Kagocel-зонд: все 4 канала Uncertain + текст обещал чёткость.
+        if uncertain_n > 0 and scale_n == 0 and cut_n == 0:
+            f4 = f"Портфель: вердикты {_ru_channels(uncertain_n)} неопределённые - интервалы эффективности широки"
+            s4 = "Для уверенных действий нужно больше данных или длиннее история"
+        elif uncertain_n > 0:
+            f4 = f"Портфель: {_ru_channels(scale_n)} к росту, {_ru_channels(cut_n)} к сокращению"
+            s4 = f"Из {len(self.channels)} каналов у {_ru_channels(uncertain_n)} вердикт неопределённый"
+        else:
+            f4 = f"Портфель: {_ru_channels(scale_n)} к росту, {_ru_channels(cut_n)} к сокращению"
+            s4 = f"Из {len(self.channels)} активных каналов - чёткая рекомендация по каждому"
 
         # Finding 5 - MQS quality signal (guards None / non-numeric mqs_score)
         try:
@@ -851,6 +1003,11 @@ class AuroraPPTXBuilder:
         # (Pre-fix bug: flagged could include channel 15+ which has no rendered
         # row, leaving the bottom-block footnote orphaned.)
         visible = channels[:10]
+        # Масштаб+единица столбца «Вклад» — согласованно с шапкой в s07 (fix
+        # 2026-07-13, INV-50). Та же логика по тем же данным = детерминированно.
+        contrib_scale, _ = _contrib_scale_pptx(
+            self.kpi, [c.get("contribution") for c in visible]
+        )
         flagged = [c for c in visible if c.get("verdict") in ("Reduce", "Cut")][:3]
         fn_by_name = {c["name"]: str(i + 1) for i, c in enumerate(flagged) if c.get("name")}
 
@@ -863,7 +1020,7 @@ class AuroraPPTXBuilder:
             verdict = c.get("verdict", "Watch")
 
             budget_str = f"{spend / 1_000_000:.0f}" if spend else "0"
-            contrib_str = f"{contrib / 1_000_000:.0f}" if contrib else "0"
+            contrib_str = _fmt_contrib_pptx(contrib, contrib_scale) if contrib else "0"
             # v1.3.2 audit fix (B4): KPI-aware metric cell - backend convention
             # c.mroas = mathematical units/₽; для count display invert к CPU.
             # legacy = '1.5'× / count = '80' (CPU; unit в header «₽/ед.») /
@@ -1040,7 +1197,7 @@ class AuroraPPTXBuilder:
              "Предельный ROI падает на 22% относительно IV кв. 2025"),
             ("03", "Digital video - самый эффективный канал с mROAS 1.9×",
              "Текущий бюджет на нём меньше 15%"),
-            ("04", "Базовый уровень растёт на 8% год к году - кампании работают на долгосроке",
+            ("04", "Базовый уровень растёт на 8% год к году – кампании работают на долгосроке",  # П8-1
              "Бренд-эффект виден в динамике"),
             ("05", "Рекомендация: перераспределить 25 млн из TV в digital video",
              "Ожидаемый прирост ROAS: +12 пп к III-IV кв. 2026"),
@@ -1080,7 +1237,8 @@ class AuroraPPTXBuilder:
         slide = self._blank()
         self._header(slide, slide_num=2)
 
-        self._category(slide, self.safe, 0.60, "AGENDA")
+        # B4 (стайлгайд §2): категория «AGENDA» удалена — англицизм и дубль
+        # заголовка «Содержание отчёта» строкой ниже (Ильяхов: убрать лишнее).
         self._text(
             slide, self.safe, 0.70, 10.0, 0.7, "Содержание отчёта",
             font=self.serif, size=32, color=self.deep_100,
@@ -1129,15 +1287,15 @@ class AuroraPPTXBuilder:
         )
         self._hairline(slide, side_x + 0.2, side_y + 0.47, 1.0, weight=0.5, color=self.gold)
 
+        # B1-fix R-11 (2026-07-03): «Время/Слов» — декоративные wireframe-оценки,
+        # в live-режиме не показываем (не выдумываем факты о собственном отчёте).
         meta = [
-            ("Время",            "~12 мин"),
+            *([] if self.is_live else [("Время", "~12 мин")]),
             ("Страниц",          f"{self.total_slides}"),
             ("Разделов",         f"{self.total_sections}"),
-            ("Таблиц",           "3"),
-            ("Графиков",         "4"),
-            ("Слов",             "~2 800"),
-            ("MQS модели",       f"{self.mqs_score:.0f} / 100"),
-            ("Данные",           self.data_window_label),
+            *([] if self.is_live else [("Таблиц", "3"), ("Графиков", "4"), ("Слов", "~2 800")]),
+            ("MQS модели",       self._mstr(self.mqs_score, "{:.0f} / 100")),
+            ("Данные",           self.data_window_label or "—"),
         ]
         my = side_y + 0.7
         for label, val in meta:
@@ -1222,14 +1380,20 @@ class AuroraPPTXBuilder:
         return slide
 
     def s04_section_divider(self):
-        """Divider for section 2 'Декомпозиция вкладов'."""
+        """Divider for section 2 'Декомпозиция вкладов'.
+
+        B4-2 (2026-07-03): ВНЕ ПОТОКА build() — отдельные слайды-дивайдеры
+        заменены компактными плашками _section_intro (стайлгайд §1).
+        Метод сохранён для возможного возврата/кастомных сборок."""
         if self.facts:
             leader = self.facts.get("leader_channel") or "Лидер"
             cpct = self.facts.get("leader_share_contrib_pct")
             spct = self.facts.get("leader_share_spend_pct")
             if cpct is not None and spct is not None:
+                # B1-fix R-12: cpct — доля в МЕДИА-вкладе, не в продажах
+                # (без квалификатора клиент завышает роль канала кратно).
                 takeaway = (
-                    f"{leader} генерирует {_fmt_pct(cpct)} продаж при {_fmt_pct(spct)} бюджета - "
+                    f"{leader} даёт {_fmt_pct(cpct)} медиа-вклада при {_fmt_pct(spct)} бюджета - "
                     "основная точка оптимизации портфеля"
                 )
             else:
@@ -1242,7 +1406,7 @@ class AuroraPPTXBuilder:
             topics=[
                 "Индивидуальные вклады каналов и ROI ранжирование",
                 "Портфельная таблица с вердиктами по каналам",
-                "Декомпозиция недельной динамики продаж",
+                f"Декомпозиция динамики продаж {self._period_unit_label()}",
             ],
         )
 
@@ -1252,12 +1416,12 @@ class AuroraPPTXBuilder:
             self._render_section_divider(
                 slide_num=10,
                 takeaway=(
-                    "Линейная регрессия с adstock и Hill-насыщением - "
+                    "Линейная регрессия с отложенным эффектом (adstock) и Hill-насыщением – "  # П8-2 П8-1
                     "прозрачная математическая модель с bootstrap-интервалами"
                 ),
                 topics=[
                     "Спецификация модели и уравнение отклика",
-                    "Параметры adstock и saturation (фиксированные)",
+                    "Параметры отложенного эффекта (adstock) и насыщения (фиксированные)",  # П8-2
                     "Диагностика OLS · closed-form · bootstrap CI",
                 ],
             )
@@ -1278,16 +1442,19 @@ class AuroraPPTXBuilder:
     def s_divider_data(self):
         """NEW divider for section 4 'Данные и качество'."""
         tb_mln = self.facts.get("total_budget_mln") if self.facts else None
+        # B1-fix R-02: период — только когда реально известен; MQS через _mstr;
+        # «готовность к production» не заявляем без основания (wireframe-ветка).
+        _mqs_part = f"MQS модели {self._mstr(self.mqs_score, '{:.0f}')}/100"
+        _window_part = (
+            f"Данные охватывают {self.data_window_label}" if self.data_window_label
+            else "Данные загружены из файла клиента"
+        )
         if tb_mln:
-            takeaway = (
-                f"Данные охватывают {self.data_window_label}, бюджет {tb_mln:.0f} млн руб - "
-                f"MQS модели {self.mqs_score:.0f}/100"
-            )
+            takeaway = f"{_window_part}, бюджет {tb_mln:.0f} млн руб - {_mqs_part}"
+        elif self.is_live:
+            takeaway = f"{_window_part} - {_mqs_part}"
         else:
-            takeaway = (
-                f"Данные охватывают {self.data_window_label} - "
-                f"MQS модели {self.mqs_score:.0f}/100, готовность к production"
-            )
+            takeaway = f"{_window_part} - {_mqs_part}, готовность к production"
         self._render_section_divider(
             slide_num=12,
             takeaway=takeaway,
@@ -1344,17 +1511,17 @@ class AuroraPPTXBuilder:
             if honest and media_pct is not None and baseline_pct is not None:
                 # Honest narrative: baseline-dominated model (media < 10%).
                 # Disclose this rather than leading with leader's media-share.
-                title = "Модель преимущественно отражает baseline - медиа-вклад ограничен"
+                title = "Модель преимущественно отражает базовый спрос – медиа-вклад ограничен"  # П8-2 П8-1
                 big_number = _fmt_pct(media_pct)
                 big_label = "Медиа-вклад в продажи"
                 big_support = (
-                    f"Baseline: {_fmt_pct(baseline_pct)}. {portfolio_phrase}."
-                    if portfolio_phrase else f"Baseline: {_fmt_pct(baseline_pct)}."
+                    f"Базовый спрос: {_fmt_pct(baseline_pct)}. {portfolio_phrase}."  # П8-2
+                    if portfolio_phrase else f"Базовый спрос: {_fmt_pct(baseline_pct)}."  # П8-2
                 )
                 quote_txt = (
-                    f"{leader} - лидер среди медиа ({_fmt_pct(cpct)} media-вклада), "
-                    f"но абсолютный media-эффект {_fmt_pct(media_pct)} от продаж. "
-                    "Низкая инкрементальность - проверить adstock, saturation, качество данных."
+                    f"{leader} – лидер среди медиа ({_fmt_pct(cpct)} медиа-вклада), "  # П8-2 П8-1
+                    f"но абсолютный медиа-эффект {_fmt_pct(media_pct)} от продаж. "  # П8-2
+                    "Низкий вклад медиа – проверить отложенный эффект (adstock), насыщение, качество данных."  # П8-2 П8-1
                 )
             else:
                 # Action title - leader's position statement
@@ -1367,10 +1534,11 @@ class AuroraPPTXBuilder:
                 else:
                     big_support = "Лидер по вкладу в продажи"
                 # Pull quote - hero outperforms leader, reallocate signal
+                # Пласт 2 (2026-07-11): KPI-aware, не хардкодить «рубль/ROAS» для count/effectiveness.
                 if hero != leader:
                     quote_txt = (
-                        f"Каждый рубль в {hero} возвращает больше, чем в {leader}. "
-                        "Сигнал к перераспределению части бюджета в digital."
+                        f"{_hero_vs_leader_quote_pptx(hero, leader, self.kpi)} "
+                        "Сигнал к перераспределению части бюджета."
                     )
                 else:
                     quote_txt = (
@@ -1421,14 +1589,14 @@ class AuroraPPTXBuilder:
         )
 
         # Source footnote at bottom
+        # B1-fix R-02/R-06: период — только реальный; «откалибрована под
+        # FMCG-бенчмарки» — недоказуемое заявление, в live не пишем.
         _engine_label = "OLS MMM" if self.is_ols else "Bayesian MMM"
-        self._source(
-            slide, 6.87,
-            text=(
-                f"Источник: {_engine_label} · {self.report_id}; данные {self.sources_client_label} {self.data_window_label}; "
-                "модель откалибрована под FMCG-бенчмарки."
-            ),
-        )
+        _window_sfx = f" {self.data_window_label}" if self.data_window_label else ""
+        _src_text = f"Источник: {_engine_label} · {self.report_id}; данные {self.sources_client_label}{_window_sfx}."
+        if not self.is_live:
+            _src_text += " Модель откалибрована под FMCG-бенчмарки."
+        self._source(slide, 6.87, text=_src_text)
 
         self._footer(slide, 4)
 
@@ -1438,7 +1606,19 @@ class AuroraPPTXBuilder:
 
     def s06_action_chart(self):
         slide = self._blank()
-        self._header(slide, slide_num=7)
+        self._header(slide, slide_num=6 + self._page_shift)
+
+        # B4-2: плашка секции вместо отдельного слайда-дивайдера.
+        if self.facts:
+            _l = self.facts.get("leader_channel") or "Лидер"
+            _c = self.facts.get("leader_share_contrib_pct")
+            _s = self.facts.get("leader_share_spend_pct")
+            _tk = (f"{_l} даёт {_fmt_pct(_c)} медиа-вклада при {_fmt_pct(_s)} бюджета"
+                   if _c is not None and _s is not None
+                   else f"{_l} - основной драйвер портфеля")
+        else:
+            _tk = None
+        self._section_intro(slide, 2, "Декомпозиция вкладов", _tk)
 
         # v1.3.2: KPI-aware section category + fallback action title.
         if self.kpi["mode"] == "effectiveness":
@@ -1451,7 +1631,9 @@ class AuroraPPTXBuilder:
             category_text = "ROI ПО КАНАЛАМ"
             fallback_action = "Сбалансировать портфель по mROAS"
 
-        self._category(slide, self.safe, 0.60, category_text)
+        # B4-2: категория-слово заменена секционной плашкой выше (KPI-нюанс
+        # категории живёт в заголовке графика chart_title_text ниже).
+        _ = category_text
 
         # Stage C.5: McKinsey action-first headline via narrative_adapter.
         # Shared helper keeps PPTX+HTML in sync and applies zero-effect guard.
@@ -1488,12 +1670,14 @@ class AuroraPPTXBuilder:
             font=self.sans, size=9, bold=True, color=self.deep_80,
         )
         # v1.3.2: chart subtitle adapts per KPI.
+        # B1-fix R-02: период только когда известен (live без wireframe «Q1 2026»).
+        _period_sfx = f", {self.period_label}" if self.period_label else ""
         if self.kpi["mode"] == "effectiveness":
-            chart_subtitle_text = f"Доли каналов в продажах, {self.period_label}"
+            chart_subtitle_text = f"Доли каналов в продажах{_period_sfx}"
         elif self.kpi["kpi_kind"] == "count":
-            chart_subtitle_text = f"Стоимость следующей единицы (incremental cost-per-unit), {self.period_label}"
+            chart_subtitle_text = f"Стоимость следующей единицы (incremental cost-per-unit){_period_sfx}"
         else:
-            chart_subtitle_text = f"Marginal ROI последнего вложенного рубля, {self.period_label}"
+            chart_subtitle_text = f"Marginal ROI последнего вложенного рубля{_period_sfx}"
         self._text(
             slide, chart_x, chart_y + 0.27, chart_w, 0.22,
             chart_subtitle_text,
@@ -1720,14 +1904,14 @@ class AuroraPPTXBuilder:
                 if self.kpi["is_legacy"]:
                     commentary.append((
                         f"{hero_name} - лидер по mROAS.",
-                        f" mROAS {hero_m:.1f}×. Бюджет следует пересмотреть с учётом saturation.",
+                        f" mROAS {hero_m:.1f}×. Бюджет следует пересмотреть с учётом насыщения.",
                     ))
                 else:
                     metric_short = self.kpi["metric_short"]
                     metric_val = _fmt_metric_pptx(hero_m, self.kpi)
                     commentary.append((
                         f"{hero_name} - лидер по {metric_short}.",
-                        f" {metric_short} {metric_val}. Бюджет следует пересмотреть с учётом saturation.",
+                        f" {metric_short} {metric_val}. Бюджет следует пересмотреть с учётом насыщения.",
                     ))
         else:
             # Wireframe placeholder when no channels (preview mode)
@@ -1752,7 +1936,7 @@ class AuroraPPTXBuilder:
             self._vbar(slide, right_x - 0.15, cy + 0.03, 1.2, weight=2, color=self.gold)
             cy += 1.35
 
-        self._footer(slide, 7)
+        self._footer(slide, 6 + self._page_shift)
 
     # ----------------------------------------------------------------
     # SLIDE 07 - ACTION + TABLE (with conditional formatting & footnotes)
@@ -1760,7 +1944,7 @@ class AuroraPPTXBuilder:
 
     def s07_action_table(self):
         slide = self._blank()
-        self._header(slide, slide_num=8)
+        self._header(slide, slide_num=7 + self._page_shift)
 
         self._category(slide, self.safe, 0.60, "ПОРТФЕЛЬ КАНАЛОВ")
 
@@ -1790,9 +1974,15 @@ class AuroraPPTXBuilder:
         col_widths = [w * (table_w / total_w) for w in col_weights]
 
         # Header - v1.3.2: main metric column adapts per KPI (mROAS/CPU/Доля).
+        # Пласт 2 (2026-07-11): contrib column unit — для count вклад НЕ в рублях.
         metric_col_hdr, metric_col_unit = _table_metric_header_pptx(self.kpi)
+        # Единица столбца «Вклад» — согласованно с масштабом ячеек в
+        # _build_action_table_rows (fix 2026-07-13, INV-50).
+        contrib_scale_s07, contrib_unit_pptx = _contrib_scale_pptx(
+            self.kpi, [c.get("contribution") for c in (self.channels or [])[:10]]
+        )
         headers = ["Канал", "Бюджет", "Вклад", metric_col_hdr, "Доля эффекта", "Вердикт"]
-        units =   ["",      "₽ млн",  "₽ млн",  metric_col_unit, "%",             ""]
+        units =   ["",      "₽ млн",  contrib_unit_pptx,  metric_col_unit, "%",  ""]
         x = table_x
         for i, (hdr, cw) in enumerate(zip(headers, col_widths)):
             align = PP_ALIGN.LEFT if i in (0, 5) else PP_ALIGN.RIGHT
@@ -1850,13 +2040,24 @@ class AuroraPPTXBuilder:
             if len(row) == 7:
                 row = row + ("",)
             channel, budget, contrib, roi, share, verdict, footnote, ci_str = row
-            # Channel name
+            # Channel name (+E2: пометка калиброванного тестом канала)
             x = table_x
-            self._text(
-                slide, x + 0.05, row_y, col_widths[0] - 0.1, 0.3,
-                channel,
-                font=self.sans, size=11, bold=True, color=self.deep_100,
-            )
+            if channel in self.calibrated_channels:
+                self._rich(
+                    slide, x + 0.05, row_y, col_widths[0] - 0.1, 0.3,
+                    runs=[
+                        (channel, {"font": self.sans, "size": 11, "bold": True,
+                                   "color": self.deep_100}),
+                        ("  [CALIBRATED]", {"font": self.sans, "size": 7,
+                                            "color": self.gold}),
+                    ],
+                )
+            else:
+                self._text(
+                    slide, x + 0.05, row_y, col_widths[0] - 0.1, 0.3,
+                    channel,
+                    font=self.sans, size=11, bold=True, color=self.deep_100,
+                )
             x += col_widths[0]
             # Budget
             self._text(
@@ -1921,7 +2122,7 @@ class AuroraPPTXBuilder:
         )
         if self.facts:
             tb = self.facts.get("total_budget_mln") or 0
-            tc = self.facts.get("total_contrib_mln") or 0
+            tc_raw = (self.facts.get("total_contrib_mln") or 0) * 1_000_000.0
             wr = self.facts.get("weighted_roi")
             # v1.3.2: aggregate cell adapts per KPI (× / ₽/ед. inverse / 100%).
             if wr is None:
@@ -1940,7 +2141,7 @@ class AuroraPPTXBuilder:
                 wr_cell = f"{wr:.2f}"
             totals = [
                 f"{tb:.0f}",
-                f"{tc:.0f}",
+                _fmt_contrib_pptx(tc_raw, contrib_scale_s07),
                 wr_cell,
                 "100",
             ]
@@ -2022,14 +2223,17 @@ class AuroraPPTXBuilder:
             )
             fy += line_h
         # Source at y=6.67 (max close to footer hairline 6.85)
+        # B1-fix R-07 (2026-07-03): фактический уровень интервалов — 90% HDI
+        # (utils.posterior_propagation.DEFAULT_HDI_PROB=0.9; OLS bootstrap тот же
+        # compute_ci_hdi, n_boot=200). Подпись «95%» была враньём семейства F-18.
         _src_text2 = (
-            f"Источник: OLS MMM Aurora AI · {self.report_id}; bootstrap CI 95%, точечные оценки."
+            f"Источник: OLS MMM Aurora AI · {self.report_id}; bootstrap 90% HDI (n=200), точечные оценки."
             if self.is_ols
-            else f"Источник: Bayesian MMM Aurora AI · {self.report_id}; доверительный интервал 95%, медианы апостериорного распределения."
+            else f"Источник: Bayesian MMM Aurora AI · {self.report_id}; 90% HDI-интервалы, медианы апостериорного распределения."
         )
         self._source(slide, 6.87, text=_src_text2)
 
-        self._footer(slide, 7)
+        self._footer(slide, 7 + self._page_shift)
 
     # ----------------------------------------------------------------
     # SLIDE 08 - ACTION + FULL TIMELINE (with annotations)
@@ -2037,7 +2241,7 @@ class AuroraPPTXBuilder:
 
     def s08_action_timeline(self):
         slide = self._blank()
-        self._header(slide, slide_num=9)
+        self._header(slide, slide_num=8 + self._page_shift)
 
         self._category(slide, self.safe, 0.60, "ДИНАМИКА")
 
@@ -2062,9 +2266,9 @@ class AuroraPPTXBuilder:
         ts = self.time_series if isinstance(self.time_series, dict) else None
         if ts and ts.get("dates"):
             dates_list = list(ts["dates"])
-            period_label = f"{dates_list[0]} - {dates_list[-1]}" if dates_list else self.data_window_label
+            period_label = f"{dates_list[0]} - {dates_list[-1]}" if dates_list else (self.data_window_label or "—")
         else:
-            period_label = self.data_window_label
+            period_label = self.data_window_label or "—"
 
         # v1.3.2: timeline axis title per KPI unit (₽ / упак).
         if self.kpi["kpi_kind"] == "count":
@@ -2076,9 +2280,21 @@ class AuroraPPTXBuilder:
             timeline_axis_label,
             font=self.sans, size=9, bold=True, color=self.deep_80,
         )
+        # Б-2 (аудит Т3+): свёртку считаем ДО подписи — подпись перечисляет
+        # ФАКТИЧЕСКИЙ состав полос («База + Медиа + … · период»), а не устаревшее
+        # «вклад каждого канала» (после П2 полосы = 4 верхние группы).
+        ds = self.decomposition_series
+        _collapsed = None
+        if ds and ds.get("series"):
+            from engines.decomposer import collapse_series_to_top_groups
+            _collapsed = collapse_series_to_top_groups(ds["series"])
+        if _collapsed:
+            _tl_sub = " + ".join(c["name"] for c in _collapsed) + f" · {period_label}"
+        else:
+            _tl_sub = f"Базовый уровень + вклад каждого канала · {period_label}"
         self._text(
             slide, chart_x, chart_y + 0.27, chart_w, 0.22,
-            f"Базовый уровень + вклад каждого канала · {period_label}",
+            _tl_sub,
             font=self.sans, size=9, italic=True, color=self.deep_60,
         )
         # Hairline removed per brand rule - minimize horizontal lines
@@ -2088,7 +2304,6 @@ class AuroraPPTXBuilder:
         # AREA_STACKED chart (real data, real categorical x-axis). Otherwise
         # fall back to legacy preview/wireframe mode that paints stylized
         # rectangles week-by-week (Kagocel pilot bands).
-        ds = self.decomposition_series
         if (ds and ds.get("series")) or (ts and ts.get("dates") and ts.get("baseline")):
             from .charts import make_timeline_area
 
@@ -2098,18 +2313,30 @@ class AuroraPPTXBuilder:
             chart_inner_h = 2.8
 
             factor_series = None
-            if ds and ds.get("series"):
-                # Аудит #12: тот же набор, что в программе — baseline_reduced +
-                # все медиа + вынесенные signed/holiday факторы (без double-count).
-                ser = ds["series"]
-                _base = next((s for s in ser if s.get("role") == "baseline"), None)
+            baseline_label = "Baseline"
+            if _collapsed:
+                # Т3-плюс (двухуровневость): обзорный timeline свёрнут в 4 верхние
+                # группы (БАЗА·МЕДИА·ВНЕШНИЕ·КОНКУРЕНТЫ) — паритет с новым дефолтом
+                # программы (ChannelTimeline тоже свёрнут). Детализация вкладов —
+                # в waterfall (s06) и таблице каналов (s07). Тождество свёртки ==
+                # исходных гарантирует collapse_series_to_top_groups (SSOT).
                 tl_dates = list(ds.get("dates") or (ts or {}).get("dates") or [])
-                tl_baseline = list(_base["data"]) if _base else list((ts or {}).get("baseline") or [])
-                channel_dict = {s["name"]: list(s["data"]) for s in ser if s.get("role") == "media"}
+                _c_base = next((c for c in _collapsed if c["top_group"] == "БАЗА"), None)
+                _c_media = next((c for c in _collapsed if c["top_group"] == "МЕДИА"), None)
+                tl_baseline = (
+                    list(_c_base["data"]) if _c_base
+                    else list((ts or {}).get("baseline") or [])
+                )
+                if _c_base:
+                    baseline_label = _c_base["name"]  # «База» — русская легенда (Б-2)
+                channel_dict = {_c_media["name"]: list(_c_media["data"])} if _c_media else {}
+                # ВНЕШНИЕ/КОНКУРЕНТЫ — вынесенными полосами с explicit-цветом группы
+                # (зеркалит GROUP_COLORS фронта: amber / red).
+                _GROUP_RGB = {"ВНЕШНИЕ ФАКТОРЫ": "F59E0B", "КОНКУРЕНТЫ": "DC2626"}
                 factor_series = [
-                    {"name": s.get("name"), "type": s.get("type"),
-                     "side": s.get("side"), "data": list(s.get("data") or [])}
-                    for s in ser if s.get("role") == "factor"
+                    {"name": c["name"], "type": None, "rgb": _GROUP_RGB[c["top_group"]],
+                     "side": c["side"], "data": list(c["data"])}
+                    for c in _collapsed if c["top_group"] in _GROUP_RGB
                 ]
             else:
                 # Legacy fallback (нет decomposition_series): медиа-only как раньше.
@@ -2130,6 +2357,7 @@ class AuroraPPTXBuilder:
                 baseline=tl_baseline,
                 channel_series=channel_dict,
                 factor_series=factor_series,
+                baseline_label=baseline_label,
             )
 
             # Source at bottom (unified position, real-data variant)
@@ -2139,7 +2367,7 @@ class AuroraPPTXBuilder:
                 text=f"Источник: {self.sources_client_label}, продажи за период {period_label}; декомпозиция {_engine_decomp} · {self.report_id}",
             )
 
-            self._footer(slide, 9)
+            self._footer(slide, 8 + self._page_shift)
             return
 
         # ── Legacy preview/wireframe path (no real time_series) ───────────
@@ -2277,13 +2505,17 @@ class AuroraPPTXBuilder:
             )
 
         # Source at bottom (unified position)
+        # B1-fix R-02: период в подписи — timeline уже показывает реальные даты;
+        # используем ту же period_label-логику (реальные даты > мета > «—»).
         _engine_decomp2 = "OLS MMM" if self.is_ols else "Bayesian MMM"
+        _tl_period = period_label if period_label and period_label != "—" else None
+        _tl_period_part = f", продажи за период {_tl_period}" if _tl_period else ""
         self._source(
             slide, 6.87,
-            text=f"Источник: {self.sources_client_label}, продажи за период {self.data_window_label}; декомпозиция {_engine_decomp2} · {self.report_id}",
+            text=f"Источник: {self.sources_client_label}{_tl_period_part}; декомпозиция {_engine_decomp2} · {self.report_id}",
         )
 
-        self._footer(slide, 9)
+        self._footer(slide, 8 + self._page_shift)
 
     # ----------------------------------------------------------------
     # SLIDE 09 - EXECUTIVE SUMMARY (SCQAR)
@@ -2338,10 +2570,22 @@ class AuroraPPTXBuilder:
                     wr_segment = f"{_weighted_summary_phrase_pptx(wr, self.kpi)}, "
             else:
                 wr_segment = ""
+            # B1-fix R-02: «в квартал» — wireframe-предположение о периодичности;
+            # честно: бюджет за период данных. MQS через _mstr (None → «н/д»).
+            _period_phrase = (
+                f"за период {self.data_window_label}" if self.data_window_label
+                else "за анализируемый период"
+            )
+            # Склонение: 1 канал / 2-4 канала / 5+ каналов.
+            _ch_word = ("канал" if n_ch % 10 == 1 and n_ch % 100 != 11
+                        else "канала" if n_ch % 10 in (2, 3, 4) and n_ch % 100 not in (12, 13, 14)
+                        else "каналов")
+            _ch_adj = ("активный" if _ch_word == "канал"
+                       else "активных")
             situation_body = (
-                f"{self.client} размещает {tb:.0f} млн ₽ в квартал через {n_ch} активных каналов. "
+                f"{self.client} размещает {tb:.0f} млн ₽ {_period_phrase} через {n_ch} {_ch_adj} {_ch_word}. "
                 + wr_segment
-                + f"MQS модели {self.mqs_score:.0f}/100."
+                + f"MQS модели {self._mstr(self.mqs_score, '{:.0f}')}/100."
             )
 
             # L14 (math-fix v1.4 Section C, 2026-04-29): use budget_dominator
@@ -2365,7 +2609,27 @@ class AuroraPPTXBuilder:
                     complication_parts.append(f"по {metric_short} {hero} опережает ({metric_fmt})")
             if underperf:
                 complication_parts.append(f"{underperf_str} тянут портфель вниз")
-            complication_body = ". ".join(complication_parts) + (". Портфель требует перебалансировки." if complication_parts else "Портфель требует перебалансировки.")
+            # B1-fix R-13 (2026-07-03): хвост «Портфель требует перебалансировки»
+            # противоречил ответу «Сохранить аллокацию» при lift≈0 (Kagocel-зонд:
+            # ПРОБЛЕМА требует, ОТВЕТ сохраняет). Хвост — из фактов оптимизатора.
+            _lift_f = f.get("expected_lift_pct")
+            _realloc_potential = bool(
+                (f.get("cut_source_channel") or f.get("scale_destination_channel"))
+                and (f.get("reallocation_mln") or 0) >= 1
+            )
+            _has_real_lift = _lift_f is not None and _lift_f >= 0.5
+            if _realloc_potential and _has_real_lift:
+                _compl_tail = "Портфель требует перебалансировки."
+            elif f.get("binding_constraints"):
+                _compl_tail = ("Однако оптимизатор упёрся в заданные границы каналов - "
+                               "потенциал перераспределения ограничен настройками.")
+            else:
+                _compl_tail = ("Однако перераспределение в заданных границах не даёт "
+                               "ощутимого прироста - разрыв объясняется насыщением каналов.")
+            complication_body = (
+                (". ".join(complication_parts) + ". " + _compl_tail)
+                if complication_parts else _compl_tail
+            )
 
             # L15 (math-fix v1.4 Section C, 2026-04-29): use cut_source /
             # scale_destination from action_summary вместо leader/hero.
@@ -2382,11 +2646,18 @@ class AuroraPPTXBuilder:
                 answer_parts.append(f"остановить {underperf_str}")
             answer_body = "; ".join(answer_parts) + "." if answer_parts else f"Сохранить текущую аллокацию по {leader} с контролем насыщения."
 
+            # B1-fix R-13: вопрос согласован со сценарием — при hold-исходе
+            # «как перераспределить» обещал то, чего ответ не даёт.
+            _question_body = (
+                "Как перераспределить бюджет, чтобы поднять ROAS без снижения охвата знания?"
+                if (_realloc_potential and _has_real_lift)
+                else "Есть ли в текущем миксе резерв эффективности, который стоит задействовать?"
+            )
             blocks = [
                 {"label": "СИТУАЦИЯ", "height": 0.6, "body": situation_body},
                 {"label": "ПРОБЛЕМА", "height": 0.8, "body": complication_body},
                 {"label": "ВОПРОС", "height": 0.55,
-                 "body": "Как перераспределить бюджет, чтобы поднять ROAS без снижения охвата знания?",
+                 "body": _question_body,
                  "accent": True},
                 {"label": "ОТВЕТ", "height": 0.6, "body": answer_body},
                 {"label": "РЕКОМЕНДАЦИИ", "height": 2.3, "body": None},
@@ -2396,7 +2667,7 @@ class AuroraPPTXBuilder:
             blocks = [
                 {"label":  "СИТУАЦИЯ",
                  "height": 0.6,
-                 "body":   f"{self.client} размещает 286 млн ₽ в квартал через 5 активных каналов. Средневзвешенный ROI 1.5×, MQS модели {self.mqs_score:.0f}/100."},
+                 "body":   f"{self.client} размещает 286 млн ₽ в квартал через 5 активных каналов. Средневзвешенный ROI 1.5×, MQS модели {self._mstr(self.mqs_score, '{:.0f}')}/100."},
                 {"label":  "ПРОБЛЕМА",
                  "height": 0.8,
                  "body":   "TV достиг насыщения: выше 80 TRP/нед маржинальный ROI падает на 22% год к году. Digital video недоинвестирован (<15% бюджета при mROAS 1.9×). Портфель не оптимизирован."},
@@ -2451,7 +2722,6 @@ class AuroraPPTXBuilder:
                     realloc = f.get("reallocation_mln") or 0
                     lift = f.get("expected_lift_pct")
                     underperf = [c.get("name") for c in self.channels if c.get("verdict") in ("Cut",)]
-                    lift_txt = f"+{lift:.1f} пп к ROAS по прогнозу" if lift is not None else "Положительный прирост ROAS по прогнозу"
                     cut_source = f.get("cut_source_channel")
                     scale_dest = f.get("scale_destination_channel")
 
@@ -2462,12 +2732,12 @@ class AuroraPPTXBuilder:
                         )
                     elif scale_dest and realloc >= 1:
                         action_01_body = (
-                            f" Нарастить {scale_dest} на ~{realloc:.0f} млн ₽ - "
+                            f" Нарастить {scale_dest} на ~{realloc:.0f} млн ₽ – "  # П8-1
                             "за счёт roll-over бюджета или дополнительных средств."
                         )
                     elif cut_source and realloc >= 1:
                         action_01_body = (
-                            f" Сократить {cut_source} ({realloc:.0f} млн ₽) - "
+                            f" Сократить {cut_source} ({realloc:.0f} млн ₽) – "  # П8-1
                             "текущая аллокация неэффективна."
                         )
                     elif hero != leader and realloc >= 1:
@@ -2479,15 +2749,41 @@ class AuroraPPTXBuilder:
                     else:
                         action_01_body = f" Сохранить аллокацию по {leader} с контролем индикаторов насыщения."
 
+                    # B1-fix R-09 (2026-07-03): рекомендации 02/03 были выдуманы
+                    # («пульсирующее размещение - экономия 15-20%», «целевой
+                    # ретаргетинг по сегментам») — модель не вычисляет ни
+                    # flighting, ни сегменты; числа фабриковались. Честные
+                    # рекомендации — только выводимые из модели: контроль
+                    # насыщения (Hill-механика), снятие неопределённости
+                    # вердиктов, сверка прогноза с фактом при следующей волне.
+                    _uncertain_names = [
+                        c.get("name") for c in self.channels
+                        if c.get("verdict") == "Uncertain" and c.get("name")
+                    ]
+                    if _uncertain_names:
+                        _action_02 = (
+                            "Снять неопределённость вердиктов.",
+                            f" {', '.join(_uncertain_names[:3])}: интервалы эффективности "
+                            "широки - добавить историю данных или вариацию трат, затем переобучить модель.",
+                        )
+                    else:
+                        _action_02 = (
+                            f"Контролировать насыщение {leader}.",
+                            " Наращивание трат сверх текущего уровня даёт убывающую отдачу "
+                            "(Hill-насыщение) - отслеживать mROAS при изменениях бюджета.",
+                        )
+                    # Пласт 2 (2026-07-11): KPI-aware lift fragment — для count/effectiveness «ROAS» не применим.
+                    _lift_frag = (
+                        f" {_lift_phrase_pptx(lift, self.kpi)} - проверить фактом."
+                        if (lift is not None and lift >= 0.5)
+                        else " Проверить, что фактические продажи соответствуют прогнозу модели."
+                    )
                     actions = [
                         ("01", "Перераспределить бюджет.", action_01_body),
-                        ("02",
-                         "Пульсирующее размещение вместо непрерывного.",
-                         f" Короткие флайты {leader} с паузами - экономия бюджета 15-20% при сохранении охвата."),
+                        ("02", *_action_02),
                         ("03",
-                         "Целевой ретаргетинг через эффективные сегменты.",
-                         f" Приоритетный сегмент - {scale_dest or hero}; {lift_txt}."
-                            + (f" Бюджет переводим из {', '.join(underperf)}." if underperf else "")),
+                         "Сверить прогноз с фактом после следующего периода.",
+                         f" Обновить модель новыми данными и подтвердить рекомендации.{_lift_frag}"),
                     ]
                 else:
                     actions = [
@@ -2535,9 +2831,15 @@ class AuroraPPTXBuilder:
         # semantic «Не определён» вместо em-dash для consultant context — em-dash
         # читается как «забыли заполнить», текст явно signals «не посчитано / нет данных».
         # Font size scaled down (42→22pt) чтобы фраза влезла в 2.5" box без переноса.
-        if self.facts and self.facts.get("expected_lift_pct") is not None:
-            impact_num = f"+{self.facts['expected_lift_pct']:.0f} пп"
+        # B1-fix R-09/R-13: «+0 пп» — пустое обещание; незначимый lift (<0.5)
+        # подписываем честно, не нулевым числом.
+        _lift_box = self.facts.get("expected_lift_pct") if self.facts else None
+        if _lift_box is not None and _lift_box >= 0.5:
+            impact_num = f"+{_lift_box:.0f} пп"
             impact_size = 42
+        elif _lift_box is not None:
+            impact_num = "Незначим (<0.5 пп)"
+            impact_size = 18
         else:
             impact_num = "Не определён"
             impact_size = 22
@@ -2566,14 +2868,18 @@ class AuroraPPTXBuilder:
     # C.6.3: s10 methodology content now at physical page 11 (divider at 10).
     def s10_methodology(self):
         slide = self._blank()
-        self._header(slide, slide_num=11)
+        self._header(slide, slide_num=9 + self._page_shift)
 
-        self._category(slide, self.safe, 0.60, "ПОДХОД")
+        # B4-2: плашка секции вместо отдельного слайда-дивайдера.
+        self._section_intro(
+            slide, 3, "Методология",
+            "Байесовская MMM с отложенным эффектом и Hill-насыщением – прозрачная модель с интервалами доверия",  # П8-1
+        )
 
         _title_text = (
-            "OLS MMM с adstock + Hill-насыщением (closed-form + bootstrap CI)"
+            "OLS MMM с отложенным эффектом (adstock) + Hill-насыщением (closed-form + bootstrap CI)"  # П8-2
             if self.is_ols
-            else "Байесовская MMM с adstock + Hill-насыщением"
+            else "Байесовская MMM с отложенным эффектом (adstock) + Hill-насыщением"  # П8-2
         )
         self._action_title(
             slide,
@@ -2606,7 +2912,9 @@ class AuroraPPTXBuilder:
                 "",
                 "β_i estimated via closed-form OLS",
                 "ε_t ~ Normal(0, σ) (frequentist)",
-                "CI на ROI/mROAS - bootstrap n=1000",
+                # B1-fix R-07-семейство: фактический n_boot=200 (ols_bootstrap.py),
+                # «n=1000» был враньём того же класса, что и conformal-глоссарий (F-18).
+                "CI на ROI/mROAS - bootstrap n=200",
             ]
         else:
             formulas = [
@@ -2618,7 +2926,10 @@ class AuroraPPTXBuilder:
                 "sat(z, α, γ) = z^α / (z^α + γ^α)",
                 "   Hill function, half-max = γ_i",
                 "",
-                "β_i ~ HalfNormal(0.5) · CPP-normalized",
+                # B1-fix R-08: конкретная σ приора врала (0.5 устарел 2026-04-19;
+                # факт: 0.3 базовый / 0.7-0.3 hierarchical по категории канала).
+                # Формулировка без числа честна во всех конфигурациях.
+                "β_i ~ HalfNormal (слабоинформативный) · CPP-normalized",
                 "ε_t ~ Normal(0, σ)",
             ]
         self._paragraphs(
@@ -2638,20 +2949,25 @@ class AuroraPPTXBuilder:
         )
         self._hairline(slide, left_x, diag_y + 0.28, 1.0, weight=0.75, color=self.gold)
 
+        # B1-fix R-01: метрики через _mstr (None → «н/д», не wireframe-числа);
+        # ESS может прийти дробным (min bulk/tail из arviz) — показываем целым.
+        _ess_str = self._mstr(
+            int(round(self.ess_min)) if isinstance(self.ess_min, (int, float)) else None,
+            "{:,}").replace(",", " ")
         if self.is_ols:
             # OLS не имеет MCMC diagnostics. Показываем frequentist метрики.
             diag = [
-                ("R²",                f"{self.r_squared:.3f}"),
-                ("MAPE",              f"{self.mape_pct:.1f}%"),
+                ("R²",                self._mstr(self.r_squared, "{:.3f}")),
+                ("MAPE",              self._mstr(self.mape_pct, "{:.1f}%")),
                 ("Метод",             "closed-form OLS"),
-                ("CI",                "bootstrap n=1000"),
+                ("CI",                "bootstrap n=200"),  # факт ols_bootstrap.py (был n=1000)
             ]
         else:
             diag = [
-                ("R²",                f"{self.r_squared:.3f}"),
-                ("MAPE",              f"{self.mape_pct:.1f}%"),
-                ("R-hat (max)",       f"{self.r_hat_max:.3f}"),
-                ("ESS (min)",         f"{self.ess_min:,}".replace(",", " ")),
+                ("R²",                self._mstr(self.r_squared, "{:.3f}")),
+                ("MAPE",              self._mstr(self.mape_pct, "{:.1f}%")),
+                ("R-hat (max)",       self._mstr(self.r_hat_max, "{:.3f}")),
+                ("ESS (min)",         _ess_str),
             ]
         dy = diag_y + 0.4
         for label, val in diag:
@@ -2718,23 +3034,24 @@ class AuroraPPTXBuilder:
                 f"Hierarchical priors разделяют long-decay (бренд ~12 нед) и short-decay (perf ~1-2 нед)."
             )
             self._source(slide, 6.65, text=t3_text)
-            # Existing bottom note pushed чуть выше
+            # B1-fix R-06: «12+ FMCG-проектов Aurora» — недоказуемое заявление
+            # (INV-50); честная формулировка о слабоинформативных приорах.
             _bottom_note = (
-                "Параметры adstock/saturation: индустриальные бенчмарки OLS MMM, фиксированные."
+                "Параметры отложенного эффекта (adstock)/насыщения: индустриальные бенчмарки OLS MMM, фиксированные."  # П8-2
                 if self.is_ols
-                else "Приоры: 12+ FMCG-проектов Aurora (2024-2026) + индустриальные бенчмарки Bayesian MMM."
+                else "Приоры: слабоинформативные, на основе индустриальных бенчмарков Bayesian MMM."
             )
             self._source(slide, 6.97, text=_bottom_note)
         else:
             # Bottom note (concise: ≤100 chars fits 1 line at 7pt in 8.3" column)
             _bottom_note2 = (
-                "Параметры adstock/saturation: индустриальные бенчмарки OLS MMM, фиксированные."
+                "Параметры отложенного эффекта (adstock)/насыщения: индустриальные бенчмарки OLS MMM, фиксированные."  # П8-2
                 if self.is_ols
-                else "Приоры: 12+ FMCG-проектов Aurora (2024-2026) + индустриальные бенчмарки Bayesian MMM."
+                else "Приоры: слабоинформативные, на основе индустриальных бенчмарков Bayesian MMM."
             )
             self._source(slide, 6.87, text=_bottom_note2)
 
-        self._footer(slide, 11)
+        self._footer(slide, 9 + self._page_shift)
 
     # ----------------------------------------------------------------
     # SLIDE 11 - SOURCES + MQS
@@ -2743,9 +3060,21 @@ class AuroraPPTXBuilder:
     # C.6.3: s11 sources content now at physical page 13 (divider at 12).
     def s11_sources(self):
         slide = self._blank()
-        self._header(slide, slide_num=13)
+        self._header(slide, slide_num=10 + self._page_shift)
 
-        self._category(slide, self.safe, 0.60, "ДАННЫЕ")
+        # B4-2: плашка секции вместо отдельного слайда-дивайдера
+        # (takeaway — из фактов, как в бывшем s_divider_data).
+        _tb_mln = self.facts.get("total_budget_mln") if self.facts else None
+        _mqs_part = f"MQS модели {self._mstr(self.mqs_score, '{:.0f}')}/100"
+        _window_part = (
+            f"Данные охватывают {self.data_window_label}" if self.data_window_label
+            else "Данные загружены из файла клиента"
+        )
+        _tk_data = (
+            f"{_window_part}, бюджет {_tb_mln:.0f} млн руб - {_mqs_part}"
+            if _tb_mln else f"{_window_part} - {_mqs_part}"
+        )
+        self._section_intro(slide, 4, "Данные и качество", _tk_data)
 
         self._text(
             slide, self.safe, 0.70, 10.0, 0.7, "Источники и качество",
@@ -2764,7 +3093,7 @@ class AuroraPPTXBuilder:
 
         self._text(
             slide, card_x + 0.35, card_y + 0.3, card_w - 0.7, 0.25,
-            "MODEL QUALITY SCORE",
+            "ОЦЕНКА КАЧЕСТВА МОДЕЛИ (MQS)",
             font=self.sans, size=10, bold=True, color=self.gold,
         )
 
@@ -2772,7 +3101,8 @@ class AuroraPPTXBuilder:
         # title (top) and status hairline (bottom). Spacing balanced so
         # "70 → /" gap ≈ "/ → 100" gap (visually symmetric pair).
         self._text(
-            slide, card_x + 0.45, card_y + 0.30, 2.0, 1.8, f"{self.mqs_score:.0f}",
+            slide, card_x + 0.45, card_y + 0.30, 2.0, 1.8,
+            self._mstr(self.mqs_score, "{:.0f}", na="—"),
             font=self.serif, size=120, color=self.deep_100, align=PP_ALIGN.RIGHT,
         )
         # "/ 100" left-aligned, gap to "70" matches gap "/" → "100"
@@ -2785,18 +3115,22 @@ class AuroraPPTXBuilder:
         self._hairline(slide, card_x + 0.35, card_y + 2.55, card_w - 0.7, weight=0.5)
         self._text(
             slide, card_x + 0.35, card_y + 2.7, card_w - 0.7, 0.3,
-            self.mqs_tier_label,
+            self.mqs_tier_label or "н/д",
             font=self.sans, size=12, italic=True, color=self.deep_100,
         )
 
         # 4 key metrics inside card (2x2)
+        # B1-fix R-01: _mstr (None → «н/д»); ESS дробный (min bulk/tail) → целое.
         km_y = card_y + 3.1
         km_col_w = (card_w - 0.7) / 2
+        _ess_card = self._mstr(
+            int(round(self.ess_min)) if isinstance(self.ess_min, (int, float)) else None,
+            "{:,}").replace(",", " ")
         mets = [
-            ("R²",     f"{self.r_squared:.2f}"),
-            ("MAPE",   f"{self.mape_pct:.1f}%"),
-            ("R-hat",  f"{self.r_hat_max:.3f}"),
-            ("ESS",    f"{self.ess_min:,}".replace(",", " ")),
+            ("R²",     self._mstr(self.r_squared, "{:.2f}")),
+            ("MAPE",   self._mstr(self.mape_pct, "{:.1f}%")),
+            ("R-hat",  self._mstr(self.r_hat_max, "{:.3f}")),
+            ("ESS",    _ess_card),
         ]
         for i, (label, val) in enumerate(mets):
             row, col = divmod(i, 2)
@@ -2822,19 +3156,35 @@ class AuroraPPTXBuilder:
         )
         self._hairline(slide, right_x, card_y + 0.28, 1.2, weight=0.75, color=self.gold)
 
-        # Stage C.2: de-hardcode data summary. Period + channel count now
-        # derived from self. Frequency/completeness/outliers stay as
-        # defensive defaults (will be parametrized via meta when pipeline
-        # exposes them; for now document canonical RU phrasing).
+        # B1-fix R-03/R-04 (2026-07-03): охват данных — ТОЛЬКО факты. Прежде
+        # «Наблюдений» = каналы×13 (выдуманная арифметика: Kagocel-зонд рисовал
+        # 52 при реальных 31), «Частота: Еженедельно» — hardcode на месячных
+        # данных, «Полнота 100%» и «Аномалии обработаны» — не проверялись.
+        # Теперь: data_coverage от адаптера (реальные даты); нет факта — «—»
+        # или строка скрыта (live не выдумывает).
         active_count = len(self.channels) if self.channels else 0
-        data_info = [
-            ("Период",              self.data_window_label),
-            ("Наблюдений",          f"{active_count * 13}" if active_count else "-"),
-            ("Активных каналов",    f"{active_count}" if active_count else "-"),
-            ("Частота",             "Еженедельно (Пн-Вс)"),
-            ("Полнота",             "100% (0 пропусков)"),
-            ("Аномалии",            "обработаны (праздничные недели)"),
-        ]
+        _cov = self.data_coverage
+        if self.is_live:
+            _n_obs = _cov.get("n_observations")
+            _gaps = _cov.get("date_gaps")
+            data_info = [
+                ("Период",           self.data_window_label or "—"),
+                ("Наблюдений",       f"{_n_obs}" if _n_obs else "—"),
+                ("Активных каналов", f"{active_count}" if active_count else "—"),
+                ("Частота",          _cov.get("frequency_label") or "—"),
+            ]
+            if _gaps is not None:
+                data_info.append(
+                    ("Разрывы оси дат", "нет" if _gaps == 0 else f"{_gaps}"))
+        else:
+            data_info = [
+                ("Период",              self.data_window_label),
+                ("Наблюдений",          f"{active_count * 13}" if active_count else "-"),
+                ("Активных каналов",    f"{active_count}" if active_count else "-"),
+                ("Частота",             "Еженедельно (Пн-Вс)"),
+                ("Полнота",             "100% (0 пропусков)"),
+                ("Аномалии",            "обработаны (праздничные недели)"),
+            ]
         dy = card_y + 0.55
         for label, val in data_info:
             self._text(
@@ -2849,6 +3199,88 @@ class AuroraPPTXBuilder:
             self._hairline(slide, right_x, dy + 0.32, right_w, weight=0.25)
             dy += 0.34
 
+        # B1-fix R-16 (2026-07-03): honesty-контур модели в клиентском отчёте.
+        # Вердикт надёжности + preflight-провал приоров вычислялись движком и
+        # показывались в программе, но PPTX молчал («вычисленная, но не
+        # доставленная честность»). Kagocel-зонд: prior_predictive=fail
+        # (coverage 42%) — ни слова в отчёте.
+        _hy = dy + 0.05
+        _verdict_ru = {
+            "reliable": "модель надёжна",
+            "uncertain": "требует осторожности",
+            "unreliable": "ненадёжна — выводы ориентировочные",
+            "unknown": "качество не измерено",
+        }.get(self.honesty_verdict)
+        if _verdict_ru:
+            self._text(
+                slide, right_x, _hy, right_w, 0.25,
+                f"Вердикт надёжности: {_verdict_ru}",
+                font=self.sans, size=10, bold=True,
+                color=(self.deep_100 if self.honesty_verdict == "reliable" else self.gold),
+            )
+            _hy += 0.28
+        _pp_status = (self.preflight or {}).get("prior_predictive_status")
+        if _pp_status == "fail":
+            _pp_cov = (self.preflight or {}).get("prior_predictive_coverage")
+            _cov_sfx = (f" (покрытие {_pp_cov:.0%})" if isinstance(_pp_cov, (int, float))
+                        else "")
+            self._text(
+                slide, right_x, _hy, right_w, 0.45,
+                f"Проверка приоров: расхождение с данными{_cov_sfx} – "
+                "оценки чувствительны к допущениям модели.",
+                font=self.sans, size=10, italic=True, color=self.gold,
+            )
+            _hy += 0.45
+
+        # E2 (2026-07-03): калибровка lift-тестами — строка «откалиброван
+        # тестом от <дата>» + ЧЕСТНОЕ расхождение модель-vs-тест (within_ci
+        # false не замалчивается — §E2.4).
+        for _ca in (self.calibration.get("applied") or []):
+            self._text(
+                slide, right_x, _hy, right_w, 0.25,
+                (f"Канал «{_ca.get('channel')}» откалиброван тестом "
+                 f"({_ca.get('test_type')}) от {_ca.get('date_from')} – "
+                 f"вошёл в модель как наблюдение."),
+                font=self.sans, size=10, color=self.deep_100,
+            )
+            _hy += 0.26
+        for _cc in (self.calibration.get("checks") or []):
+            if _cc.get("within_ci"):
+                continue
+            _ci = _cc.get("model_contrib_ci90") or [None, None]
+            self._text(
+                slide, right_x, _hy, right_w, 0.45,
+                (f"Модель и тест расходятся по «{_cc.get('channel')}»: вклад "
+                 f"модели {self._mstr(_cc.get('model_contrib_mean'), '{:,.0f}').replace(',', ' ')} "
+                 f"[{self._mstr(_ci[0], '{:,.0f}').replace(',', ' ')} – "
+                 f"{self._mstr(_ci[1], '{:,.0f}').replace(',', ' ')}] против теста "
+                 f"{self._mstr(_cc.get('test_lift'), '{:,.0f}').replace(',', ' ')} – "
+                 f"разберите период с аналитиком."),
+                font=self.sans, size=10, italic=True, color=self.gold,
+            )
+            _hy += 0.45
+
+        # E4 (2026-07-03): сбывшиеся рекомендации — петля доверия в отчёте.
+        # Только сверенные (kept/missed); «не сбылось» показывается так же
+        # прямо, как «сбылось».
+        if self.promises_summary:
+            _ps = self.promises_summary
+            self._text(
+                slide, right_x, _hy, right_w, 0.25,
+                (f"Проверка прошлых рекомендаций: сбылось {_ps.get('kept', 0)}, "
+                 f"не сбылось {_ps.get('missed', 0)}."),
+                font=self.sans, size=10, bold=True, color=self.deep_100,
+            )
+            _hy += 0.28
+            for _ex in (_ps.get("examples") or []):
+                self._text(
+                    slide, right_x, _hy, right_w, 0.4,
+                    f"«{_ex.get('action_text')}» — {_ex.get('status_ru')}.",
+                    font=self.sans, size=9.5,
+                    color=(self.deep_100 if _ex.get('status') == 'kept' else self.gold),
+                )
+                _hy += 0.30
+
         # INV-50 F-DELIVERABLE-1 (2026-06-07): честная оговорка о тонких данных /
         # переобучении — та же формулировка, что в вердикте программы и письме
         # (utils.diagnostics.format_thinness_caveat — SSOT). Прежде роняла на
@@ -2857,7 +3289,7 @@ class AuroraPPTXBuilder:
         _caveat = format_thinness_caveat(self.ratio_eff, self.thinness_cap, leading_space=False)
         if _caveat:
             self._text(
-                slide, right_x, dy + 0.15, right_w, 0.9, _caveat,
+                slide, right_x, _hy + 0.10, right_w, 0.9, _caveat,
                 font=self.sans, size=10, italic=True, color=self.gold,
             )
 
@@ -2869,10 +3301,21 @@ class AuroraPPTXBuilder:
         )
         self._hairline(slide, self.safe, src_y + 0.22, 0.8, weight=0.5, color=self.gold)
 
-        primary = [
-            f"Mediascope TV {self.data_window_label} (TRP / Reach / CPP по target W25-54)",
-            f"{self.sources_client_label} internal sales ledger (weekly, SKU-aggregated)",
-        ]
+        # B1-fix R-05 (2026-07-03): PRIMARY/SECONDARY источники были выдуманы
+        # целиком (Mediascope/Metrica/GA/VK/бренд-трекер) — клиент таких данных
+        # не передавал. В live честно: источник = загруженный файл клиента.
+        if self.is_live:
+            _n_obs_src = self.data_coverage.get("n_observations")
+            _obs_sfx = f", наблюдений: {_n_obs_src}" if _n_obs_src else ""
+            primary = [
+                f"Данные {self.sources_client_label}: файл, загруженный в проект"
+                f" (медиа-траты и продажи{_obs_sfx})",
+            ]
+        else:
+            primary = [
+                f"Mediascope TV {self.data_window_label} (TRP / Reach / CPP по target W25-54)",
+                f"{self.sources_client_label} internal sales ledger (weekly, SKU-aggregated)",
+            ]
         py = src_y + 0.32
         for i, s in enumerate(primary, start=1):
             self._rich(
@@ -2884,30 +3327,32 @@ class AuroraPPTXBuilder:
             )
             py += 0.23
 
-        sec_x = 7.0
-        self._text(
-            slide, sec_x, src_y, 2.0, 0.2, "SECONDARY",
-            font=self.sans, size=8, bold=True, color=self.deep_60,
-        )
-        self._hairline(slide, sec_x, src_y + 0.22, 0.8, weight=0.5, color=self.deep_60)
-
-        secondary = [
-            "Yandex.Metrica + Google Analytics (digital clicks, conversions)",
-            "VK Ads + MyTarget (social impressions / clicks)",
-            f"{self.sources_client_label} бренд-трекер (quarterly W25 54)",
-        ]
-        sy = src_y + 0.32
-        for i, s in enumerate(secondary, start=1):
-            self._rich(
-                slide, sec_x, sy, 6.0, 0.22,
-                runs=[
-                    (f"{i}.  ", {"font": self.sans, "size": 8, "bold": True, "color": self.deep_60}),
-                    (s, {"font": self.sans, "size": 9, "color": self.deep_100}),
-                ],
+        # B1-fix R-05: SECONDARY-блок в live не рисуем (выдуманных источников нет).
+        if not self.is_live:
+            sec_x = 7.0
+            self._text(
+                slide, sec_x, src_y, 2.0, 0.2, "SECONDARY",
+                font=self.sans, size=8, bold=True, color=self.deep_60,
             )
-            sy += 0.23
+            self._hairline(slide, sec_x, src_y + 0.22, 0.8, weight=0.5, color=self.deep_60)
 
-        self._footer(slide, 13)
+            secondary = [
+                "Yandex.Metrica + Google Analytics (digital clicks, conversions)",
+                "VK Ads + MyTarget (social impressions / clicks)",
+                f"{self.sources_client_label} бренд-трекер (quarterly W25 54)",
+            ]
+            sy = src_y + 0.32
+            for i, s in enumerate(secondary, start=1):
+                self._rich(
+                    slide, sec_x, sy, 6.0, 0.22,
+                    runs=[
+                        (f"{i}.  ", {"font": self.sans, "size": 8, "bold": True, "color": self.deep_60}),
+                        (s, {"font": self.sans, "size": 9, "color": self.deep_100}),
+                    ],
+                )
+                sy += 0.23
+
+        self._footer(slide, 10 + self._page_shift)
 
     # ----------------------------------------------------------------
     # SLIDE 12 - COLOPHON (narrative)
@@ -2918,12 +3363,411 @@ class AuroraPPTXBuilder:
     # ----------------------------------------------------------------
 
     # C.6.3: s12 glossary content now at physical page 15 (appendix divider at 14).
+    def s10b_backtest(self):
+        """E1 (2026-07-03): слайд «Проверка на истории» — модель против факта.
+
+        Rolling-origin: модель переобучалась только на прошлом и предсказывала
+        удержанные кварталы; прогноз сверен с фактом (канон Gelman BW §9.4 —
+        доверие проверяется вне выборки). Рисуется ТОЛЬКО при живой витрине
+        (self.backtest) — wireframe-дефолта нет по построению.
+        """
+        bt = self.backtest
+        slide = self._blank()
+        # П5: витрина — слайд №6, финал секции «Главное».
+        self._header(slide, slide_num=6)
+
+        verdict = bt.get("verdict")
+        hit = bt.get("windows_hit_total")
+        n_int = bt.get("windows_with_interval") or 0
+        gran = bt.get("granularity")
+        h = bt.get("horizon_periods")
+        is_quarter = (gran == "M" and h == 3) or (gran == "W" and h == 13) or (gran == "D" and h == 90)
+        win_word = "кварталов" if is_quarter else "окон проверки"
+
+        if verdict == "validated" and hit is not None and n_int:
+            title = (f"Проверка на истории: {hit} из {n_int} {win_word} — "
+                     f"факт в прогнозном интервале")
+        elif verdict == "worse_than_naive":
+            title = "Проверка на истории: модель пока не точнее наивного прогноза"
+        elif verdict == "coverage_low":
+            title = "Проверка на истории: интервалы модели самоуверенны"
+        else:
+            title = "Проверка модели на истории"
+        self._action_title(slide, title, show_lime=True, y=0.80, height=0.80)
+
+        left_x = self.safe
+        left_y = 1.85
+        left_w = (self.w - 2 * self.safe) * 0.40
+
+        # LEFT: герой-цифра + факты
+        self._text(
+            slide, left_x, left_y, left_w, 0.25, "МОДЕЛЬ ПРОТИВ ФАКТА",
+            font=self.sans, size=9, bold=True, color=self.gold,
+        )
+        self._hairline(slide, left_x, left_y + 0.28, 1.0, weight=0.75, color=self.gold)
+        if hit is not None and n_int:
+            self._text(
+                slide, left_x, left_y + 0.55, left_w, 1.0,
+                f"{hit} из {n_int}",
+                font=self.serif, size=44, bold=True, color=self.deep_100,
+            )
+            self._text(
+                slide, left_x, left_y + 1.6, left_w, 0.6,
+                f"{win_word} — фактические продажи попали в 90%-интервал прогноза",
+                font=self.sans, size=11, color=self.deep_60, line_spacing=1.2,
+            )
+        facts_y = left_y + 2.4
+        mape_model = bt.get("mape_model")
+        mape_naive = bt.get("mape_naive_best")
+        cov_pp = bt.get("coverage_per_period")
+        n_pts = bt.get("n_holdout_points_with_interval")
+        fact_lines = [
+            (f"Ошибка прогноза (MAPE): {self._mstr(mape_model, '{:.1f}%')}",
+             {"font": self.sans, "size": 11, "color": self.deep_100}),
+        ]
+        if mape_naive is not None:
+            gain = (1 - float(mape_model) / float(mape_naive)) * 100 if mape_model is not None and mape_naive else None
+            naive_line = f"Наивный прогноз: {self._mstr(mape_naive, '{:.1f}%')}"
+            if gain is not None and gain > 0:
+                naive_line += f" — модель точнее на {gain:.0f}%"
+            fact_lines.append((naive_line, {"font": self.sans, "size": 11, "color": self.deep_100}))
+        if cov_pp is not None:
+            fact_lines.append((
+                f"Покрытие по периодам: {float(cov_pp) * 100:.0f}% ({n_pts} точек, норма ≈ 90%)",
+                {"font": self.sans, "size": 11, "color": self.deep_100},
+            ))
+        self._paragraphs(
+            slide, left_x, facts_y, left_w, 1.6, fact_lines, line_spacing=1.5,
+        )
+
+        # RIGHT: таблица окон (период / факт / прогноз / попадание)
+        right_x = left_x + left_w + 0.5
+        right_w = self.w - self.safe - right_x
+        ry = left_y
+        self._text(
+            slide, right_x, ry, right_w, 0.25, "ОКНА ПРОВЕРКИ",
+            font=self.sans, size=9, bold=True, color=self.gold,
+        )
+        self._hairline(slide, right_x, ry + 0.28, 1.0, weight=0.75, color=self.gold)
+        ry += 0.5
+        # Заголовок таблицы
+        col_period_w = right_w * 0.40
+        col_num_w = right_w * 0.18
+        for label, cx, cw in (
+            ("Период", right_x, col_period_w),
+            ("Факт", right_x + col_period_w, col_num_w),
+            ("Прогноз", right_x + col_period_w + col_num_w, col_num_w),
+            ("90%-интервал", right_x + col_period_w + 2 * col_num_w, right_w - col_period_w - 2 * col_num_w - 0.5),
+            ("✓", right_x + right_w - 0.4, 0.4),
+        ):
+            self._text(
+                slide, cx, ry, cw, 0.22, label,
+                font=self.sans, size=8.5, bold=True, color=self.deep_60,
+            )
+        ry += 0.3
+        windows = bt.get("windows") or []
+        # До 8 окон — строки по 0.34"; при больших N таблица остаётся читаемой.
+        for w_row in windows[:8]:
+            hit_mark = w_row.get("hit_total")
+            self._text(
+                slide, right_x, ry, col_period_w, 0.24,
+                str(w_row.get("window") or "—"),
+                font=self.sans, size=9, color=self.deep_100,
+            )
+            self._text(
+                slide, right_x + col_period_w, ry, col_num_w, 0.24,
+                self._mstr(w_row.get("actual_total"), "{:,.0f}").replace(",", " "),
+                font=self.sans, size=9, color=self.deep_100,
+            )
+            self._text(
+                slide, right_x + col_period_w + col_num_w, ry, col_num_w, 0.24,
+                self._mstr(w_row.get("predicted_total"), "{:,.0f}").replace(",", " "),
+                font=self.sans, size=9, color=self.deep_100,
+            )
+            lo, hi = w_row.get("pi_low_total"), w_row.get("pi_high_total")
+            interval = (
+                f"{lo:,.0f} – {hi:,.0f}".replace(",", " ")
+                if lo is not None and hi is not None else "—"
+            )
+            self._text(
+                slide, right_x + col_period_w + 2 * col_num_w, ry,
+                right_w - col_period_w - 2 * col_num_w - 0.5, 0.24,
+                interval, font=self.sans, size=9, color=self.deep_60,
+            )
+            self._text(
+                slide, right_x + right_w - 0.4, ry, 0.4, 0.24,
+                "✓" if hit_mark else ("—" if hit_mark is None else "✕"),
+                font=self.sans, size=9, bold=True,
+                color=self.deep_100 if hit_mark else self.deep_60,
+            )
+            self._hairline(slide, right_x, ry + 0.27, right_w, weight=0.25)
+            ry += 0.34
+
+        # Сноска метода — по-русски, без жаргона на слайде.
+        _mean_only = bt.get("pi_method") == "posterior_hdi_90_mean_only"
+        self._text(
+            slide, left_x, 6.35, self.w - 2 * self.safe, 0.5,
+            ("Метод: скользящая проверка — модель каждый раз обучается только на прошлом "
+             "и предсказывает следующий период; будущее ей не показывают. "
+             + ("Интервал — 90% по средней прогноза (без шума наблюдения)."
+                if _mean_only else
+                "Интервал — 90% предиктивный (неопределённость модели и шум наблюдений).")),
+            font=self.sans, size=9, color=self.deep_60, line_spacing=1.25,
+        )
+        self._footer(slide, 6)
+
+    def s10c_generation_compare(self):
+        """E3 (2026-07-03): слайд «Что изменилось с прошлого квартала».
+
+        Сравнение поколений модели: per-channel ROI был [CI] → стал [CI]
+        с вердиктом по перекрытию интервалов (Jin 2017). Рисуется ТОЛЬКО
+        при живом models/generation_compare.json — wireframe-режима нет.
+        """
+        gc = self.gen_compare
+        slide = self._blank()
+        self._header(slide, slide_num=6 + int(bool(self.backtest)))
+
+        summary = gc.get("summary") or {}
+        counts = summary.get("counts") or {}
+        headline = summary.get("headline")
+        title = headline or "Что изменилось с прошлого квартала"
+        self._action_title(slide, title, show_lime=True, y=0.80, height=0.80, size=20)
+
+        left_x = self.safe
+        left_y = 1.85
+        left_w = (self.w - 2 * self.safe) * 0.34
+
+        # LEFT: счётчики стабильности + базовое поколение
+        self._text(
+            slide, left_x, left_y, left_w, 0.25, "ПОКОЛЕНИЯ МОДЕЛИ",
+            font=self.sans, size=9, bold=True, color=self.gold,
+        )
+        self._hairline(slide, left_x, left_y + 0.28, 1.0, weight=0.75, color=self.gold)
+        _base_ts = (gc.get("baseline") or {}).get("timestamp") or "—"
+        _rows = [
+            (f"Сравнение с версией от {_base_ts[:8]}",
+             {"font": self.sans, "size": 11, "color": self.deep_100}),
+            (f"Стабильных каналов: {counts.get('stable', 0)}",
+             {"font": self.sans, "size": 11, "color": self.deep_100}),
+            (f"Сдвиг в пределах неопределённости: {counts.get('shift_within_ci', 0)}",
+             {"font": self.sans, "size": 11, "color": self.deep_100}),
+            (f"Резких сдвигов: {counts.get('shift_strong', 0)}",
+             {"font": self.sans, "size": 11, "bold": counts.get('shift_strong', 0) > 0,
+              "color": self.deep_100}),
+        ]
+        self._paragraphs(slide, left_x, left_y + 0.5, left_w, 2.2, _rows, line_spacing=1.5)
+
+        _causes = summary.get("probable_causes") or []
+        if counts.get('shift_strong', 0) > 0 and _causes:
+            self._text(
+                slide, left_x, left_y + 2.6, left_w, 0.25, "ВЕРОЯТНЫЕ ПРИЧИНЫ",
+                font=self.sans, size=9, bold=True, color=self.gold,
+            )
+            self._paragraphs(
+                slide, left_x, left_y + 2.9, left_w, 1.6,
+                [(f"• {c}", {"font": self.sans, "size": 10, "color": self.deep_60})
+                 for c in _causes[:3]],
+                line_spacing=1.3,
+            )
+
+        # RIGHT: таблица каналов «был [CI] → стал [CI] · вердикт»
+        right_x = left_x + left_w + 0.5
+        right_w = self.w - self.safe - right_x
+        ry = left_y
+        self._text(
+            slide, right_x, ry, right_w, 0.25, "ROI ПО КАНАЛАМ",
+            font=self.sans, size=9, bold=True, color=self.gold,
+        )
+        self._hairline(slide, right_x, ry + 0.28, 1.0, weight=0.75, color=self.gold)
+        ry += 0.5
+        name_w = right_w * 0.34
+        vals_w = right_w * 0.42
+        for ch in (gc.get("channels") or [])[:8]:
+            def _ci_txt(ci):
+                if not ci or ci[0] is None or ci[1] is None:
+                    return ""
+                return f" [{float(ci[0]):.1f}–{float(ci[1]):.1f}]"
+            self._text(
+                slide, right_x, ry, name_w, 0.24, str(ch.get("name") or "—"),
+                font=self.sans, size=9, color=self.deep_100,
+            )
+            self._text(
+                slide, right_x + name_w, ry, vals_w, 0.24,
+                (f"{float(ch.get('roi_old') or 0):.1f}{_ci_txt(ch.get('roi_ci_old'))} → "
+                 f"{float(ch.get('roi_new') or 0):.1f}{_ci_txt(ch.get('roi_ci_new'))}"),
+                font=self.sans, size=9, color=self.deep_100,
+            )
+            self._text(
+                slide, right_x + name_w + vals_w, ry, right_w - name_w - vals_w, 0.24,
+                str(ch.get("verdict_ru") or ""),
+                font=self.sans, size=9,
+                bold=ch.get("verdict") == "shift_strong",
+                color=self.deep_100 if ch.get("verdict") == "shift_strong" else self.deep_60,
+            )
+            self._hairline(slide, right_x, ry + 0.27, right_w, weight=0.25)
+            ry += 0.34
+
+        self._text(
+            slide, left_x, 6.35, self.w - 2 * self.safe, 0.5,
+            ("Метод: обе версии модели пересчитаны на сегодняшних данных; вердикт — "
+             "по перекрытию интервалов неопределённости (у оценок есть разброс, "
+             "сравниваются интервалы, а не голые точки)."),
+            font=self.sans, size=9, color=self.deep_60, line_spacing=1.25,
+        )
+        self._footer(slide, 6 + int(bool(self.backtest)))
+
+    def s_forecast_plan(self):
+        """E5 (2026-07-10): слайд «Прогноз на будущий период».
+
+        Сравнительная таблица сценариев бюджетного плана: имя, бюджет,
+        прогноз KPI, доверительный интервал, ROAS. Рисуется ТОЛЬКО при
+        живом results/planning.json + сценариях — wireframe-режима нет.
+        """
+        fc = self.forecast
+        slide = self._blank()
+        slide_num = 6 + int(bool(self.backtest)) + int(bool(self.gen_compare))
+        self._header(slide, slide_num=slide_num)
+
+        self._action_title(
+            slide, "Прогноз на будущий период",
+            show_lime=True, y=0.80, height=0.80,
+        )
+
+        left_x = self.safe
+        content_y = 1.85
+        content_w = self.w - 2 * self.safe
+
+        # Заголовок таблицы сценариев
+        self._text(
+            slide, left_x, content_y, content_w, 0.25, "ВАРИАНТЫ БЮДЖЕТНОГО ПЛАНА",
+            font=self.sans, size=9, bold=True, color=self.gold,
+        )
+        self._hairline(slide, left_x, content_y + 0.28, content_w, weight=0.75, color=self.gold)
+
+        ry = content_y + 0.55
+        scenarios = (fc.get("scenarios") or [])[:4]
+
+        # Ширины колонок
+        col_name_w = content_w * 0.28
+        col_budget_w = content_w * 0.20
+        col_kpi_w = content_w * 0.20
+        col_ci_w = content_w * 0.20
+        col_roas_w = content_w - col_name_w - col_budget_w - col_kpi_w - col_ci_w
+
+        # Строка заголовков колонок
+        for label, cx, cw in (
+            ("Сценарий", left_x, col_name_w),
+            ("Бюджет, ₽", left_x + col_name_w, col_budget_w),
+            ("Прогноз KPI", left_x + col_name_w + col_budget_w, col_kpi_w),
+            ("90%-интервал", left_x + col_name_w + col_budget_w + col_kpi_w, col_ci_w),
+            ("ROAS", left_x + col_name_w + col_budget_w + col_kpi_w + col_ci_w, col_roas_w),
+        ):
+            self._text(
+                slide, cx, ry, cw, 0.22, label,
+                font=self.sans, size=8.5, bold=True, color=self.deep_60,
+            )
+        ry += 0.32
+
+        accepted = fc.get("accepted_variant")
+        for sc in scenarios:
+            is_accepted = sc.get("variant_id") == accepted
+            row_color = self.deep_100
+
+            # CI: берём последние элементы как репрезентативные для горизонта
+            ci_low_list = sc.get("ci_low") or []
+            ci_high_list = sc.get("ci_high") or []
+            ci_low_val = ci_low_list[-1] if ci_low_list else None
+            ci_high_val = ci_high_list[-1] if ci_high_list else None
+            ci_str = (
+                f"{ci_low_val:,.0f} – {ci_high_val:,.0f}".replace(",", " ")
+                if ci_low_val is not None and ci_high_val is not None
+                else "—"
+            )
+            budget_str = (
+                f"{sc.get('total_spend_money'):,.0f}".replace(",", " ")
+                if sc.get("total_spend_money") is not None else "—"
+            )
+            kpi_str = (
+                f"{sc.get('total_kpi'):,.0f}".replace(",", " ")
+                if sc.get("total_kpi") is not None else "—"
+            )
+            roas_str = (
+                f"{sc.get('roas_money'):.2f}"
+                if sc.get("roas_money") is not None else "—"
+            )
+            name_str = str(sc.get("name") or sc.get("variant_id") or "—")
+            if is_accepted:
+                name_str = f"★ {name_str}"
+
+            for txt, cx, cw in (
+                (name_str, left_x, col_name_w),
+                (budget_str, left_x + col_name_w, col_budget_w),
+                (kpi_str, left_x + col_name_w + col_budget_w, col_kpi_w),
+                (ci_str, left_x + col_name_w + col_budget_w + col_kpi_w, col_ci_w),
+                (roas_str, left_x + col_name_w + col_budget_w + col_kpi_w + col_ci_w, col_roas_w),
+            ):
+                self._text(
+                    slide, cx, ry, cw, 0.24, txt,
+                    font=self.sans, size=9,
+                    bold=is_accepted,
+                    color=row_color,
+                )
+            self._hairline(slide, left_x, ry + 0.27, content_w, weight=0.25)
+            ry += 0.34
+
+        # Оговорки
+        disclaimers = fc.get("disclaimers") or []
+        if disclaimers:
+            disc_text = " · ".join(str(d) for d in disclaimers[:3])
+            self._text(
+                slide, left_x, 6.35, content_w, 0.5,
+                f"Оговорки: {disc_text}",
+                font=self.sans, size=9, color=self.deep_60, line_spacing=1.25,
+            )
+
+        # Сравнительный график вариантов (при ≥2 вариантах) — вставляем в правую
+        # часть слайда под таблицей. Таблица занимает верхние строки, график —
+        # нижнюю половину. Используем тот же PNG base64 → BytesIO паттерн
+        # что и в s13_colophon (add_picture из BytesIO объекта).
+        if len(scenarios) >= 2:
+            try:
+                import base64
+                import io
+                try:
+                    from econometrica.charts.generators import scenarios_comparison_chart
+                except ImportError:
+                    from charts.generators import scenarios_comparison_chart
+                kpi_label = self.kpi.get("target_axis") or "Прогноз KPI"
+                data_uri = scenarios_comparison_chart(scenarios, kpi_label=kpi_label)
+                if data_uri:
+                    img_bytes = base64.b64decode(data_uri)
+                    img_stream = io.BytesIO(img_bytes)
+                    # График под таблицей: слева half + отступ, снизу до footer
+                    chart_x = left_x
+                    chart_y = ry + 0.15  # чуть ниже последней строки таблицы
+                    chart_w = content_w
+                    chart_h = max(0.5, 6.0 - chart_y)
+                    if chart_h >= 0.5:
+                        slide.shapes.add_picture(
+                            img_stream,
+                            Inches(chart_x), Inches(chart_y),
+                            width=Inches(chart_w), height=Inches(chart_h),
+                        )
+            except Exception:
+                pass  # График опционален — ошибка не ломает PPTX
+
+        self._footer(slide, slide_num)
+
     def s12_glossary(self):
         """Glossary / тезаурус: compact 3-column reference for deck terms."""
         slide = self._blank()
-        self._header(slide, slide_num=15)
+        self._header(slide, slide_num=11 + self._page_shift)
 
-        self._category(slide, self.safe, 0.60, "ПРИЛОЖЕНИЕ А")
+        # B4-2: плашка секции вместо отдельного слайда-дивайдера.
+        self._section_intro(
+            slide, 5, "Приложение и источники",
+            "Глоссарий терминов, методологические ссылки и контакты",
+        )
 
         self._text(
             slide, self.safe, 0.80, self.w - 2 * self.safe, 0.70,
@@ -2948,16 +3792,23 @@ class AuroraPPTXBuilder:
             _methodology_terms = [
                 ("MMM", "Marketing Mix Modeling - статистическая декомпозиция вклада каналов в продажи."),
                 ("OLS", "Ordinary Least Squares - метод наименьших квадратов, closed-form оценка β-коэффициентов."),
-                ("Bootstrap", "Resampling-метод для построения доверительных интервалов (n=1000 итераций)."),
+                # Мат-аудит 2026-07-02 (F-18/INV-50): глоссарий врал о методологии.
+                # Было: «n=1000» (движок: n_boot=200), «Conformal PI с гарантией
+                # покрытия» (conformal.py F3-caveat: на временных рядах
+                # exchangeability нарушена - гарантия НЕ строгая; позиционирование
+                # honest PI + caveats, не math-guaranteed).
+                ("Bootstrap", "Resampling-метод для построения доверительных интервалов (200 итераций)."),
                 ("Frequentist", "Классический статистический подход: точечные оценки + CI на основе sampling distribution."),
                 ("Adstock", "Отложенный эффект медиа: часть воздействия переносится на следующие периоды."),
                 ("Насыщение", "Убывающая отдача: кривая Хилла, S-образное насыщение эффекта."),
-                ("Conformal PI", "Distribution-free prediction interval с гарантией покрытия."),
+                ("Conformal PI", "Интервал предсказания без предположений о распределении; на временных рядах маркетинга покрытие приближённое (строгая гарантия требует взаимозаменяемости наблюдений)."),
             ]
             _quality_terms = [
                 ("R²", "Доля объяснённой моделью вариации продаж (0 до 1). Целевое > 0.7."),
                 ("MAPE", "Средняя абсолютная процентная ошибка прогноза."),
-                ("Bootstrap CI", "95% доверительный интервал на ROI/mROAS из resampling-распределения."),
+                # F-18 (2026-07-02): было «95%» — движок возвращает 90% HDI
+                # (compute_ci_hdi, DEFAULT_HDI_PROB=0.9, M-OLS-1).
+                ("Bootstrap CI", "90% HDI-интервал на ROI/mROAS из resampling-распределения."),
                 ("β-SE", "Стандартная ошибка β-коэффициентов из (XᵀX)⁻¹."),
                 ("MQS", "Model Quality Score - композитный индекс качества Aurora (0-100)."),
                 ("VIF / Leverage", "OLS-диагностики мультиколлинеарности и влиятельности точек."),
@@ -2978,7 +3829,9 @@ class AuroraPPTXBuilder:
                 ("MAPE", "Средняя абсолютная процентная ошибка прогноза."),
                 ("R-hat", "Диагностика сходимости MCMC-цепей; целевое значение ≤ 1.01."),
                 ("ESS", "Effective Sample Size - число независимых выборок из апостериорного распределения."),
-                ("CI (95%)", "Байесовский интервал правдоподобия - в нём истинное значение лежит с 95% вероятностью."),
+                # B1-fix R-07: фактический уровень — 90% HDI (DEFAULT_HDI_PROB=0.9);
+                # «95%» в глоссарии — то же семейство F-18, не догрепанное b501708.
+                ("CI (90% HDI)", "Байесовский интервал правдоподобия - в нём истинное значение лежит с 90% вероятностью."),
                 ("MQS", "Model Quality Score - композитный индекс качества Aurora (0-100)."),
                 ("Базовый / инкрементальный", "Органические продажи без медиа и продажи, вызванные медиа-инвестициями."),
             ]
@@ -3021,7 +3874,7 @@ class AuroraPPTXBuilder:
                 )
                 ey += entry_h
 
-        self._footer(slide, 15)
+        self._footer(slide, 11 + self._page_shift)
 
     # ----------------------------------------------------------------
     # SLIDE 13 - COLOPHON (closing)
@@ -3033,7 +3886,7 @@ class AuroraPPTXBuilder:
         Flow: statement → CTA (with lime) → narrative → wordmark → copyright.
         No duplication of metrics from other slides."""
         slide = self._blank()
-        self._header(slide, slide_num=16)
+        self._header(slide, slide_num=12 + self._page_shift)
 
         # Big closing statement - starts higher (more top breathing), no category tag
         self._text(
@@ -3057,27 +3910,34 @@ class AuroraPPTXBuilder:
             slide, self.safe, cta_y + 0.08, 4.0, 0.2, "ДАЛЬШЕ",
             font=self.sans, size=9, bold=True, color=self.gold,
         )
+        # B1-fix R-10: «через 90 дней» — шаблонное обещание без основания;
+        # в live нейтральная формулировка (срок волны — предмет договорённости).
         self._text(
             slide, self.safe, cta_y + 0.32, self.w - 2 * self.safe, 0.35,
-            "Следующая волна анализа - через 90 дней.",
+            ("Следующая волна анализа - после накопления новых данных."
+             if self.is_live else "Следующая волна анализа - через 90 дней."),
             font=self.serif, size=18, italic=True, color=self.deep_100,
         )
         # Sacred lime underlines CTA (emphasizes action, not statement)
         self._lime_under(slide, self.safe, cta_y + 0.75, 4.5)
 
         # Narrative paragraph - platform philosophy (positioned AFTER CTA as rationale footer)
-        narrative = (
-            "Aurora AI превращает медиабюджет из статьи затрат в управляемый инструмент роста. "
-            "Байесовский вывод позволяет не просто измерить эффективность каналов, но понять границы "
-            "неопределённости - основу доверия к любым модельным решениям. Методология, откалиброванная "
-            "под индустриальные стандарты, даёт результаты уровня ведущих консалтинговых групп без "
-            "необходимости содержать собственную команду аналитиков. Платформа масштабируется от "
-            "ежеквартального отчёта до ежемесячного пульс-мониторинга, от одной SKU до портфеля брендов."
-        )
-        self._text(
+        # B1-fix R-06-семейство: «результаты уровня ведущих консалтинговых групп»
+        # — недоказуемое сравнительное заявление (INV-50); заменено фактичным.
+        # B4-3 (стайлгайд §4): сплошной массив 4 строки разбит — лид-мысль
+        # выделена, дальше два коротких предложения (Ильяхов: одна мысль —
+        # одно предложение; массивы без акцентов тяжело воспринимать).
+        self._rich(
             slide, self.safe, 5.00, self.w - 2 * self.safe, 1.5,
-            narrative,
-            font=self.serif, size=11, italic=True, color=self.deep_60,
+            runs=[
+                ("Медиабюджет - управляемый инструмент роста, а не статья затрат. ",
+                 {"font": self.serif, "size": 11, "bold": True, "italic": True, "color": self.deep_80}),
+                ("Байесовский вывод измеряет эффективность каналов вместе с границами "
+                 "неопределённости - это основа доверия к решениям. Методология следует "
+                 "отраслевым стандартам MMM; платформа масштабируется от квартального отчёта "
+                 "до ежемесячного мониторинга, от одной позиции до портфеля брендов.",
+                 {"font": self.serif, "size": 11, "italic": True, "color": self.deep_60}),
+            ],
             line_spacing=1.5,
         )
 
@@ -3109,26 +3969,33 @@ class AuroraPPTXBuilder:
     # ---------- Build ----------
 
     def build(self):
-        # Stage C.6.3 (Option B): 16-slide layout with 4 section dividers.
-        # Cover(1) → TOC(2) → Exec Summary block (3,5,9) with Декомпозиция
-        # divider at (4) + chart/table/timeline (6,7,8) → SCQAR (9) →
-        # Методология divider (10) + content (11) → Данные divider (12) +
-        # sources (13) → Приложение divider (14) + glossary (15) +
-        # colophon (16). Symmetric tier-1 structure; TOC 5-section honest.
+        # B4-2 (2026-07-03, стайлгайд §1): 12-slide layout БЕЗ отдельных
+        # слайдов-дивайдеров. Прежняя 16-слайдовая схема (Stage C.6.3) несла
+        # 4 полупустых перебивки (25% деки); теперь секцию открывает компактная
+        # плашка _section_intro на первом содержательном слайде.
+        # Cover(1) → TOC(2) → Главное (3 at-a-glance, 4 key message, 5 SCQAR)
+        # → Декомпозиция (6 chart+плашка, 7 table, 8 timeline) →
+        # Методология (9+плашка) → Данные (10+плашка) →
+        # Приложение (11 glossary+плашка, 12 colophon).
         self.s01_cover()
         self.s03_toc()
         self.s02_at_a_glance()
         self.s05_key_message()
         self.s09_scqar()
-        self.s04_section_divider()
+        # E1+П5+E3 (2026-07-03): вставные слайды честности завершают «Главное»
+        # (после SCQAR): витрина «Проверка на истории», затем «Что изменилось
+        # с прошлого квартала» — только при живых артефактах.
+        if self.backtest:
+            self.s10b_backtest()
+        if self.gen_compare:
+            self.s10c_generation_compare()
+        if self.forecast:
+            self.s_forecast_plan()
         self.s06_action_chart()
         self.s07_action_table()
         self.s08_action_timeline()
-        self.s_divider_methodology()
         self.s10_methodology()
-        self.s_divider_data()
         self.s11_sources()
-        self.s_divider_appendix()
         self.s12_glossary()
         self.s13_colophon()
         return self.prs

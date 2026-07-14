@@ -250,6 +250,13 @@
           fontSize: 10,
           rotate: allDates.length > 24 ? 35 : 0,
           interval: Math.max(0, Math.floor(allDates.length / 14) - 1),
+          // Фикс аудита 2026-07-11: нормализуем дату к ММ.ГГГГ. Прогнозные даты
+          // приходят ISO с временем ('2026-01-31T00:00:00'), исторические — без
+          // ('2024-01-31'); без нормализации ось показывала мусор '< -31T00:00:00'.
+          formatter: (/** @type {string} */ v) => {
+            const m = String(v).slice(0, 10).match(/^(\d{4})-(\d{2})-(\d{2})/);
+            return m ? `${m[2]}.${m[1]}` : String(v);
+          },
         },
         axisLine: { lineStyle: { color: 'rgba(255,255,255,0.1)' } },
         axisTick: { show: false },

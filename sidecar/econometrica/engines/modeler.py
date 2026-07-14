@@ -114,17 +114,111 @@ def check_compiler() -> bool:
         return False
 
 
-def get_mcmc_params(has_compiler: bool) -> dict:
+def get_mcmc_params(has_compiler: bool, has_jax: bool | None = None) -> dict:
     """MCMC parameters based on environment (Windows optimization).
 
     Defaults bumped 2026-04-19 to 4/2000/2000 - на JAX/NUTS секунды,
     но даёт надёжный R-hat (4 цепи) и точные ROI CI (2000 draws + 2000 tune).
+
+    Мат-аудит 2026-07-02 (F-28): решает БЭКЕНД, не компилятор. Tier-1 NUTS
+    идёт через numpyro/JAX, которому g++ не нужен, — прежняя проверка
+    check_compiler() даунгрейдила полноценный JAX-NUTS до 2×1000×500 на любой
+    машине без g++ (включая клиентскую PyInstaller-поставку с вендоренным JAX):
+    2 цепи вместо канонических 4 (Vehtari et al. 2021), половина draws.
+    Ярлык sampler='Metropolis' был ложью вдвойне: ключ нигде не читается,
+    а Metropolis в цепочке сэмплеров запрещён (numpyro→pytensor→ADVI).
+    Урезанные параметры оправданы ТОЛЬКО для действительно медленного пути —
+    PyTensor Python-mode (нет ни JAX, ни компилятора).
+
+    Args:
+        has_compiler: наличие C-компилятора (PyTensor fast path).
+        has_jax: наличие numpyro/JAX (Tier-1). None → автоопределение.
     """
-    if has_compiler:
+    if has_jax is None:
+        try:
+            import numpyro  # noqa: F401
+            has_jax = True
+        except ImportError:
+            has_jax = False
+    if has_jax or has_compiler:
         return {'chains': 4, 'draws': 2000, 'tune': 2000, 'sampler': 'NUTS'}
-    # No compiler → Metropolis fallback. Сохраняем меньшие дефолты, иначе обучение
-    # 4×2000×2000 на Metropolis = десятки минут. Antон поднимет вручную если нужно.
-    return {'chains': 2, 'draws': 1000, 'tune': 500, 'sampler': 'Metropolis'}
+    # Медленный путь (PyTensor Python-mode, ни JAX, ни g++): меньшие дефолты,
+    # иначе обучение 4×2000×2000 = десятки минут. Поднять можно mcmc_override.
+    return {'chains': 2, 'draws': 1000, 'tune': 500, 'sampler': 'NUTS'}
+
+
+def _resolve_auto_adstock(
+    adstock_config: dict,
+    data_file: str,
+    kpi_col: str,
+    media_cols: list[str],
+    date_col: str | None = None,
+) -> None:
+    """Resolve 'auto' adstock entries in-place using BIC selector.
+
+    Mutates adstock_config: replaces 'auto' (str) or {'type': 'auto'} (dict)
+    with the BIC-selected concrete type ('geometric' or 'weibull') for each
+    media channel that requested auto-selection.
+
+    Args:
+        adstock_config: Per-channel adstock config dict — mutated in-place.
+        data_file: Path to the training data file (xlsx/csv).
+        kpi_col: KPI column name.
+        media_cols: List of media channel column names.
+        date_col: Optional date column name (passed for API consistency).
+
+    Side effects:
+        - Logs INFO for each resolved channel.
+        - Logs WARNING and falls back to 'geometric' on selector error.
+        - No-op when no channels require auto-selection.
+    """
+    # Identify channels that need auto-resolution
+    auto_channels = []
+    for ch in media_cols:
+        val = adstock_config.get(ch)
+        if val == 'auto' or (isinstance(val, dict) and val.get('type') == 'auto'):
+            auto_channels.append(ch)
+
+    if not auto_channels:
+        return  # nothing to do — skip selector call entirely
+
+    try:
+        from engines.adstock_selector import select_adstock
+        result = select_adstock(
+            file_path=data_file,
+            kpi_column=kpi_col,
+            media_columns=auto_channels,
+            date_column=date_col,
+        )
+    except Exception as exc:
+        logger.warning(
+            'adstock auto-select: selector raised exception (%s), '
+            'falling back to geometric for channels: %s',
+            exc, auto_channels,
+        )
+        for ch in auto_channels:
+            adstock_config[ch] = 'geometric'
+        return
+
+    if result.get('status') != 'ok':
+        logger.warning(
+            'adstock auto-select: selector returned status=%s (%s), '
+            'falling back to geometric for channels: %s',
+            result.get('status'), result.get('message'), auto_channels,
+        )
+        for ch in auto_channels:
+            adstock_config[ch] = 'geometric'
+        return
+
+    selections = result.get('selections', {})
+    for ch in auto_channels:
+        sel = selections.get(ch)
+        if sel and isinstance(sel, dict):
+            resolved = sel.get('type', 'geometric')
+        else:
+            resolved = 'geometric'
+        adstock_config[ch] = resolved
+        logger.info('adstock auto-resolved by BIC: %s -> %s', ch, resolved)
 
 
 def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[str, Any]:
@@ -184,11 +278,30 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
         df = pd.read_excel(data_file)
 
     kpi_col = config['kpi_column']
+    # NaN-KPI row filter: drop media-plan tail (future rows where KPI is empty).
+    # Invariant: if no tail exists, notna() == True for all rows → no-op.
+    df = df[df[kpi_col].notna()].reset_index(drop=True)
+
     media_cols = config['media_columns']
     control_cols = config.get('control_columns', [])
     date_col = config.get('date_column', 'date')
     adstock_config = config.get('adstock_config', {})
     merge_rules = config.get('merge_rules', {}) or {}
+
+    # ─── Auto adstock resolution (NEW-1 fix) ─────────────────────────────
+    # Резолвим 'auto' / {'type': 'auto'} ДО enforce_jax_for_weibull.
+    # Это критично: если BIC выбрал 'weibull', enforce_jax должен получить
+    # конкретный тип, иначе 'auto' не пройдёт проверку на weibull→JAX.
+    # Также гарантирует, что channel_adstock_types в pickle содержит
+    # конкретный тип, а не строку 'auto' (которая ломала fallback geometric
+    # в прогнозных путях — находка приёмки П2 / NEW-1).
+    _resolve_auto_adstock(
+        adstock_config,
+        data_file=data_file,
+        kpi_col=kpi_col,
+        media_cols=media_cols,
+        date_col=date_col,
+    )
 
     # ─── KPI registry activation (v2.0 foundation, D.1) ─────────────────
     # Single source of truth для priors (sales / awareness / future KPIs).
@@ -286,11 +399,23 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
     holiday_cols_injected = []
     if use_holidays and date_col in df.columns:
         try:
-            from utils.holiday_calendar_ru import generate_holiday_dummies, list_holiday_names
-            holiday_df = generate_holiday_dummies(df[date_col])
+            from utils.holiday_calendar_ru import (
+                generate_holiday_dummies, list_holiday_names, user_covered_auto_holidays,
+            )
+            # v2.1 (2026-07-05): fraction-дамми — доля дней периода строки в окне
+            # ПОДГОТОВКИ к событию (решение Антона: моделируем закупки подарков
+            # ~1-3 недели до события, не праздничные дни). На месячных данных
+            # праздники перестают быть вечно-нулевыми/флаки от точечной даты.
+            holiday_df = generate_holiday_dummies(df[date_col], mode='fraction')
+            # Семантический дедуп (аудит 2026-07-05): ручная holiday_blackfriday
+            # обязана гасить авто holiday_black_friday — сравнение по норм-имени,
+            # не по точному (иначе двойной учёт события).
+            user_covered = user_covered_auto_holidays(list(df.columns))
             for hcol in holiday_df.columns:
                 if hcol in disabled_holidays:
                     continue  # #6 opt-out: пользователь отключил этот авто-праздник
+                if hcol in user_covered:
+                    continue  # preserve user-supplied (любое написание имени)
                 if hcol not in df.columns:  # preserve user-supplied
                     df[hcol] = holiday_df[hcol].values
                     holiday_cols_injected.append(hcol)
@@ -343,6 +468,65 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
             ),
             'missing_columns': missing_media,
         }
+
+    # ── Автосезонность (2026-07-04): Фурье-компонента сезонной волны ──
+    # ВАЖНО: инжект ДО валидации control_columns (ниже) — Фурье runtime-генерируются
+    # (в сыром файле их нет). При backtest-окне config.control_columns уже содержит
+    # их (сохранены из полной модели) → валидация упала бы, инжектируй мы позже
+    # (holiday инжектится до валидации по той же причине). Праздники ловят
+    # календарные всплески, Фурье — гладкую сезонную ВОЛНУ спроса (Prophet §3.2
+    # Taylor&Letham 2018 / Robyn). Гейт INV-50: ≥2 цикла + статзначимая автокорр.
+    # Мастер-флаг use_seasonality. Колонки нормализуются Z-score (mean≈0 безопасно),
+    # персистятся в model_data['fourier_seasonality'] → decomposer/backtest воспроизводят.
+    fourier_seasonality_meta = None
+    if config.get('use_seasonality', True):
+        try:
+            from utils.forecast_validation import detect_granularity, detect_seasonality
+            from utils.fourier_seasonality import (
+                decide_n_harmonics, generate_fourier_terms, should_inject_seasonality,
+            )
+            _season_y = df[kpi_col].values.astype(float)
+            _season_n = len(_season_y)
+            _season_gran = 'W'
+            if date_col in df.columns:
+                _gr = detect_granularity(df[date_col])
+                if _gr.get('confidence', 0) >= 0.4:
+                    _season_gran = _gr['granularity']
+            _season = detect_seasonality(_season_y, granularity=_season_gran)
+            _inject, _reason = should_inject_seasonality(_season, _season_n)
+            if _inject:
+                _period = int(_season['period'])
+                _n_harm = decide_n_harmonics(_period)
+                _fdf = generate_fourier_terms(_season_n, _period, _n_harm)
+                _injected = []
+                for _fc in _fdf.columns:
+                    if _fc not in df.columns:
+                        df[_fc] = _fdf[_fc].values
+                        _injected.append(_fc)
+                    if _fc not in control_cols:
+                        control_cols.append(_fc)
+                if _injected:
+                    fourier_seasonality_meta = {
+                        'period': _period, 'n_harmonics': _n_harm,
+                        'columns': _injected, 'granularity': _season_gran,
+                        'autocorr': float(_season.get('autocorr', 0.0)),
+                    }
+                    logger.info('Auto-injected Fourier seasonality: %s, K=%d (%d regressors)',
+                                _reason, _n_harm, len(_injected))
+            else:
+                logger.info('Fourier seasonality skipped: %s', _reason)
+        except Exception as _season_err:
+            logger.warning('Fourier seasonality injection skipped: %s', _season_err)
+    # Синхронизация (робастность к backtest-окнам): убрать из control_cols любые
+    # Фурье-колонки, отсутствующие в df — при коротком окне / другом периоде /
+    # use_seasonality=False config.control_columns из полной модели не совпадёт с
+    # реально сгенерированными, и X_control ниже искал бы отсутствующие колонки.
+    from utils.fourier_seasonality import FOURIER_COL_PREFIX as _FOURIER_PREFIX
+    control_cols = [
+        c for c in control_cols
+        if not str(c).startswith(_FOURIER_PREFIX) or c in df.columns
+    ]
+
     missing_control = [c for c in control_cols if c not in df.columns]
     if missing_control:
         return {
@@ -359,7 +543,7 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
 
     y = df[kpi_col].values.astype(float)
     n_obs = len(y)
-    n_params = len(media_cols) + len(control_cols) + 1  # +1 for intercept
+    n_params = len(media_cols) + len(control_cols) + 1  # +1 for intercept (incl. Fourier)
 
     # Apply adstock transformations
     from utils.adstock import apply_adstock
@@ -491,9 +675,21 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
                     control_prior_mus.append(0.0)   # unconstrained signed
                 elif kind == 'holiday':
                     control_prior_mus.append(0.0)   # holiday effect can be either sign
+                elif kind == 'seasonality':
+                    # Fourier sin/cos гармоники — симметричны вокруг 0, коэффициенты
+                    # без знакового ограничения. Zero-centered prior (как 'unknown').
+                    # Явная ветка защищает семантику: аудит 2026-07-04 подтвердил
+                    # корректность mu=0.0 для sin/cos — не давать 'lean positive' bias.
+                    control_prior_mus.append(0.0)
                 elif kind == 'control':
                     # Positive controls (distribution, trade_activity, promo) — lean positive
                     control_prior_mus.append(0.2)
+                elif kind == 'category':
+                    # Фаза Б (2026-07-04): продажи категории/рынка — spread demand.
+                    # Бренд ⊂ рынок → продажи бренда положительно связаны с объёмом
+                    # рынка (бренд «плывёт» на волне спроса). Сильнее generic control
+                    # (0.2): это реальный прокси спроса, не noise-like контроль.
+                    control_prior_mus.append(0.3)
                 else:
                     # 'unknown' kind — true fallback, uninformative zero-centered prior
                     # (data will dominate). Avoid 0.2 «lean positive» bias on unrecognized.
@@ -510,6 +706,61 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
 
     y_mean, y_std = y.mean(), max(y.std(), 1e-10)
     y_norm = (y - y_mean) / y_std
+
+    # ── E2 (2026-07-03): калибровка lift-тестами (Robyn §4.3 / Jin 2017) ────
+    # Измеренный lift эксперимента входит в модель ДОПОЛНИТЕЛЬНЫМ НАБЛЮДЕНИЕМ
+    # правдоподобия (см. цикл каналов): суммарный вклад канала за период теста
+    # ~ Normal(lift, σ_теста) в norm-шкале — adstock/насыщение/β согласуются
+    # с тестом совместно. Невалидный вход — честная ошибка ДО сэмплирования.
+    calibrations_prepared: list[dict] = []
+    if config.get('calibrations'):
+        from utils.calibration import CalibrationError, prepare_calibrations
+        try:
+            calibrations_prepared = prepare_calibrations(
+                df, config.get('calibrations'),
+                media_columns=media_cols, date_column=date_col,
+            )
+        except CalibrationError as e:
+            return {
+                'status': 'error',
+                'error_code': 'CALIBRATION_INVALID',
+                'message': str(e),
+            }
+
+    # ── Мат-аудит 2026-07-02 (F-13): in-train pre-flight ────────────────────
+    # Endpoint /compute/preflight (S1: quick proxy + prior predictive) существовал,
+    # но НЕ подключён к UI (Rust-команды нет, фронт зовёт train напрямую) —
+    # гейт честности не доставлялся пользователю. Минимальная доставка: те же
+    # проверки в начале обучения → diagnostics['preflight'] →
+    # model-diagnostics.json → optimizer_honesty/UI. Prior predictive — канон
+    # (McElreath: [ASSUMED]-priors обязаны пройти проверку до данных; Gelman,
+    # Bayesian Workflow §5.10 — понимание неочевидных свойств модели ДО данных).
+    # Сбой контура НЕ роняет обучение. Полноценный UX-гейт до кнопки — OPP-05.
+    preflight_summary = None
+    try:
+        from utils.reliability_quick_proxy import quick_proxy_check
+        _media_matrix_pf = df[media_cols].fillna(0).values.astype(float)
+        _qp = quick_proxy_check(_media_matrix_pf, media_cols)
+        _pp = None
+        try:
+            from utils.reliability_a4 import prior_predictive_check
+            _pp = prior_predictive_check(y, _media_matrix_pf, n_samples=300)
+        except Exception as _pp_err:  # noqa: BLE001
+            logger.warning(f"prior_predictive_check failed in-train: {_pp_err}")
+        preflight_summary = {
+            'quick_proxy': ({k: _qp.get(k) for k in ('tier', 'warnings', 'checks')
+                             if k in _qp} if isinstance(_qp, dict) else None),
+            'prior_predictive': ({k: _pp.get(k) for k in
+                                  ('status', 'coverage', 'warning', 'recommendation')
+                                  if k in _pp} if isinstance(_pp, dict) else None),
+        }
+        _pp_status = (_pp or {}).get('status')
+        if _pp_status in ('warn', 'fail'):
+            logger.warning(
+                f"Prior predictive {_pp_status}: {(_pp or {}).get('warning')}")
+    except Exception as _pf_err:  # noqa: BLE001
+        logger.warning(f"In-train preflight failed (не блокирует обучение): {_pf_err}")
+        preflight_summary = None
 
     # MCMC parameters
     has_compiler = check_compiler()
@@ -673,6 +924,25 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
                 x_safe = pm.math.maximum(x_norm, 0)
                 saturated = x_safe ** alphas[i] / (x_safe ** alphas[i] + gammas[i] ** alphas[i] + 1e-10)
                 media_effect = media_effect + media_betas[i] * saturated
+
+                # E2: наблюдения lift-тестов этого канала (Robyn MAPE.LIFT-класс).
+                # Deterministic сохраняет постериорный вклад за период теста —
+                # после сэмплирования по нему строится честная сверка
+                # calibration_check (модель vs тест).
+                for _ci_idx, _calib in enumerate(calibrations_prepared):
+                    if _calib['channel'] != col:
+                        continue
+                    _contrib_test = (
+                        media_betas[i]
+                        * saturated[_calib['idx_from']:_calib['idx_to']]
+                    ).sum()
+                    pm.Deterministic(f'calib_contrib_{_ci_idx}', _contrib_test)
+                    pm.Normal(
+                        f'lift_obs_{_ci_idx}',
+                        mu=_contrib_test,
+                        sigma=max(_calib['sigma_abs'] / y_std, 1e-6),
+                        observed=_calib['lift_abs'] / y_std,
+                    )
 
             # Likelihood
             mu = intercept + media_effect + control_effect
@@ -936,10 +1206,16 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
 
             y_pred_norm = intercept_mean + media_effect_pred + control_effect_pred
             logger.info(f"y_pred reconstructed from posterior means ({n_obs} obs)")
+            y_pred_reconstruction_failed = False
         except Exception as e:
             logger.exception(f"y_pred reconstruction failed: {e}")
             import numpy as _np
             y_pred_norm = _np.zeros(n_obs)
+            # Мат-аудит 2026-07-02 (F-20): нулевой y_pred → R²/MAPE считаются от
+            # константы y_mean и выглядят как «плохая модель», хотя реальная
+            # причина — сбой реконструкции. Маркер уводит honesty-вердикт в
+            # unknown («качество не измерено»), а не в «модель плохая».
+            y_pred_reconstruction_failed = True
 
         y_pred = y_pred_norm * y_std + y_mean
 
@@ -1003,16 +1279,72 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
                 logger.warning(f"effective_params contraction failed: {_e}")
                 effective_params = None
 
+        # Мат-аудит 2026-07-02 (F-11/F-12): bulk/tail-ESS (Vehtari et al. 2021 —
+        # recommended threshold 400; при ESS ниже сам R-hat ненадёжен) и E-BFMI
+        # (energy-диагностика NUTS; порог 0.3 — эвристика Stan/PyMC, НЕ Betancourt).
+        # Идут в metrics + checks honesty-gate; MQS-формула НЕ меняется
+        # (клиентские числа стабильны). Любой сбой → None (не роняем обучение).
+        ess_bulk_min = None
+        ess_tail_min = None
+        bfmi_min = None
+        try:
+            _ess_vars = [v for v in ('media_betas', 'alphas', 'gammas',
+                                     'adstock_decay', 'intercept')
+                         if v in trace.posterior]
+            _bulk_vals, _tail_vals = [], []
+            for _v in _ess_vars:
+                try:
+                    _bulk_vals.append(float(np.min(
+                        az.ess(trace, var_names=[_v], method='bulk')[_v].values)))
+                    _tail_vals.append(float(np.min(
+                        az.ess(trace, var_names=[_v], method='tail')[_v].values)))
+                except Exception:  # noqa: BLE001 - per-var сбой не фатален
+                    continue
+            if _bulk_vals:
+                ess_bulk_min = min(_bulk_vals)
+            if _tail_vals:
+                ess_tail_min = min(_tail_vals)
+        except Exception as _ess_min_err:  # noqa: BLE001
+            logger.warning(f"ESS bulk/tail min computation failed: {_ess_min_err}")
+        try:
+            _bfmi_vals = az.bfmi(trace)
+            if _bfmi_vals is not None and np.size(_bfmi_vals) > 0 \
+                    and bool(np.all(np.isfinite(_bfmi_vals))):
+                bfmi_min = float(np.min(_bfmi_vals))
+        except Exception:  # noqa: BLE001 - ADVI/не-NUTS: energy отсутствует
+            bfmi_min = None
+
         diagnostics = generate_diagnostics_summary(
             r_squared=r_squared, mape=mape, rmse=rmse,
             r_hat_max=r_hat_max, divergences=divergences,
             n_obs=n_obs, n_params=n_params,
             effective_params=effective_params,
+            ess_bulk_min=ess_bulk_min,
+            ess_tail_min=ess_tail_min,
+            bfmi_min=bfmi_min,
         )
         # Enrich diagnostics with per-param R-hat and actual_vs_predicted
         diagnostics['per_param_rhat'] = per_param_rhat
+        # F-13 (2026-07-02): in-train preflight (quick proxy + prior predictive)
+        # доезжает до model-diagnostics.json → honesty-gate/UI.
+        diagnostics['preflight'] = preflight_summary
+        # F-20 (2026-07-02): сбой реконструкции y_pred → метрики от константы;
+        # honesty различает «модель плохая» vs «диагностика деградировала».
+        diagnostics['y_pred_reconstruction_failed'] = y_pred_reconstruction_failed
         # #6 OVB-guardrail: per-control contraction для UI-подсказок (убрать неинформативные)
         diagnostics['per_control_contraction'] = per_control_contraction
+        # Автосезонность (2026-07-04): статус Фурье-компоненты для UI-строки честности
+        # («Сезонность учтена, период N, ρ=X» / «не обнаружена»). meta или None (гейт INV-50).
+        diagnostics['seasonality'] = (
+            {
+                'detected': True,
+                'period': int(fourier_seasonality_meta['period']),
+                'n_harmonics': int(fourier_seasonality_meta['n_harmonics']),
+                'autocorr': round(float(fourier_seasonality_meta.get('autocorr', 0.0)), 3),
+                'granularity': fourier_seasonality_meta.get('granularity', 'W'),
+            }
+            if fourier_seasonality_meta else {'detected': False}
+        )
         # Trust Level 3: hierarchical metadata for UI display.
         if use_hierarchical:
             diagnostics['hierarchical'] = {
@@ -1045,6 +1377,21 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
         diagnostics['unit_costs_applied_at_training'] = bool(unit_costs_snapshot)
         diagnostics['unit_costs_snapshot'] = dict(unit_costs_snapshot)
         diagnostics['engine'] = 'bayesian'
+
+        # F-A1-9 (2026-07-06): honesty_verdict прямо в diagnostics при обучении.
+        # Раньше вычислялся только в narrative_adapter (при PPTX) и optimizer (при оптимизации),
+        # поэтому DecomposeStep и OptimizeStep(до оптимизации) не видели вердикт.
+        # Теперь: modelData.diagnostics.honesty_verdict доступен СРАЗУ после train.
+        try:
+            from utils.optimizer_honesty import model_reliability_verdict
+            _r = model_reliability_verdict(diagnostics)
+            diagnostics['honesty_verdict'] = _r.get('verdict', 'unknown')
+            _hr = [str(x) for x in (_r.get('reasons') or [])]
+            if _hr:
+                diagnostics['honesty_reasons'] = _hr[:3]
+        except Exception as _hv_err:
+            logger.warning('honesty_verdict in diagnostics skipped: %s', _hv_err)
+            diagnostics['honesty_verdict'] = 'unknown'
 
         # Extract posterior means for channel contributions
         media_beta_means = trace.posterior['media_betas'].mean(dim=['chain', 'draw']).values.tolist()
@@ -1236,6 +1583,10 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
                 # v2.0.0 (ADR-019 §5): holidays auto-injected at training time.
                 # Used для backtest exclusion (holidays known) + provenance.
                 'holiday_cols_injected': holiday_cols_injected,
+                # v2.1 (2026-07-05): режим генерации holiday-дамми на train.
+                # Decomposer re-inject обязан воспроизвести ТОТ ЖЕ режим (β
+                # согласованы с X): старые pickle без ключа → 'binary_point'.
+                'holiday_dummies_mode': 'fraction',
                 # v2.0.0: prior means used per control factor (placeholder per B4).
                 'control_prior_mus': control_prior_mus,
                 # v2.0.0 audit fix (Backend H3): zero-variance controls flagged
@@ -1341,6 +1692,10 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
             granularity_for_season = model_data.get('training_granularity') or 'W'
             season_result = detect_seasonality(y, granularity=granularity_for_season)
             model_data['seasonality_detected'] = season_result  # dict | None
+            # Автосезонность (2026-07-04): что реально инжектировано в модель как
+            # Фурье-контроли (period/K/columns) — decomposer переинжектит бит-в-бит.
+            # None если сезонность не прошла гейт (короткий ряд / нет цикла).
+            model_data['fourier_seasonality'] = fourier_seasonality_meta
         except Exception as _phase2_persist_err:
             # Non-fatal - pre-Phase-2 fields will lazy-inferred at load time.
             logger.warning(
@@ -1392,6 +1747,40 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
         # праздничного эффекта мы не можем). Бэк-компат: для старых пиклов флага нет → False.
         diagnostics['holidays_excluded'] = not use_holidays
 
+        # E2 (2026-07-03): честность калибровки — постериорный вклад канала за
+        # период теста против измеренного lift. Расхождение вне 90% CI НЕ
+        # замалчивается (within_ci=False → отчёт покажет «модель и тест
+        # расходятся»). Сбой контура не роняет обучение.
+        if calibrations_prepared:
+            _calib_checks = []
+            for _ci_idx, _calib in enumerate(calibrations_prepared):
+                try:
+                    _arr = (
+                        np.asarray(
+                            trace.posterior[f'calib_contrib_{_ci_idx}'].values,
+                            dtype=float,
+                        ).reshape(-1) * y_std
+                    )
+                    _lo, _hi = (float(v) for v in np.percentile(_arr, [5, 95]))
+                    _calib_checks.append({
+                        'channel': _calib['channel'],
+                        'test_type': _calib['test_type'],
+                        'date_from': _calib['date_from'],
+                        'date_to': _calib['date_to'],
+                        'test_lift': _calib['lift_abs'],
+                        'test_sigma': _calib['sigma_abs'],
+                        'model_contrib_mean': round(float(_arr.mean()), 2),
+                        'model_contrib_ci90': [round(_lo, 2), round(_hi, 2)],
+                        'within_ci': bool(_lo <= _calib['lift_abs'] <= _hi),
+                    })
+                except Exception as _cc_err:  # noqa: BLE001
+                    logger.warning('calibration_check %s failed: %s', _ci_idx, _cc_err)
+            diagnostics['calibration_check'] = _calib_checks
+            diagnostics['calibration_applied'] = [
+                {k: c[k] for k in ('channel', 'test_type', 'date_from', 'date_to', 'lift_abs')}
+                for c in calibrations_prepared
+            ]
+
         # latest-params.json: train-снимок (channel_params/config/mcmc + КОПИЯ
         # diagnostics). SSOT диагностики для ЧТЕНИЯ = results/model-diagnostics.json
         # (его читают server.py + optimizer_honesty/M2; recompute_mqs патчит ОБА —
@@ -1435,7 +1824,13 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
     except ImportError as e:
         return {
             'status': 'error',
-            'message': f'Пакет не установлен: {e}. Запустите pip install pymc pymc-marketing',
+            # UX-6: у клиента дистрибутив со встроенным Python — pip недоступен;
+            # отсутствие пакета = повреждённая установка. Действие для клиента —
+            # переустановка; техническая деталь остаётся для поддержки/dev.
+            'message': (
+                f'Вычислительный модуль повреждён — не хватает компонента ({e}). '
+                f'Переустановите программу. Для разработчика: pip install pymc pymc-marketing.'
+            ),
             'error_code': 'IMPORT_ERROR',
         }
     except RuntimeError as e:
@@ -1451,7 +1846,11 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
         logger.exception("Model training failed (RuntimeError)")
         return {
             'status': 'error',
-            'message': f'Ошибка обучения модели: {msg[:300]}',
+            'message': (
+                f'Ошибка обучения модели: {msg[:300]}. '
+                f'Повторите обучение; если повторится — уменьшите число каналов '
+                f'или попробуйте режим OLS (меньше требований к данным).'
+            ),
             'error_code': 'RUNTIME_ERROR',
         }
     except AttributeError as e:
@@ -1469,13 +1868,21 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
         logger.exception("Model training failed (AttributeError)")
         return {
             'status': 'error',
-            'message': f'Ошибка обучения модели: {msg[:300]}',
+            'message': (
+                f'Ошибка обучения модели: {msg[:300]}. '
+                f'Повторите обучение; если повторится — обратитесь в поддержку '
+                f'с кодом ATTRIBUTE_ERROR.'
+            ),
             'error_code': 'ATTRIBUTE_ERROR',
         }
     except Exception as e:
         logger.exception("Model training failed (unexpected)")
         return {
             'status': 'error',
-            'message': f'Ошибка обучения модели: {str(e)[:300]}',
+            'message': (
+                f'Ошибка обучения модели: {str(e)[:300]}. '
+                f'Повторите обучение; если повторится — проверьте данные на шаге '
+                f'«Валидация» или обратитесь в поддержку с кодом UNKNOWN_ERROR.'
+            ),
             'error_code': 'UNKNOWN_ERROR',
         }

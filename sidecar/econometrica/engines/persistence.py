@@ -201,6 +201,10 @@ def load_model_with_compat(model_path: Path | str) -> dict[str, Any]:
     model_data.setdefault('training_granularity', None)
     model_data.setdefault('train_x_norm_quantiles', None)
     model_data.setdefault('seasonality_detected', None)
+    # Автосезонность (2026-07-04): что инжектировано как Фурье-контроли (period/K/
+    # columns) — decomposer переинжектит. None для pre-фичи pickle (модели до
+    # автосезонности праздники учитывали, Фурье-волну нет — decomposer их пропустит).
+    model_data.setdefault('fourier_seasonality', None)
 
     # v1.3.0 additive fields (per ADR-017 - schema bump skipped, in-memory inject only).
     # Defaults match v1.2 behavior: monetary KPI, all channels in ₽, mode=roi, no goal-seek history.
@@ -292,16 +296,24 @@ def _repair_y_actual_against_data_file(model_data: dict[str, Any]) -> None:
         except Exception:
             pass  # merge_rules optional — fallback к raw df row count.
         kpi_series = df[kpi_col]
-        # NaN values в data_file KPI column → silently corrupt y_actual + downstream
-        # variance/mean computations. Skip repair если data_file has NaN(s) в KPI
-        # rather than introducing NaN'ы. Original pickle y_actual was finite (modeler
-        # validation passed at training time) — preserve canonical training snapshot.
+        # NaN-KPI tail filter: обрезаем ТОЛЬКО хвост медиаплана (trailing NaN после
+        # конца истории), иначе хвост раздул бы y_actual и дал ложный repair. Серединные
+        # NaN СОХРАНЯЕМ — их наличие = порча истории, детектируется ниже (аудит-фикс
+        # 2026-05-24). ⚠️ Прежняя notna()-маска убирала И серединные NaN → детектор
+        # порчи не срабатывал → silent corruption y_actual (регресс, чинится 2026-07-13).
+        # Invariant: хвоста нет → last_valid = конец ряда → loc[:last_valid] = no-op.
+        try:
+            last_valid = kpi_series.last_valid_index()
+            if last_valid is not None:
+                kpi_series = kpi_series.loc[:last_valid]
+        except AttributeError:
+            pass  # non-Series fallback — defensive
         try:
             if kpi_series.isna().any():
                 _REPAIR_COUNTERS['skipped_nan_values'] += 1
                 logger.warning(
-                    'y_actual repair skipped: data_file column %r contains %d NaN values. '
-                    'Preserving pickle y_actual (length=%d) as canonical training state.',
+                    'y_actual repair skipped: data_file column %r contains %d NaN values '
+                    'even after tail filter. Preserving pickle y_actual (length=%d).',
                     kpi_col, int(kpi_series.isna().sum()), y_actual_len,
                 )
                 return

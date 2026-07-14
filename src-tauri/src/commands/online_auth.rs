@@ -19,8 +19,14 @@ fn supabase_url() -> String {
     obfstr::obfstr!("https://quzhkfvglqmppxcrindh.supabase.co/functions/v1").to_string()
 }
 
-/// Cache validity period: 24 hours in seconds.
-const CACHE_TTL_SECS: u64 = 24 * 60 * 60;
+/// Cache validity period: 7 days in seconds.
+///
+/// Was 24h — слишком хрупко при прерывистой связи к Supabase: одно офлайн-окно
+/// дольше 24 ч роняло лицензию, если offline-файл Ed25519 не импортирован (CLOUDEAI,
+/// 2026-06-25 — все хосты недоступны, кэш протух, LI-001). Кэш хранит серверный
+/// `expires_at`; доверие ему до 7 дней переживает недельный офлайн и сохраняет
+/// контроль отзыва (отозванная лицензия переспросит сервер в течение недели).
+const CACHE_TTL_SECS: u64 = 7 * 24 * 60 * 60;
 
 /// Heartbeat interval: 4 hours in seconds.
 pub const HEARTBEAT_INTERVAL_SECS: u64 = 4 * 60 * 60;
@@ -221,6 +227,13 @@ fn load_cache(app_config_dir: &Path) -> Option<AuthResponse> {
     let cached: CachedAuth = serde_json::from_str(&data).ok()?;
 
     let now = SystemTime::now().duration_since(UNIX_EPOCH).ok()?.as_secs();
+    // Future-dated cached_at (часы сдвинуты назад / подделка файла кэша) — аномалия:
+    // REJECT (форсим реальную перепроверку; offline Ed25519 ниже). Прямое вычитание
+    // u64 паниковало бы в debug при cached_at > now (в release wrap > TTL отвергал
+    // случайно). Mirror канона aurora_fleet (underflow guard) — не доверяем будущему кэшу.
+    if cached.cached_at > now {
+        return None;
+    }
     if now - cached.cached_at > CACHE_TTL_SECS {
         info!("Auth cache expired (age: {}h)", (now - cached.cached_at) / 3600);
         return None;
@@ -415,6 +428,145 @@ pub async fn authorize(
                 }
             }
         }
+    }
+}
+
+// ── Tests (B2 2026-07-03: матрица офлайн-кэша) ─────────────
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn tmp_dir() -> PathBuf {
+        let d = std::env::temp_dir().join(format!(
+            "aurora-test-cache-{}",
+            uuid::Uuid::new_v4().simple()
+        ));
+        std::fs::create_dir_all(&d).unwrap();
+        d
+    }
+
+    fn sample_response() -> AuthResponse {
+        serde_json::from_str(
+            r#"{"status":"ok","cabinets":["econometrist"],"app_min_version":"0.1.0","checksums":{}}"#,
+        )
+        .unwrap()
+    }
+
+    /// Батч 0 (2026-07-13): сервер шлёт `vault_versions` per-cabinet в /auth (Phase 5) -
+    /// проверяем, что старые клиенты (без этого поля в ответе) не падают на десериализации
+    /// (`#[serde(default)]`), а новые корректно читают карту версий.
+    #[test]
+    fn auth_response_deserializes_vault_versions() {
+        let json = r#"{"status":"ok","cabinets":["econometrist"],"app_min_version":"0.1.0",
+            "checksums":{},"vault_versions":{"econometrist":5,"media-analyst":2}}"#;
+        let resp: AuthResponse = serde_json::from_str(json).unwrap();
+        let versions = resp.vault_versions.expect("vault_versions must deserialize");
+        assert_eq!(versions.get("econometrist"), Some(&5));
+        assert_eq!(versions.get("media-analyst"), Some(&2));
+    }
+
+    /// Обратная совместимость: сервер БЕЗ vault_versions (старая версия Edge Function) -
+    /// поле обязано остаться None, а не падать на missing field.
+    #[test]
+    fn auth_response_missing_vault_versions_defaults_none() {
+        let resp = sample_response();
+        assert_eq!(resp.vault_versions, None);
+    }
+
+    fn write_cache_with_age(dir: &Path, cached_at: u64) {
+        let cached = CachedAuth { response: sample_response(), cached_at };
+        std::fs::write(cache_path(dir), serde_json::to_string(&cached).unwrap()).unwrap();
+    }
+
+    /// Свежий кэш (после успешной онлайн-активации) читается — офлайн-окно
+    /// до 7 дней не роняет лицензию (сценарий «офлайн fallback, кэш есть»).
+    #[test]
+    fn cache_roundtrip_fresh_ok() {
+        let dir = tmp_dir();
+        save_cache(&dir, &sample_response()).unwrap();
+        let loaded = load_cache(&dir).expect("свежий кэш должен читаться");
+        assert_eq!(loaded.status, "ok");
+        assert_eq!(loaded.cabinets, vec!["econometrist".to_string()]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Протухший кэш (старше 7 дней) отвергается → caller уйдёт в Ed25519.
+    /// Контроль отзыва: отозванная лицензия не живёт на кэше дольше недели.
+    #[test]
+    fn cache_expired_ttl_rejected() {
+        let dir = tmp_dir();
+        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+        write_cache_with_age(&dir, now - CACHE_TTL_SECS - 60);
+        assert!(load_cache(&dir).is_none(), "кэш старше TTL обязан отвергаться");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Перевод часов назад / подделка кэша: cached_at в будущем → REJECT
+    /// (anti-rollback guard; прямое вычитание u64 паниковало бы в debug).
+    #[test]
+    fn cache_future_dated_rejected() {
+        let dir = tmp_dir();
+        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+        write_cache_with_age(&dir, now + 3600);
+        assert!(load_cache(&dir).is_none(), "кэш из будущего обязан отвергаться");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Кэша нет → None (caller уходит в offline Ed25519) — без паники.
+    #[test]
+    fn cache_missing_none() {
+        let dir = tmp_dir();
+        assert!(load_cache(&dir).is_none());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Повреждённый кэш-файл → graceful None, не падение приложения.
+    #[test]
+    fn cache_corrupted_graceful_none() {
+        let dir = tmp_dir();
+        std::fs::write(cache_path(&dir), b"{ broken json").unwrap();
+        assert!(load_cache(&dir).is_none(), "битый кэш обязан отвергаться молча");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// instance.id: создаётся один раз и переживает повторные вызовы
+    /// (сценарий «переустановка»: config-dir сохраняется → id стабилен).
+    #[test]
+    fn instance_id_stable_across_calls() {
+        let dir = tmp_dir();
+        let a = get_or_create_instance_id(&dir).unwrap();
+        let b = get_or_create_instance_id(&dir).unwrap();
+        assert_eq!(a, b, "instance.id обязан быть стабильным");
+        assert!(!a.is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// B2 «активация онлайн» полу-боем: authorize() против ЖИВОГО Supabase
+    /// с чистым config-dir. #[ignore] — сетевой, гонять вручную:
+    /// `cargo test online_auth_live -- --ignored --nocapture`.
+    /// Ожидания: сервер ответил (status ok|blocked|denied — известный),
+    /// либо офлайн-деградация в «offline» без паники. На машине с
+    /// зарегистрированным fingerprint (машина Антона) — status=ok + cabinets.
+    #[test]
+    #[ignore = "network: живой Supabase, гонять вручную"]
+    fn online_auth_live_roundtrip() {
+        let dir = tmp_dir();
+        let rt = tokio::runtime::Runtime::new().unwrap();
+        let status = rt.block_on(authorize(&dir, env!("CARGO_PKG_VERSION"), ""));
+        eprintln!(
+            "online-live: available={} status={} cabinets={:?} msg={:?}",
+            status.available, status.status, status.cabinets, status.message
+        );
+        let known = ["ok", "cached", "offline", "blocked", "denied", "unknown_machine"];
+        assert!(
+            known.contains(&status.status.as_str()),
+            "Неизвестный статус авторизации: {}", status.status
+        );
+        if status.status == "ok" {
+            assert!(!status.cabinets.is_empty(), "При ok сервер обязан вернуть кабинеты");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
 

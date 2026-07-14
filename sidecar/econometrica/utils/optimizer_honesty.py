@@ -89,6 +89,21 @@ def model_reliability_verdict(diagnostics: dict[str, Any]) -> dict[str, Any]:
     mqs = diagnostics.get('mqs') or {}
     engine = (diagnostics.get('engine') or '').lower()
 
+    # Мат-аудит 2026-07-02 (F-20): сбой реконструкции y_pred → R²/MAPE считались
+    # от константы (нулевой прогноз) — метрики НЕ отражают модель. Честный
+    # вердикт — unknown («качество не измерено»), не «модель плохая/хорошая».
+    if diagnostics.get('y_pred_reconstruction_failed'):
+        return {
+            'verdict': 'unknown',
+            'refused': False,
+            'reasons': ['Сбой реконструкции прогноза при обучении — метрики '
+                        'качества (R², MAPE) вычислены от вырожденного прогноза '
+                        'и не отражают модель.'],
+            'caveat_text': ('Диагностика модели деградировала (сбой реконструкции '
+                            'прогноза) — качество не измерено. Переобучите модель; '
+                            'если повторяется — сообщите в поддержку.'),
+        }
+
     # OVB-маркер (аудит 2026-06-14): праздники РФ принудительно исключены
     # (use_holidays=False). Если категория сезонна к праздникам — модель смещена
     # (omitted-variable bias), и «надёжной» её называть нельзя (отсутствие эффекта мы
@@ -158,6 +173,17 @@ def model_reliability_verdict(diagnostics: dict[str, Any]) -> dict[str, Any]:
     thin = checks.get('ratio') is False
     weak_tier = tier in WEAK_TIERS
     mild_div = divergences > 0
+    # Мат-аудит 2026-07-02 (F-11/F-12): ESS/E-BFMI-гейты. Ключи в checks
+    # присутствуют только когда метрики реально измерены (NUTS-путь) —
+    # отсутствие ключа НЕ считается провалом (OLS/legacy).
+    low_ess = checks.get('ess') is False
+    low_bfmi = checks.get('bfmi') is False
+    # Мат-аудит 2026-07-02 (F-13): prior predictive из in-train preflight.
+    # fail → priors допускают неправдоподобные продажи ДО данных (McElreath;
+    # Gelman, Bayesian Workflow §5.10) — доверие к CI/оптимуму снижено.
+    _pp_status = (((diagnostics.get('preflight') or {}).get('prior_predictive')
+                   or {}).get('status'))
+    prior_pred_fail = _pp_status == 'fail'
     if thin:
         ratio_txt = f' (Ratio {ratio}:1 < 4:1)' if ratio is not None else ''
         reasons.append(
@@ -170,7 +196,35 @@ def model_reliability_verdict(diagnostics: dict[str, Any]) -> dict[str, Any]:
         reasons.append(
             f'{divergences} дивергенц(ий) MCMC — лёгкая нестабильность сэмплера, '
             f'трактуйте рекомендации осторожно.')
-    data_uncertain = thin or weak_tier or mild_div
+    if low_ess:
+        _eb = metrics.get('ess_bulk_min')
+        _et = metrics.get('ess_tail_min')
+        _ess_txt = ''
+        if _eb is not None or _et is not None:
+            _parts = []
+            if _eb is not None:
+                _parts.append(f'bulk {_eb:.0f}')
+            if _et is not None:
+                _parts.append(f'tail {_et:.0f}')
+            _ess_txt = f' ({", ".join(_parts)} < 400)'
+        reasons.append(
+            f'Эффективный размер выборки MCMC ниже порога 400{_ess_txt} '
+            f'(Vehtari et al. 2021) — цепи перемешаны слабо, при таком ESS сам '
+            f'R-hat ненадёжен; доверительные интервалы ориентировочны.')
+    if low_bfmi:
+        _bf = metrics.get('bfmi_min')
+        _bf_txt = f' {_bf:.2f}' if _bf is not None else ''
+        reasons.append(
+            f'E-BFMI{_bf_txt} < 0.3 (эвристика Stan/PyMC) — сэмплер плохо '
+            f'исследует хвосты распределения энергии; результаты менее надёжны '
+            f'(обычно лечится non-centered параметризацией).')
+    if prior_pred_fail:
+        reasons.append(
+            'Prior predictive check: fail — априорные допущения модели дают '
+            'неправдоподобный диапазон продаж ещё до данных (симуляция из priors); '
+            'оценки могут определяться приором, а не данными — трактуйте '
+            'рекомендации осторожно.')
+    data_uncertain = thin or weak_tier or mild_div or low_ess or low_bfmi or prior_pred_fail
     if data_uncertain or holidays_excluded:
         if holidays_excluded:
             reasons.append(ovb_reason)

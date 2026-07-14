@@ -47,6 +47,41 @@ def _fmt_mln(v: Any, fallback: str = "-") -> str:
         return fallback
 
 
+def _contrib_scale(kpi: dict, raw_values: Any, money_unit: str = "₽ млн") -> tuple:
+    """Масштаб и единица столбца «Вклад» (fix 2026-07-13: единица ↔ масштаб).
+
+    Корень бага: вклад канала делился на 1e6 безусловно («₽ млн»), а для count-KPI
+    единица подписывалась без «млн» → клиент видел «1.3 лид.» вместо «1.3 млн лид.»
+    (занижение в 1e6, нарушение INV-50). Здесь масштаб и единица выбираются вместе.
+
+    monetary/effectiveness → (1e6, money_unit) «₽ млн».
+    count → адаптивный масштаб по макс |вклад|, единица результата из паспорта.
+    """
+    if kpi.get("kpi_kind") != "count":
+        return 1_000_000.0, money_unit
+    unit = kpi.get("target_unit") or "ед."
+    try:
+        mx = max((abs(float(v or 0)) for v in raw_values), default=0.0)
+    except (TypeError, ValueError):
+        mx = 0.0
+    if mx >= 1_000_000:
+        return 1_000_000.0, f"млн {unit}"
+    if mx >= 10_000:
+        return 1_000.0, f"тыс. {unit}"
+    return 1.0, unit
+
+
+def _fmt_contrib(value: Any, scale: float, fallback: str = "-") -> str:
+    """Значение вклада в масштабе из _contrib_scale (единый форматтер для ₽ и count)."""
+    try:
+        x = float(value) / scale
+    except (TypeError, ValueError, ZeroDivisionError):
+        return fallback
+    if scale == 1.0:
+        return f"{x:,.0f}".replace(",", chr(0xA0))
+    return f"{x:.1f}" if abs(x) < 10 else f"{x:.0f}"
+
+
 def _fmt_x(v: Any, fallback: str = "-") -> str:
     try:
         return f"{float(v):.2f}×"
@@ -147,15 +182,45 @@ _DEFAULT_KPI_LABELS = {
 }
 
 
+def _passport_html(kpi_type: str | None) -> dict | None:
+    """Загружает паспорт KPI из реестра. None при kpi_type=None или ошибке."""
+    if not kpi_type:
+        return None
+    try:
+        from utils.kpi_display import get_display
+        return get_display(kpi_type)
+    except Exception:
+        return None
+
+
 def _kpi_view(ctx: dict) -> dict:
-    """Extract KPI metadata + labels с v1.2 backward-compat fallback."""
+    """Extract KPI metadata + labels с v1.2 backward-compat fallback.
+
+    Фаза 1a: читает ctx['kpi']['kpi_type'] и перегенерирует паспортные подписи
+    через kpi_display (target_axis, target_unit, metric_label, cpu_per_label).
+    Если kpi_type отсутствует — работает как раньше (labels из pre-built dict).
+    """
     kpi = (ctx.get("kpi") or {}) if isinstance(ctx, dict) else {}
     kpi_kind = kpi.get("kpi_kind") or "monetary"
     mode = kpi.get("derived_mode") or "roi"
+    kpi_type = kpi.get("kpi_type") or None
     labels = {**_DEFAULT_KPI_LABELS, **(kpi.get("labels") or {})}
+
+    # Фаза 1a: если kpi_type известен — перегенерируем паспортные подписи из реестра.
+    P = _passport_html(kpi_type)
+    if P:
+        if P.get("result_axis_label"):
+            labels["target_axis_label"] = P["result_axis_label"]
+        if P.get("result_unit_short"):
+            labels["target_unit_label"] = P["result_unit_short"]
+        if mode != "effectiveness" and kpi_kind == "count" and P.get("cpu_per_label"):
+            labels["metric_label"] = f'CPU, {P["cpu_per_label"]}'
+            labels["metric_short_label"] = "CPU"
+
     return {
         "kpi_kind": kpi_kind,
         "mode": mode,
+        "kpi_type": kpi_type,
         "metric_label": labels["metric_label"],
         "metric_short": labels["metric_short_label"],
         "target_unit": labels["target_unit_label"],
@@ -163,6 +228,7 @@ def _kpi_view(ctx: dict) -> dict:
         "methodology_label": labels["methodology_label"],
         "vpcu": kpi.get("value_per_count_unit"),
         "vpcu_label": kpi.get("value_per_count_unit_label") or "",
+        "cpu_per_label": P["cpu_per_label"] if (P and P.get("cpu_per_label")) else "₽/ед.",
         "is_legacy": kpi_kind == "monetary" and mode == "roi",
     }
 
@@ -201,9 +267,11 @@ def _fmt_metric(value: Any, kpi: dict, fallback: str = "-") -> str:
         return f"{f:.0f}%"
     if kind == "count":
         # B4 audit fix: c.mroas / c.roi от backend = units/₽ (mathematical).
-        # Invert to CPU (₽/ед.) для user-facing display.
+        # Invert to CPU для user-facing display.
+        # Фаза 1a: cpu_per_label из kpi (установлен _kpi_view) вместо жёсткого '₽/ед.'.
         if f > 0:
-            return f"{1.0 / f:.0f} ₽/ед."
+            unit = kpi.get("cpu_per_label") or "₽/ед."
+            return f"{1.0 / f:.0f} {unit}"
         return fallback
     return f"{f:.2f}×"
 
@@ -223,7 +291,7 @@ def _fmt_metric_bare(value: Any, kpi: dict, fallback: str = "-") -> str:
             return f"{f * 100:.1f}"
         return f"{f:.0f}"
     if kind == "count":
-        # B4 audit fix: invert units/₽ → CPU ₽/ед.
+        # B4 audit fix: invert units/₽ → CPU (bare, без unit suffix, для CI bracket).
         if f > 0:
             return f"{1.0 / f:.0f}"
         return fallback
@@ -278,34 +346,117 @@ def _weighted_summary_phrase(weighted_value: Any, kpi: dict) -> str:
     if kind == "count":
         if wv > 0:
             cpu = 1.0 / wv
-            return f"CPU портфеля {cpu:.0f} ₽/ед."
+            # Фаза 1a: cpu_per_label из kpi (установлен _kpi_view) вместо жёсткого '₽/ед.'.
+            unit = kpi.get("cpu_per_label") or "₽/ед."
+            return f"CPU портфеля {cpu:.0f} {unit}"
         return "CPU портфеля недоступен"
     return f"ROI портфеля {wv:.2f}×"
 
 
 def _under_breakeven_phrase(kpi: dict) -> str:
-    """Описание условия 'канал убыточен' для текстов рекомендаций."""
+    """Описание условия 'канал убыточен' для текстов рекомендаций.
+
+    Фаза 1a: cpu_per_label из kpi (установлен _kpi_view) вместо жёсткого '₽/ед.'.
+    """
     mode = kpi.get("mode", "roi")
     kind = kpi.get("kpi_kind", "monetary")
     if mode == "effectiveness":
         return "доля < бенчмарка"
     if kind == "count":
         vpcu = kpi.get("vpcu")
+        unit = kpi.get("cpu_per_label") or "₽/ед."
         if vpcu:
-            return f"CPU > {float(vpcu):.0f} ₽/ед. (выше ценности)"
+            return f"CPU > {float(vpcu):.0f} {unit} (выше ценности)"
         return "CPU > ценности единицы (убыточно)"
     return "mROAS < 1×"
 
 
 def _table_metric_header(kpi: dict) -> tuple:
-    """Returns (header_label, unit_label) для столбца главной метрики action_table."""
+    """Returns (header_label, unit_label) для столбца главной метрики action_table.
+
+    Фаза 1a: cpu_per_label из kpi (установлен _kpi_view) вместо жёсткого '₽/ед.'.
+    """
     mode = kpi.get("mode", "roi")
     kind = kpi.get("kpi_kind", "monetary")
     if mode == "effectiveness":
         return ("Доля эффекта", "%")
     if kind == "count":
-        return ("CPU", "₽/ед.")
+        unit = kpi.get("cpu_per_label") or "₽/ед."
+        return ("CPU", unit)
     return ("mROAS", "×")
+
+
+def _lift_phrase(lift_pct: float | None, kpi: dict) -> str:
+    """KPI-aware формулировка ожидаемого прироста для HTML-отчёта.
+
+    Пласт 2 (2026-07-11): устраняет «Ожидаемый прирост ROAS» для count/effectiveness.
+    - monetary roi  → «Ожидаемый прирост ROAS: +N пп»
+    - count         → «Ожидаемый прирост результата: +N пп»
+    - effectiveness → «Ожидаемый прирост доли эффекта: +N пп»
+    - lift=None     → «Ожидаемый эффект – положительный»
+    """
+    if lift_pct is None:
+        return "Ожидаемый эффект – положительный"
+    mode = kpi.get("mode", "roi")
+    kind = kpi.get("kpi_kind", "monetary")
+    if mode == "effectiveness":
+        return f"Ожидаемый прирост доли эффекта: +{lift_pct:.1f} пп"
+    if kind == "count":
+        return f"Ожидаемый прирост результата: +{lift_pct:.1f} пп"
+    return f"Ожидаемый прирост ROAS: +{lift_pct:.1f} пп"
+
+
+def _hero_vs_leader_quote(hero: str, leader: str, kpi: dict) -> str:
+    """KPI-aware pull quote «лидер vs герой» для HTML-отчёта.
+
+    Пласт 2 (2026-07-11): устраняет «Каждый рубль» для count/effectiveness.
+    - monetary roi  → «Каждый рубль в {hero} возвращает больше, чем в {leader}.»
+    - count         → «Каждая единица результата в {hero} обходится дешевле, чем в {leader}.»
+    - effectiveness → «{hero} даёт большую долю эффекта, чем {leader}.»
+    """
+    mode = kpi.get("mode", "roi")
+    kind = kpi.get("kpi_kind", "monetary")
+    if mode == "effectiveness":
+        return f"{hero} даёт большую долю эффекта, чем {leader}."
+    if kind == "count":
+        return f"Каждая единица результата в {hero} обходится дешевле, чем в {leader}."
+    return f"Каждый рубль в {hero} возвращает больше, чем в {leader}."
+
+
+def _reliability_disclaimer_html(ctx: dict) -> str:
+    """F-A1-9 (2026-07-06): дисклеймер ненадёжности для клиентского HTML-отчёта.
+
+    Вызывает model_reliability_verdict на данных диагностики из ctx и рендерит
+    жёлтый баннер при unreliable/uncertain. При reliable — возвращает пустую строку.
+    Паттерн: аналогично PPTX narrative_adapter.honesty_verdict.
+    """
+    diag = ctx.get("diagnostics") or {}
+    # Приоритет: если honesty_verdict уже вычислен в diagnostics (modeler.py), читаем его.
+    # Иначе — вычисляем здесь (legacy path: старые pickles без поля).
+    verdict_str = diag.get("honesty_verdict")
+    if verdict_str is None:
+        try:
+            from utils.optimizer_honesty import model_reliability_verdict
+            _r = model_reliability_verdict(diag)
+            verdict_str = _r.get("verdict", "unknown")
+        except Exception:
+            verdict_str = "unknown"
+    if verdict_str not in ("unreliable", "uncertain"):
+        return ""
+    if verdict_str == "unreliable":
+        note = "Модель имеет высокий R-hat или много расходящихся цепей — результаты ниже ориентировочные."
+    else:
+        note = "Узкий объём данных или слабый prior-coverage — результаты ниже трактуйте осторожно."
+    return (
+        '<div class="reliability-disclaimer" role="alert" style="'
+        "margin:16px 0;padding:14px 18px;background:rgba(201,164,73,0.12);"
+        "border:1px solid rgba(201,164,73,0.4);border-radius:8px;"
+        "font-size:13px;line-height:1.5;color:#e2e8f0;"
+        '">'
+        f'<strong style="color:#c9a449;">⚠ Ориентировочная модель.</strong> '
+        f'{escape(note)}'
+        '</div>'
+    )
 
 
 def _section(section_id: str, kicker: str, body: str, extra_cls: str = "") -> str:
@@ -446,7 +597,15 @@ def render_executive_summary(ctx: dict) -> str:
             complication = scqar.get("complication_fallback", {}).get(
                 "template", "Портфель сбалансирован."
             )
-        question = scqar["question"]["template"]
+        # Пласт 2 (2026-07-11): KPI-aware question — для count/effectiveness «ROAS» не применим.
+        if kpi["is_legacy"]:
+            question = scqar["question"]["template"]
+        elif kpi["mode"] == "effectiveness":
+            question = "Как перераспределить бюджет, чтобы повысить долю эффекта, не снижая awareness?"
+        elif kpi["kpi_kind"] == "count":
+            question = "Как перераспределить бюджет, чтобы снизить стоимость единицы (CPU), не снижая awareness?"
+        else:
+            question = scqar["question"]["template"]
         # N3 (Phase 0.1): consistent answer logic with f3 + Action 01.
         # math-fix v1.0.14.1 (2026-04-28): + converged_at_current state - SLSQP
         # вернул current allocation без binding (false convergence). Honest
@@ -509,7 +668,14 @@ def render_executive_summary(ctx: dict) -> str:
             # v1.3.2 audit fix (M2): scqar.recommendation template = «Ожидаемый
             # прирост ROAS: +N пп». Для non-monetary modes слово «ROAS» leak.
             # Override formula manually per kpi mode.
-            if kpi["is_legacy"]:
+            # B1-fix R-09/R-13 (2026-07-03): «+0 пп» — пустое обещание; при
+            # незначимом lift (<0.5) — честная формулировка без нулевого числа.
+            if lift is None or float(lift) < 0.5:
+                recommendation = (
+                    "Прирост от перераспределения незначим (<0.5 пп) - "
+                    "портфель близок к оптимуму в заданных границах."
+                )
+            elif kpi["is_legacy"]:
                 recommendation = scqar["recommendation"]["template"].format(lift=lift)
             elif kpi["mode"] == "effectiveness":
                 recommendation = f"Ожидаемый прирост доли эффекта: +{lift:.0f} пп."
@@ -529,7 +695,7 @@ def render_executive_summary(ctx: dict) -> str:
             else:
                 answer = scqar.get("answer_all_hold", {}).get(
                     "template",
-                    f"Сохранить приоритет {leader} с контролем saturation."
+                    f"Сохранить приоритет {leader} с контролем насыщения."
                 )
             recommendation = (
                 "Дальнейший прирост возможен через расширение границ оптимизации "
@@ -557,8 +723,10 @@ def render_executive_summary(ctx: dict) -> str:
         for label, body, accent in blocks
     )
 
+    # F-A1-9 (2026-07-06): дисклеймер ненадёжности перед денежными инсайтами.
+    disclaimer = _reliability_disclaimer_html(ctx)
     body = f"""
-{_action_title(title)}
+{disclaimer}{_action_title(title)}
 <div class="scqar">
 {items}
 </div>"""
@@ -585,12 +753,12 @@ def render_at_a_glance(ctx: dict) -> str:
 
         if honest and media_pct is not None and baseline_pct is not None:
             f1 = (
-                f"Медиа-вклад {_fmt_pct(media_pct)}, baseline {_fmt_pct(baseline_pct)} - "
-                f"модель преимущественно объясняет продажи через organic baseline"
+                f"Медиа-вклад {_fmt_pct(media_pct)}, базовый спрос {_fmt_pct(baseline_pct)} – "  # П8-2 П8-1
+                f"модель преимущественно объясняет продажи через organic"  # П8-2
             )
             f1_sup = (
-                f"{leader} - лидер среди медиа "
-                f"({_fmt_pct(facts.get('leader_share_contrib_pct'))} media-вклада)"
+                f"{leader} – лидер среди медиа "  # П8-1
+                f"({_fmt_pct(facts.get('leader_share_contrib_pct'))} медиа-вклада)"  # П8-2
             )
         else:
             # N1 (Phase 0.1): pre-format pct values to avoid {x:.0f} rounding
@@ -670,7 +838,11 @@ def render_at_a_glance(ctx: dict) -> str:
         elif realloc >= 0.5 and hero != leader:
             f3 = strings["findings_templates"]["f3_realloc"].format(
                 realloc=realloc, leader=leader, hero=hero)
-            f3_sup = strings["findings_templates"]["f3_realloc_support"].format(lift=lift)
+            # Пласт 2 (2026-07-11): KPI-aware — для count/effectiveness «ROAS» не применим.
+            if kpi["is_legacy"]:
+                f3_sup = strings["findings_templates"]["f3_realloc_support"].format(lift=lift)
+            else:
+                f3_sup = _lift_phrase(float(lift), kpi)
         else:
             f3 = strings["findings_templates"]["f3_keep"]
             f3_sup = strings["findings_templates"]["f3_keep_support"]
@@ -749,7 +921,7 @@ def render_at_a_glance(ctx: dict) -> str:
   <div class="chart-title-bar">
     <div>
       <div class="chart-title">Декомпозиция продаж · вклад компонент</div>
-      <div class="chart-subtitle">Baseline + вклад каналов = итоговые продажи</div>
+      <div class="chart-subtitle">Базовый спрос + вклад каналов = итоговые продажи</div>  <!-- П8-2 -->
     </div>
     <button class="btn-inline" data-copy-chart="chart-waterfall">Сохранить PNG</button>
   </div>
@@ -808,16 +980,16 @@ def render_key_message(ctx: dict) -> str:
 
         if honest and media_pct is not None and baseline_pct is not None:
             title = (
-                "Модель преимущественно отражает baseline - "
+                "Модель преимущественно отражает базовый спрос – "  # П8-2 П8-1
                 "медиа-вклад ограничен"
             )
             big = _fmt_pct(media_pct)
             big_label = "Медиа-вклад в продажи"
-            big_support = f"Baseline: {_fmt_pct(baseline_pct)} · {portfolio_phrase}"
+            big_support = f"Базовый спрос: {_fmt_pct(baseline_pct)} · {portfolio_phrase}"  # П8-2
             quote = (
-                f"{leader} - лидер среди медиа ({_fmt_pct(cpct)} media-вклада), "
-                f"но абсолютный media-эффект {_fmt_pct(media_pct)} от продаж. "
-                "Низкая инкрементальность - проверить adstock, saturation, качество данных."
+                f"{leader} – лидер среди медиа ({_fmt_pct(cpct)} медиа-вклада), "  # П8-2 П8-1
+                f"но абсолютный медиа-эффект {_fmt_pct(media_pct)} от продаж. "  # П8-2
+                "Низкий вклад медиа – проверить отложенный эффект (adstock), насыщение, качество данных."  # П8-2 П8-1
             )
         else:
             title = strings["action_titles"]["s05_default"].format(leader=leader)
@@ -826,12 +998,13 @@ def render_key_message(ctx: dict) -> str:
             big_support = f"При {_fmt_pct(spct)} доли бюджета · {portfolio_phrase}"
 
             if hero != leader:
+                # Пласт 2 (2026-07-11): KPI-aware, не хардкодить «рубль» для count/effectiveness.
                 quote = (
-                    f"Каждый рубль в {hero} возвращает больше, чем в {leader}. "
-                    "Сигнал к reallocate части бюджета."
+                    f"{_hero_vs_leader_quote(hero, leader, kpi)} "
+                    "Сигнал к перераспределению части бюджета."
                 )
             else:
-                quote = f"{leader} - лидер и по вкладу, и по эффективности. Бюджет стоит сохранить до признаков saturation."
+                quote = f"{leader} – лидер и по вкладу, и по эффективности. Бюджет стоит сохранить до признаков насыщения."  # П8-1
     else:
         title = "Главный вывод появится после обучения модели"
         big = "-"
@@ -867,7 +1040,8 @@ def render_mroas(ctx: dict) -> str:
         chart_title_text = "Доля каналов в эффекте · %"
         chart_subtitle_text = "Bar chart по share of effect (доли в продажах)"
     elif kpi["kpi_kind"] == "count":
-        chart_title_text = "CPU по каналам · ₽ за единицу"
+        cpu_unit = kpi.get("cpu_per_label") or "₽ за единицу"
+        chart_title_text = f"CPU по каналам · {cpu_unit}"
         chart_subtitle_text = "Стоимость следующей единицы (incremental cost-per-unit)"
     else:
         chart_title_text = "mROAS по каналам · мультипликатор"
@@ -990,6 +1164,10 @@ def render_action_table(ctx: dict) -> str:
     # v1.3.2: KPI-aware main metric column (mROAS / CPU / Доля %).
     metric_col_header, metric_col_unit = _table_metric_header(kpi)
 
+    # contrib column масштаб+единица вычисляются ниже (после visible) через
+    # _contrib_scale: единица и масштаб выбираются согласованно (fix 2026-07-13,
+    # INV-50). budget всегда «₽ млн» (затраты — деньги для любого KPI).
+
     # Title branching (mirrors PPTX S7 post-audit logic)
     if channels:
         contribs = sorted((float(c.get("contribution") or 0) for c in channels), reverse=True)
@@ -1024,11 +1202,17 @@ def render_action_table(ctx: dict) -> str:
 
     total_contrib = sum(float(c.get("contribution") or 0) for c in visible) or 1.0
 
+    # Масштаб+единица столбца «Вклад» — согласованно (fix 2026-07-13, INV-50):
+    # для count адаптивный масштаб (млн/тыс/ед) с единицей результата из паспорта,
+    # для monetary — «₽ млн» как раньше.
+    contrib_scale, contrib_unit = _contrib_scale(
+        kpi, [c.get("contribution") for c in visible], units["contrib"]
+    )
+
     rows_html = []
     for c in visible:
         name = c.get("name") or "-"
         spend_mln = float(c.get("spend") or 0) / 1_000_000.0
-        contrib_mln = float(c.get("contribution") or 0) / 1_000_000.0
         mroas = c.get("mroas")
         verdict = c.get("verdict") or "Watch"
         share_pct = int(round(float(c.get("contribution") or 0) / total_contrib * 100))
@@ -1048,7 +1232,7 @@ def render_action_table(ctx: dict) -> str:
             f'<tr data-channel="{escape(name)}">'
             f'<td>{escape(name)}</td>'
             f'<td class="num" data-sort="{spend_mln:.2f}">{_fmt_mln(spend_mln)}</td>'
-            f'<td class="num" data-sort="{contrib_mln:.2f}">{_fmt_mln(contrib_mln)}</td>'
+            f'<td class="num" data-sort="{float(c.get("contribution") or 0):.2f}">{_fmt_contrib(c.get("contribution"), contrib_scale)}</td>'
             f'<td class="num" data-sort="{float(mroas or 0):.3f}">{mroas_html}{fn_html}</td>'
             f'<td class="num" data-sort="{share_pct}">{share_pct}</td>'
             f'<td><span class="verdict-badge verdict-{escape(verdict)}">{escape(verdict)}</span></td>'
@@ -1058,7 +1242,8 @@ def render_action_table(ctx: dict) -> str:
     # Totals
     if facts:
         tb = facts.get("total_budget_mln") or 0
-        tc = facts.get("total_contrib_mln") or 0
+        # raw total contrib для согласованного _fmt_contrib (total_contrib_mln = /1e6).
+        tc_raw = (facts.get("total_contrib_mln") or 0) * 1_000_000.0
         wr = facts.get("weighted_roi")
         # v1.3.2: aggregate cell - adapt unit per KPI/mode.
         if not wr:
@@ -1070,7 +1255,8 @@ def render_action_table(ctx: dict) -> str:
         elif kpi["kpi_kind"] == "count":
             try:
                 cpu = 1.0 / float(wr) if float(wr) > 0 else None
-                wr_cell = f"{cpu:.0f} ₽/ед." if cpu else "-"
+                cpu_unit = kpi.get("cpu_per_label") or "₽/ед."
+                wr_cell = f"{cpu:.0f} {cpu_unit}" if cpu else "-"
             except (TypeError, ValueError, ZeroDivisionError):
                 wr_cell = "-"
         else:
@@ -1079,7 +1265,7 @@ def render_action_table(ctx: dict) -> str:
             f'<tr class="totals-row">'
             f'<td>{escape(headers["totals"])}</td>'
             f'<td class="num">{_fmt_mln(tb)}</td>'
-            f'<td class="num">{_fmt_mln(tc)}</td>'
+            f'<td class="num">{_fmt_contrib(tc_raw, contrib_scale)}</td>'
             f'<td class="num">{wr_cell}</td>'
             f'<td class="num">100</td>'
             f'<td></td>'
@@ -1150,7 +1336,7 @@ def render_action_table(ctx: dict) -> str:
     <tr>
       <th scope="col" data-col="0" aria-sort="none">{escape(headers["channel"])}</th>
       <th scope="col" data-col="1" class="num" aria-sort="none">{escape(headers["budget"])} <span style="font-weight:400;color:var(--text-muted);">{escape(units["budget"])}</span></th>
-      <th scope="col" data-col="2" class="num" aria-sort="descending">{escape(headers["contrib"])} <span style="font-weight:400;color:var(--text-muted);">{escape(units["contrib"])}</span></th>
+      <th scope="col" data-col="2" class="num" aria-sort="descending">{escape(headers["contrib"])} <span style="font-weight:400;color:var(--text-muted);">{escape(contrib_unit)}</span></th>
       <th scope="col" data-col="3" class="num" aria-sort="none">{escape(metric_col_header)} <span style="font-weight:400;color:var(--text-muted);">{escape(metric_col_unit)}</span></th>
       <th scope="col" data-col="4" class="num" aria-sort="none">{escape(headers["share"])} <span style="font-weight:400;color:var(--text-muted);">{escape(units["share"])}</span></th>
       <th scope="col" data-col="5" aria-sort="none">{escape(headers["verdict"])}</th>
@@ -1163,25 +1349,36 @@ def render_action_table(ctx: dict) -> str:
 
 
 def render_timeline(ctx: dict) -> str:
-    """Section 9: Timeline stacked area + dataZoom."""
+    """Section 9: Timeline (обзор групп / детально) + dataZoom."""
     strings = ctx["strings"]
     facts = ctx.get("facts") or {}
-    kicker = strings["sections"]["timeline"]["kicker"]
+    # П2: «по <единица>» из гранулярности дат (детект в builder), fallback нейтр.
+    period_unit = ctx.get("period_unit") or "по периодам"
+    # Аудит №3 предложение 4: kicker динамический («ПРОДАЖИ ПО МЕСЯЦАМ») — точнее
+    # нейтрального; TOC читает sections.label, kicker чисто визуальный. strings-
+    # ключ остаётся резервом на случай пустого period_unit.
+    kicker = (
+        f"ПРОДАЖИ {period_unit.upper()}" if period_unit
+        else strings["sections"]["timeline"]["kicker"]
+    )
 
     leader = facts.get("leader_channel") if facts else None
     if leader:
         title = strings["action_titles"]["s08_leader"].format(leader=leader)
     else:
-        title = "Динамика продаж по неделям"
+        title = f"Динамика продаж {period_unit}"
 
     body = f"""
 {_action_title(title)}
 <div class="chart-container">
   <div class="chart-title-bar">
     <div>
-      <div class="chart-title">Продажи по неделям · stacked area</div>
-      <div class="chart-subtitle">Декомпозиция: baseline + вклад каналов. Перетаскивайте ползунок для зума.</div>
+      <div class="chart-title">Продажи {period_unit}</div>
+      <!-- Б-3 (аудит Т3+): подпись отражает двухрежимность (обзор групп ⇄ детально),
+           дефолт — обзор 4 групп в паритете с программой, а не «вклад каналов». -->
+      <div class="chart-subtitle">Декомпозиция по группам (обзор) или по каналам и факторам (детально). Ползунок - зум периода.</div>
     </div>
+    <button class="btn-inline" id="tl-view-toggle" title="Показать каналы и факторы по отдельности. Итоговая сумма продаж одинакова в обоих режимах">Детально</button>
     <button class="btn-inline" data-copy-chart="chart-timeline">Сохранить PNG</button>
   </div>
   <div class="chart-host" id="chart-timeline" data-chart="timeline" style="height:420px;">
@@ -1256,18 +1453,18 @@ def render_recommendation(ctx: dict) -> str:
             # когда Performance - small-budget сhannel.
             action_01_text = (
                 f"{realloc:.0f} млн ₽ из {facts['cut_source_channel']} в {facts['scale_destination_channel']}. "
-                "Adstock компенсирует краткосрочный спад awareness."
+                "Остаточный эффект компенсирует краткосрочный спад охвата."
             )
         elif hero != leader and realloc >= 0.5:
             # Legacy fallback (cut_source/scale_dest unavailable)
             action_01_text = (
                 f"{realloc:.0f} млн ₽ из {leader} в {hero}. "
-                "Adstock компенсирует краткосрочный спад awareness."
+                "Остаточный эффект компенсирует краткосрочный спад охвата."
             )
         else:
             action_01_text = (
                 f"Портфель близок к оптимуму при заданных границах. "
-                f"Сохранить аллокацию по {leader} с контролем индикаторов saturation."
+                f"Сохранить распределение по {leader} с контролем признаков насыщения."
             )
 
         # N4 - Actions 02/03: data-driven monitoring guidance (not generic boilerplate).
@@ -1288,19 +1485,19 @@ def render_recommendation(ctx: dict) -> str:
             else:
                 problem_clause = f"{n_saturated} канал(ов) под breakeven"
             action_02_text = (
-                f"{problem_clause} - проверить data quality, adstock decay и сравнить "
-                "с industry benchmarks перед следующей итерацией."
+                f"{problem_clause} - проверить качество данных, параметры затухания и сравнить "
+                "с отраслевыми ориентирами перед следующей итерацией."
             )
         else:
             if kpi["mode"] == "effectiveness":
                 action_02_text = (
                     "Все каналы дают сравнимый вклад в долю эффекта - "
-                    f"мониторить {metric_short.lower()} канала в следующих периодах на признаки saturation."
+                    f"следить за {metric_short.lower()} канала в следующих периодах - не появится ли насыщение."
                 )
             else:
                 action_02_text = (
                     f"Все каналы выше breakeven - мониторить {metric_short} в следующих периодах "
-                    "на признаки saturation."
+                    "на признаки насыщения."
                 )
 
         if underperf:
@@ -1310,26 +1507,26 @@ def render_recommendation(ctx: dict) -> str:
             # action='Cut' channels listed → customer sees full picture.
             action_03_text = (
                 f"Перевести бюджет из {', '.join(underperf)} согласно вердиктам, "
-                "затем измерить эффект через 90 дней (KPI vs baseline)."
+                "затем сверить эффект после следующего периода данных (KPI против базового спроса)."
             )
         else:
             action_03_text = (
-                "Замерить эффект через 90 дней (KPI vs baseline) - "
+                "Сверить эффект после следующего периода данных (KPI против базового спроса) – "
                 "перезапустить MMM с обновлёнными данными для калибровки модели."
             )
 
         actions = [
             ("01", "Перебалансировать бюджет.", action_01_text),
-            ("02", "Контролировать saturation.", action_02_text),
-            ("03", "Замерить эффект через 90 дней.", action_03_text),
+            ("02", "Контролировать насыщение.", action_02_text),
+            ("03", "Сверить прогноз с фактом.", action_03_text),
         ]
         lift_val = lift if lift is not None else 0
     else:
         title = "Рекомендация появится после оптимизации"
         actions = [
-            ("01", "Перебалансировать бюджет.", "Из лидера в hero-канал по mROAS"),
-            ("02", "Контролировать saturation.", "По каналам с mROAS < 1×"),
-            ("03", "Замерить эффект через 90 дней.", "KPI vs baseline после применения"),
+            ("01", "Перебалансировать бюджет.", "Из лидера в самый отзывчивый канал по mROAS"),
+            ("02", "Контролировать насыщение.", "По каналам с mROAS < 1×"),
+            ("03", "Сверить прогноз с фактом.", "KPI против базового спроса после применения"),
         ]
         lift_val = 0
 
@@ -1350,6 +1547,19 @@ def render_recommendation(ctx: dict) -> str:
     else:
         impact_period_label = "Прогнозный ROAS"
 
+    # B1-fix R-09/R-13 (2026-07-03): «+0 пп» — пустое обещание; незначимый
+    # lift (<0.5) подписываем честно, без нулевого числа и без анимации.
+    if lift_val >= 0.5:
+        _impact_value_html = (
+            f'<div class="impact-value" data-counter-end="{lift_val:.0f}">+{lift_val:.0f} пп</div>'
+        )
+        _impact_card_attr = ' data-animate-counter'
+    else:
+        _impact_value_html = (
+            '<div class="impact-value" style="font-size:22px;">Незначим (&lt;0.5 пп)</div>'
+        )
+        _impact_card_attr = ''
+
     # Optimize comparison chart (current vs optimal spend per channel)
     # rendered only when optimize data is available - JS checks CHART_DATA
     # shape and silently no-ops if empty.
@@ -1358,10 +1568,10 @@ def render_recommendation(ctx: dict) -> str:
 <div class="recommendations">
 {actions_html}
 </div>
-<div class="impact-card" data-animate-counter>
+<div class="impact-card"{_impact_card_attr}>
   <div class="impact-label">Ожидаемый эффект</div>
   <div class="impact-hairline" aria-hidden="true"></div>
-  <div class="impact-value" data-counter-end="{lift_val:.0f}">+{lift_val:.0f} пп</div>
+  {_impact_value_html}
   <div class="impact-period">{escape(impact_period_label)}</div>
 </div>
 <div class="chart-container" style="margin-top:28px;">
@@ -1411,11 +1621,11 @@ def _render_brand_perf_split_block(ctx: dict) -> str:
     perf_mu = priors.get('performance_mu_logit_mean') or priors.get('perf_mu_logit_mean')
     rows = []
     if n_brand:
-        rows.append(f'<li><strong>Brand:</strong> {n_brand} канал(ов), effective half-life ≈ {_half_life(brand_mu)} (long-horizon decay)</li>')
+        rows.append(f'<li><strong>Brand:</strong> {n_brand} канал(ов), период полураспада ≈ {_half_life(brand_mu)} (долгосрочный отклик)</li>')
     if n_perf:
-        rows.append(f'<li><strong>Performance:</strong> {n_perf} канал(ов), effective half-life ≈ {_half_life(perf_mu)} (short-horizon decay)</li>')
+        rows.append(f'<li><strong>Performance:</strong> {n_perf} канал(ов), период полураспада ≈ {_half_life(perf_mu)} (краткосрочный отклик)</li>')
     if n_mixed:
-        rows.append(f'<li><strong>Смешанные:</strong> {n_mixed} канал(ов), single-prior fallback</li>')
+        rows.append(f'<li><strong>Смешанные:</strong> {n_mixed} канал(ов), единый априорный параметр</li>')
 
     warning_html = ""
     rwarn = hier.get('rhat_warning')
@@ -1424,17 +1634,17 @@ def _render_brand_perf_split_block(ctx: dict) -> str:
 
     return f"""
 <div class="brand-perf-block" style="margin-top:24px;padding:14px;background:rgba(127,90,240,0.05);border-left:3px solid rgba(127,90,240,0.5);border-radius:6px;">
-  <div class="method-col-label" style="margin-bottom:8px;">Brand vs Performance моделирование (v1.1.0)</div>
+  <div class="method-col-label" style="margin-bottom:8px;">Иерархическая модель brand/performance (v1.1.0)</div>
   <p style="font-size:12px;line-height:1.5;color:var(--text-secondary,#94a3b8);">
-    Модель разделяет каналы на brand (long-horizon decay) и performance (short-horizon decay).
-    Brand-каналы получают hierarchical prior с большей variance - отражает unknown brand-build duration.
-    Performance-каналы используют тесный prior на короткий decay.
+    Модель разделяет каналы на brand (долгосрочный отклик) и performance (краткосрочный отклик).
+    Brand-каналы получают более широкий априорный параметр — отражает неизвестную длительность накопления эффекта.
+    Performance-каналы используют тесный априорный параметр на быстрое затухание.
   </p>
   <ul style="font-size:12px;line-height:1.7;margin-top:8px;padding-left:16px;">
 {chr(10).join(rows)}
   </ul>
   <p style="font-size:11px;font-style:italic;color:var(--text-muted,#64748b);margin-top:8px;">
-    Атрибуция между brand и performance имеет fundamental uncertainty - мы используем priors based on industry norms.
+    Атрибуция между brand и performance содержит неустранимую неопределённость — используются априорные ожидания на основе отраслевых норм.
     Если категория канала вызывает сомнения, проверьте классификацию на шаге Validate.
   </p>
   {warning_html}
@@ -1465,7 +1675,7 @@ def render_methodology(ctx: dict) -> str:
     # OLS guard: hide MCMC diagnostics; show method/CI labels вместо.
     if is_ols:
         diag_items.append(("Метод", "closed-form OLS"))
-        diag_items.append(("CI", "bootstrap n=1000"))
+        diag_items.append(("CI", "bootstrap n=200"))  # факт ols_bootstrap.py n_boot=200 (был n=1000, враньё R-07)
     else:
         if diag.get("r_hat_max") is not None:
             diag_items.append(("R-hat (max)", f"{float(diag['r_hat_max']):.3f}"))
@@ -1492,7 +1702,7 @@ def render_methodology(ctx: dict) -> str:
         else _ats["s10_methodology"]
     )
     _prior_note = (
-        "Параметры adstock/saturation: индустриальные бенчмарки OLS MMM, фиксированные. Bootstrap n=1000 для CI."
+        "Параметры отложенного эффекта (adstock) и насыщения: индустриальные бенчмарки OLS MMM, фиксированные. Bootstrap n=200 для CI."  # П8-2
         if is_ols
         else meth["prior_note"]
     )
@@ -1569,10 +1779,13 @@ def render_sources(ctx: dict) -> str:
         if is_ols
         else _brand["methodology_badge"]
     )
+    # B1-fix R-07 (2026-07-03): фактический уровень интервалов — 90% HDI
+    # (DEFAULT_HDI_PROB=0.9, OLS bootstrap тем же compute_ci_hdi, n=200);
+    # «95%» было враньём семейства F-18.
     _src_line = (
-        "OLS MMM · точечные оценки · bootstrap CI 95%"
+        "OLS MMM · точечные оценки · bootstrap 90% HDI (n=200)"
         if is_ols
-        else "Bayesian MMM · posterior means · 95% CI"
+        else "Bayesian MMM · posterior means · 90% HDI"
     )
 
     body = f"""
@@ -1653,6 +1866,310 @@ def render_closing(ctx: dict) -> str:
 
 # ─── Section registry ───────────────────────────────────────────────────────
 
+def render_trust_loop(ctx: dict) -> str:
+    """Секция «Петля доверия» (E1–E4, 2026-07-04): проверка на истории,
+    что изменилось с прошлого квартала, калибровка экспериментами,
+    сбывшиеся рекомендации. Рендерятся ТОЛЬКО живые под-блоки; при полном
+    отсутствии данных секция не выводится вовсе (и пропускается в TOC) —
+    wireframe-суррогатов нет по построению (урок B1)."""
+    trust = ctx.get("trust") or {}
+    diag = ctx.get("diagnostics") or {}
+    bt = trust.get("backtest") or {}
+    gc = trust.get("generation_compare") or {}
+    ps = trust.get("promises_summary") or {}
+    calib = diag.get("calibration") or {}
+    blocks: list[str] = []
+
+    # ── E1: проверка на истории ──
+    if bt.get("status") == "ok" and bt.get("windows"):
+        hit = bt.get("windows_hit_total")
+        n_int = bt.get("windows_with_interval") or 0
+        gran, h = bt.get("granularity"), bt.get("horizon_periods")
+        is_q = (gran == "M" and h == 3) or (gran == "W" and h == 13) or (gran == "D" and h == 90)
+        word = "кварталов" if is_q else "окон проверки"
+        rows = ""
+        for w in (bt.get("windows") or [])[:8]:
+            lo, hi = w.get("pi_low_total"), w.get("pi_high_total")
+            interval = (f"{_fmt_int(lo)} – {_fmt_int(hi)}"
+                        if lo is not None and hi is not None else "—")
+            mark = "✓" if w.get("hit_total") else ("—" if w.get("hit_total") is None else "✕")
+            rows += (
+                f'<tr><td>{escape(str(w.get("window") or "—"))}</td>'
+                f'<td class="num">{_fmt_int(w.get("actual_total"))}</td>'
+                f'<td class="num">{_fmt_int(w.get("predicted_total"))}</td>'
+                f'<td class="num">{interval}</td><td class="center">{mark}</td></tr>'
+            )
+        naive = bt.get("mape_naive_best")
+        naive_line = (
+            f' Наивный прогноз: {float(naive):.1f}%.' if naive is not None else ""
+        )
+        blocks.append(f"""
+<div class="trust-block">
+  <h3 class="trust-h">Проверка на истории</h3>
+  <p class="trust-hero">{escape(str(hit))} из {escape(str(n_int))} {word} — факт внутри 90%-интервала прогноза.</p>
+  <p class="trust-sub">Ошибка прогноза (MAPE): {float(bt.get("mape_model") or 0):.1f}%.{naive_line}
+  {escape(str(bt.get("verdict_text") or ""))}</p>
+  <table class="trust-table"><thead><tr>
+    <th>Период</th><th>Факт</th><th>Прогноз</th><th>90%-интервал</th><th>✓</th>
+  </tr></thead><tbody>{rows}</tbody></table>
+</div>""")
+
+    # ── E3: что изменилось с прошлого квартала ──
+    if gc.get("status") == "ok" and gc.get("channels"):
+        headline = (gc.get("summary") or {}).get("headline") or ""
+        rows = ""
+        for c in (gc.get("channels") or [])[:8]:
+            def _ci(v):
+                if not v or v[0] is None or v[1] is None:
+                    return ""
+                return f" [{float(v[0]):.1f}–{float(v[1]):.1f}]"
+            rows += (
+                f'<tr><td>{escape(str(c.get("name")))}</td>'
+                f'<td class="num">{float(c.get("roi_old") or 0):.1f}{_ci(c.get("roi_ci_old"))} → '
+                f'{float(c.get("roi_new") or 0):.1f}{_ci(c.get("roi_ci_new"))}</td>'
+                f'<td>{escape(str(c.get("verdict_ru") or ""))}</td></tr>'
+            )
+        blocks.append(f"""
+<div class="trust-block">
+  <h3 class="trust-h">Что изменилось с прошлого квартала</h3>
+  <p class="trust-sub">{escape(headline)}</p>
+  <table class="trust-table"><thead><tr>
+    <th>Канал</th><th>ROI: был → стал</th><th>Вердикт</th>
+  </tr></thead><tbody>{rows}</tbody></table>
+  <p class="trust-note">Обе версии модели пересчитаны на сегодняшних данных;
+  вердикт — по перекрытию интервалов неопределённости.</p>
+</div>""")
+
+    # ── E2: калибровка экспериментами ──
+    applied = calib.get("applied") or []
+    checks = calib.get("checks") or []
+    if applied:
+        lines = ""
+        for a in applied:
+            lines += (
+                f'<p class="trust-sub">Канал «{escape(str(a.get("channel")))}» '
+                f'откалиброван тестом ({escape(str(a.get("test_type")))}) '
+                f'от {escape(str(a.get("date_from")))} – вошёл в модель как наблюдение.</p>'
+            )
+        for c in checks:
+            if c.get("within_ci"):
+                continue
+            ci = c.get("model_contrib_ci90") or [None, None]
+            lines += (
+                f'<p class="trust-warn">Модель и тест расходятся по '
+                f'«{escape(str(c.get("channel")))}»: вклад модели '
+                f'{_fmt_int(c.get("model_contrib_mean"))} '
+                f'[{_fmt_int(ci[0])} – {_fmt_int(ci[1])}] против теста '
+                f'{_fmt_int(c.get("test_lift"))} – разберите период с аналитиком.</p>'
+            )
+        blocks.append(f"""
+<div class="trust-block">
+  <h3 class="trust-h">Калибровка экспериментами</h3>
+  {lines}
+</div>""")
+
+    # ── E4: сбывшиеся рекомендации ──
+    if ps.get("examples"):
+        ex_lines = ""
+        for ex in ps["examples"]:
+            cls = "trust-sub" if ex.get("status") == "kept" else "trust-warn"
+            ex_lines += (
+                f'<p class="{cls}">«{escape(str(ex.get("action_text")))}» – '
+                f'{escape(str(ex.get("status_ru")))}.</p>'
+            )
+        blocks.append(f"""
+<div class="trust-block">
+  <h3 class="trust-h">Проверка прошлых рекомендаций</h3>
+  <p class="trust-hero">Сбылось {int(ps.get("kept") or 0)} · не сбылось {int(ps.get("missed") or 0)}</p>
+  {ex_lines}
+</div>""")
+
+    if not blocks:
+        return ""
+    body = _action_title("Петля доверия: модель против факта") + "\n" + "\n".join(blocks)
+    return _section("trust", "ДОВЕРИЕ К МОДЕЛИ", body)
+
+
+def render_forecast_plan(ctx: dict) -> str:
+    """E5 (2026-07-10): секция «Прогноз на будущий период».
+
+    Рендерит сравнительную таблицу сценариев бюджетного плана. Возвращает ""
+    если forecast отсутствует — INV-50, wireframe-суррогатов нет.
+    При ≥2 вариантах добавляет сравнительный bar-chart scenarios_comparison_chart.
+    """
+    fc = ctx.get("forecast") or {}
+    if not fc or fc.get("status") != "ok" or not fc.get("scenarios"):
+        return ""
+
+    scenarios = (fc.get("scenarios") or [])[:4]
+    accepted = fc.get("accepted_variant")
+
+    rows = ""
+    for sc in scenarios:
+        is_accepted = sc.get("variant_id") == accepted
+        ci_low_list = sc.get("ci_low") or []
+        ci_high_list = sc.get("ci_high") or []
+        ci_low_val = ci_low_list[-1] if ci_low_list else None
+        ci_high_val = ci_high_list[-1] if ci_high_list else None
+        ci_str = (
+            f"{int(ci_low_val):,} – {int(ci_high_val):,}".replace(",", " ")
+            if ci_low_val is not None and ci_high_val is not None else "—"
+        )
+        budget = sc.get("total_spend_money")
+        kpi = sc.get("total_kpi")
+        roas = sc.get("roas_money")
+        budget_str = f"{int(budget):,}".replace(",", " ") if budget is not None else "—"
+        kpi_str = f"{int(kpi):,}".replace(",", " ") if kpi is not None else "—"
+        roas_str = f"{float(roas):.2f}" if roas is not None else "—"
+        name_str = escape(str(sc.get("name") or sc.get("variant_id") or "—"))
+        star = "★ " if is_accepted else ""
+        bold_open = "<strong>" if is_accepted else ""
+        bold_close = "</strong>" if is_accepted else ""
+        rows += (
+            f'<tr>'
+            f'<td>{bold_open}{star}{name_str}{bold_close}</td>'
+            f'<td class="num">{bold_open}{budget_str}{bold_close}</td>'
+            f'<td class="num">{bold_open}{kpi_str}{bold_close}</td>'
+            f'<td class="num">{bold_open}{ci_str}{bold_close}</td>'
+            f'<td class="num">{bold_open}{roas_str}{bold_close}</td>'
+            f'</tr>'
+        )
+
+    disclaimers = fc.get("disclaimers") or []
+    disc_html = ""
+    if disclaimers:
+        disc_items = "".join(f"<li>{escape(str(d))}</li>" for d in disclaimers[:5])
+        disc_html = f'<ul class="trust-list">{disc_items}</ul>'
+
+    # Сравнительный график вариантов (только при ≥2 сценариях)
+    chart_html = ""
+    if len(scenarios) >= 2:
+        try:
+            from charts.generators import scenarios_comparison_chart
+            kpi_meta = _kpi_view(ctx)
+            kpi_label = kpi_meta.get("target_axis") or "Прогноз KPI"
+            data_uri = scenarios_comparison_chart(scenarios, kpi_label=kpi_label)
+            if data_uri:
+                chart_html = (
+                    '<div class="chart-container" style="margin-top:20px;">'
+                    '<div class="chart-title" style="margin-bottom:8px;">'
+                    'Сравнение вариантов – прогноз KPI</div>'
+                    f'<img src="data:image/png;base64,{data_uri}" '
+                    'alt="Сравнение вариантов" '
+                    'style="max-width:100%;height:auto;border-radius:6px;" />'
+                    '</div>'
+                )
+        except Exception:
+            pass  # График опционален – ошибка не ломает секцию
+
+    body = (
+        _action_title("Прогноз на будущий период")
+        + f"""
+<div class="trust-block">
+  <table class="trust-table">
+    <thead><tr>
+      <th>Сценарий</th><th>Бюджет, ₽</th>
+      <th>Прогноз KPI</th><th>90%-интервал</th><th>ROAS</th>
+    </tr></thead>
+    <tbody>{rows}</tbody>
+  </table>
+  {disc_html}
+</div>
+{chart_html}"""
+    )
+    return _section("forecast", "ПРОГНОЗ", body)
+
+
+def render_retro_insights(ctx: dict) -> str:
+    """Условный блок «Что улучшить в подходе» (ретро-раздел).
+
+    Формирует список практических рекомендаций по улучшению качества модели
+    на основе honesty_verdict, honesty_reasons и диагностических показателей.
+    Возвращает пустую строку при сильной модели (honesty_verdict == "reliable")
+    или при полном отсутствии данных — INV-50, wireframe-суррогатов нет.
+    """
+    diag = ctx.get("diagnostics") or {}
+    verdict = diag.get("honesty_verdict")
+    # При reliable-модели блок не нужен
+    if verdict == "reliable":
+        return ""
+    # При полном отсутствии диагностики — тоже
+    if not diag:
+        return ""
+
+    reasons = (diag.get("honesty_reasons") or [])[:3]
+    thinness_cap = diag.get("thinness_cap")
+    ratio = diag.get("ratio")
+    preflight = diag.get("preflight") or {}
+    r_squared = diag.get("r_squared")
+    mape_pct = diag.get("mape_pct")
+
+    items: list[str] = []
+
+    # 1. Причины из honesty_reasons (уже человекочитаемые от движка)
+    for reason in reasons:
+        if reason:
+            items.append(escape(str(reason)))
+
+    # 2. Тонкость данных — рекомендация добавить историю
+    if thinness_cap is not None and ratio is not None:
+        try:
+            r = float(ratio)
+            if r < 3.0:
+                items.append(
+                    f"Мало наблюдений относительно числа параметров (отношение {r:.1f}) – "
+                    "добавьте как минимум ещё один период данных для снижения неопределённости."
+                )
+        except (TypeError, ValueError):
+            pass
+
+    # 3. Preflight-провал приоров
+    pp_status = preflight.get("prior_predictive_status")
+    if pp_status == "fail":
+        pp_cov = preflight.get("prior_predictive_coverage")
+        cov_sfx = (f" (покрытие {float(pp_cov):.0%})" if isinstance(pp_cov, (int, float)) else "")
+        items.append(
+            f"Априорные предположения расходятся с данными{cov_sfx} – "
+            "проверьте диапазоны adstock и насыщения на шаге Validate."
+        )
+
+    # 4. Низкое R² или высокий MAPE
+    if r_squared is not None:
+        try:
+            if float(r_squared) < 0.6:
+                items.append(
+                    f"R² = {float(r_squared):.2f} – модель объясняет менее 60% вариации продаж; "
+                    "рассмотрите добавление сезонных регрессоров или макропеременных."
+                )
+        except (TypeError, ValueError):
+            pass
+    if mape_pct is not None:
+        try:
+            if float(mape_pct) > 20.0:
+                items.append(
+                    f"MAPE = {float(mape_pct):.1f}% – ошибка прогноза высокая; "
+                    "проверьте выбросы и качество входных данных."
+                )
+        except (TypeError, ValueError):
+            pass
+
+    if not items:
+        return ""
+
+    items_html = "".join(f"<li>{item}</li>" for item in items)
+    body = (
+        _action_title("Что улучшить в подходе", lime=False)
+        + '\n<div class="retro-block" style="margin-top:16px;padding:16px 20px;'
+        'background:rgba(201,164,73,0.06);border:1px solid rgba(201,164,73,0.25);'
+        'border-radius:8px;">\n'
+        '  <ul class="retro-list" style="margin:0;padding-left:20px;line-height:1.7;'
+        'font-size:13px;color:var(--text-secondary,#94a3b8);">\n'
+        + items_html
+        + '\n  </ul>\n</div>'
+    )
+    return _section("retro", "РЕКОМЕНДАЦИИ ПО ДАННЫМ", body)
+
+
 SECTION_RENDERERS: tuple = (
     ('cover',     render_cover),
     ('findings',  render_at_a_glance),
@@ -1664,6 +2181,9 @@ SECTION_RENDERERS: tuple = (
     ('share',     render_share),
     ('table',     render_action_table),
     ('timeline',  render_timeline),
+    ('trust',     render_trust_loop),
+    ('forecast',  render_forecast_plan),
+    ('retro',     render_retro_insights),
     ('method',    render_methodology),
     ('sources',   render_sources),
     ('glossary',  render_glossary),

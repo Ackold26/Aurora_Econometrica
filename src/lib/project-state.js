@@ -65,7 +65,7 @@ export const pipelineStep = derived(pipelineState, ($s) => {
 });
 
 // ===================================================================
-// Phase 1: Visual Pipeline State Machine (6 steps)
+// Phase 1: Visual Pipeline State Machine (7 steps)
 // ===================================================================
 
 // Иконка шага — Lucide-компонент по id из $lib/step-icons.js (stepIcons[id]).
@@ -77,6 +77,7 @@ export const PIPELINE_STEPS = [
   { id: 'model',     label: 'Model',     labelRu: 'Модель' },
   { id: 'decompose', label: 'Decompose', labelRu: 'Декомпозиция' },
   { id: 'optimize',  label: 'Optimize',  labelRu: 'Оптимизация' },
+  { id: 'planning',  label: 'Planning',  labelRu: 'Планирование' },
   { id: 'report',    label: 'Report',    labelRu: 'Отчёт' },
 ];
 
@@ -95,27 +96,53 @@ const PIPELINE_META_KEY = 'econ-pipeline-meta';
 /** @returns {StepMeta[]} */
 function defaultStepMeta() {
   return [
-    { status: 'ready' },   // Import: always ready
-    { status: 'locked' },
-    { status: 'locked' },
-    { status: 'locked' },
-    { status: 'locked' },
-    { status: 'locked' },
+    { status: 'ready' },   // 0 Import: always ready
+    { status: 'locked' },  // 1 Validate
+    { status: 'locked' },  // 2 Model
+    { status: 'locked' },  // 3 Decompose
+    { status: 'locked' },  // 4 Optimize
+    { status: 'locked' },  // 5 Planning
+    { status: 'locked' },  // 6 Report
   ];
 }
 
 /**
  * A4: Load step metadata from localStorage (statuses only, no data).
+ * Migrates 6-step legacy data to 7-step format (inserts planning at index 5).
+ * Exported for testing migration logic.
  * @param {string|null} projectId
  * @returns {{ currentStep: number, steps: StepMeta[] }}
  */
-function loadPipelineMeta(projectId) {
+export function loadPipelineMeta(projectId) {
   try {
     const key = projectId ? `${PIPELINE_META_KEY}-${projectId}` : PIPELINE_META_KEY;
     const raw = typeof localStorage !== 'undefined' ? localStorage.getItem(key) : null;
     if (raw) {
       const parsed = JSON.parse(raw);
-      if (Array.isArray(parsed.steps) && parsed.steps.length === 6) return parsed;
+      if (Array.isArray(parsed.steps)) {
+        if (parsed.steps.length === 7) {
+          // Already migrated — return as-is (idempotent).
+          return parsed;
+        }
+        if (parsed.steps.length === 6) {
+          // Migrate 6→7: insert planning (locked) at index 5, report moves to 6.
+          const migrated = [...parsed.steps];
+          migrated.splice(5, 0, { status: 'locked', errorMessage: null });
+          // A10: if user was on old step 5 (Report), remap to new index 6.
+          let currentStep = typeof parsed.currentStep === 'number' ? parsed.currentStep : 0;
+          if (currentStep === 5) currentStep = 6;
+          const result = { currentStep, steps: migrated };
+          // Аудит 2026-07-10 (High): персистить ТОЛЬКО в тот ключ, из которого
+          // читали. Запись per-project payload в глобальный ключ протекала
+          // состоянием степпера одного проекта в другой/безпроектный слот.
+          try {
+            const sourceKey = projectId ? `${PIPELINE_META_KEY}-${projectId}` : PIPELINE_META_KEY;
+            const payload = JSON.stringify({ currentStep: result.currentStep, steps: result.steps.map(s => ({ status: s.status, errorMessage: s.errorMessage ?? null })) });
+            localStorage.setItem(sourceKey, payload);
+          } catch { /* ignore quota */ }
+          return result;
+        }
+      }
     }
   } catch { /* corrupted - use default */ }
   return { currentStep: 0, steps: defaultStepMeta() };
@@ -275,6 +302,16 @@ export const forecastConfig = createForecastConfigStore();
  */
 export const forecastContext = writable(null);
 
+/**
+ * G-4 (2026-07-04): счётчик-триггер обновления списка обещаний (E4).
+ * «Зафиксировать прогноз» пишет results/promises.json из OptimizeStep, а
+ * PromisesCard живёт в том же дереве и НЕ размонтируется при навигации
+ * (панели скрыты через visibility). Инкремент здесь после успешной фиксации
+ * заставляет карточку перечитать обещания реактивно, без перезагрузки проекта.
+ * @type {import('svelte/store').Writable<number>}
+ */
+export const promisesVersion = writable(0);
+
 /** @type {import('svelte/store').Writable<StepMeta[]>} Step metadata (statuses only, no data) */
 export const pipelineStepMeta = writable(defaultStepMeta());
 
@@ -394,6 +431,7 @@ export const modelEnabledMediaNames = derived(modelChannelEnabled, ($map) => {
  *   vifStatus: 'ok'|'warn'|'bad'|'na',
  *   nObs: number,
  *   nPredictors: number,
+ *   nParamsEffectivePretrain: number,
  *   activeMedia: number,
  *   activeControls: number,
  *   periodStatus: 'ok'|'warn'|'bad',
@@ -417,6 +455,12 @@ export const validationHeaderMetrics = derived(validateData, ($vd) => {
   const controlCols = cols.filter(c => c.role === 'control');
   const activeControls = controlCols.length;
   const nPredictors = activeMedia + activeControls;
+  // F-A1-5: эффективное число параметров с учётом авто-контролей (праздники + intercept).
+  // Backend проставляет detected.n_params_effective_pretrain при вызове /compute/validate;
+  // для реконструированных проектов (нет свежего validate) — пересчёт с дефолтными 12+1.
+  const nParamsEffectivePretrain = Number(
+    result.detected?.n_params_effective_pretrain ?? (nPredictors + 12 + 1)
+  );
   const ratio = nObs > 0 && nPredictors > 0 ? nObs / nPredictors : 0;
 
   // VIF max - collinearity worst-case среди media каналов
@@ -480,6 +524,7 @@ export const validationHeaderMetrics = derived(validateData, ($vd) => {
     vifStatus: maxVif == null ? /** @type {'na'} */ ('na') : tierDown(maxVif, 5, 10),
     nObs,
     nPredictors,
+    nParamsEffectivePretrain,
     activeMedia,
     activeControls,
     periodStatus: tierUp(nObs, 24, 12),
@@ -639,6 +684,25 @@ activeProject.subscribe((p) => {
     useHolidays.set(p.use_holidays);
   } else {
     useHolidays.set(true);  // default ON (нет проекта / legacy без флага)
+  }
+});
+
+/**
+ * Мастер-флаг «учитывать сезонность» (автосезонность А, 2026-07-04). ON по умолчанию.
+ * Когда True — modeler.py авто-детектит сезонную волну и инжектит Фурье-гармоники
+ * (гейт INV-50: ≥2 полных цикла + статзначимая автокорреляция). Когда False —
+ * сезонность не инжектится (проще модель, но риск списать сезонный спрос на медиа →
+ * завышенный ROI). Персистится в project.json; buildTrainConfig шлёт как `use_seasonality`.
+ * Гидрируется из activeProject; legacy-проекты без флага → true.
+ * @type {import('svelte/store').Writable<boolean>}
+ */
+export const useSeasonality = writable(true);
+
+activeProject.subscribe((p) => {
+  if (p && typeof p.use_seasonality === 'boolean') {
+    useSeasonality.set(p.use_seasonality);
+  } else {
+    useSeasonality.set(true);  // default ON (нет проекта / legacy без флага)
   }
 });
 
@@ -949,7 +1013,7 @@ export const modelData = writable({ diagnostics: null, channelParams: null, pick
  * был null после reload → modelStaleStatus всегда stale=false → банера нет).
  */
 const LAST_TRAINED_KEY = 'aurora-last-trained-config';
-const initialLastTrained = /** @type {{kpi: string, media: string[], control: string[], disabled?: string[], use_holidays?: boolean} | null} */ ((() => {
+const initialLastTrained = /** @type {{kpi: string, media: string[], control: string[], disabled?: string[], use_holidays?: boolean, use_seasonality?: boolean} | null} */ ((() => {
   if (typeof localStorage === 'undefined') return null;
   try {
     const raw = localStorage.getItem(LAST_TRAINED_KEY);
@@ -978,8 +1042,8 @@ if (typeof localStorage !== 'undefined') {
  * }>}
  */
 export const modelStaleStatus = derived(
-  [modelData, validateData, lastTrainedConfig, modelChannelEnabled, disabledHolidays, useHolidays],
-  ([$m, $v, $tc, $en, $dh, $uh]) => {
+  [modelData, validateData, lastTrainedConfig, modelChannelEnabled, disabledHolidays, useHolidays, useSeasonality],
+  ([$m, $v, $tc, $en, $dh, $uh, $us]) => {
     if (!$m?.diagnostics || !$tc) return { stale: false, reason: '', diff: [] };
     const cur = /** @type {any[]} */ ($v?.result?.columns || []);
     // LOAD-1 (C): defensive-net для краёв (нет ролей в project.json / окно до
@@ -1032,6 +1096,14 @@ export const modelStaleStatus = derived(
     if (($uh !== false) !== tUseHolidays) {
       diff.push(`Праздники как фактор: ${tUseHolidays ? 'учитывались' : 'нет'} → ${$uh !== false ? 'учитывать' : 'нет'}`);
     }
+    // Мастер-флаг use_seasonality (автосезонность А) — влияет на состав модели
+    // (Фурье-гармоники). Изменение после обучения = модель устарела. Legacy
+    // snapshot без use_seasonality → true (модели до фичи; но Фурье там нет,
+    // сравнение с true не даст ложного stale, т.к. текущий стор тоже default true).
+    const tUseSeasonality = $tc.use_seasonality !== false;
+    if (($us !== false) !== tUseSeasonality) {
+      diff.push(`Сезонность: ${tUseSeasonality ? 'учитывалась' : 'нет'} → ${$us !== false ? 'учитывать' : 'нет'}`);
+    }
     if (diff.length === 0) return { stale: false, reason: '', diff: [] };
     return {
       stale: true,
@@ -1046,6 +1118,12 @@ export const decomposeData = writable(null);
 
 /** @type {import('svelte/store').Writable<any|null>} */
 export const optimizeData = writable(null);
+
+/** @type {import('svelte/store').Writable<any|null>} Detected media plan data (Phase 2 planning step) */
+export const mediaPlanDetected = writable(null);
+
+/** @type {import('svelte/store').Writable<any|null>} Planning manifest output (Phase 2 planning step) */
+export const planningManifest = writable(null);
 
 /**
  * Восстановить данные pipeline из `results/*.json` при активации проекта.
@@ -1119,6 +1197,12 @@ async function restoreProjectResults(pid) {
     const hasModel = Boolean(r.modelDiagnostics);
     const hasDecompose = Boolean(r.decomposition);
     const hasOptimize = Boolean(r.optimization);
+    // Аудит 2026-07-10 (Critical): восстановление планирования с диска —
+    // без этого завершённый шаг деградировал в ready при каждом открытии.
+    const hasPlanning = Boolean(r.planning);
+    if (hasPlanning) planningManifest.set(r.planning);
+    if (r.mediaPlan) mediaPlanDetected.set(r.mediaPlan);
+    else mediaPlanDetected.set(null); // не тащить медиаплан чужого проекта
 
     if (hasModel) {
       modelData.update(m => ({
@@ -1146,7 +1230,7 @@ async function restoreProjectResults(pid) {
     // Иначе остаточный status='error' с прошлых сессий висит на шагах,
     // до которых пользователь ещё не дошёл (например, «Декомпозиция ❌»
     // пока работаешь на «Валидация»).
-    reconcileStepMetaFromDisk({ hasValidation, hasModel, hasDecompose, hasOptimize });
+    reconcileStepMetaFromDisk({ hasValidation, hasModel, hasDecompose, hasOptimize, hasPlanning });
   } catch (e) {
     // Silent: отсутствие results/* - норма для нового проекта.
     console.warn('restoreProjectResults skipped:', e);
@@ -1158,10 +1242,16 @@ async function restoreProjectResults(pid) {
  * Шаг с данными → complete. Шаг без данных, но с complete-предшественником → ready.
  * Остальные → locked. Все error-статусы, не подкреплённые данными, сбрасываются.
  *
- * @param {{hasValidation: boolean, hasModel: boolean, hasDecompose: boolean, hasOptimize: boolean}} flags
+ * @param {{hasValidation: boolean, hasModel: boolean, hasDecompose: boolean, hasOptimize: boolean, hasPlanning?: boolean}} flags
  */
 function reconcileStepMetaFromDisk(flags) {
-  const { hasValidation, hasModel, hasDecompose, hasOptimize } = flags;
+  const { hasValidation, hasModel, hasDecompose, hasOptimize, hasPlanning = false } = flags;
+  // Правило Антона (приёмка 2026-07-10): шаг «Планирование» активируется ТОЛЬКО
+  // когда медиаплан найден И подтверждён на Валидации; иначе он заперт, и после
+  // Оптимизации пользователь идёт сразу в Отчёт. hasPlanning (planning.json на
+  // диске) тоже разлочивает — прогноз уже строили, вход должен остаться доступным.
+  const mp = get(mediaPlanDetected);
+  const hasConfirmedPlan = Boolean(mp && (mp.confirmed ?? true) && (mp.n_future_periods ?? 0) > 0);
   // Monotonic invariant: если есть данные на любом downstream шаге, все upstream
   // шаги успешно прошли (по построению pipeline). Step 0 (Import) → complete если
   // ЛЮБОЙ из validate/model/decompose/optimize отработал - без этого нельзя было.
@@ -1174,7 +1264,10 @@ function reconcileStepMetaFromDisk(flags) {
     hasModel     ? 'complete' : (hasValidation ? 'ready' : 'locked'),  // 2 - Model
     hasDecompose ? 'complete' : (hasModel ? 'ready' : 'locked'),       // 3 - Decompose
     hasOptimize  ? 'complete' : (hasDecompose ? 'ready' : 'locked'),   // 4 - Optimize
-    (hasDecompose && hasOptimize) ? 'ready' : 'locked',                // 5 - Report
+    hasOptimize && (hasConfirmedPlan || hasPlanning)
+      ? (hasPlanning ? 'complete' : 'ready')
+      : 'locked',                                                      // 5 - Planning (только при подтверждённом медиаплане)
+    (hasDecompose && hasOptimize) ? 'ready' : 'locked',                // 6 - Report (does NOT depend on Planning — planning is optional)
   ]);
   pipelineStepMeta.set(stepStatuses.map(status => ({ status, errorMessage: null })));
 
@@ -1189,6 +1282,20 @@ function reconcileStepMetaFromDisk(flags) {
       pipelineCurrentStep.set(lastUsable);
     }
   }
+
+  // G-1 (2026-07-04, решение Антона: «открывать на последнем шаге»): открыв
+  // готовый проект, вести пользователя на последний ПРОЙДЕННЫЙ шаг. Иначе при
+  // currentStep=0 (Импорт) stepper (monotonic visual invariant в PipelineStepper)
+  // понижает все complete-шаги впереди до 'ready' — готовая работа выглядит
+  // непройденной, что принижает результат (против INV-50 честности).
+  // Аудит 2026-07-04: поднимаем ТОЛЬКО с позиции 0 (дефолт свежей меты — это
+  // и есть паразитный случай G-1). Сохранённая позиция >0 — осознанный выбор
+  // пользователя («где остановился»), reload не должен утаскивать его вперёд.
+  const lastComplete = stepStatuses.findLastIndex(s => s === 'complete');
+  if (get(pipelineCurrentStep) === 0 && lastComplete > 0) {
+    pipelineCurrentStep.set(lastComplete);
+  }
+
   savePipelineMeta(get(activeProjectId), {
     currentStep: get(pipelineCurrentStep),
     steps: get(pipelineStepMeta),
@@ -1233,14 +1340,15 @@ export const reportData = writable(null);
  * A5: Reset all downstream step data and lock their statuses.
  * Call when an upstream step's input changes (re-import, config change, etc.).
  * All steps with index > fromStep are cleared and locked.
- * @param {number} fromStep - the step that changed; steps fromStep+1..5 are reset
+ * @param {number} fromStep - the step that changed; steps fromStep+1..6 are reset
  */
 export function resetDownstream(fromStep) {
   if (fromStep < 1) validateData.set({ result: null, correlationMatrix: null, columnHistograms: null });
   if (fromStep < 2) modelData.set({ diagnostics: null, channelParams: null, picklePath: null, normalization: null });
   if (fromStep < 3) decomposeData.set(null);
   if (fromStep < 4) optimizeData.set(null);
-  if (fromStep < 5) reportData.set(null);
+  if (fromStep < 5) planningManifest.set(null);
+  if (fromStep < 6) reportData.set(null);
 
   pipelineStepMeta.update(steps =>
     steps.map((s, i) => i <= fromStep ? s : { status: 'locked', errorMessage: null })
@@ -1360,7 +1468,7 @@ export function completeStep(step) {
   pipelineStepMeta.update(steps => {
     const copy = steps.map(s => ({ ...s }));
     copy[step] = { ...copy[step], status: 'complete', errorMessage: null };
-    if (step + 1 < 6) copy[step + 1] = { ...copy[step + 1], status: 'ready' };
+    if (step + 1 < 7) copy[step + 1] = { ...copy[step + 1], status: 'ready' };
     return copy;
   });
 
@@ -1382,6 +1490,24 @@ export function lockStep(step) {
     const copy = steps.map(s => ({ ...s }));
     if (copy[step] && copy[step].status === 'ready') {
       copy[step] = { status: 'locked', errorMessage: null };
+    }
+    return copy;
+  });
+  const pid = get(activeProjectId);
+  savePipelineMeta(pid, { currentStep: get(pipelineCurrentStep), steps: get(pipelineStepMeta) });
+}
+
+/**
+ * Unlock a locked step (→ ready). Симметрия lockStep. Нужен навигации
+ * «Оптимизация → сразу Отчёт», когда опциональное Планирование заперто
+ * (правило: активен только при подтверждённом медиаплане, 2026-07-10).
+ * @param {number} step
+ */
+export function unlockStep(step) {
+  pipelineStepMeta.update(steps => {
+    const copy = steps.map(s => ({ ...s }));
+    if (copy[step] && copy[step].status === 'locked') {
+      copy[step] = { status: 'ready', errorMessage: null };
     }
     return copy;
   });
@@ -1432,6 +1558,7 @@ export function loadPipelineForProject(projectId) {
   modelData.set({ diagnostics: null, channelParams: null, picklePath: null, normalization: null });
   decomposeData.set(null);
   optimizeData.set(null);
+  planningManifest.set(null);
   reportData.set(null);
 }
 
@@ -1450,6 +1577,7 @@ export function resetForNewAnalysis() {
   modelData.set({ diagnostics: null, channelParams: null, picklePath: null, normalization: null });
   decomposeData.set(null);
   optimizeData.set(null);
+  planningManifest.set(null);
   reportData.set(null);
   chartImages.set({});
   isComputing.set(false);

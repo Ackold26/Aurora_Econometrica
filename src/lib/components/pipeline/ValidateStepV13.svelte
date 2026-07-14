@@ -31,6 +31,8 @@
     validateSubStep,
     // v2.1.0 (пилот 2026-05-17): persist KPI выбор → ConfigPanel.
     chosenKpiColumn,
+    // Фаза 3 (2026-07-10): баннер обнаружения медиаплана.
+    mediaPlanDetected,
   } from '$lib/project-state.js';
   import {
     deriveModeWithExplanation,
@@ -39,10 +41,15 @@
   } from '$lib/mode-derivation.js';
   import { setColumnRolesBulk, buildProjectUpdates } from '$lib/column-roles.js';
   import { validateInsights } from '$lib/insights-rules.js';
+  import { buildExpressPlan } from '$lib/express-validate.js';
+  // ПАРЫ (2026-07-05): развязка выбора «канал → ₽|физика» в per-колоночный план.
+  import { resolvePairSelection } from '$lib/channel-pairs.js';
   import {
     analysisObjective, expertMode, analysisMode,
     // H-16 (audit): Phase 1.3 persistence stores - нужны в save flow.
     unitCosts, unitCostInflation, unitCostInputMode, budgetInputs,
+    // ПАРЫ: невыбранная половина пары выключается из модели тумблером канала.
+    modelChannelEnabled,
   } from '$lib/project-state.js';
   import KPISelector from './KPISelector.svelte';
   import ValuePerCountUnitInput from './ValuePerCountUnitInput.svelte';
@@ -204,6 +211,14 @@
   /** Guard против повторного запуска при reactive updates. */
   let validateAttempted = $state(false);
 
+  // ── Фаза 3: баннер медиаплана (2026-07-10) ────────────────────────────────
+  /** Локальный флаг: пользователь уже ответил на вопрос про медиаплан. */
+  let mediaPlanAnswered = $state(false);
+  /** Видимость баннера подтверждения медиаплана. */
+  const showMediaPlanBanner = $derived(
+    !mediaPlanAnswered && !!$mediaPlanDetected
+  );
+
   async function autoRunValidate() {
     const imp = get(importData);
     if (!imp?.file) {
@@ -230,6 +245,13 @@
         correlationMatrix: res.full_correlation_matrix ?? null,
         columnHistograms: null,
       });
+      // Фаза 3: записываем обнаруженный медиаплан в стор (A6 — явное подтверждение).
+      if (res.media_plan_detected) {
+        mediaPlanDetected.set(res.media_plan_detected);
+        mediaPlanAnswered = false; // сбросить если валидация перезапущена
+      } else {
+        mediaPlanDetected.set(null);
+      }
       // NAV-2/3A-FOOTER-BYPASS fix (Вариант B, 2026-06-04): НЕ разлочиваем Модель
       // здесь. Авто-валидация показывает результаты (validateData), но Модель
       // (stepMeta[2]) остаётся locked до прохождения CPP-гейта на подшаге «Метрики каналов»
@@ -250,6 +272,43 @@
     validateError = null;
     validateAttempted = false;
     autoRunValidate();
+  }
+
+  // ── Фаза 3: обработчики баннера медиаплана ────────────────────────────────
+
+  /** Пользователь подтвердил: это медиаплан. Вызывает econ_confirm_media_plan(confirmed=true). */
+  async function confirmMediaPlan() {
+    mediaPlanAnswered = true;
+    // Правило 2026-07-10: Планирование активно только при ПОДТВЕРЖДЁННОМ медиаплане —
+    // ставим confirmed в стор (его читают reconcile и кнопка на Оптимизации).
+    mediaPlanDetected.update((m) => (m ? { ...m, confirmed: true } : m));
+    const pid = get(activeProjectId);
+    if (pid) {
+      try {
+        const projectDir = /** @type {string} */ (await invoke('project_get_dir', { projectId: pid }));
+        await invoke('econ_confirm_media_plan', { projectDir, confirmed: true });
+      } catch (e) {
+        // Аудит 2026-07-11: не глотать молча — при сбое диск (media_plan.json) остаётся
+        // confirmed:false, а стор confirmed:true → после перезагрузки reconcile запрёт
+        // Планирование, подтверждение потеряно без сигнала. Логируем для наблюдаемости.
+        console.error('[ValidateStep] econ_confirm_media_plan(true) не записался (диск↔UI рассинхрон возможен):', e);
+      }
+    }
+  }
+
+  /** Пользователь отказался: игнорировать будущие строки. Вызывает econ_confirm_media_plan(confirmed=false). */
+  async function dismissMediaPlan() {
+    mediaPlanDetected.set(null);
+    mediaPlanAnswered = true;
+    const pid = get(activeProjectId);
+    if (pid) {
+      try {
+        const projectDir = /** @type {string} */ (await invoke('project_get_dir', { projectId: pid }));
+        await invoke('econ_confirm_media_plan', { projectDir, confirmed: false });
+      } catch (e) {
+        console.error('[ValidateStep] econ_confirm_media_plan(false) не записался:', e);
+      }
+    }
   }
 
   /** Reactive auto-trigger - ждёт пока $importData.file populated (race
@@ -300,6 +359,66 @@
   const modeAndExplanation = $derived(
     deriveModeWithExplanation(currentPerChannel || {})
   );
+
+  // UX-2 (2026-07-03): умный дефолт против детекта. Дефолт 'sales' мог
+  // оказаться вне available_kpi_types (данные без денежной целевой —
+  // например, только лиды): карточка выключена, но «Далее» пропускала
+  // невалидный выбор → kpiKind расходился с данными (monetary для штук).
+  // Невалидный текущий выбор заменяется первым доступным типом
+  // (предпочитая 'sales'); кнопка дополнительно сверяется с доступностью.
+  const availableKpi = $derived(
+    /** @type {string[] | null} */ ($validateData?.result?.available_kpi_types ?? null)
+  );
+  const kpiUnavailable = $derived(
+    Array.isArray(availableKpi) && availableKpi.length > 0 && !!currentKPI
+      ? !availableKpi.includes(currentKPI)
+      : false
+  );
+  $effect(() => {
+    if (kpiUnavailable && availableKpi && availableKpi.length > 0) {
+      handleKPISelect(availableKpi.includes('sales') ? 'sales' : availableKpi[0]);
+    }
+  });
+
+  // ── П1-ядро (волна UXP, «go» 2026-07-03): экспресс-подтверждение happy-path ──
+  // Один клик вместо 5 под-шагов, когда автоматика настроила всё безопасно
+  // (денежный KPI, чистая валидация, все каналы в рублях). Гейты и план —
+  // в чистом модуле express-validate.js (юнит-тесты без рендера).
+  const expressPlan = $derived(buildExpressPlan({
+    validateResult: $validateData?.result ?? null,
+    currentKPI,
+    kpiUnavailable,
+    kpiKind: currentKpiKind,
+  }));
+  const showExpressConfirm = $derived(
+    subStep === -2 && !kpiConfirmed && expressPlan.eligible
+  );
+
+  /** Применить план экспресс-подтверждения — ровно та же цепочка состояний,
+   *  что и ручной проход под-шагов без правок (KPI → роли → каналы → режим). */
+  function expressConfirmAll() {
+    kpiConfirmed = true;
+    persistKpiConfirmed(true);
+    rolesConfirmed = true;
+    persistRolesConfirmed(true);
+    currentPerChannel = expressPlan.uniform;
+    perChannelInput.set(expressPlan.uniform);
+    // ПАРЫ: физ-половины пар (tv_trp при принятом tv_spend) — вне модели в ROI.
+    if (expressPlan.disable?.length) {
+      modelChannelEnabled.update((mapping) => {
+        const next = { ...mapping };
+        for (const col of expressPlan.disable) next[col] = false;
+        return next;
+      });
+      persistPairToggles(); // Д-6: durable, иначе ConfigPanel перетрёт развязку
+    }
+    analysisMode.set('roi');
+    const m = deriveModeWithExplanation(expressPlan.uniform);
+    derivedMode.set(/** @type {'roi' | 'effectiveness' | 'manual'} */ (m.mode));
+    // Как в handlePerChannelConfirm: единственная точка разлочивания Модели.
+    completeStep(1);
+    subStep = 3;
+  }
 
   // ─── v2.1.0 (пилот 2026-05-16): анимация переходов между под-шагами ───
   // Отслеживаем направление: forward (правый сдвиг) vs back (левый сдвиг).
@@ -450,9 +569,37 @@
   // 3A (verified live 2026-06-03): флаг «physical-канал без CPP в Expert-режиме».
   let expertCppMissing = $state(false);
 
+  /** Д-6 (аудит №5): развязка пар durable — resolveChannelEnabled на шаге
+   *  Модели читает project.model_channel_enabled (persisted boolean имеет
+   *  приоритет); без записи сюда карта пересобралась бы из дефолтов и обе
+   *  колонки пары ушли бы в фит (коллинеарность). Тихий довесок, не блокирует. */
+  function persistPairToggles() {
+    const pid = get(activeProjectId);
+    if (!pid) return;
+    invoke('project_update', {
+      projectId: pid,
+      updates: { model_channel_enabled: get(modelChannelEnabled) },
+    }).catch(() => { /* silent */ });
+  }
+
   /** @param {Record<string, string>} selection */
   function handlePerChannelConfirm(selection) {
-    const typed = /** @type {Record<string, 'monetary' | 'physical'>} */ (selection);
+    // ПАРЫ (2026-07-05): selection приходит по БАЗАМ каналов (селектор группирует
+    // tv_spend+tv_trp в канал «tv»). Разворачиваем в per-колоночный план: выбранная
+    // сторона пары включается со своей метрикой, парная альтернатива выключается
+    // из модели тумблером — все потребители (cpp-гейт, unit_costs, train-config)
+    // остаются на именах колонок.
+    const baseSel = /** @type {Record<string, 'monetary' | 'physical'>} */ (selection);
+    const { perColumn, disable } = resolvePairSelection(availableMetricsByChannel, baseSel);
+    const typed = perColumn;
+    modelChannelEnabled.update((mapping) => {
+      const next = { ...mapping };
+      for (const col of Object.keys(perColumn)) next[col] = true;
+      for (const col of disable) next[col] = false;
+      return next;
+    });
+    persistPairToggles(); // Д-6: без durable ConfigPanel пересоберёт карту из
+                          // project.model_channel_enabled и перетёр бы развязку
     currentPerChannel = typed;
     perChannelInput.set(typed);
     // 3A (verified live 2026-06-03 desktop-control): Expert-путь должен соблюдать
@@ -790,12 +937,39 @@
   // (project-state.js). Единственное определение CPP-гейта; тот же предикат
   // защищает chokepoint completeStep(1). channels = prop (media из validateData,
   // +page.svelte:39-45). Поведение байт-в-байт с прежним inline $derived.by.
+  // Д-7 (аудит №5): cppSatisfied оперирует ИМЕНАМИ КОЛОНОК (perChannelInput и
+  // unitCosts ключуются колонками) — после перехода channels на БАЗЫ каналов
+  // (пары) подача баз делала physical-выбор невидимым гейту (pci['tv'] пуст →
+  // детект по базе → не physical → пропуск без CPP = класс ROI-артефакта
+  // 12186×). Передаём активные model-колонки: до подтверждения — все колонки
+  // пар (поведение идентично прежнему до-парному), после — без выключенных
+  // физ/₽-половин.
+  const pairColumns = $derived(
+    Object.values(availableMetricsByChannel)
+      .flatMap((o) => [...(o?.monetary ?? []), ...(o?.physical ?? [])])
+  );
+  const activeModelColumns = $derived(
+    pairColumns.filter((c) => $modelChannelEnabled?.[c] !== false)
+  );
   const allChannelsConfigured = $derived(cppSatisfied({
-    channels,
+    channels: activeModelColumns,
     perChannelInput: $perChannelInput,
     unitCosts: $unitCosts,
     analysisMode: $analysisMode,
   }));
+
+  // Д-9/Д-10: выбранная метрика ПО БАЗЕ (из per-колоночного perChannelInput) —
+  // для сводки Manager и предвыбора radio селектора после reload.
+  const selectionByBase = $derived.by(() => {
+    /** @type {Record<string, 'monetary' | 'physical'>} */
+    const out = {};
+    const pci = $perChannelInput ?? {};
+    for (const [base, opts] of Object.entries(availableMetricsByChannel)) {
+      if ((opts?.physical ?? []).some((/** @type {string} */ c) => pci[c] === 'physical')) out[base] = 'physical';
+      else if ((opts?.monetary ?? []).some((/** @type {string} */ c) => pci[c] === 'monetary')) out[base] = 'monetary';
+    }
+    return out;
+  });
 
   // NAV-2/3A-FOOTER-BYPASS guard (2026-06-04): completeStep(1) — one-way latch (никогда не
   // ре-локает). Если Модель ('ready') разлочена, но пользователь НЕ на финальном подшаге
@@ -1031,6 +1205,36 @@
     <button class="back-link" onclick={goBack}>← Изменить роли колонок</button>
   {/if}
 
+  <!-- Фаза 3 (2026-07-10): баннер обнаружения медиаплана (A6 — явное подтверждение). -->
+  {#if showMediaPlanBanner}
+    {@const mp = $mediaPlanDetected}
+    <div class="media-plan-banner" role="status" aria-live="polite">
+      <div class="mp-banner-icon">📅</div>
+      <div class="mp-banner-content">
+        <p class="mp-banner-title">Найден план на будущее</p>
+        <p class="mp-banner-desc">
+          {mp.n_future_periods} {mp.granularity === 'week' ? 'недель' : 'периодов'}
+          {#if mp.period_labels?.length}
+            ({mp.period_labels[0]} – {mp.period_labels[mp.period_labels.length - 1]})
+          {/if}
+          — это ваш медиаплан?
+        </p>
+      </div>
+      <div class="mp-banner-actions">
+        <button type="button" class="mp-btn-confirm" onclick={confirmMediaPlan}>
+          Да, это медиаплан
+        </button>
+        <button type="button" class="mp-btn-dismiss" onclick={dismissMediaPlan}>
+          Нет, игнорировать
+        </button>
+      </div>
+    </div>
+  {:else if mediaPlanAnswered && !$mediaPlanDetected}
+    <div class="mp-dismissed-note">
+      Будущие строки проигнорированы — шаг «Планирование» будет недоступен.
+    </div>
+  {/if}
+
   {#if validating}
     <div class="validation-loading" role="status" aria-live="polite">
       <div class="loading-spinner" aria-hidden="true"></div>
@@ -1055,6 +1259,25 @@
     out:fade={{ duration: substepTransitionMs / 2 }}
   >
   {#if subStep === -2}
+    <!-- П1-ядро (2026-07-03): экспресс-подтверждение happy-path одним нажатием.
+         Показывается только когда автоматика настроила всё безопасно
+         (см. buildExpressPlan); в остальных случаях — штатные под-шаги. -->
+    {#if showExpressConfirm}
+      <div class="express-confirm" data-testid="express-confirm">
+        <div class="express-text">
+          <strong>Автоматика уже настроила этот шаг.</strong>
+          KPI: {expressPlan.kpiLabel} · медиа-каналов: {expressPlan.mediaChannels.length}
+          (все в рублях) · режим: ROI. Всё верно — продолжайте одним нажатием;
+          хотите поправить — пройдите шаги ниже.
+        </div>
+        <button
+          type="button"
+          class="express-btn"
+          onclick={expressConfirmAll}
+        >Принять авто-настройку и продолжить</button>
+      </div>
+    {/if}
+
     <!-- v2.0.1-rc2 REORDER (Антон pilot 2026-05-15): KPI preflight FIRST.
          Сначала AnalysisModeSelector (ROI / Эффективность / Mixed Expert),
          потом KPISelector - после select переходим к Roles preflight. -->
@@ -1089,7 +1312,7 @@
         type="button"
         class="substep-next-btn"
         onclick={confirmKpiAndProceed}
-        disabled={!currentKPI}
+        disabled={!currentKPI || kpiUnavailable}
       >
         Далее ▶
       </button>
@@ -1157,7 +1380,8 @@
     <AppliedModeSummary
       channels={channels.map((name) => ({
         name,
-        detectedType: $perChannelInput?.[name] ?? detectChannelType(name),
+        // Д-9: выбор хранится per-колонке — показываем метрику базы из развязки.
+        detectedType: selectionByBase[name] ?? $perChannelInput?.[name] ?? detectChannelType(name),
       }))}
       channelSums={channelSums}
       excludedChannelNames={excludedMediaNames}
@@ -1195,7 +1419,7 @@
       channels={channels}
       availableMetricsByChannel={availableMetricsByChannel}
       columnStats={columnStats}
-      currentSelection={currentPerChannel}
+      currentSelection={Object.keys(selectionByBase).length ? selectionByBase : currentPerChannel}
       onConfirm={handlePerChannelConfirm}
     />
   {:else if subStep === 3}
@@ -1245,6 +1469,66 @@
     box-sizing: border-box;
     position: relative;
   }
+
+  /* Фаза 3: баннер медиаплана */
+  .media-plan-banner {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 14px 18px;
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--color-accent, #3b82f6) 8%, transparent);
+    border: 1px solid color-mix(in srgb, var(--color-accent, #3b82f6) 30%, transparent);
+  }
+  .mp-banner-icon { font-size: 20px; flex-shrink: 0; }
+  .mp-banner-content { flex: 1; min-width: 0; }
+  .mp-banner-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--text-primary, #e2e8f0);
+    margin: 0 0 2px;
+  }
+  .mp-banner-desc {
+    font-size: 13px;
+    color: var(--text-secondary, #94a3b8);
+    margin: 0;
+  }
+  .mp-banner-actions {
+    display: flex;
+    gap: 8px;
+    flex-shrink: 0;
+  }
+  .mp-btn-confirm {
+    font-size: 13px;
+    padding: 7px 14px;
+    border-radius: 8px;
+    border: none;
+    background: var(--color-accent, #3b82f6);
+    color: #fff;
+    cursor: pointer;
+    transition: background 0.15s;
+    white-space: nowrap;
+  }
+  .mp-btn-confirm:hover { background: #2563eb; }
+  .mp-btn-dismiss {
+    font-size: 13px;
+    padding: 7px 14px;
+    border-radius: 8px;
+    border: 1px solid var(--border-default, rgba(255,255,255,0.12));
+    background: transparent;
+    color: var(--text-secondary, #94a3b8);
+    cursor: pointer;
+    transition: background 0.15s;
+    white-space: nowrap;
+  }
+  .mp-btn-dismiss:hover { background: rgba(255,255,255,0.05); }
+  .mp-dismissed-note {
+    font-size: 12px;
+    color: var(--text-tertiary, #64748b);
+    padding: 6px 10px;
+    background: rgba(255,255,255,0.03);
+    border-radius: 6px;
+  }
   /* v2.1.0 (пилот 2026-05-16): обёртка для плавного перехода между под-шагами. */
   .substep-frame {
     display: flex;
@@ -1257,6 +1541,34 @@
       transform: none !important;
     }
   }
+
+  /* П1-ядро (2026-07-03): экспресс-подтверждение happy-path. */
+  .express-confirm {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    padding: 14px 18px;
+    border-radius: 10px;
+    background: color-mix(in srgb, var(--success, #2f9e63) 10%, transparent);
+    border: 1px solid color-mix(in srgb, var(--success, #2f9e63) 35%, transparent);
+  }
+  .express-text {
+    flex: 1;
+    font-size: 13px;
+    line-height: 1.5;
+  }
+  .express-btn {
+    flex-shrink: 0;
+    padding: 10px 16px;
+    border-radius: 8px;
+    border: 1px solid color-mix(in srgb, var(--success, #2f9e63) 45%, transparent);
+    background: color-mix(in srgb, var(--success, #2f9e63) 20%, transparent);
+    color: inherit;
+    font-size: 13px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .express-btn:hover { filter: brightness(1.12); }
 
   /* v2.1.0 (пилот 2026-05-16): footer с кнопкой «Далее» под KPISelector. */
   .substep-footer {

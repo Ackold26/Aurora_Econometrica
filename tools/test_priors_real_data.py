@@ -41,6 +41,7 @@ Usage:
 """
 from __future__ import annotations
 
+import os
 import sys
 import warnings
 from pathlib import Path
@@ -61,10 +62,22 @@ pytestmark = pytest.mark.requires_real_data
 
 ROOT = Path(__file__).parent.parent
 
-REAL_DATA_DIR = Path(
-    r'C:\Users\ackol\Desktop'
-    r'\Аврора - материалы для обучения и тестирования'
-    r'\Эконометрика - тестовые файлы\XLSX'
+# Аудит 2026-07-04: папка на Desktop переехала («Аврора - материалы…» →
+# «Файлы для тестирования Авроры\Запрос данных по эконометрики\…») — 18 тестов
+# падали FileNotFoundError, полный локальный gate всегда красный (маскирует
+# реальные регрессы). Кандидаты путей: env-override → новый → старый; файла нет
+# нигде → per-test skip с внятной причиной (environment-dependent данные под NDA).
+_REAL_DATA_DIR_CANDIDATES = [
+    Path(p) for p in filter(None, [os.environ.get('AURORA_TESTDATA_DIR')])
+] + [
+    Path(r'C:\Users\ackol\Desktop\Файлы для тестирования Авроры'
+         r'\Запрос данных по эконометрики\Эконометрика - тестовые файлы\XLSX'),
+    Path(r'C:\Users\ackol\Desktop\Аврора - материалы для обучения и тестирования'
+         r'\Эконометрика - тестовые файлы\XLSX'),
+]
+REAL_DATA_DIR = next(
+    (p for p in _REAL_DATA_DIR_CANDIDATES if p.is_dir()),
+    _REAL_DATA_DIR_CANDIDATES[-1],
 )
 
 DATASETS = {
@@ -72,6 +85,14 @@ DATASETS = {
     'venarus': REAL_DATA_DIR / 'Венарус_данные для эконометрики для модели + наши данные.xlsx',
     'mmx_afala': REAL_DATA_DIR / 'MMX 2021-2025 исходник.xlsx',
 }
+
+
+@pytest.fixture(autouse=True)
+def _skip_when_real_data_absent():
+    """Файлы NDA-данных отсутствуют на машине → skip, не FileNotFoundError."""
+    missing = [k for k, p in DATASETS.items() if not p.exists()]
+    if missing:
+        pytest.skip(f'реальные данные недоступны: {", ".join(missing)} (dir={REAL_DATA_DIR})')
 
 # ─── Prior parameters (from modeler.py PRE_FLIGHT_FIXES.md §B4) ──────────────
 

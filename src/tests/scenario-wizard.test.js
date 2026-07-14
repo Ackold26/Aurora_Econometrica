@@ -12,10 +12,10 @@
  *   - onCancel callback fires when user cancels escape
  *   - Navigation bar hidden when frozen (RUNNING/COMPLETED)
  *
- * Note: StepSummary is mocked because ScenarioWizard passes diagnostics=null and
- * StepSummary accesses diagnostics.mcmcConvergence in $derived - crashing with null.
- * The stub exposes «Запустить анализ» so Step 6 / onComplete tests can exercise the
- * handleRun path through the wizard.
+ * F-UX-1 (2026-07-03): мок StepSummary СНЯТ - компонент теперь null-safe
+ * (diagnostics=null легитимен на шаге 6 до обучения; блок диагностики
+ * честно скрывается). Тесты гоняют РЕАЛЬНЫЙ StepSummary - это и есть
+ * боевая верификация фикса живучести.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/svelte';
@@ -23,13 +23,6 @@ import { get } from 'svelte/store';
 import ScenarioWizard from '$lib/components/pipeline/ScenarioWizard.svelte';
 import { wizardState, resetWizard, transitionTo } from '$lib/wizard-state.js';
 import { expertMode } from '$lib/project-state.js';
-
-// Stub out StepSummary to avoid null-diagnostics crash in ScenarioWizard.
-// ScenarioWizard always passes diagnostics={null}; StepSummary uses it in $derived at module top.
-vi.mock('$lib/components/pipeline/wizard/StepSummary.svelte', async () => {
-  const StepSummaryStub = (await import('./StepSummaryStub.svelte')).default;
-  return { default: StepSummaryStub };
-});
 
 
 // ---------------------------------------------------------------------------
@@ -230,13 +223,13 @@ describe('ScenarioWizard - escape banner', () => {
     expect(screen.getByText(/Мало рекламной активности/)).toBeInTheDocument();
   });
 
-  it('escape banner has «Продолжить в Expert mode» button', () => {
+  it('escape banner has «Продолжить в режиме эксперта» button', () => {
     resetWizard();
     transitionTo('WIZARD_PENDING');
     transitionTo('AUTO_DETECTING');
     transitionTo('ESCAPE', { escapeReason: 'history_short' });
     render(ScenarioWizard);
-    expect(screen.getByRole('button', { name: /Продолжить в Expert mode/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Продолжить в режиме эксперта/i })).toBeInTheDocument();
   });
 
   it('onCancel fires when «Отмена» clicked in escape banner', async () => {

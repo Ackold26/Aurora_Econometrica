@@ -113,7 +113,7 @@
       icon: Target,
       title: 'Главная рекомендация',
       text: `Переложите ${formatMoney(shiftAmount)} из «${from.name}» (перенасыщен, gap ${from.efficiency_gap.toFixed(0)}%) в «${to.name}» (недонасыщен, gap +${to.efficiency_gap.toFixed(0)}%).`,
-      detail: 'Точный расчёт прироста - на шаге «Оптимизация» через Forward solver. Goal-Seek позволит задать целевое значение продаж.',
+      detail: 'Точный расчёт прироста — на шаге «Оптимизация» через оптимизатор. Расчёт от цели позволит задать целевое значение продаж.',
       tone: 'success',
     };
   });
@@ -243,10 +243,17 @@
     return '';
   }
 
+  // F-A1-9 (2026-07-06): вердикт ненадёжности для плашки над денежными инсайтами.
+  // Читаем из $modelData.diagnostics.honesty_verdict — проставляется modeler.py при обучении.
+  const modelHonestyVerdict = $derived($modelData?.diagnostics?.honesty_verdict ?? null);
+  const modelIsUnreliable = $derived(
+    modelHonestyVerdict === 'unreliable' || modelHonestyVerdict === 'uncertain'
+  );
+
   // Help-tooltips для основной таблицы «Детализация по каналам».
   const CH_HELP = {
     spend:   'Расходы - суммарный бюджет канала за весь период анализа.\n\nПочему важно: основа для ROI и доли бюджета. Если канал не в рублях (TRP, показы) - ROI будет искажён.',
-    contrib: 'Вклад - оценка дополнительных продаж от канала (в денежной валюте KPI).\n\nПочему важно: вклад ÷ расход = ROI. Это и есть «деньги, которые принесла реклама поверх базовых продаж».',
+    contrib: 'Вклад - оценка дополнительного результата от канала в единицах вашего KPI (продажи в рублях, лиды, упаковки и т.п.).\n\nПочему важно: вклад ÷ расход = отдача канала. Это результат, который принесла реклама поверх базового уровня.',
     roi:     'ROI = вклад ÷ расход. Сколько рублей продаж приносит каждый вложенный рубль.\n\nROI ≥ 2× - отлично. 1-2× - окупается. < 1× - убыточен.\n\nВнимание: ROI > 50× обычно означает, что данные канала не в рублях (TRP, показы, клики) - нужна нормализация.',
     gap:     'Gap = % эффекта − % бюджета. Разрыв между долей вклада и долей бюджета.\n\n+10% и выше: канал работает сильно эффективнее своей доли бюджета - кандидат на докрутку.\n0 ± 5%: сбалансирован.\n−10% и ниже: канал перенасыщен - каждый дополнительный рубль даёт меньше отдачи.',
     verdict: 'Вердикт - комбинированная оценка по ROI и Gap.\n\n«Высокоэффективен / Эффективен» - приносит больше своей доли бюджета.\n«Сбалансирован» - окупается, доли совпадают.\n«Слабее своей доли / Перенасыщен» - приносит меньше, чем потребляет бюджета.\n«На грани окупаемости / Убыточный» - ROI ≤ 1×.\n«ROI завышен (не рубли?)» - данные канала не в денежных единицах.\n\n«(широкий ROI-интервал)» - для канала Bayesian-CI шире точечного ROI: читать как диапазон, не точное число. Качество модели в целом оценивается отдельно через R² / MAPE / R-hat. Типичные причины: мало наблюдений, низкая частота канала, корреляции с другими каналами.',
@@ -510,6 +517,17 @@
       </div>
     {/if}
 
+    <!-- F-A1-9: плашка ненадёжности над денежными инсайтами -->
+    {#if modelIsUnreliable}
+      <div class="reliability-warn-banner" role="alert">
+        <span class="reliability-warn-icon" aria-hidden="true">⚠</span>
+        <span class="reliability-warn-text">
+          Модель помечена как ориентировочная — вердикты ниже трактуйте осторожно.
+          {#if modelHonestyVerdict === 'unreliable'}Высокий R-hat или много расходящихся цепей.{:else}Узкие данные или слабый prior-coverage.{/if}
+        </span>
+      </div>
+    {/if}
+
     <!-- Insight banner -->
     {#if data.insight}
       <div class="insight-banner">
@@ -758,6 +776,29 @@
     padding-left: 18px;
     font-size: 12px;
     color: var(--text-secondary, #94a3b8);
+  }
+  /* F-A1-9: плашка ненадёжности над денежными инсайтами */
+  .reliability-warn-banner {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 12px 16px;
+    margin-bottom: 12px;
+    background: color-mix(in srgb, var(--gold, #c9a449) 10%, transparent);
+    border: 1px solid color-mix(in srgb, var(--gold, #c9a449) 30%, transparent);
+    border-radius: 8px;
+  }
+  .reliability-warn-icon {
+    font-size: 15px;
+    flex-shrink: 0;
+    color: var(--gold, #c9a449);
+    line-height: 1.4;
+  }
+  .reliability-warn-text {
+    flex: 1;
+    font-size: 13px;
+    line-height: 1.45;
+    color: var(--text-primary, #e2e8f0);
   }
   .error-icon { font-size: 16px; flex-shrink: 0; }
   .error-text { flex: 1; font-size: 13px; color: #ef4444; }

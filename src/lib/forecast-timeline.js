@@ -124,6 +124,10 @@ export function buildScenarioTails(compareResult, lastHistDate) {
       // Horizon-контекст (планировочный горизонт сценария, если был задан planning-mode).
       forecastPeriods: sc?.forecast_periods ?? null,
       forecastPeriodLabel: sc?.forecast_period_label ?? null,
+      // A3/OPP-03 (2026-07-03): маркер экстраполяции пишется движком в
+      // scenario-JSON (F-04), но этот маппер его резал — compare-страница
+      // молчала о выходе плана за наблюдавшийся диапазон.
+      extrapolation: sc?.extrapolation ?? null,
     };
   });
 }

@@ -88,9 +88,27 @@ def train_ols(config: dict, project_dir: str, progress_callback=None) -> dict[st
         df = pd.read_excel(data_file)
 
     kpi_col = config['kpi_column']
+    # Аудит 2026-07-10 (High): хвост-медиаплан (KPI пуст) без фильтра уходил бы
+    # в fillna(0) → обучение на фейковых нулевых продажах при ненулевых тратах.
+    # Инвариант: файл без хвоста → no-op. Симметрично modeler.py.
+    if kpi_col in df.columns:
+        df = df[df[kpi_col].notna()].reset_index(drop=True)
     media_cols = config['media_columns']
     control_cols = config.get('control_columns', [])
     adstock_config = config.get('adstock_config', {}) or {}
+
+    # Аудит 2026-07-04: OLS-путь Фурье-сезонность не инжектит (упрощённый движок),
+    # но config байесовской модели несёт season_fourier_* в control_columns
+    # (backtest mode='ols' окна / переключение движка) — в сыром файле их нет,
+    # df[control_cols] упал бы KeyError. Фильтруем runtime-колонки честно.
+    from utils.fourier_seasonality import FOURIER_COL_PREFIX as _FOURIER_PREFIX
+    _fourier_dropped = [c for c in control_cols if str(c).startswith(_FOURIER_PREFIX)]
+    if _fourier_dropped:
+        control_cols = [c for c in control_cols if c not in _fourier_dropped]
+        logger.info(
+            'OLS: %d Фурье-контролей сезонности исключены (OLS без сезонной '
+            'компоненты; байесовский режим учитывает её).', len(_fourier_dropped),
+        )
 
     if kpi_col not in df.columns:
         return {'status': 'error', 'message': f'KPI column "{kpi_col}" not found'}
@@ -100,6 +118,18 @@ def train_ols(config: dict, project_dir: str, progress_callback=None) -> dict[st
     apply_merge_rules(df, config.get('merge_rules'))
 
     y = df[kpi_col].fillna(0).values.astype(float)
+    # E2 (2026-07-03, D-E2-4): калибровка lift-тестами живёт в правдоподобии
+    # байесовской модели — у OLS вероятностной модели вкладов нет.
+    if config.get('calibrations'):
+        return {
+            'status': 'error',
+            'error_code': 'CALIBRATION_REQUIRES_BAYESIAN',
+            'message': (
+                'Калибровка lift-тестами доступна только байесовскому режиму. '
+                'Переключите движок на Bayesian или уберите калибровки.'
+            ),
+        }
+
     n_obs = len(y)
 
     if n_obs < 8:
@@ -343,6 +373,11 @@ def train_ols(config: dict, project_dir: str, progress_callback=None) -> dict[st
 
     diagnostics = {
         'engine': 'ols',
+        # Аудит 2026-07-04 (F-2): честный статус сезонности для UI-строки
+        # SeasonalityControl. OLS не инжектит Фурье (F-AUD-4 фильтрует) — без
+        # ключа компонент вечно показывал бы «Обучите модель, чтобы увидеть»
+        # ПОСЛЕ обучения (ложь). reason='ols_mode' → своя честная формулировка.
+        'seasonality': {'detected': False, 'reason': 'ols_mode'},
         'n_obs': n_obs,
         'n_params': p,
         'dof': dof,
@@ -379,6 +414,19 @@ def train_ols(config: dict, project_dir: str, progress_callback=None) -> dict[st
         'unit_costs_applied_at_training': bool(unit_costs_snapshot),
         'unit_costs_snapshot': dict(unit_costs_snapshot),
     }
+
+    # F-A1-9/OLS: вердикт надёжности сразу при обучении — одинаково с Bayesian-веткой.
+    # model_reliability_verdict умеет OLS (engine='ols' → uncertain максимум, без r_hat/MCMC).
+    try:
+        from utils.optimizer_honesty import model_reliability_verdict as _mrv
+        _r = _mrv(diagnostics)
+        diagnostics['honesty_verdict'] = _r.get('verdict', 'unknown')
+        _hr = [str(x) for x in (_r.get('reasons') or [])]
+        if _hr:
+            diagnostics['honesty_reasons'] = _hr[:3]
+    except Exception as _hv_err:
+        logger.warning('honesty_verdict in ols diagnostics skipped: %s', _hv_err)
+        diagnostics['honesty_verdict'] = 'unknown'
 
     report('saving', pct=90)
 
@@ -429,9 +477,17 @@ def train_ols(config: dict, project_dir: str, progress_callback=None) -> dict[st
         import shutil
         ts = datetime.now().strftime('%Y%m%d_%H%M%S')
         shutil.copy2(model_path, history_dir / f'model-{ts}.pkl')
+        # F-E3-2 (2026-07-03): паритет с bayesian-тренером — архивировать и
+        # params-снимок. Без него /compute/model_history не видел OLS-поколений,
+        # а дрейф-мониторинг не мог определить окно обучения архива.
+        prev_params = models_dir / 'latest-params.json'
+        if prev_params.exists():
+            shutil.copy2(prev_params, history_dir / f'params-{ts}.json')
         archives = sorted(history_dir.glob('model-*.pkl'))
         while len(archives) > 5:
             archives[0].unlink(missing_ok=True)
+            param_f = archives[0].name.replace('model-', 'params-').replace('.pkl', '.json')
+            (history_dir / param_f).unlink(missing_ok=True)
             archives.pop(0)
 
     # v2.1.0: безопасный формат aurora-model (zip + JSON + npz).

@@ -29,8 +29,13 @@
     planningMode,
     forecastConfig,
     forecastContext,
+    promisesVersion,
     valuePerCountUnit,
     kpiKind,
+    mediaPlanDetected,
+    pipelineCurrentStep,
+    lockStep,
+    unlockStep,
   } from '$lib/project-state.js';
   import { buildScaledParams, predictKPI } from '$lib/hill.js';
   import BudgetOptimizer from '$lib/components/pipeline/BudgetOptimizer.svelte';
@@ -39,6 +44,7 @@
   import ExpandableCard from '$lib/components/ExpandableCard.svelte';
   import GlossaryTerm from '$lib/components/GlossaryTerm.svelte';
   import ScenarioPlayground from '$lib/components/pipeline/ScenarioPlayground.svelte';
+  import PromisesCard from '$lib/components/pipeline/PromisesCard.svelte';
   import ForecastHorizonPicker from '$lib/components/pipeline/ForecastHorizonPicker.svelte';
   import TrustBanner from '$lib/components/pipeline/TrustBanner.svelte';
   import PipelineOnboarding from '$lib/components/pipeline/PipelineOnboarding.svelte';
@@ -336,10 +342,52 @@
 
   // Current data from store
   const optData = $derived($optimizeData);
+
+  // A4/OPP-04 (2026-07-03): интервалы неопределённости оптимального сплита
+  // (Jin 2017) — пере-оптимизация на подвыборке posterior-draws, ~5 с →
+  // отдельная кнопка, НЕ интерактивный путь.
+  /** @type {any | null} */
+  let splitCi = $state(null);
+  let splitCiBusy = $state(false);
+  /** @type {string | null} */
+  let splitCiError = $state(null);
+
+  async function computeSplitCi() {
+    if (splitCiBusy) return;
+    const projectId = get(activeProjectId);
+    if (!projectId) return;
+    splitCiBusy = true;
+    splitCiError = null;
+    try {
+      const projectDir = /** @type {string} */ (await invoke('project_get_dir', { projectId }));
+      const uc = get(unitCosts) ?? {};
+      const res = /** @type {any} */ (await invoke('econ_optimize_split_ci', {
+        projectDir,
+        totalBudgetMoney: optData?.total_budget_money ?? null,
+        nDraws: 60,
+        unitCosts: Object.keys(uc).length > 0 ? uc : null,
+      }));
+      if (res?.status === 'ok') {
+        splitCi = res;
+      } else {
+        splitCiError = res?.message || 'Не удалось рассчитать интервалы долей.';
+      }
+    } catch (e) {
+      splitCiError = String(e);
+    } finally {
+      splitCiBusy = false;
+    }
+  }
   // M2 honesty-gate (PRD §п2): model-reliability verdict из backend (SSOT,
   // utils.optimizer_honesty). UI потребляет verbatim, не пере-выводит (INV-50).
   // reliable → пусто; uncertain → caveat+бенды; unreliable → refused (переброска скрыта).
   const modelReliability = $derived(optData?.model_reliability ?? null);
+  // F-A1-9 (2026-07-06): вердикт из $modelData.diagnostics (не из optData) —
+  // доступен СРАЗУ после обучения, до запуска оптимизации (optData=null).
+  const preOptimizeVerdict = $derived($modelData?.diagnostics?.honesty_verdict ?? null);
+  const preOptimizeIsUnreliable = $derived(
+    preOptimizeVerdict === 'unreliable' || preOptimizeVerdict === 'uncertain'
+  );
   const mData = $derived($modelData);
   const dData = $derived($decomposeData);
 
@@ -440,7 +488,9 @@
     miROAS:         'miROAS (Marginal ROI) - отдача от СЛЕДУЮЩЕГО вложенного рубля в канал, не средняя.\n\nРассчитывается через производную response curve в текущей точке.\n\n> 1.5× - канал недонасыщен, стоит увеличить бюджет\n0.8 - 1.5× - канал в зоне стабильной отдачи\n< 0.8× - канал перенасыщен, уменьшить бюджет (каждый рубль приносит меньше расхода)',
     responseCurves: 'Response Curves - кривые отдачи каналов от размера бюджета.\n\nX = бюджет канала, Y = вклад в KPI (продажи).\nТочка на кривой = текущая позиция (текущий бюджет канала).\nИзгиб (плато) = saturation: после этой точки каждый дополнительный рубль даёт меньше эффекта.\n\nЦель оптимизации - двигать точки вверх по кривой к более крутым участкам.',
     avgROI:         'Средний ROI = суммарный вклад медиа в продажи ÷ суммарный бюджет.\n\nИндустриальный benchmark: > 2× - отлично, 1-2× - приемлемо, < 1× - медиа в среднем не окупается.',
-    saturation:     'Светофор насыщения каналов:\n🟢 Недонасыщен (mROAS > 1.5×) - кандидат на масштабирование\n🟡 Стабилен (0.8-1.5×) - оптимальная зона\n🔴 Перенасыщен (< 0.8×) - каждый дополнительный рубль работает в убыток',
+    // F-A1-19: уточнён tooltip — «перенасыщен» только при mROAS<0.8 (saturation-driven);
+    // optimizer-driven Reduce (оптимизатор снизил долю при mROAS≥0.8) — отдельный сигнал.
+    saturation:     'Светофор насыщения каналов (по mROAS — отдача следующего рубля):\n🟢 Недонасыщен (mROAS > 1.5×) — кандидат на масштабирование\n🟡 Стабилен (0.8–1.5×) — оптимальная зона\n🔴 Перенасыщен (mROAS < 0.8×) — каждый дополнительный рубль работает в убыток\n\nВердикт «Сократить» может быть также вызван сигналом оптимизатора (снижение доли в оптимальном плане), даже если mROAS ≥ 0.8.',
   };
 
   // ── Phase 2 (Planning Mode) - derived context для всех downstream operations ──
@@ -1010,7 +1060,7 @@
       // optimal direction. Pure-frontend (без backend roundtrip) через
       // predictKPI helper, который уже работает в Block A для current KPI.
       if (!optData?.channels?.length) {
-        throw new Error('Сначала выполните оптимизацию (Блок B)');
+        throw new Error('Сначала выполните оптимизацию');
       }
       if (!Object.keys(scaledParams).length) {
         throw new Error('Параметры модели не загружены');
@@ -1113,6 +1163,83 @@
       }
     } catch (/** @type {any} */ e) {
       whatIfError = String(e?.message || e);
+    }
+  }
+
+  // ── E4 (2026-07-03, «Зафиксировать прогноз» — формулировка Антона) ────────
+  // Прогноз планирования становится проверяемым обещанием: сценарий с CI
+  // будущего периода (predict_scenario в planner-режиме) → results/promises.json;
+  // сверка фактом — карточка «Сбывшиеся рекомендации» ниже.
+  let promiseSaving = $state(false);
+  /** @type {string | null} */
+  let promiseSuccess = $state(null);
+  /** @type {string | null} */
+  let promiseError = $state(null);
+
+  async function fixForecastPromise() {
+    if (!isPlanning || !planningPeriods) {
+      promiseError = 'Фиксация прогноза доступна в режиме «Планирование» — там прогноз строится на будущий период.';
+      return;
+    }
+    promiseSaving = true;
+    promiseError = null;
+    promiseSuccess = null;
+    try {
+      const projectId = await ensureProjectId();
+      if (!projectId) { promiseError = 'Проект не выбран.'; return; }
+      const projectDir = /** @type {string} */ (await invoke('project_get_dir', { projectId }));
+      /** @type {Record<string, number[]>} */
+      const mediaPlan = {};
+      const src = whatIfResult?.channels ?? optData?.channels ?? [];
+      for (const c of src) mediaPlan[c.name] = [Number(c.optimal_spend ?? 0)];
+      if (Object.keys(mediaPlan).length === 0) {
+        promiseError = 'Сначала выполните оптимизацию.';
+        return;
+      }
+      const _kuc = get(valuePerCountUnit);
+      const kpiUnitCostP = get(kpiKind) === 'count' && typeof _kuc === 'number' && _kuc > 0 ? _kuc : null;
+      // Прогноз с CI будущего периода — канонический сценарный путь.
+      const sc = /** @type {any} */ (await invoke('econ_scenario', {
+        projectDir,
+        scenarioName: `promise-${Date.now().toString().slice(-6)}`,
+        mediaPlan,
+        forecastPeriods: planningPeriods,
+        forecastPeriodLabel: planningLabel,
+        kpiUnitCost: kpiUnitCostP,
+      }));
+      if (sc?.status !== 'ok') {
+        promiseError = sc?.message || 'Не удалось построить прогноз для фиксации.';
+        return;
+      }
+      const totals = sc.totals ?? {};
+      const totalMoney = Number(totals.total_spend_money ?? totals.total_spend ?? 0);
+      const created = /** @type {any} */ (await invoke('econ_promise_create', {
+        projectDir,
+        actionText: (
+          `Бюджет ${Math.round(totalMoney).toLocaleString('ru-RU')} ₽ на ` +
+          `${planningLabel ?? `${planningPeriods} периодов`} по плану оптимизации`
+        ),
+        expectedKpiTotal: Number(totals.predicted_kpi ?? 0),
+        ciLow: totals.predicted_kpi_ci_low ?? null,
+        ciHigh: totals.predicted_kpi_ci_high ?? null,
+        horizonPeriods: planningPeriods,
+        channelChanges: null,
+        extrapolationFlag: (sc.extrapolation?.severity ?? 0) > 0,
+        source: 'planning_whatif',
+      }));
+      if (created?.status === 'ok') {
+        promiseSuccess = '✓ Прогноз зафиксирован — сверится с фактом при обновлении данных';
+        // G-4: уведомить PromisesCard перечитать список (карточка не размонтируется
+        // при навигации — visibility, не {#if} — потому onMount однократен).
+        promisesVersion.update((n) => n + 1);
+        setTimeout(() => { promiseSuccess = null; }, 4000);
+      } else {
+        promiseError = created?.message || 'Не удалось зафиксировать прогноз.';
+      }
+    } catch (/** @type {any} */ e) {
+      promiseError = String(e?.message || e);
+    } finally {
+      promiseSaving = false;
     }
   }
 
@@ -1526,10 +1653,24 @@
     optimalBudgets = null;
   }
 
-  /** Confirm optimization & complete step */
+  // Правило Антона (приёмка 2026-07-10): Планирование активно ТОЛЬКО при
+  // найденном И подтверждённом медиаплане; иначе после Оптимизации — сразу Отчёт.
+  const planActive = $derived(Boolean(
+    $mediaPlanDetected && ($mediaPlanDetected.confirmed ?? true)
+    && ($mediaPlanDetected.n_future_periods ?? 0) > 0,
+  ));
+
+  /** Confirm optimization & complete step (next: Планирование при медиаплане, иначе Отчёт) */
   function confirmOptimization() {
     sessionStats.update(s => ({ ...s, scenarioCount: s.scenarioCount + 1 }));
-    completeStep(4);
+    completeStep(4); // ставит шаг 5 (Планирование) ready
+    if (planActive) {
+      pipelineCurrentStep.set(5);
+    } else {
+      lockStep(5);   // без подтверждённого медиаплана Планирование заперто
+      unlockStep(6); // Отчёт доступен сразу
+      pipelineCurrentStep.set(6);
+    }
     triggerCompletion();
   }
 
@@ -1669,7 +1810,7 @@
     <p class="mode-hint">
       {#if $planningMode === 'planner'}
         Подберите оптимальное распределение бюджета для будущего периода - оптимизатор переключился на планирующий режим
-        (per-period Hill summation, 3-way alignment с scenario engine).
+        — оптимизатор подбирает распределение по периодам с учётом насыщения каналов.
       {:else}
         Оптимизатор работает в обучающем масштабе времени. Доли каналов валидны для сопоставимого периода.
       {/if}
@@ -1694,17 +1835,24 @@
     <div class="status-grid">
       <div class="status-cell">
         <div class="status-label">
-          Общий бюджет<span class="help-icon" title={HELP.totalBudget}>?</span>
+          <!-- F-A1-17: в planner-режиме уточняем что это историческое распределение -->
+          {isPlanning ? 'Историческое распределение' : 'Общий бюджет'}<span class="help-icon" title={HELP.totalBudget}>?</span>
         </div>
         <div class="status-value">{fmtBudget(currentTotalBudget)}</div>
-        <div class="status-sub">{channels.length} канал{channels.length > 4 ? 'ов' : channels.length > 1 ? 'а' : ''}</div>
+        <!-- F-A1-17: подсказка о плановом бюджете в режиме планирования -->
+        {#if isPlanning && planningBudgetMoney != null}
+          <div class="status-sub status-sub-plan">Пропорции применятся к плановому: {fmtBudget(planningBudgetMoney)}</div>
+        {:else}
+          <div class="status-sub">{channels.length} канал{channels.length > 4 ? 'ов' : channels.length > 1 ? 'а' : ''}</div>
+        {/if}
       </div>
       <div class="status-cell">
         <div class="status-label">
           Прогноз KPI<span class="help-icon" title={HELP.forecastKPI}>?</span>
         </div>
         <div class="status-value">{fmtBudget(displayKPI)}</div>
-        <div class="status-sub">за весь период анализа</div>
+        <!-- F-A1-22/Блок 5: подпись из режима планирования, не хардкод -->
+        <div class="status-sub">{planningLabel ? `за плановый период: ${planningLabel}` : 'за весь период анализа'}</div>
       </div>
       <div class="status-cell">
         <div class="status-label">
@@ -1752,7 +1900,7 @@
             <strong>{$forecastConfig.budgetMoney.toLocaleString('ru-RU')} ₽</strong>
             на <strong>{$forecastConfig.periods}</strong> периодов
             ({$forecastConfig.periodLabel ?? 'custom'}).
-            Аллокация рассчитывается per-period (3-way alignment с scenario engine).
+            Распределение рассчитывается за каждый период (согласовано со сценарным блоком).
           </div>
         </div>
       </div>
@@ -1838,6 +1986,14 @@
              optimizer math + small-data validation + UX paths).
              budgetLocked store сохранён к Day 4 default (true) - passes к
              BudgetOptimizer locked prop без визуального selector. -->
+        <!-- F-A1-9: плашка ненадёжности — видна СРАЗУ после обучения, до оптимизации -->
+        {#if preOptimizeIsUnreliable}
+          <div class="pre-optimize-reliability-warn" role="alert">
+            <span aria-hidden="true">⚠</span>
+            Модель помечена как ориентировочная — результаты оптимизации трактуйте осторожно.
+            {#if preOptimizeVerdict === 'unreliable'}Высокий R-hat или много расходящихся цепей.{:else}Узкие данные или слабый prior-coverage.{/if}
+          </div>
+        {/if}
         <button
           class="btn-run"
           onclick={runOptimize}
@@ -1893,22 +2049,22 @@
             <div class="group-instr-title">Типичные сценарии:</div>
             <ul class="group-instr-list">
               <li>
-                <strong>«Сохранить TV-контракт»</strong> - Brand закреплён годовым контрактом (нельзя резко сократить). Поставь
-                <code>Brand Мин. = 90%</code>, <code>Brand Макс. = 110%</code>. Performance оставь свободным (Мин. 20%, Макс. 200%) - оптимизатор перераспределит внутри performance + Статьи.
+                <strong>«Сохранить ТВ-контракт»</strong> — бренд закреплён годовым контрактом (нельзя резко сократить). Поставьте
+                <code>Brand Мин. = 90%</code>, <code>Brand Макс. = 110%</code>. Перформанс оставьте свободным (Мин. 20%, Макс. 200%) — оптимизатор перераспределит внутри перформанса и статей.
               </li>
               <li>
-                <strong>«Растить performance, не трогать brand»</strong> - поставь
-                <code>🔒 Lock Brand 100%</code> (Brand=100/100), Performance оставь свободным. Optimizer перебросит деньги между performance-каналами без касания TV/OOH.
+                <strong>«Растить перформанс, не трогать бренд»</strong> — поставьте
+                <code>🔒 Lock Brand 100%</code> (Brand=100/100), перформанс-группу оставьте свободной. Оптимизатор перебросит деньги между перформанс-каналами, не касаясь ТВ/наружной рекламы.
               </li>
               <li>
-                <strong>«Точно знаю что хочу +30% в performance»</strong> - <code>Perf Мин. = 130%</code>, остальное free. Optimizer найдёт оптимум при условии что суммарный performance ≥ 130% от текущего.
+                <strong>«Точно знаю, что хочу +30% в перформанс»</strong> — <code>Perf Мин. = 130%</code>, остальное свободно. Оптимизатор найдёт оптимум при условии, что суммарный перформанс ≥ 130% от текущего.
               </li>
               <li>
-                <strong><TriangleAlert size={14} strokeWidth={1.5} style="vertical-align: -0.15em" /> Lock+Lock = 0% lift.</strong> Если оба <code>🔒 Lock 100%</code> заданы и есть только 1 mixed канал - optimizer заморожен (нет степеней свободы). Сначала очисти один из Lock'ов или дай группе свободу (например, Brand 95-105%).
+                <strong><TriangleAlert size={14} strokeWidth={1.5} style="vertical-align: -0.15em" /> Обе группы зафиксированы — прирост 0%.</strong> Если оба <code>🔒 Lock 100%</code> заданы и смешанный канал только один, оптимизатору нечего менять (нет степеней свободы). Снимите одну из фиксаций или дайте группе диапазон (например, Brand 95–105%).
               </li>
             </ul>
             <div class="group-instr-defaults">
-              <strong>По умолчанию</strong> per-group отключены - все каналы используют глобальные Мин/Макс (20% / 200%). Активируй только когда нужны разные правила для brand vs performance.
+              <strong>По умолчанию</strong> групповые ограничения отключены — все каналы используют глобальные Мин/Макс (20% / 200%). Включайте, только когда бренду и перформансу нужны разные правила.
             </div>
           </div>
 
@@ -2059,7 +2215,7 @@
             <div class="limits-row" class:custom={isCustom}>
               <div class="lim-name">
                 {ch}
-                {#if isCustom}<span class="custom-mark" title="Отличается от глобальных Мин/Макс">●</span>{/if}
+                {#if isCustom}<span class="custom-mark" title="Изменено вручную – отличается от глобальных Мин/Макс">● изменено вручную</span>{/if}
               </div>
               <div class="num">
                 <input
@@ -2139,6 +2295,30 @@
       </div>
     {/if}
 
+    <!-- A3/OPP-03 (2026-07-03): единый язык extrapolation-тиров — forward-
+         рекомендация помечает выход per-period трат за наблюдавшийся диапазон
+         тем же языком, что goal-seek (F-01) и сценарии (F-04): тиры p95/p99,
+         Chan & Perry 2017 (кривая вне наблюдённого диапазона не подтверждена
+         данными). severity 1 = warn, 2+ = danger. -->
+    {#if optData?.extrapolation && optData.extrapolation.severity >= 1}
+      {@const _exCh = optData.extrapolation.channels ?? []}
+      <div class="edge-banner" class:banner-warn={optData.extrapolation.severity < 2} class:banner-error={optData.extrapolation.severity >= 2}>
+        <span class="banner-icon">📈</span>
+        <p class="banner-text">
+          <strong>
+            {optData.extrapolation.severity >= 2 ? 'Сильная экстраполяция рекомендации.' : 'Экстраполяция за наблюдавшийся диапазон.'}
+          </strong>
+          Оптимальные траты выходят за диапазон, на котором обучалась модель{#if _exCh.length}:
+            {_exCh.map((/** @type {any} */ c) => c.ratio_vs_max != null ? `${c.name} – ${c.ratio_vs_max}× исторического максимума` : c.name).join(', ')}{/if}.
+          Форма кривой отклика в этой зоне не подтверждена данными – фактический
+          эффект может заметно отличаться от прогноза.
+          {#if optData.extrapolation.severity >= 2}
+            Надёжнее наращивать бюджет поэтапно: частичное увеличение → новые данные → переобучение.
+          {/if}
+        </p>
+      </div>
+    {/if}
+
     <!-- Insight banner (после optimize) -->
     {#if optData?.insight}
       <div class="insight-banner">
@@ -2203,6 +2383,52 @@
           detail={primaryOptimizeRecommendation.detail}
           tone={primaryOptimizeRecommendation.tone}
         />
+      {/if}
+
+      <!-- A4/OPP-04 (2026-07-03): интервалы неопределённости оптимального
+           сплита (Jin 2017) — насколько доверять точечному распределению. -->
+      {#if optData?.channels?.length}
+        <section class="split-ci-block">
+          {#if !splitCi}
+            <button
+              type="button"
+              class="btn-split-ci"
+              disabled={splitCiBusy}
+              onclick={computeSplitCi}
+            >
+              {splitCiBusy ? 'Считаю интервалы долей…' : 'Интервалы оптимальных долей (≈5 с)'}
+            </button>
+            <span class="split-ci-hint">
+              Разброс оптимального распределения по сценариям модели —
+              показывает, насколько доверять точечному сплиту.
+            </span>
+            {#if splitCiError}
+              <p class="split-ci-error" role="alert">{splitCiError}</p>
+            {/if}
+          {:else}
+            <h4 class="split-ci-title">Оптимальные доли и их разброс (интервал 90%)</h4>
+            <ul class="split-ci-list">
+              {#each splitCi.channels as ch (ch.name)}
+                <li>
+                  <span class="split-ci-name">{ch.name}</span>
+                  <span class="split-ci-value">
+                    {(ch.share_mean * 100).toFixed(0)}%
+                    <span class="split-ci-range">[{(ch.share_ci_low * 100).toFixed(0)}–{(ch.share_ci_high * 100).toFixed(0)}%]</span>
+                  </span>
+                </li>
+              {/each}
+            </ul>
+            {#if splitCi.overlapping_pairs?.length}
+              <p class="split-ci-overlap">
+                Интервалы пересекаются у {splitCi.overlapping_pairs.length}
+                {splitCi.overlapping_pairs.length === 1 ? 'пары' : 'пар'} каналов —
+                разница их долей статистически не выделяется: перераспределение
+                между ними модель уверенно не обосновывает.
+              </p>
+            {/if}
+            <p class="split-ci-note">{splitCi.note}</p>
+          {/if}
+        </section>
       {/if}
     {/if}
 
@@ -2287,7 +2513,7 @@
       <!-- Confirm -->
       <div class="confirm-row">
         <button class="btn-confirm" onclick={confirmOptimization}>
-          Подтвердить и перейти к отчёту →
+          {planActive ? 'Подтвердить и перейти к планированию →' : 'Подтвердить и перейти к отчёту →'}
         </button>
       </div>
     {:else if stepState === 'idle'}
@@ -2495,10 +2721,29 @@
           >
             💾 Сохранить как сценарий {#if applyInflation}(с инфляцией){/if}
           </button>
+          <!-- E4: прогноз будущего периода → проверяемое обещание. Только
+               planner-режим: в «Анализе» горизонт — обучающий период, фиксация
+               «на будущее» была бы враньём. -->
+          <button
+            class="btn-save-scenario"
+            onclick={fixForecastPromise}
+            disabled={promiseSaving || !isPlanning}
+            title={isPlanning
+              ? 'Прогноз с интервалом сохранится и сверится с фактом при обновлении данных'
+              : 'Доступно в режиме «Планирование» — там прогноз строится на будущий период'}
+          >
+            📌 {promiseSaving ? 'Фиксируем…' : 'Зафиксировать прогноз'}
+          </button>
           {#if !whatIfResult && applyInflation}
             <span class="save-hint">Сохранится текущая аллокация с поправкой на медиаинфляцию следующего периода</span>
           {/if}
         </div>
+        {#if promiseSuccess}
+          <div class="inline-success" role="status">{promiseSuccess}</div>
+        {/if}
+        {#if promiseError}
+          <div class="inline-error" role="alert">{promiseError}</div>
+        {/if}
       {/if}
     </section>
   {/if}
@@ -2515,7 +2760,7 @@
       <div class="block-header">
         <span class="block-letter">D</span>
         <h3 class="block-title">Сценарный анализ</h3>
-        <span class="block-subtitle">- что будет, если изменить бюджет канала на N%?</span>
+        <span class="block-subtitle">– сохраните и сравните варианты распределения</span>
         <button
           class="btn-scenario-toggle"
           onclick={() => { playgroundOpen = !playgroundOpen; }}
@@ -2529,6 +2774,12 @@
         </div>
       {/if}
     </section>
+  {/if}
+
+  <!-- E4 (2026-07-03): «Сбывшиеся рекомендации» — зафиксированные прогнозы
+       и их сверка с фактом (петля доверия). -->
+  {#if channels.length > 0}
+    <PromisesCard />
   {/if}
 
   {/if}  <!-- end {#if taskMode === 'forward'} fallthrough -->
@@ -3250,6 +3501,11 @@
     font-size: 11px;
     color: var(--text-muted);
   }
+  /* F-A1-17: подсказка о плановом бюджете в режиме планирования */
+  .status-sub-plan {
+    color: var(--accent, #6b8fd8);
+    font-style: italic;
+  }
   .status-traffic { display: flex; gap: 10px; font-size: 14px; }
   .traffic-good, .traffic-ok, .traffic-low, .traffic-unused { display: flex; align-items: center; gap: 5px; font-weight: 600; cursor: help; }
   .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
@@ -3543,6 +3799,48 @@
     cursor: pointer;
   }
 
+  /* A4/OPP-04: блок интервалов оптимального сплита. */
+  .split-ci-block {
+    margin-top: 14px;
+    padding: 12px 14px;
+    background: var(--bg-surface-quiet);
+    border: 1px solid var(--border-subtle, rgba(255,255,255,0.08));
+    border-radius: 10px;
+    font-size: 12px;
+    color: var(--text-secondary);
+  }
+  .btn-split-ci {
+    padding: 8px 14px;
+    background: var(--bg-card);
+    color: var(--text-primary);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    font: inherit;
+  }
+  .btn-split-ci:disabled { opacity: 0.6; cursor: wait; }
+  .split-ci-hint { margin-left: 10px; font-size: 11px; color: var(--text-muted); }
+  .split-ci-error { margin: 8px 0 0; color: var(--danger, #f87171); }
+  .split-ci-title { margin: 0 0 8px; font-size: 13px; color: var(--text-primary); }
+  .split-ci-list {
+    margin: 0; padding: 0; list-style: none;
+    display: flex; flex-direction: column; gap: 4px;
+  }
+  .split-ci-list li { display: flex; justify-content: space-between; gap: 12px; }
+  .split-ci-name { color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .split-ci-value { font-variant-numeric: tabular-nums; color: var(--text-primary); font-weight: 600; white-space: nowrap; }
+  .split-ci-range { color: var(--text-muted); font-weight: 400; margin-left: 4px; }
+  .split-ci-overlap {
+    margin: 10px 0 0;
+    padding: 8px 10px;
+    background: color-mix(in srgb, var(--warning, #fbbf24) 8%, transparent);
+    border-radius: 6px;
+    color: var(--text-primary);
+  }
+  .split-ci-note { margin: 8px 0 0; font-size: 11px; font-style: italic; color: var(--text-muted); }
+
   .insight-banner {
     display: flex;
     align-items: flex-start;
@@ -3818,6 +4116,21 @@
   }
   .btn-run:hover:not(:disabled) { opacity: 0.85; }
   .btn-run:disabled { opacity: 0.5; cursor: not-allowed; }
+
+  /* F-A1-9: плашка ненадёжности перед кнопкой оптимизации */
+  .pre-optimize-reliability-warn {
+    display: flex;
+    align-items: flex-start;
+    gap: 8px;
+    padding: 10px 14px;
+    margin-bottom: 10px;
+    background: color-mix(in srgb, var(--gold, #c9a449) 10%, transparent);
+    border: 1px solid color-mix(in srgb, var(--gold, #c9a449) 30%, transparent);
+    border-radius: 8px;
+    font-size: 13px;
+    line-height: 1.45;
+    color: var(--text-primary, #e2e8f0);
+  }
 
   .lock-label {
     display: flex;

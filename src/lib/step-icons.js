@@ -10,7 +10,7 @@
  *
  * Имена сверены с lucide-svelte 1.0.1 (circle-check, clipboard-list — новый нейминг).
  */
-import { Import, CircleCheck, Brain, Microscope, Target, ClipboardList } from 'lucide-svelte';
+import { Import, CircleCheck, Brain, Microscope, Target, CalendarRange, ClipboardList } from 'lucide-svelte';
 
 /**
  * id шага пайплайна → Lucide-компонент.
@@ -22,5 +22,6 @@ export const stepIcons = {
   model: Brain,
   decompose: Microscope,
   optimize: Target,
+  planning: CalendarRange,
   report: ClipboardList,
 };

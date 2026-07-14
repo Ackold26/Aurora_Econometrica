@@ -30,7 +30,24 @@
     if (!container) return;
     chart = echarts.init(container);
     const base = getBaseChartOption();
-    chart.setOption({ ...base, ...option });
+    // П2-1 (аудит 2026-07-11): первичный setOption ТОЖЕ под защитой. Иначе бросок при
+    // первом рендере (universalTransition/морф) падает ДО initialized=true, и реактивный
+    // $effect (условие initialized) навсегда пропускается → график немой на все обновления.
+    try {
+      chart.setOption({ ...base, ...option });
+    } catch (e) {
+      console.error('[EChartBase] initial setOption failed:', e);
+      const stripped = {
+        ...base,
+        ...option,
+        series: (option?.series ?? []).map((/** @type {any} */ s) => {
+          const { universalTransition, ...rest } = s ?? {};
+          return rest;
+        }),
+      };
+      chart.setOption(stripped);
+      console.warn('[EChartBase] initial applied without universalTransition (morph degraded)');
+    }
     onInit?.(chart);
     const ro = new ResizeObserver(() => chart?.resize());
     ro.observe(container);
@@ -63,8 +80,31 @@
   });
 
   // Reactive update when option changes
+  // П2-1 (2026-07-10): setOption на живом echarts может бросить (universalTransition/
+  // seriesKey морф) — без catch $effect умирает МОЛЧА и все дальнейшие обновления
+  // option перестают применяться («клики не приводят к изменениям»). Ловим, логируем,
+  // пробуем деградацию без анимации перехода (морф теряется, данные доезжают).
   $effect(() => {
-    if (chart && option && initialized) chart.setOption(option, true);
+    if (chart && option && initialized) {
+      try {
+        chart.setOption(option, true);
+      } catch (e) {
+        console.error('[EChartBase] setOption failed:', e);
+        try {
+          const stripped = {
+            ...option,
+            series: (option.series ?? []).map((/** @type {any} */ s) => {
+              const { universalTransition, ...rest } = s ?? {};
+              return rest;
+            }),
+          };
+          chart.setOption(stripped, true);
+          console.warn('[EChartBase] applied without universalTransition (morph degraded)');
+        } catch (e2) {
+          console.error('[EChartBase] fallback setOption failed too:', e2);
+        }
+      }
+    }
   });
 
   // F2: re-apply base colors when theme changes

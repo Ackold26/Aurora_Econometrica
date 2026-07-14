@@ -1,9 +1,13 @@
 {
   "name": "aurora-ai-agency",
-  "version": "2.1.0-rc8",
+  "version": "2.3.1",
   "description": "",
   "type": "module",
   "scripts": {
+    "build:tokens": "node tools/build-tokens.mjs",
+    "build:tokens:check": "node tools/build-tokens.mjs --check",
+    "predev": "npm run build:tokens",
+    "prebuild": "npm run build:tokens",
     "dev": "vite dev",
     "build": "vite build",
     "preview": "vite preview",
@@ -11,6 +15,7 @@
     "check:watch": "svelte-kit sync && svelte-check --tsconfig ./jsconfig.json --watch",
     "tauri": "tauri",
     "tauri:dev": "tauri dev --config src-tauri/tauri.dev.conf.json",
+    "tauri:build:local": "tauri build --config src-tauri/tauri.local.conf.json -- --no-default-features",
     "test": "vitest run",
     "test:watch": "vitest",
     "lint:xss": "node tools/lint-xss.mjs",

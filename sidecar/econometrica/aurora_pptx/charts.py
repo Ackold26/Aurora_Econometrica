@@ -118,17 +118,22 @@ _FACTOR_RGB = {
     'signed_weather': 'F59E0B',
     'signed_macro': 'D97706',
     'holiday': '84CC16',
+    'seasonality': '8B5CF6',  # violet-500 — сезонность (цикл), отдельно от внешних
+    'category': '10B981',     # emerald-500 — спрос категории/рынка (Фаза Б)
     'positive_control': '06B6D4',
 }
 
 
 def make_timeline_area(slide, x_in, y_in, w_in, h_in, *, dates, baseline,
-                       channel_series, factor_series=None):
+                       channel_series, factor_series=None, baseline_label="Baseline"):
     """Stacked area: KPI over time with baseline + channel contributions.
     channel_series: dict {channel_name: [values]}.
     factor_series: optional list [{name, type, side, data}] — вынесенные
         signed/holiday факторы (аудит #12); рендерятся теми же полосами, что в
         программе, чтобы отчёт показывал ТОТ ЖЕ набор факторов.
+    baseline_label: подпись нижней полосы в легенде (Б-2: свёрнутый обзор 4 групп
+        передаёт «База» — русская легенда в паритете с программой; default
+        'Baseline' сохраняет legacy-поведение).
 
     Chart formatting:
       - Date labels compact "MM.YY" (e.g. "10.21" instead of "2021-10-01")
@@ -158,16 +163,20 @@ def make_timeline_area(slide, x_in, y_in, w_in, h_in, *, dates, baseline,
 
     data = CategoryChartData()
     data.categories = short_dates
-    data.add_series("Baseline", baseline)
+    data.add_series(_short(baseline_label), baseline)
     for name, values in channel_series.items():
         data.add_series(_short(name), values)
     # Вынесенные факторы — теми же полосами, что в программе (тип несёт цвет).
+    # Т3-плюс: свёрнутый обзор 4 групп передаёт explicit 'rgb' на агрегат
+    # (тип-агностично), приоритет над _FACTOR_RGB[type].
     factor_types = []
+    factor_rgbs = []
     for f in (factor_series or []):
         if not f or not f.get("data"):
             continue
         data.add_series(_short(f.get("name")), f["data"])
         factor_types.append(f.get("type"))
+        factor_rgbs.append(f.get("rgb"))
     graphic_frame = slide.shapes.add_chart(
         XL_CHART_TYPE.AREA_STACKED,
         Inches(x_in), Inches(y_in), Inches(w_in), Inches(h_in),
@@ -188,9 +197,11 @@ def make_timeline_area(slide, x_in, y_in, w_in, h_in, *, dates, baseline,
             if i < n_ch:
                 series.format.fill.fore_color.rgb = COLOR.data.channel_colors[i % len(COLOR.data.channel_colors)]
             else:
-                ftype = factor_types[i - n_ch] if (i - n_ch) < len(factor_types) else None
+                fi = i - n_ch
+                ftype = factor_types[fi] if fi < len(factor_types) else None
+                frgb = factor_rgbs[fi] if fi < len(factor_rgbs) else None
                 series.format.fill.fore_color.rgb = RGBColor.from_string(
-                    _FACTOR_RGB.get(ftype, '94A3B8'))
+                    frgb or _FACTOR_RGB.get(ftype, '94A3B8'))
 
     # Y-axis: format in millions. Excel format string "0,," collapses 25000000 → "25"
     # (each comma divides by 1000), suffix " М" appended for "25 М" display.

@@ -12,10 +12,12 @@
   import ModelTrainingStep from '$lib/components/pipeline/ModelTrainingStep.svelte';
   import DecomposeStep from '$lib/components/pipeline/DecomposeStep.svelte';
   import OptimizeStep from '$lib/components/pipeline/OptimizeStep.svelte';
+  import PlanningStep from '$lib/components/pipeline/PlanningStep.svelte';
   import ReportStep from '$lib/components/pipeline/ReportStep.svelte';
   import PipelineWhyThisStep from '$lib/components/pipeline/PipelineWhyThisStep.svelte';
   import FirstRunTour from '$lib/components/FirstRunTour.svelte';
   import { useDerivedModeUX, validateData } from '$lib/project-state.js';
+  import { groupChannelColumns } from '$lib/channel-pairs.js';
   import { onMount } from 'svelte';
 
   const FIRST_RUN_TOUR_KEY = 'aurora.firstRunTourCompleted';
@@ -36,45 +38,22 @@
   // available metrics per канал. Hardcoded {} раньше делал компонент бесполезным
   // в production. Теперь reads из validateData store + computes available metrics
   // через column names heuristic (separator-aware regex mirrors backend column_detection).
-  const channels = $derived.by(() => {
+  // ПАРЫ (2026-07-05, решение Антона): media-колонки группируются в КАНАЛЫ по
+  // базе имени (tv_spend + tv_trp → канал «tv» с живым выбором ₽|TRP) — единый
+  // чистый модуль channel-pairs.js (vitest). Прежняя inline-группировка
+  // фактически не спаривала (channels = полные имена колонок → prefix-матч
+  // никогда не находил партнёра); парные файлы впервые появились вместе с
+  // обновлёнными примерами — логика нагружена и закрыта тестами.
+  const pairGroups = $derived.by(() => {
     const cols = $validateData?.result?.columns;
-    if (!Array.isArray(cols)) return [];
-    return cols
+    if (!Array.isArray(cols)) return { channels: [], byChannel: {} };
+    const media = cols
       .filter((/** @type {any} */ c) => c?.role === 'media')
-      .map((/** @type {any} */ c) => c.name);
+      .map((/** @type {any} */ c) => String(c.name));
+    return groupChannelColumns(media);
   });
-
-  const availableMetricsByChannel = $derived.by(() => {
-    const cols = $validateData?.result?.columns;
-    if (!Array.isArray(cols) || channels.length === 0) return {};
-    /** @type {Record<string, {monetary: string[], physical: string[]}>} */
-    const result = {};
-    for (const ch of channels) {
-      result[ch] = { monetary: [], physical: [] };
-    }
-    // Classify каждую media column: name содержит ₽-marker (spend|budget|cost|бюджет|расход|rub)
-    // → monetary; impressions|clicks|grp|показ|клик|грп → physical.
-    const monetaryRe = /(?:^|[_\s-])(?:spend(?:s|ing)?|budget|cost(?:s)?|expense|бюджет|расход|затрат|rub|usd|eur)(?:[_\s-]|$)/i;
-    const physicalRe = /(?:^|[_\s-])(?:impression|impr|click|visit|reach|contact|grp|trp|показ|клик|визит|охват|просмотр|грп|трп)(?:[_\s-]|$)/i;
-    for (const c of cols) {
-      if (c?.role !== 'media') continue;
-      const name = c.name;
-      // Try to match channel prefix (e.g. 'tv_spend' → channel 'tv').
-      for (const ch of channels) {
-        const lower = name.toLowerCase();
-        const chLower = ch.toLowerCase();
-        if (lower === chLower || lower.startsWith(chLower + '_') || lower.startsWith(chLower + '-') || lower.startsWith(chLower + ' ')) {
-          if (monetaryRe.test(name)) result[ch].monetary.push(name);
-          else if (physicalRe.test(name)) result[ch].physical.push(name);
-          else result[ch].monetary.push(name);  // unknown - default monetary
-          break;
-        }
-      }
-      // If no channel prefix match - channel name === column name → default monetary.
-      if (result[name]) result[name].monetary.push(name);
-    }
-    return result;
-  });
+  const channels = $derived(pairGroups.channels);
+  const availableMetricsByChannel = $derived(pairGroups.byChannel);
 
   // v1.3.2: column stats lookup для PerChannelInputSelector - позволяет
   // показать data quality preview (zeros%/missing%) per metric option.
@@ -134,8 +113,13 @@
     <OptimizeStep />
   </StepWrapper>
 
-  <!-- Step 5: Report - Phase 5 -->
+  <!-- Step 5: Planning - Phase 2 planning mode -->
   <StepWrapper step={5} helpPage="pipeline">
+    <PlanningStep />
+  </StepWrapper>
+
+  <!-- Step 6: Report - Phase 5 -->
+  <StepWrapper step={6} helpPage="pipeline">
     <ReportStep />
   </StepWrapper>
 

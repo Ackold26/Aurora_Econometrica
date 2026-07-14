@@ -37,6 +37,21 @@
   let errorMessage = $state(null);
   /** @type {'green' | 'yellow' | 'red'} */
   let currentZone = $state('green');
+  // OPP-02 (2026-07-03): режим «бюджет под вероятность». false = обычный
+  // (медианный: бюджет достигает цели в ~половине сценариев модели),
+  // true = осторожный (минимальный бюджет с P(достижения) >= 80% по
+  // апостериорным сценариям). Уровень 0.8 фиксирован продуктово.
+  let cautiousMode = $state(false);
+  const CAUTIOUS_CONFIDENCE = 0.8;
+  // C3-N2: показать кнопку «Переключить в Анализ» в сообщении об ошибке
+  // (переключатель режимов отрисован только на вкладке «От бюджета»).
+  let showAnalystSwitch = $state(false);
+
+  function switchToAnalyst() {
+    planningMode.set('analyst');
+    showAnalystSwitch = false;
+    errorMessage = null;
+  }
 
   // 2026-06-07: АДАПТИВНАЯ шкала цели под РЕЗУЛЬТАТ модели. Раньше верх слайдера =
   // currentSales×1.5×1.15 (чистая эвристика, не связана с тем, что модель реально
@@ -75,8 +90,18 @@
   });
 
   const corridorLo = $derived(salesCorridor?.lo ?? Math.max(0, currentSales * 0.7));
-  // Верх = достижимый потолок (если зондирован), иначе прежняя эвристика.
-  const corridorHi = $derived(achievableCeiling ?? salesCorridor?.hi ?? currentSales * 1.5);
+  // Мат-аудит 2026-07-02 (INV-50): зелёная зона слайдера = НАБЛЮДАВШИЙСЯ диапазон
+  // (salesCorridor), НЕ потолок модели. Прежде (правка 2026-06-07, адаптивная шкала)
+  // corridorHi = achievableCeiling закрашивал зелёным весь путь до асимптоты модели
+  // при 5× бюджете — глубокую экстраполяцию, — тогда как подсказка рядом обещала
+  // «зелёная зона = без экстраполяции за observed range». Потолок достижимости
+  // остаётся ВЕРХОМ ШКАЛЫ (sliderMax): UX «недостижимая зона у самого края»
+  // сохранён, но зона выше corridorHi честно жёлто-красная (Chan & Perry 2017:
+  // кривая вне наблюдённого диапазона не идентифицируется данными).
+  const corridorHi = $derived(salesCorridor?.hi ?? currentSales * 1.5);
+  const sliderMax = $derived(
+    Math.max(achievableCeiling ?? corridorHi * 1.15, corridorHi * 1.02)
+  );
 
   // GS-2 (2026-06-02): рекомендуемый стартовый ориентир - умеренный рост +10%,
   // но не выше безопасного коридора (×0.95 от верхней границы). Раньше дефолт =
@@ -110,11 +135,16 @@
     // → backend ищет budget в неверном масштабе. Honest reject с инструкцией
     // переключиться в analyst mode для Goal-Seek.
     if ($planningMode === 'planner') {
+      // C3-N2 (2026-07-03): прежний текст отсылал к переключателю «вверху
+      // страницы», который в goal-seek-ветке НЕ отрисован (он на вкладке
+      // «От бюджета») — пользователь оказывался в тупике. Теперь кнопка
+      // переключения прямо в сообщении (рендер ниже по showAnalystSwitch).
       errorMessage = (
-        'Goal-Seek недоступен в режиме Планирования. ' +
-        'Переключитесь на «Анализ» (вверху страницы «Оптимизация»), либо используйте ' +
-        'Forward-оптимизацию с заданным бюджетом для прогнозного горизонта.'
+        'Подбор бюджета под цель недоступен в режиме «Планирование». ' +
+        'Переключитесь в режим «Анализ» кнопкой ниже, либо используйте расчёт ' +
+        '«От бюджета» для прогнозного горизонта.'
       );
+      showAnalystSwitch = true;
       return;
     }
     busy = true;
@@ -129,6 +159,8 @@
         mode: $derivedMode,
         maxBudget: maxBudgetCap,
         minBudget: null,
+        // OPP-02: null = медианный режим (прежнее поведение).
+        confidence: cautiousMode ? CAUTIOUS_CONFIDENCE : null,
       });
       result = res;
     } catch (e) {
@@ -146,7 +178,7 @@
     stepId="optimize-goal-seek"
     title="Зачем Goal-Seek?"
     whatWeDo="Вы задаёте целевые продажи. Программа находит минимальный бюджет, при котором эта цель достижима с высокой вероятностью."
-    whyNeed="Forward оптимизация отвечает: «у меня есть бюджет - куда вложить?». Goal-Seek отвечает на противоположный вопрос CFO/CEO: «нужно достичь продаж X - сколько потратить?»"
+    whyNeed="Прямая оптимизация отвечает: «у меня есть бюджет — куда вложить?». Расчёт от цели отвечает на вопрос руководителя: «нужно достичь продаж X — сколько потратить?»"
     attentionTo={[
       'Цель должна быть в зелёной зоне коридора - иначе модель экстраполирует за пределы observed range.',
       'Доверительный интервал на бюджете шире, чем точечная оценка - учитывайте при планировании.',
@@ -160,11 +192,11 @@
     <CorridorSlider
       value={targetSales}
       min={corridorLo * 0.5}
-      max={corridorHi}
+      max={sliderMax}
       corridorLo={corridorLo}
       corridorHi={corridorHi}
       yellowZonePct={0.10}
-      step={(corridorHi - corridorLo) / 100}
+      step={(sliderMax - corridorLo * 0.5) / 100}
       label="Целевые продажи"
       formatFn={formatTarget}
       onChange={(/** @type {number} */ v) => { targetSales = v; }}
@@ -211,6 +243,42 @@
     {/if}
   </section>
 
+<!-- OPP-02 (2026-07-03): «бюджет под вероятность» — переключатель режима расчёта. -->
+  <section class="confidence-mode" role="radiogroup" aria-label="Режим расчёта бюджета">
+    <span class="mode-title">Режим расчёта:</span>
+    <div class="mode-segment">
+      <button
+        type="button"
+        class="mode-option"
+        class:active={!cautiousMode}
+        aria-pressed={!cautiousMode}
+        onclick={() => { cautiousMode = false; }}
+      >
+        Обычный (медиана)
+      </button>
+      <button
+        type="button"
+        class="mode-option"
+        class:active={cautiousMode}
+        aria-pressed={cautiousMode}
+        onclick={() => { cautiousMode = true; }}
+      >
+        Осторожный (80%)
+      </button>
+    </div>
+    <p class="mode-hint">
+      {#if cautiousMode}
+        Минимальный бюджет, при котором цель достигается не менее чем в 80%
+        сценариев модели. Бюджет выше медианного – надбавка растёт с
+        неопределённостью модели.
+      {:else}
+        Бюджет, при котором модель достигает цели в типичном (медианном)
+        сценарии – примерно в половине случаев. Для планирования с запасом
+        включите осторожный режим.
+      {/if}
+    </p>
+  </section>
+
   <div class="actions">
     <button
       type="button"
@@ -230,6 +298,11 @@
   {#if errorMessage}
     <div class="error">
       {errorMessage}
+      {#if showAnalystSwitch}
+        <button type="button" class="btn-switch-analyst" onclick={switchToAnalyst}>
+          Переключить в режим «Анализ»
+        </button>
+      {/if}
     </div>
   {/if}
 
@@ -293,6 +366,47 @@
     font: inherit;
   }
 
+  /* OPP-02: сегмент-переключатель режима расчёта («медиана» / «80%»). */
+  .confidence-mode {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 10px;
+    padding: 10px 12px;
+    background: var(--bg-surface-quiet);
+    border-radius: var(--radius-sm, 6px);
+    font-size: 12px;
+  }
+  .mode-title { color: var(--text-secondary); font-weight: 600; }
+  .mode-segment {
+    display: inline-flex;
+    border: 1px solid var(--border);
+    border-radius: var(--radius-sm, 6px);
+    overflow: hidden;
+  }
+  .mode-option {
+    padding: 6px 12px;
+    background: var(--bg-card);
+    color: var(--text-secondary);
+    border: none;
+    font-size: 12px;
+    cursor: pointer;
+    font: inherit;
+  }
+  .mode-option + .mode-option { border-left: 1px solid var(--border); }
+  .mode-option.active {
+    background: var(--accent-primary);
+    color: #fff;
+    font-weight: 600;
+  }
+  .mode-hint {
+    flex-basis: 100%;
+    margin: 0;
+    font-size: 11px;
+    line-height: 1.5;
+    color: var(--text-muted);
+  }
+
   .actions {
     display: flex;
     gap: 10px;
@@ -327,5 +441,19 @@
     border-radius: var(--radius-sm, 6px);
     font-size: 12px;
     color: var(--danger, #f87171);
+  }
+  /* C3-N2: кнопка переключения режима прямо из сообщения об ошибке. */
+  .btn-switch-analyst {
+    display: block;
+    margin-top: 8px;
+    padding: 6px 12px;
+    background: var(--accent-primary);
+    color: #fff;
+    border: none;
+    border-radius: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    font: inherit;
   }
 </style>

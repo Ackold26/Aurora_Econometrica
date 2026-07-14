@@ -61,7 +61,9 @@
     align-items: center;
     padding: 10px 24px;
     background: var(--bg-surface-quiet, rgba(30, 33, 44, 0.92));
-    border-bottom: 1px solid var(--border-subtle, rgba(255,255,255,0.06));
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    box-shadow: var(--shadow-card);
     overflow-x: auto;
     scrollbar-width: none;
     flex-shrink: 0;

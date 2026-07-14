@@ -43,6 +43,27 @@
     }
   }
 
+  // Runtime-режим «только локально»: явное отключение облачного ИИ (egress).
+  // Гейт-поверх-согласия — даже при данном согласии пользователь может закрыть egress.
+  let localOnlyBusy = $state(false);
+  async function toggleLocalOnly() {
+    if (localOnlyBusy) return;
+    localOnlyBusy = true;
+    try {
+      const next = !$cloudConsent.localOnly;
+      await invoke('set_local_only', { enabled: next });
+      cloudConsent.update((c) => ({ ...c, localOnly: next }));
+      consentMsg = next
+        ? '✓ Режим «только локально» включён: облачный ИИ отключён, данные не уходят.'
+        : '✓ Режим «только локально» выключен: облачный ИИ доступен (при согласии).';
+      setTimeout(() => { consentMsg = ''; }, 7000);
+    } catch (e) {
+      consentMsg = 'Ошибка: ' + String(e);
+    } finally {
+      localOnlyBusy = false;
+    }
+  }
+
   // Econometrica projects root
   /** @type {{current: string, default: string, is_custom: boolean} | null} */
   let econRoot = $state(null);
@@ -299,6 +320,9 @@
 
 <div class="settings">
   <header class="header">
+    <a href="/" class="header-logo-link" title="На главную" aria-label="Aurora AI — на главную">
+      <img src="/logo-horizon.png" alt="Aurora AI" class="header-logo" />
+    </a>
     <a href="/" class="back-link">
       <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
         <path d="M19 12H5M12 19l-7-7 7-7"/>
@@ -490,14 +514,18 @@
       {/if}
     </section>
 
+    <!-- Выбор модели/нажима скрыт в Econometrica (Optimizer): пользователю не нужно
+         управлять моделью — используется оптимальная актуальная (Sonnet, latest-алиас,
+         авто-обновление). В других продуктах общего shell панель остаётся. -->
+    {#if $productType !== 'econometrica'}
     <section class="section">
-      <h2 class="section-title">Модель Claude</h2>
+      <h2 class="section-title">AI-модель советников</h2>
       <p class="section-desc">Модель и уровень усилия для обработки запросов</p>
       <div class="theme-toggle-row">
         <span class="theme-label">Модель</span>
         <select class="model-select" bind:value={modelChoice} onchange={saveModelSettings}>
-          <option value="sonnet">Sonnet (быстрый, по умолчанию)</option>
-          <option value="opus">Opus (глубокий анализ)</option>
+          <option value="sonnet">Быстрая (по умолчанию)</option>
+          <option value="opus">Глубокий анализ</option>
         </select>
       </div>
       <div class="theme-toggle-row">
@@ -509,12 +537,13 @@
         </select>
       </div>
     </section>
+    {/if}
 
     {#if $cloudConsent.advisorsEnabled}
       <section class="section">
         <h2 class="section-title">Облачная обработка (кабинеты-советники)</h2>
         <p class="section-desc">
-          Кабинеты-советники отправляют контекст задачи в Anthropic (Claude) по вашей команде.
+          Кабинеты-советники отправляют контекст задачи на защищённый AI-сервер по вашей команде.
           MMM-анализ всегда выполняется локально. Отключение делает советников недоступными –
           расчёты продолжают работать. Включение запросит согласие на облачную обработку.
         </p>
@@ -541,6 +570,32 @@
             {/if}
           </button>
         </div>
+        <div class="theme-toggle-row" style="margin-top: 12px;">
+          <span class="theme-label">Только локально (данные не уходят)</span>
+          <button
+            class="theme-toggle"
+            onclick={toggleLocalOnly}
+            disabled={localOnlyBusy}
+            aria-label="Toggle local-only mode"
+          >
+            {#if $cloudConsent.localOnly}
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="20 6 9 17 4 12"/>
+              </svg>
+              <span>Включён</span>
+            {:else}
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="9"/>
+                <line x1="15" y1="9" x2="9" y2="15"/>
+              </svg>
+              <span>Выключен</span>
+            {/if}
+          </button>
+        </div>
+        <p class="section-desc" style="margin-top: 6px;">
+          Когда включено – встроенный ИИ-ассистент отключён полностью, ни один запрос не
+          уходит на серверы. MMM-расчёты работают как обычно. Удобно для конфиденциальных данных.
+        </p>
         {#if consentMsg}
           <p class="import-status" style="color: {consentMsg.startsWith('Ошибка') ? 'var(--danger)' : 'var(--success)'}; margin-top: 8px;">{consentMsg}</p>
         {/if}
@@ -759,6 +814,17 @@
     backdrop-filter: var(--glass-blur);
     -webkit-backdrop-filter: var(--glass-blur);
     flex-shrink: 0;
+  }
+
+  .header-logo-link {
+    display: inline-flex;
+    align-items: center;
+    flex-shrink: 0;
+    line-height: 0;
+  }
+  .header-logo {
+    height: 40px;
+    width: auto;
   }
 
   .header h1 {

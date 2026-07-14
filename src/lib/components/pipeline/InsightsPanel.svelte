@@ -13,7 +13,7 @@
     pipelineCurrentStep, activeProjectId,
     importData, validateData, modelData, decomposeData, optimizeData, optimizeLiveState,
     analysisObjective, completeStep, setStepError,
-    kpiKind, derivedMode, valuePerCountUnit,
+    kpiKind, derivedMode, valuePerCountUnit, kpiType,
   } from '$lib/project-state.js';
   import { kpiView as buildKpiView } from '$lib/kpi-aware-formatting.js';
   import { recomputeResultAfterObjective } from '$lib/objective-engine.js';
@@ -38,6 +38,14 @@
   } from '$lib/insights-rules.js';
   // v2.1.0 (rc2 U-05): subStep store для контекстной маршрутизации.
   import { validateSubStep, analysisMode, perChannelInput, unitCosts, unitCostInputMode, budgetInputs, modelEnabledMediaNames, validationHeaderMetrics } from '$lib/project-state.js';
+  // Tier 2 (Claude-усилитель инсайтов, «Phase 10»). Видим только в облачной
+  // редакции с согласием и для продукта Econometrica.
+  import { isEconometrica } from '$lib/creative-store.js';
+  import { cloudConsent } from '$lib/store.js';
+  import { buildTier2Context, buildTier2Prompt, TIER2_SYSTEM_RULES, STEP, sanitizePromptFragment } from '$lib/tier2-context.js';
+  import { buildRagQuery, detectChannelType } from '$lib/rag-query.js';
+  import { findUngroundedNumbers } from '$lib/insights-grounding.js';
+  import { buildScenarioParsePrompt, extractScenarioConfig, applyChangesToMediaPlan, describeScenario, findCollinearPairs, collinearityCaveat } from '$lib/scenario-advisor.js';
 
   /** @type {{ collapsed?: boolean, onToggle?: () => void }} */
   let { collapsed = false, onToggle } = $props();
@@ -244,6 +252,7 @@
       kpiKind: $kpiKind,
       derivedMode: $derivedMode,
       valuePerCountUnit: $valuePerCountUnit,
+      kpiType: $kpiType,
     });
 
     switch (step) {
@@ -323,6 +332,270 @@
 
   /** @type {number | null} */
   let expandedTip = $state(null);
+
+  // ── Tier 2: «Спросить ИИ» (Claude-усилитель поверх детерминированных инсайтов) ──
+  let askQuestion = $state('');
+  let askAnswer = $state('');
+  let askLoading = $state(false);
+  let askError = $state('');
+  /** @type {string[]} негрунд-числа из ответа (рантайм-страж INV-50) */
+  let askUngrounded = $state(/** @type {string[]} */ ([]));
+
+  // Видимость: облачная редакция + согласие дано + НЕ режим «только локально»
+  // + продукт Econometrica.
+  const canAsk = $derived(
+    $cloudConsent.advisorsEnabled &&
+      $cloudConsent.granted &&
+      !$cloudConsent.localOnly &&
+      $isEconometrica,
+  );
+
+  // Ответ ИИ относится к конкретному шагу пайплайна — сбрасывать при смене шага,
+  // иначе пользователь видит ответ про декомпозицию на шаге оптимизации.
+  // askEpoch — монотонный токен запроса (аудит 2026-07-11, M2 JS): ответ,
+  // прилетевший ПОСЛЕ смены шага, не должен перезаписать очищенное состояние.
+  let askEpoch = 0;
+  $effect(() => {
+    void $pipelineCurrentStep;
+    askEpoch += 1;
+    askAnswer = '';
+    askError = '';
+    askUngrounded = [];
+    scenarioText = '';
+    resetScenario();
+  });
+
+  async function askAI() {
+    // Взаимная блокировка со сценарным советником (аудит 2026-07-11, M2 Rust):
+    // оба потока идут в один кабинет econometrist через общий .pipeline_prompt.md —
+    // конкурентный вызов подменил бы промпт и PID друг друга.
+    if (askLoading || scenarioLoading) return;
+    const myEpoch = ++askEpoch;
+    askError = '';
+    askAnswer = '';
+    askUngrounded = [];
+
+    // Канон методологии из RAG-библиотеки узла Б — best-effort, без вопроса
+    // ответ строится по фактам модели (graceful: недоступность сервера/гейта
+    // не блокирует Tier 2, просто без цитат из первоисточников).
+    /** @type {import('$lib/tier2-context.js').MethodologyHit[] | null} */
+    let methodology = null;
+    try {
+      const ragQuery = buildRagQuery({
+        question: askQuestion,
+        step: $pipelineCurrentStep,
+        focusChannelType: detectChannelType(askQuestion),
+      });
+      const r = /** @type {any} */ (await invoke('econ_rag_search', { query: ragQuery, k: 4 }));
+      methodology = r?.hits?.length ? r.hits : null;
+    } catch {
+      // без канона методологии — Tier 2 отвечает по фактам модели, как раньше
+    }
+
+    // Контекст текущего шага: факты модели + детерминированные Tier-1 инсайты.
+    const ctx = buildTier2Context({
+      step: $pipelineCurrentStep,
+      question: askQuestion,
+      tier1Insights: insights,
+      val: $validateData,
+      mod: $modelData,
+      dec: $decomposeData,
+      opt: $optimizeData,
+      methodology,
+    });
+    const prompt = buildTier2Prompt(ctx, askQuestion);
+
+    askLoading = true;
+    try {
+      let text;
+      try {
+        text = await invoke('econ_ask_insight', { prompt });
+      } catch (e) {
+        // Сессия кабинета эконометриста не открыта — открыть лениво и повторить.
+        if (String(e).includes('ASK-NO-SESSION')) {
+          await invoke('open_cabinet', { cabinetId: 'econometrist' });
+          text = await invoke('econ_ask_insight', { prompt });
+        } else {
+          throw e;
+        }
+      }
+      if (myEpoch !== askEpoch) return; // шаг сменился в полёте — ответ устарел (M2)
+      askAnswer = sanitizeAvroraText(text);
+      // Рантайм-страж INV-50: числа в ответе должны быть в фактах модели.
+      // ctx.grounding уже несёт methodology (buildTier2Context кладёт её в
+      // jsonFacts) — нормативы канона не флагаются как выдуманные.
+      // Без ignoreBelow — осознанно (триаж аудита 2026-07-11): порог отсёк бы
+      // галлюцинации класса «в 8 раз» (правило 1 их прямо запрещает), а ложные
+      // малые числа и так замаскированы нормативами help в grounding.
+      askUngrounded = findUngroundedNumbers(askAnswer, ctx.grounding).map((b) => b.raw);
+    } catch (e) {
+      if (myEpoch !== askEpoch) return; // ошибка устаревшего запроса — не показывать (M2)
+      const msg = String(e);
+      askError = msg.includes('CONSENT')
+        ? 'Нужно согласие на облачную обработку (см. настройки).'
+        : msg.includes('LOCAL')
+          ? 'Локальная редакция: ИИ-ассистент отключён (данные не уходят).'
+          : msg.replace(/^\[?[A-Z-]+\]?\s*/, '');
+    } finally {
+      askLoading = false;
+    }
+  }
+
+  /** Вызвать Аврору (Claude) с ленивым открытием кабинета econometrist. */
+  async function callAurora(/** @type {string} */ prompt) {
+    try {
+      return await invoke('econ_ask_insight', { prompt });
+    } catch (e) {
+      if (String(e).includes('ASK-NO-SESSION')) {
+        await invoke('open_cabinet', { cabinetId: 'econometrist' });
+        return await invoke('econ_ask_insight', { prompt });
+      }
+      throw e;
+    }
+  }
+
+  /** Убрать служебные артефакты кабинета эконометриста из ответа Авроры:
+   *  теги источника [STATISTICAL]/[MODELED], внутренние слэш-команды,
+   *  завершающие фразы Claude CLI. Страховка к промпт-правилу «чистота ответа». */
+  function sanitizeAvroraText(/** @type {any} */ t) {
+    return String(t || '')
+      .replace(/\s*\[(STATISTICAL|MODELED|MODEL|DATA|ASSUMPTION|INFERRED)\]/gi, '')
+      .replace(/(^|\s)\/(diagnose|optimize|decompose|report|validate|train)\b/g, '$1')
+      .replace(/\n*\s*(Все задачи выполнены\.?|Задача выполнена\.?|Готово\.?)\s*$/i, '')
+      .trim();
+  }
+
+  // ── Tier 2: советчик «Что если» (сценарии словами) ──
+  let scenarioText = $state('');
+  /** @type {import('$lib/scenario-advisor.js').ScenarioConfig | null} */
+  let scenarioConfig = $state(null);
+  let scenarioConfirm = $state('');
+  /** @type {any} */
+  let scenarioResult = $state(null);
+  let scenarioInterpret = $state('');
+  let scenarioLoading = $state(false);
+  let scenarioError = $state('');
+  /** @type {string[]} негрунд-числа из интерпретации сценария (рантайм-страж INV-50, зеркалит askUngrounded) */
+  let scenarioUngrounded = $state(/** @type {string[]} */ ([]));
+
+  function scenarioChannels() {
+    const dec = $decomposeData;
+    return Array.isArray(dec?.channels) ? dec.channels : [];
+  }
+
+  function resetScenario() {
+    scenarioConfig = null;
+    scenarioConfirm = '';
+    scenarioResult = null;
+    scenarioInterpret = '';
+    scenarioError = '';
+    scenarioUngrounded = [];
+  }
+
+  /** Шаг 1: разобрать NL-запрос в config (Аврора) → показать подтверждение. */
+  async function parseScenario() {
+    if (scenarioLoading || askLoading) return; // interlock с «Спросить Аврору» (M2 Rust)
+    resetScenario();
+    const chans = scenarioChannels();
+    if (chans.length === 0) {
+      scenarioError = 'Сначала выполните декомпозицию — нужны каналы модели.';
+      return;
+    }
+    const names = chans.map(/** @param {any} c */ (c) => c.name);
+    scenarioLoading = true;
+    try {
+      // Нейтрализация разделителей секций промпта в сыром пользовательском
+      // вводе (аудит 2026-07-13, M1-2) — та же защита, что и для вопроса
+      // «Спросить Аврору» / tier1-инсайтов / выдержек методологии.
+      const text = await callAurora(buildScenarioParsePrompt(sanitizePromptFragment(scenarioText), names));
+      const cfg = extractScenarioConfig(String(text || ''));
+      if (!cfg || cfg.kind === 'unclear') {
+        scenarioError = 'Не похоже на сценарий. Опишите изменение, например «урежь ТВ на 20%».';
+        return;
+      }
+      scenarioConfig = cfg;
+      scenarioConfirm = describeScenario(cfg) || '';
+    } catch (e) {
+      scenarioError = String(e).replace(/^\[?[A-Z-]+\]?\s*/, '');
+    } finally {
+      scenarioLoading = false;
+    }
+  }
+
+  /** Шаг 2: применить config → econ_scenario (детерминир. расчёт) → интерпретация Авророй. */
+  async function runScenario() {
+    if (!scenarioConfig || scenarioLoading || askLoading) return; // interlock (M2 Rust)
+    scenarioError = '';
+    scenarioResult = null;
+    scenarioInterpret = '';
+    scenarioUngrounded = [];
+    if (scenarioConfig.kind !== 'scenario') {
+      scenarioError = 'Оптимизация запускается на шаге «Оптимизация». Здесь — сценарии «что если».';
+      return;
+    }
+    const chans = scenarioChannels();
+    /** @type {Record<string, number>} */
+    const currentBudgets = {};
+    for (const c of chans) currentBudgets[c.name] = Number(c.spend) || 0;
+    scenarioLoading = true;
+    try {
+      const projectId = get(activeProjectId);
+      const projectDir = await invoke('project_get_dir', { projectId });
+      const uc = $unitCosts ?? {};
+      const _kuc = $valuePerCountUnit;
+      const kpiUnitCost = $kpiKind === 'count' && typeof _kuc === 'number' && _kuc > 0 ? _kuc : null;
+      const mediaPlan = applyChangesToMediaPlan(scenarioConfig.changes, currentBudgets);
+      const result = /** @type {any} */ (await invoke('econ_scenario', {
+        projectDir,
+        scenarioName: 'Аврора: ' + scenarioText.slice(0, 40),
+        mediaPlan,
+        unitCosts: Object.keys(uc).length > 0 ? uc : null,
+        kpiUnitCost,
+      }));
+      if (result?.status && result.status !== 'ok') {
+        scenarioError = result.message || 'Не удалось рассчитать сценарий.';
+        return;
+      }
+      scenarioResult = result;
+      // Интерпретация Авророй — числа ТОЛЬКО из результата движка (INV-50).
+      const t = result.totals || {};
+      // scenarioText — сырой пользовательский ввод: нейтрализация разделителей
+      // секций промпта (M1-2) перед вставкой в factLines.
+      const factLines = [
+        `Запрос пользователя: ${sanitizePromptFragment(scenarioText)}`,
+        `Что меняется: ${scenarioConfirm}`,
+        'Результат расчёта движком (ЕДИНСТВЕННЫЙ источник чисел):',
+        t.lift_pct != null ? `- Прирост KPI: ${Number(t.lift_pct).toFixed(1)}%` : '',
+        t.roas != null ? `- ROAS сценария: ${Number(t.roas).toFixed(2)}` : '',
+        t.predicted_kpi != null ? `- Прогноз KPI: ${Math.round(Number(t.predicted_kpi))}` : '',
+        t.incremental_kpi != null ? `- Инкрементальный KPI: ${Math.round(Number(t.incremental_kpi))}` : '',
+      ].filter(Boolean).join('\n');
+      // Методологическая оговорка о коллинеарности (McElreath): если каналы
+      // сценария сильно скоррелированы, переброс между ними ненадёжен.
+      const collinearWarn = collinearityCaveat(
+        findCollinearPairs(scenarioConfig.changes, get(validateData)?.correlationMatrix),
+      );
+      const interpPrompt = [
+        TIER2_SYSTEM_RULES, '',
+        collinearWarn ? `=== Методологическая оговорка (учесть обязательно) ===\n${collinearWarn}\n` : '',
+        '=== Факты сценария (единственный источник чисел) ===', factLines, '',
+        '=== Задача ===',
+        'Объясни кратко простым языком, что даёт этот сценарий и стоит ли его применять. Используй ТОЛЬКО числа выше.',
+      ].filter(Boolean).join('\n');
+      scenarioInterpret = sanitizeAvroraText(await callAurora(interpPrompt));
+      // Рантайм-страж INV-50 (зеркалит askAI): числа в интерпретации должны
+      // быть в фактах сценария — единственный источник result (totals +
+      // остальной ответ движка) плюс методологическая оговорка о
+      // коллинеарности (её r≈0.NN тоже легитимен для цитирования).
+      scenarioUngrounded = findUngroundedNumbers(scenarioInterpret, {
+        jsonFacts: [result, collinearWarn],
+      }).map((b) => b.raw);
+    } catch (e) {
+      scenarioError = String(e).replace(/^\[?[A-Z-]+\]?\s*/, '');
+    } finally {
+      scenarioLoading = false;
+    }
+  }
 
   // ── Drag-resize ──
   let panelWidth = $state(300);
@@ -422,6 +695,85 @@
         </ul>
       {/if}
 
+      {#if canAsk}
+        <div class="ask-ai">
+          <div class="ask-title"><span class="ask-name">Аврора</span><span class="ask-sub"> · ИИ-ассистент</span></div>
+          <div class="ask-row">
+            <input
+              class="ask-input"
+              type="text"
+              placeholder="Спросить Аврору…"
+              bind:value={askQuestion}
+              onkeydown={(e) => { if (e.key === 'Enter') askAI(); }}
+              disabled={askLoading || scenarioLoading}
+            />
+            <button
+              class="ask-btn"
+              onclick={askAI}
+              disabled={askLoading || scenarioLoading || insights.length === 0}
+              title="Объяснит результат на основе фактов модели"
+            >
+              {askLoading ? '…' : 'Спросить'}
+            </button>
+          </div>
+          {#if askError}
+            <p class="ask-error">{askError}</p>
+          {/if}
+          {#if askAnswer}
+            <div class="ask-answer">
+              {#if askUngrounded.length > 0}
+                <p class="ask-warn">⚠ Числа не сверены с моделью: {askUngrounded.join(', ')}</p>
+              {/if}
+              <p class="ask-text">{askAnswer}</p>
+            </div>
+          {/if}
+        </div>
+      {/if}
+
+      {#if canAsk && $pipelineCurrentStep === STEP.OPTIMIZE && scenarioChannels().length > 0}
+        <div class="ask-ai scenario">
+          <div class="ask-title"><span class="ask-name">Что если…</span><span class="ask-sub"> · сценарий</span></div>
+          {#if !scenarioConfig && !scenarioInterpret}
+            <div class="ask-row">
+              <input
+                class="ask-input"
+                type="text"
+                placeholder="напр. «урежь ТВ на 20%»"
+                bind:value={scenarioText}
+                onkeydown={(e) => { if (e.key === 'Enter') parseScenario(); }}
+                disabled={scenarioLoading || askLoading}
+              />
+              <button class="ask-btn" onclick={parseScenario} disabled={scenarioLoading || askLoading || !scenarioText.trim()}>
+                {scenarioLoading ? '…' : 'Разобрать'}
+              </button>
+            </div>
+          {/if}
+          {#if scenarioError}
+            <p class="ask-error">{scenarioError}</p>
+          {/if}
+          {#if scenarioConfig && !scenarioResult}
+            <div class="ask-answer">
+              <p class="ask-text">{scenarioConfirm}</p>
+              <div class="scenario-actions">
+                <button class="ask-btn" onclick={runScenario} disabled={scenarioLoading || askLoading}>
+                  {scenarioLoading ? 'Считаю…' : 'Запустить'}
+                </button>
+                <button class="tip-toggle" onclick={resetScenario} disabled={scenarioLoading}>Отмена</button>
+              </div>
+            </div>
+          {/if}
+          {#if scenarioInterpret}
+            <div class="ask-answer">
+              {#if scenarioUngrounded.length > 0}
+                <p class="ask-warn">⚠ Числа не сверены с моделью: {scenarioUngrounded.join(', ')}</p>
+              {/if}
+              <p class="ask-text">{scenarioInterpret}</p>
+              <button class="tip-toggle" onclick={() => { resetScenario(); scenarioText = ''; }}>Новый сценарий</button>
+            </div>
+          {/if}
+        </div>
+      {/if}
+
     </div>
   {/if}
 </aside>
@@ -503,7 +855,11 @@
     text-align: center; padding: 20px 0; margin: 0;
   }
 
-  .insights-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 6px; flex: 1; }
+  .insights-list {
+    list-style: none; margin: 2px 0 0; padding: 10px 0 0;
+    border-top: 1px solid var(--border-subtle, rgba(255,255,255,0.06));
+    display: flex; flex-direction: column; gap: 6px; flex: 1;
+  }
 
   .insight-item {
     display: flex; gap: 8px; align-items: flex-start;
@@ -602,5 +958,74 @@
     background: rgba(255,255,255,0.02); border-radius: 4px;
     white-space: pre-line;
   }
+
+  /* ── Tier 2: «Спросить ИИ» ── */
+  /* Аврора и советчик — наверх панели (над инсайтами) через flex order. */
+  .ask-ai {
+    order: -1;
+    display: flex; flex-direction: column; gap: 8px;
+  }
+  .ask-ai.scenario {
+    margin-top: 2px; padding-top: 10px;
+    border-top: 1px solid var(--border-subtle, rgba(255,255,255,0.06));
+  }
+  .ask-title { font-size: 11px; letter-spacing: 0.02em; }
+  .ask-name {
+    font-weight: 700;
+    color: var(--accent-primary, #3b82f6);
+  }
+  .ask-sub { color: var(--text-muted); font-weight: 500; }
+  .ask-row { display: flex; gap: 6px; align-items: center; }
+  .ask-input {
+    flex: 1; min-width: 0;
+    padding: 6px 9px;
+    font-size: 12px; line-height: 1.4;
+    color: var(--text-primary, #e2e8f0);
+    background: var(--bg-surface-focus, rgba(20, 22, 30, 0.72));
+    border: 1px solid var(--border-subtle, rgba(255,255,255,0.1));
+    border-radius: var(--radius-sm, 6px);
+  }
+  .ask-input:focus {
+    outline: none;
+    border-color: var(--accent-primary, #3b82f6);
+  }
+  .ask-input:disabled { opacity: 0.6; }
+  .ask-btn {
+    padding: 6px 12px;
+    font-size: 11px; font-weight: 600;
+    color: #fff;
+    background: var(--accent-primary, #3b82f6);
+    border: 1px solid var(--accent-primary, #3b82f6);
+    border-radius: var(--radius-chip, 5px);
+    cursor: pointer; flex-shrink: 0;
+    transition: background 0.15s;
+  }
+  .ask-btn:hover:not(:disabled) { background: color-mix(in srgb, var(--accent-primary, #3b82f6) 85%, black); }
+  .ask-btn:disabled { opacity: 0.5; cursor: default; }
+  .ask-error {
+    margin: 0; font-size: 11px; line-height: 1.4;
+    color: var(--danger, #ef4444);
+  }
+  .ask-answer {
+    padding: 8px 10px;
+    background: var(--bg-insight-info, rgba(59,130,246,0.06));
+    border-left: 3px solid var(--color-info, var(--accent-primary, #3b82f6));
+    border-radius: var(--radius-sm, 6px);
+  }
+  .ask-warn {
+    margin: 0 0 6px;
+    font-size: 11px; line-height: 1.4; font-weight: 600;
+    color: var(--warning, #f59e0b);
+  }
+  .ask-text {
+    margin: 0;
+    font-size: 12px; line-height: 1.5;
+    color: var(--text-secondary, #94a3b8);
+    white-space: pre-line;
+  }
+
+  /* Советчик «Что если» — зелёный акцент, чтобы отличать от синей Авроры-объяснителя */
+  .ask-ai.scenario .ask-name { color: var(--success, #10b981); }
+  .scenario-actions { display: flex; gap: 10px; align-items: center; margin-top: 8px; }
 
 </style>

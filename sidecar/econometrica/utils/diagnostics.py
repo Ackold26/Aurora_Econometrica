@@ -185,7 +185,10 @@ def format_thinness_caveat(ratio: float | None, thinness_cap: int | None,
 def generate_diagnostics_summary(r_squared: float, mape: float, rmse: float,
                                   r_hat_max: float, divergences: int,
                                   n_obs: int, n_params: int,
-                                  effective_params: float | None = None) -> dict:
+                                  effective_params: float | None = None,
+                                  ess_bulk_min: float | None = None,
+                                  ess_tail_min: float | None = None,
+                                  bfmi_min: float | None = None) -> dict:
     """Full diagnostics summary for UI display.
 
     effective_params (2026-06-07): эффективное число параметров (posterior
@@ -196,6 +199,14 @@ def generate_diagnostics_summary(r_squared: float, mape: float, rmse: float,
     иначе байес-модель штрафуется как OLS. Если None (OLS / иерарх. путь) —
     fallback на номинальный ratio (прежнее поведение).
     Номинальные значения сохраняются в metrics для прозрачности.
+
+    ess_bulk_min / ess_tail_min / bfmi_min (мат-аудит 2026-07-02, F-11/F-12):
+    минимальные bulk/tail-ESS по параметрам модели и минимальный E-BFMI по
+    цепям. Пороги: ESS ≥ 400 (Vehtari et al. 2021 — recommended threshold;
+    при ESS < 400 сам R-hat ненадёжен), E-BFMI ≥ 0.3 (эвристика Stan/PyMC —
+    НЕ приписывать Betancourt). None (OLS-путь / недоступно) → соответствующий
+    check НЕ добавляется (unknown ≠ pass); MQS-формула этими полями НЕ меняется
+    — честность доносится через optimizer_honesty (uncertain-гейт).
     """
     from utils.model_spec import bayesian_mmm_spec
     nominal_ratio = n_obs / max(n_params, 1)
@@ -246,11 +257,21 @@ def generate_diagnostics_summary(r_squared: float, mape: float, rmse: float,
             'effective_parameters': round(eff_p, 1),
             'ratio': round(ratio, 1),            # эффективный (степени свободы) — драйвит cap
             'ratio_nominal': round(nominal_ratio, 1),
+            # F-11/F-12 (2026-07-02): None → null в JSON (прозрачно «не измерено»).
+            'ess_bulk_min': round(ess_bulk_min, 1) if ess_bulk_min is not None else None,
+            'ess_tail_min': round(ess_tail_min, 1) if ess_tail_min is not None else None,
+            'bfmi_min': round(bfmi_min, 3) if bfmi_min is not None else None,
         },
         'checks': {
             'convergence': r_hat_max < 1.05 and divergences == 0,
             'fit': r_squared > 0.5,
             'ratio': ratio >= 4,                 # по эффективному ratio
+            # F-11/F-12: ключи добавляются ТОЛЬКО при измеренных значениях
+            # (unknown ≠ pass; back-compat: старые вызовы без kwargs — без ключей).
+            **({'ess': (ess_bulk_min is None or ess_bulk_min >= 400)
+                       and (ess_tail_min is None or ess_tail_min >= 400)}
+               if (ess_bulk_min is not None or ess_tail_min is not None) else {}),
+            **({'bfmi': bfmi_min >= 0.3} if bfmi_min is not None else {}),
         },
         'model_spec': bayesian_mmm_spec(),
     }

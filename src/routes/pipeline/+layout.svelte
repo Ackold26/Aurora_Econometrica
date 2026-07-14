@@ -153,7 +153,7 @@
 
   // Справка - одна кнопка в header, контент зависит от текущего шага pipeline.
   // Index в массиве соответствует PIPELINE_STEPS. См. src-tauri/help-econometrica/*.html.
-  const HELP_PAGES = ['data-preparation', 'data-preparation', 'methodology', 'pipeline', 'pipeline', 'pipeline'];
+  const HELP_PAGES = ['data-preparation', 'data-preparation', 'methodology', 'pipeline', 'pipeline', 'pipeline', 'pipeline'];
   async function openStepHelp() {
     const page = HELP_PAGES[$pipelineCurrentStep] ?? 'index';
     try {
@@ -164,9 +164,13 @@
   }
 
   function goNext() {
-    const next = $pipelineCurrentStep + 1;
-    if (next < 6 && $pipelineStepMeta[next]?.status !== 'locked') {
-      pipelineCurrentStep.set(next);
+    // 2026-07-10: перескакиваем запертые шаги (опциональное Планирование заперто
+    // без подтверждённого медиаплана → «Далее» с Оптимизации ведёт сразу в Отчёт).
+    for (let next = $pipelineCurrentStep + 1; next < 7; next++) {
+      if ($pipelineStepMeta[next]?.status !== 'locked') {
+        pipelineCurrentStep.set(next);
+        return;
+      }
     }
   }
 
@@ -322,7 +326,7 @@
   );
 
   const canGoNext = $derived(
-    $pipelineCurrentStep < 5
+    $pipelineCurrentStep < 6
     && $pipelineStepMeta[$pipelineCurrentStep + 1]?.status !== 'locked'
     && !rolesNotConfirmed
   );
@@ -364,35 +368,40 @@
   <div class="pipeline-shell">
     <!-- Stepper header with project selector -->
     <div class="pipeline-header">
-      <!-- Project selector visible only on Import step (where it's relevant) -->
-      {#if $pipelineCurrentStep === 0}
-        <div class="project-area">
-          <ProjectSelector />
-        </div>
-      {:else}
-        <!-- Keep header layout stable but show a read-only chip after import -->
-        <div class="project-area">
-          {#if $activeProject}
-            <span class="project-chip" title="Активный проект - переключение доступно на шаге «Импорт»">
-              <ChartColumn size={14} strokeWidth={1.5} style="vertical-align: -0.15em" /> {$activeProject.name}
-            </span>
-            <button
-              class="save-chip-btn"
-              onclick={quickSaveArchive}
-              disabled={archivingChip}
-              title="Сохранить проект как .aurora архив"
-              aria-label="Сохранить проект"
-            >
-              {archivingChip ? '…' : '💾'}
-            </button>
-            {#if archiveChipMsg}
-              <span class="archive-chip-msg" class:err={archiveChipMsg.startsWith('Ошибка')}>
-                {archiveChipMsg}
+      <!-- Логотип Aurora AI (левый верхний угол, как на главной) + проект-селектор/чип -->
+      <div class="header-left">
+        <a href="/" class="pipeline-logo-link" title="На главную" aria-label="На главную">
+          <img src="/logo-horizon.png" alt="Aurora AI" class="pipeline-logo" />
+        </a>
+        {#if $pipelineCurrentStep === 0}
+          <div class="project-area">
+            <ProjectSelector />
+          </div>
+        {:else}
+          <!-- Keep header layout stable but show a read-only chip after import -->
+          <div class="project-area">
+            {#if $activeProject}
+              <span class="project-chip" title="Активный проект - переключение доступно на шаге «Импорт»">
+                <ChartColumn size={14} strokeWidth={1.5} style="vertical-align: -0.15em" /> {$activeProject.name}
               </span>
+              <button
+                class="save-chip-btn"
+                onclick={quickSaveArchive}
+                disabled={archivingChip}
+                title="Сохранить проект как .aurora архив"
+                aria-label="Сохранить проект"
+              >
+                {archivingChip ? '…' : '💾'}
+              </button>
+              {#if archiveChipMsg}
+                <span class="archive-chip-msg" class:err={archiveChipMsg.startsWith('Ошибка')}>
+                  {archiveChipMsg}
+                </span>
+              {/if}
             {/if}
-          {/if}
-        </div>
-      {/if}
+          </div>
+        {/if}
+      </div>
       <PipelineStepper onNavigate={handleNavigate} />
       <div class="header-right">
         {#if $pipelineCurrentStep >= 1 && !isObjectiveOverlay}
@@ -536,6 +545,25 @@
   .pipeline-header > :global(*:nth-child(2)) { justify-self: center; }
   .pipeline-header > :global(*:nth-child(3)) { justify-self: end; }
 
+  .header-left {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    min-width: 0;
+  }
+  .pipeline-logo-link {
+    display: inline-flex;
+    align-items: center;
+    flex-shrink: 0;
+    line-height: 0;
+  }
+  .pipeline-logo {
+    height: 65px;
+    width: auto;
+    user-select: none;
+    pointer-events: none;
+  }
+
   .project-chip {
     display: inline-flex;
     align-items: center;
@@ -643,7 +671,7 @@
   .mode-toggle.expert {
     background: color-mix(in srgb, var(--danger) 12%, transparent);
     border-color: color-mix(in srgb, var(--danger) 40%, transparent);
-    color: #fca5a5;
+    color: var(--danger);
   }
   .mode-toggle.expert:hover { background: color-mix(in srgb, var(--danger) 20%, transparent); }
 

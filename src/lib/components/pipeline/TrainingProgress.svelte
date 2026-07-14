@@ -36,9 +36,9 @@
   /** Phase labels in Russian @type {Record<string, string>} */
   const PHASE_LABELS = {
     loading: 'Загрузка данных',
-    compiling: 'Компиляция модели',
-    sampling: 'Сэмплирование байесовских цепей',
-    diagnostics: 'Диагностика',
+    compiling: 'Подготовка модели',
+    sampling: 'Обучаем модель — байесовский расчёт',
+    diagnostics: 'Проверка качества',
     saving: 'Сохранение результатов',
     complete: 'Готово',
   };

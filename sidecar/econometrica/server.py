@@ -35,7 +35,7 @@ import uuid
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 # Ensure sidecar root is in sys.path for absolute imports (engines.*, utils.*, charts.*)
 _sidecar_root = str(Path(__file__).parent)
@@ -44,7 +44,20 @@ if _sidecar_root not in sys.path:
 
 from fastapi import FastAPI, HTTPException, Request, UploadFile, File, Form
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, Field, field_validator
+
+
+def _friendly_error(e: Exception) -> str:
+    """П6 (UX-волна, 2026-07-03): последняя миля ошибок. Generic-обработчики
+    прежде отдавали голый str(e) — английский технотекст доезжал до клиента.
+    Теперь: что случилось + что делать; техдеталь остаётся для поддержки
+    (полный стек в логах через logger.exception)."""
+    detail = str(e) or type(e).__name__
+    return (
+        f'Внутренняя ошибка при расчёте: {detail[:200]}. '
+        f'Повторите действие; если ошибка повторится — перезапустите программу '
+        f'или напишите в поддержку.'
+    )
 
 # ── Identity & session (required by handshake protocol v1.0.9+) ──────────────
 # Session_id меняется при каждом cold start. Rust сверяет его с sidecar.json
@@ -350,6 +363,22 @@ class TrainRequest(BaseModel):
     # Empty / all-mixed → backward compat single-prior path. ≥2 brand or ≥2 perf →
     # hierarchical priors с group-conditional sigma + decay mu.
     channel_categories: dict[str, str] = {}
+    # E2 (2026-07-03): калибровка lift-тестами (Robyn §4.3 / Jin 2017) —
+    # [{channel, date_from, date_to, lift_abs, lift_low?, lift_high?,
+    #   confidence_level?, sigma_abs?, test_type?}]. Только bayesian.
+    calibrations: list[dict] | None = None
+    # F-AUD-1 (аудит 2026-07-04): Pydantic v2 МОЛЧА отбрасывает поля вне схемы —
+    # тумблер «Авто-праздники РФ» и opt-out слались фронтом, но терялись здесь
+    # (боевое доказательство: Кагоцел use_holidays=false в project.json, а в
+    # pickle 12 инжектированных праздников). Флаги объявлены явно; движок
+    # читает config.get(..., default) — семантика не меняется, доставка чинится.
+    use_holidays: bool = True
+    disabled_holidays: list[str] = []
+    # Автосезонность (2026-07-04): мастер-флаг Фурье-компоненты сезонной волны.
+    # 🔴 ЯКОРЬ (У2): флаги обучения обязаны быть в ОБЕИХ схемах (Train+TrainStart)
+    # И в train-config.js buildTrainConfig — иначе поле теряется (F-AUD-1).
+    # Стережёт tools/test_frontend_schema_parity.py.
+    use_seasonality: bool = True
 
 
 class TrainStartRequest(BaseModel):
@@ -373,6 +402,12 @@ class TrainStartRequest(BaseModel):
     merge_rules: dict[str, list[str]] = {}
     # Trust Level 3 (v1.1.0): channel_categories propagated в train_model config.
     channel_categories: dict[str, str] = {}
+    # E2 (2026-07-03): см. TrainRequest.calibrations.
+    calibrations: list[dict] | None = None
+    # F-AUD-1: см. TrainRequest — async-путь (GUI) страдал той же потерей флагов.
+    use_holidays: bool = True
+    disabled_holidays: list[str] = []
+    use_seasonality: bool = True
 
 
 class DecomposeRequest(BaseModel):
@@ -451,6 +486,11 @@ class ScenarioRequest(BaseModel):
     unit_cost_inflation_pct: dict[str, float] | None = None
     # v2.1.0 (ADR-021): см. DecomposeRequest.kpi_unit_cost
     kpi_unit_cost: float | None = None
+    # Task 7: planning carry-in + holiday injection context.
+    # future_dates: ISO-даты будущих периодов для holiday calendar injection.
+    # carry_in: True (default) = использовать adstock carry-in из истории.
+    future_dates: list[str] | None = None
+    carry_in: bool = True
 
 
 # ──────────────────────────────────────────────────────────────────
@@ -571,6 +611,10 @@ class PptxExportRequest(BaseModel):
     # учесть Settings override (econometrica_projects_root). Fallback на
     # вычисление из %APPDATA% если None для обратной совместимости со старым Rust.
     project_dir: str | None = None
+    # INV-50 NEW-2: явный флаг для разработчиков — разрешает wireframe-режим
+    # (builder генерирует ДЕМОНСТРАЦИОННЫЕ числа) при отсутствии decompose_data.
+    # Без флага пустой decompose_data → 400 (honest-fail, не тихая фикция).
+    allow_wireframe: bool = False
 
 
 class HtmlExportRequest(BaseModel):
@@ -580,6 +624,9 @@ class HtmlExportRequest(BaseModel):
     optimize_data: dict
     project_name: str = 'Marketing Mix Model'
     project_dir: str | None = None
+    # INV-50 NEW-2: явный флаг для разработчиков — разрешает wireframe-режим
+    # при отсутствии decompose_data (только dev-превью, числа ДЕМОНСТРАЦИОННЫЕ).
+    allow_wireframe: bool = False
 
 
 class ModelHistoryRequest(BaseModel):
@@ -692,7 +739,7 @@ def project_migrate_endpoint(req: ProjectMigrateRequest):
         logger.exception('Migration endpoint FAILED')
         return JSONResponse(status_code=500, content={
             'status': 'error',
-            'message': str(e),
+            'message': _friendly_error(e),
             'type': type(e).__name__,
         })
 
@@ -786,7 +833,11 @@ def train_model(req: TrainRequest):
     else:
         from engines.modeler import train_model as _train
     result = _train(config, project_dir)
-    return JSONResponse(content=result)
+    # F-MC-1 (2026-07-04, Венарус-зонд): NaN в диагностике (вырожденный канал)
+    # валил СЕРИАЛИЗАЦИЮ ответа 500-кой «Out of range float values» — файлы
+    # санитайзились (NaN→null), а HTTP-ответ нет. Класс P3 NaN-blindspot.
+    from utils.safe_io import sanitize_nonfinite
+    return JSONResponse(content=sanitize_nonfinite(result))
 
 
 class CategorizeRequest(BaseModel):
@@ -962,26 +1013,68 @@ def preflight(req: PreflightRequest):
     })
 
 
+def _ru_problems(n: int) -> str:
+    """Склонение: 1 проблема / 2-4 проблемы / 5+ проблем."""
+    if n % 10 == 1 and n % 100 != 11:
+        return f'{n} проблема'
+    if n % 10 in (2, 3, 4) and n % 100 not in (12, 13, 14):
+        return f'{n} проблемы'
+    return f'{n} проблем'
+
+
 def _aggregate_recommendation(tier: str, mode: str, n_warnings: int) -> str:
-    """Build single human-readable recommendation from aggregated tier + mode."""
+    """Build single human-readable recommendation from aggregated tier + mode.
+
+    C3-полутон (2026-07-03): текст уходит в КЛИЕНТСКИЙ preflight-баннер —
+    без тех-жаргона («см. breakdown.warnings», «multicollinearity», «fragile»)
+    и с правильным склонением («1 проблем» → «1 проблема»).
+    """
     if tier == 'reliable':
         return (
             f'Данные прошли все проверки. Рекомендуемый режим обучения: '
-            f'{"Bayesian MMM" if mode == "bayesian" else "OLS (small data)"}.'
+            f'{"Bayesian MMM" if mode == "bayesian" else "OLS (малые данные)"}.'
         )
     if tier == 'directional':
         return (
-            f'Данные имеют {n_warnings} предупреждений (см. breakdown.warnings). '
-            f'Можно обучаться в режиме {"Bayesian" if mode == "bayesian" else "OLS"}, '
-            f'но используйте результаты как направление, не точную оценку.'
+            f'По данным есть предупреждения ({_ru_problems(n_warnings)} — перечислены выше). '
+            f'Обучение возможно, но используйте результаты как направление, '
+            f'а не точную оценку.'
         )
     # insufficient
     return (
-        f'Данные требуют внимания: {n_warnings} проблем (см. breakdown.warnings). '
-        f'Перед обучением рекомендуется: собрать больше данных, упростить медиа-микс, '
-        f'либо устранить multicollinearity. Можно обучить с override-предупреждением '
-        f'(результаты помечены как fragile).'
+        f'Данные требуют внимания ({_ru_problems(n_warnings)} — перечислены выше). '
+        f'Перед обучением рекомендуется: собрать больше данных, упростить медиа-микс '
+        f'либо убрать сильно связанные между собой каналы. Можно обучить и так — '
+        f'результаты будут помечены как ненадёжные.'
     )
+
+
+def _cleanup_stale_training_tasks(now: float | None = None) -> int:
+    """Мат-аудит 2026-07-02 (F-21): чистка _training_tasks. Вызывать ПОД _training_lock.
+
+    Два критерия:
+    1. consumed_at старше 5 мин (прежнее поведение, C3: result забрали — держим
+       короткое окно для ретраев фронта);
+    2. терминальный статус (done/error/cancelled) старше 60 мин БЕЗ consumed_at —
+       раньше такие задачи жили вечно вместе с полным result в памяти (фронт
+       закрыли до done / error никто не забрал / cancelled result не читается).
+       Модель при этом НЕ теряется — она на диске (latest.pkl + diagnostics).
+
+    Returns: число удалённых задач.
+    """
+    ts = now if now is not None else time.time()
+    consumed_cutoff = ts - 300
+    terminal_cutoff = ts - 3600
+    stale = [
+        k for k, v in _training_tasks.items()
+        if (v.get('consumed_at', 0) and v['consumed_at'] < consumed_cutoff)
+        or (v.get('status') in ('done', 'error', 'cancelled')
+            and not v.get('consumed_at')
+            and v.get('started_at', 0) < terminal_cutoff)
+    ]
+    for k in stale:
+        del _training_tasks[k]
+    return len(stale)
 
 
 @app.post('/compute/train/start')
@@ -994,11 +1087,7 @@ def train_start(req: TrainStartRequest):
     logger.info(f'/compute/train/start: kpi={req.kpi_column}, media={len(req.media_columns)} channels, merge_rules={req.merge_rules!r}')
 
     with _training_lock:
-        # Cleanup consumed tasks older than 5 min
-        cutoff = time.time() - 300
-        stale = [k for k, v in _training_tasks.items() if v.get('consumed_at', 0) and v['consumed_at'] < cutoff]
-        for k in stale:
-            del _training_tasks[k]
+        _cleanup_stale_training_tasks()
 
         _training_tasks[task_id] = {
             'status': 'running',
@@ -1094,7 +1183,9 @@ def train_result(task_id: str):
         if task['status'] in ('done', 'error'):
             result = task.get('result') or {'status': 'error', 'message': task.get('error', 'Unknown error')}
             task['consumed_at'] = time.time()  # Mark consumed, keep for retries
-            return result
+            # F-MC-1: NaN-safe ответ (см. /compute/train).
+            from utils.safe_io import sanitize_nonfinite
+            return sanitize_nonfinite(result)
     return {'status': 'pending'}
 
 
@@ -1113,7 +1204,9 @@ def decompose_sales(req: DecomposeRequest):
     )
     if result.get('status') != 'ok':
         logger.warning(f'/compute/decompose returned error: {result.get("message")}')
-    return JSONResponse(content=result)
+    # F-MC-1: NaN-safe ответ (файл decomposition.json уже санитайзился, ответ — нет).
+    from utils.safe_io import sanitize_nonfinite
+    return JSONResponse(content=sanitize_nonfinite(result))
 
 
 @app.post('/compute/optimize')
@@ -1510,6 +1603,80 @@ def delete_scenario(req: ScenarioDeleteRequest):
 
 
 # ──────────────────────────────────────────────────────────────────
+# Planning mode: шаблон медиаплана + подтверждение
+# ──────────────────────────────────────────────────────────────────
+
+
+class MediaPlanTemplateRequest(BaseModel):
+    project_dir: str
+    n_future_periods: int = Field(default=12, ge=1, le=120)
+
+
+@app.post('/compute/media-plan-template')
+def media_plan_template_endpoint(req: MediaPlanTemplateRequest):
+    """Генерирует Excel-шаблон медиаплана: история + N пустых строк будущего.
+
+    Читает модель из models/latest.pkl, исходный файл из data_file модели,
+    строит xlsx с продолженными датами и пустыми медиа/KPI колонками.
+    Возвращает {status, path} или {status: 'error', message}.
+    """
+    from engines.planning import generate_media_plan_template
+    try:
+        result = generate_media_plan_template(req.project_dir, req.n_future_periods)
+        return JSONResponse(content=result)
+    except Exception as e:
+        logger.exception('media_plan_template: ошибка')
+        return JSONResponse(content={'status': 'error', 'message': _friendly_error(e)})
+
+
+class ConfirmMediaPlanRequest(BaseModel):
+    project_dir: str
+    confirmed: bool
+
+
+@app.post('/compute/confirm-media-plan')
+def confirm_media_plan_endpoint(req: ConfirmMediaPlanRequest):
+    """Устанавливает поле confirmed в results/media_plan.json.
+
+    При confirmed=True — медиаплан принят, False — отклонён.
+    Возвращает {status: 'ok'} или {status: 'error', message}.
+    """
+    from engines.planning import confirm_media_plan
+    try:
+        result = confirm_media_plan(req.project_dir, req.confirmed)
+        return JSONResponse(content=result)
+    except Exception as e:
+        logger.exception('confirm_media_plan: ошибка')
+        return JSONResponse(content={'status': 'error', 'message': _friendly_error(e)})
+
+
+class PlanningSaveRequest(BaseModel):
+    project_dir: str
+    variant_ids: list[str]
+    accepted_variant: str | None = None
+    disclaimers: list[str] = Field(default_factory=list)
+
+
+@app.post('/compute/planning/save')
+def save_planning_endpoint(req: PlanningSaveRequest):
+    """Записывает results/planning.json (манифест прогноза-плана).
+
+    Без манифеста PPTX/HTML/XLSX-раздел прогноза «не найден», даже если сценарии
+    сохранены. Пишется автоматически после авто-прогноза базового плана (P-1) и
+    при фиксации вариантов.
+    """
+    from engines.planning import save_planning_manifest
+    try:
+        result = save_planning_manifest(
+            req.project_dir, req.variant_ids, req.accepted_variant, req.disclaimers,
+        )
+        return JSONResponse(content=result)
+    except Exception as e:
+        logger.exception('save_planning_manifest: ошибка')
+        return JSONResponse(content={'status': 'error', 'message': _friendly_error(e)})
+
+
+# ──────────────────────────────────────────────────────────────────
 # Sprint 3 Pharma Causal - endpoints (M1 ship)
 # ──────────────────────────────────────────────────────────────────
 
@@ -1682,7 +1849,7 @@ def generate_chart(req: ChartRequest):
         return {'status': 'error', 'message': f'Результаты для {req.chart_type} не найдены. Сначала выполните соответствующий расчёт'}
     except Exception as e:
         logger.exception(f'Chart generation failed: {req.chart_type}')
-        return {'status': 'error', 'message': str(e)}
+        return {'status': 'error', 'message': _friendly_error(e)}
 
 
 # ── Adstock Auto-Select ──────────────────────────────────
@@ -1846,10 +2013,39 @@ def _resolve_project_dir(project_dir: str | None, project_id: str) -> Path:
     return Path(appdata) / identifier / 'projects' / project_id
 
 
+def _assert_decompose_present(decompose_data: dict, allow_wireframe: bool) -> None:
+    """INV-50 NEW-2: гейт честности экспорта.
+
+    Правило: пустой decompose_data без явного allow_wireframe=True —
+    это клиентский запрос без реальных результатов декомпозиции.
+    Тихо строить wireframe-документ с ВЫДУМАННЫМИ числами (builder-дефолты:
+    TRP, mROAS 1.9×, 22%) и отдавать его как результат — нарушение INV-50
+    (честность метрик) и API-гигиены.
+
+    Контракт:
+      - has_decomp=False, allow_wireframe=False → HTTPException 400
+      - has_decomp=False, allow_wireframe=True  → pass (dev wireframe)
+      - has_decomp=True,  любой флаг            → pass (live данные)
+    """
+    has_decomp = bool(decompose_data)
+    if not has_decomp and not allow_wireframe:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                'Экспорт без результатов декомпозиции невозможен. '
+                'Для каркасного превью (dev) передайте allow_wireframe=true — '
+                'документ будет содержать ДЕМОНСТРАЦИОННЫЕ числа.'
+            ),
+        )
+
+
 @app.post('/export/pptx')
 def export_pptx(req: PptxExportRequest):
     """Generate branded PPTX presentation from MMM results."""
     logger.info(f'PPTX export START project_id={req.project_id}')
+    # INV-50 NEW-2: гейт до любых тяжёлых операций (создание директорий,
+    # чтение с диска). HTTPException пробрасывается напрямую FastAPI → 400.
+    _assert_decompose_present(req.decompose_data, req.allow_wireframe)
     try:
         from engines.pptx_export import build_pptx
 
@@ -1875,11 +2071,34 @@ def export_pptx(req: PptxExportRequest):
                         scenarios.append(json.load(fh))
                 except Exception:
                     continue
-        logger.info(f'PPTX inputs: model={has_model} decompose={has_decomp} optimize={has_optim} scenarios={len(scenarios)}')
+        # E1 (2026-07-03): backtest-витрина с диска (артефакт кнопки «Проверить
+        # модель на истории») — как и сценарии, frontend её не передаёт.
+        from engines.backtest import load_saved_backtest
+        backtest = load_saved_backtest(str(project_path))
+        # E3 (2026-07-03): сравнение поколений — тем же путём с диска.
+        from engines.model_compare import load_saved_generation_compare
+        generation_compare = load_saved_generation_compare(str(project_path))
+        # E4 (2026-07-03): зафиксированные прогнозы-обещания (для строк
+        # «сбылось/не сбылось» в отчёте).
+        from engines.promises import list_promises
+        promises = (list_promises(str(project_path)) or {}).get('promises') or []
+        # E5 (2026-07-10): прогноз-план (results/planning.json + сценарии).
+        from engines.planning import load_saved_forecast
+        forecast = load_saved_forecast(str(project_path))
+
+        logger.info(
+            f'PPTX inputs: model={has_model} decompose={has_decomp} '
+            f'optimize={has_optim} scenarios={len(scenarios)} '
+            f'backtest={"yes" if backtest else "no"} '
+            f'gen_compare={"yes" if generation_compare else "no"} '
+            f'forecast={"yes" if forecast else "no"}'
+        )
 
         result = build_pptx(
             req.model_data, req.decompose_data, req.optimize_data,
             output_path, scenarios=scenarios, project_id=req.project_id,
+            backtest=backtest, generation_compare=generation_compare,
+            promises=promises, forecast=forecast,
         )
         logger.info(f'PPTX export OK: {result}')
         return JSONResponse(content=result)
@@ -1889,7 +2108,7 @@ def export_pptx(req: PptxExportRequest):
             status_code=500,
             content={
                 'status': 'error',
-                'message': str(e),
+                'message': _friendly_error(e),
                 'type': type(e).__name__,
             },
         )
@@ -1899,6 +2118,9 @@ def export_pptx(req: PptxExportRequest):
 def export_html(req: HtmlExportRequest):
     """Generate interactive standalone HTML report."""
     logger.info(f'HTML export START project_id={req.project_id}')
+    # INV-50 NEW-2: тот же класс проблемы что и /export/pptx — тихая фикция
+    # при пустом decompose_data. Гейт симметричен PPTX.
+    _assert_decompose_present(req.decompose_data, req.allow_wireframe)
     try:
         from engines.html_export import build_html
 
@@ -1926,10 +2148,23 @@ def export_html(req: HtmlExportRequest):
         decompose_for_build = dict(req.decompose_data or {})
         decompose_for_build.setdefault('project_dir', str(project_path))
 
+        # E1-E4 (2026-07-04): артефакты петли доверия с диска — как в PPTX.
+        from engines.backtest import load_saved_backtest
+        from engines.model_compare import load_saved_generation_compare
+        from engines.promises import list_promises
+        backtest = load_saved_backtest(str(project_path))
+        generation_compare = load_saved_generation_compare(str(project_path))
+        promises = (list_promises(str(project_path)) or {}).get('promises') or []
+        # E5 (2026-07-10): прогноз-план.
+        from engines.planning import load_saved_forecast
+        forecast = load_saved_forecast(str(project_path))
+
         result = build_html(
             req.model_data, decompose_for_build, req.optimize_data, output_path,
             scenarios=scenarios, project_name=req.project_name,
             project_id=req.project_id,
+            backtest=backtest, generation_compare=generation_compare,
+            promises=promises, forecast=forecast,
         )
         logger.info(f'HTML export OK: {result}')
         return JSONResponse(content=result)
@@ -1939,7 +2174,7 @@ def export_html(req: HtmlExportRequest):
             status_code=500,
             content={
                 'status': 'error',
-                'message': str(e),
+                'message': _friendly_error(e),
                 'type': type(e).__name__,
             },
         )
@@ -1989,9 +2224,226 @@ def optimize_corridor(req: SafeCorridorRequest):
         logger.exception('Safe corridor compute FAILED')
         return JSONResponse(status_code=500, content={
             'status': 'error',
-            'message': str(e),
+            'message': _friendly_error(e),
             'type': type(e).__name__,
         })
+
+
+class SplitCiRequest(BaseModel):
+    """A4/OPP-04 (2026-07-03): интервалы неопределённости оптимального сплита
+    (Jin 2017: пере-оптимизация на подвыборке posterior-draws → HDI долей)."""
+    project_dir: str
+    total_budget_money: float | None = None  # None → текущий суммарный
+    n_draws: int = 60
+    unit_costs: dict[str, float] | None = None
+
+
+@app.post('/optimize/split-ci')
+def optimize_split_ci_endpoint(req: SplitCiRequest):
+    """Распределение оптимальных долей по posterior-draws (дорого, ~секунды —
+    отдельная кнопка в UI, не интерактивный путь)."""
+    try:
+        from optimize.split_ci import optimal_split_ci
+        result = optimal_split_ci(
+            project_dir=req.project_dir,
+            total_budget_money=req.total_budget_money,
+            n_draws=req.n_draws,
+            unit_costs_override=req.unit_costs,
+        )
+        return JSONResponse(content=result)
+    except FileNotFoundError as e:
+        # Текст резолвера данных уже человеческий и с действием — как есть.
+        return JSONResponse(status_code=200, content={
+            'status': 'error', 'error_code': 'DATA_FILE_MISSING', 'message': str(e)})
+    except Exception as e:
+        logger.exception('Split-CI FAILED')
+        return JSONResponse(status_code=500, content={
+            'status': 'error', 'message': _friendly_error(e), 'type': type(e).__name__})
+
+
+class BacktestRequest(BaseModel):
+    """E1 (2026-07-03): rolling-origin проверка модели на истории
+    («модель vs факт»: coverage 90% PI, наивные бенчмарки, вердикт)."""
+    project_dir: str
+    horizon_periods: int | None = Field(default=None, ge=1, le=90)
+    min_train: int | None = Field(default=None, ge=8, le=200)
+    mode: Literal['auto', 'bayesian', 'ols'] = 'auto'
+    max_windows: int = Field(default=8, ge=3, le=12)
+    # Прочитать сохранённую витрину (models/backtest.json) без пересчёта —
+    # мгновенный путь для загрузки карточки/отчёта.
+    read_only: bool = False
+
+
+@app.post('/compute/backtest')
+def compute_backtest_endpoint(req: BacktestRequest):
+    """E1 витрина: дорого (bayesian ≈ N окон × время обучения) — в UI это
+    отдельная кнопка с честной оценкой времени, не интерактивный путь.
+    status='insufficient' — честный результат («истории недостаточно»), не сбой."""
+    try:
+        from engines.backtest import load_saved_backtest, run_rolling_backtest
+        if req.read_only:
+            saved = load_saved_backtest(req.project_dir)
+            if saved is None:
+                return JSONResponse(content={
+                    'status': 'not_found',
+                    'message': 'Проверка на истории ещё не проводилась.',
+                })
+            return JSONResponse(content=saved)
+        result = run_rolling_backtest(
+            req.project_dir,
+            horizon_periods=req.horizon_periods,
+            min_train=req.min_train,
+            mode=req.mode,
+            max_windows=req.max_windows,
+        )
+        if (
+            result.get('status') == 'error'
+            and result.get('error_code') in ('NO_MODEL', 'NO_DATA')
+        ):
+            return JSONResponse(status_code=404, content=result)
+        return JSONResponse(content=result)
+    except Exception as e:
+        logger.exception('Backtest FAILED')
+        return JSONResponse(status_code=500, content={
+            'status': 'error', 'message': _friendly_error(e), 'type': type(e).__name__})
+
+
+class GenerationCompareRequest(BaseModel):
+    """E3 (2026-07-03): сравнение текущей модели с архивным поколением
+    («что изменилось с прошлого квартала», вердикты по перекрытию CI)."""
+    project_dir: str
+    baseline_ts: str | None = Field(default=None, pattern=r'^\d{8}_\d{6}$')
+    unit_costs: dict[str, float] | None = None
+    # Мгновенное чтение сохранённого сравнения (models/generation_compare.json).
+    read_only: bool = False
+
+
+@app.post('/compute/generation-compare')
+def generation_compare_endpoint(req: GenerationCompareRequest):
+    """Дёшево (2 декомпозиции, секунды). status='insufficient' — честный
+    результат «истории поколений ещё нет», не сбой."""
+    try:
+        from engines.model_compare import (
+            compare_generations,
+            load_saved_generation_compare,
+        )
+        if req.read_only:
+            saved = load_saved_generation_compare(req.project_dir)
+            if saved is None:
+                return JSONResponse(content={
+                    'status': 'not_found',
+                    'message': 'Сравнение поколений ещё не выполнялось.',
+                })
+            return JSONResponse(content=saved)
+        result = compare_generations(
+            req.project_dir,
+            baseline_ts=req.baseline_ts,
+            unit_costs_override=req.unit_costs,
+        )
+        if (
+            result.get('status') == 'error'
+            and result.get('error_code') in ('NO_MODEL', 'GENERATION_NOT_FOUND')
+        ):
+            return JSONResponse(status_code=404, content=result)
+        return JSONResponse(content=result)
+    except Exception as e:
+        logger.exception('Generation compare FAILED')
+        return JSONResponse(status_code=500, content={
+            'status': 'error', 'message': _friendly_error(e), 'type': type(e).__name__})
+
+
+class DriftCheckRequest(BaseModel):
+    """E3 (2026-07-03): дрейф — архивное поколение на свежем хвосте данных."""
+    project_dir: str
+    baseline_ts: str | None = Field(default=None, pattern=r'^\d{8}_\d{6}$')
+
+
+@app.post('/compute/drift-check')
+def drift_check_endpoint(req: DriftCheckRequest):
+    try:
+        from engines.model_compare import drift_check
+        result = drift_check(req.project_dir, baseline_ts=req.baseline_ts)
+        if (
+            result.get('status') == 'error'
+            and result.get('error_code') in ('NO_MODEL', 'GENERATION_NOT_FOUND', 'NO_DATA')
+        ):
+            return JSONResponse(status_code=404, content=result)
+        return JSONResponse(content=result)
+    except Exception as e:
+        logger.exception('Drift check FAILED')
+        return JSONResponse(status_code=500, content={
+            'status': 'error', 'message': _friendly_error(e), 'type': type(e).__name__})
+
+
+class PromisesListRequest(BaseModel):
+    """E4 (2026-07-03): зафиксированные прогнозы-обещания проекта."""
+    project_dir: str
+
+
+class PromiseCreateRequest(BaseModel):
+    """E4: «Зафиксировать прогноз» — рекомендация становится проверяемой."""
+    project_dir: str
+    action_text: str = Field(min_length=3)
+    expected_kpi_total: float
+    ci_low: float | None = None
+    ci_high: float | None = None
+    horizon_periods: int = Field(ge=1, le=90)
+    channel_changes: dict[str, float] | None = None
+    extrapolation_flag: bool = False
+    source: str = 'optimize'
+
+
+@app.post('/compute/promises')
+def promises_list_endpoint(req: PromisesListRequest):
+    try:
+        from engines.promises import list_promises
+        return JSONResponse(content=list_promises(req.project_dir))
+    except Exception as e:
+        logger.exception('Promises list FAILED')
+        return JSONResponse(status_code=500, content={
+            'status': 'error', 'message': _friendly_error(e), 'type': type(e).__name__})
+
+
+@app.post('/compute/promises/create')
+def promises_create_endpoint(req: PromiseCreateRequest):
+    try:
+        from engines.promises import create_promise
+        result = create_promise(
+            req.project_dir,
+            action_text=req.action_text,
+            expected_kpi_total=req.expected_kpi_total,
+            ci_low=req.ci_low,
+            ci_high=req.ci_high,
+            horizon_periods=req.horizon_periods,
+            channel_changes=req.channel_changes,
+            extrapolation_flag=req.extrapolation_flag,
+            source=req.source,
+        )
+        if result.get('status') == 'error' and result.get('error_code') == 'NO_DATA':
+            return JSONResponse(status_code=404, content=result)
+        return JSONResponse(content=result)
+    except Exception as e:
+        logger.exception('Promise create FAILED')
+        return JSONResponse(status_code=500, content={
+            'status': 'error', 'message': _friendly_error(e), 'type': type(e).__name__})
+
+
+@app.post('/compute/promises/check')
+def promises_check_endpoint(req: PromisesListRequest):
+    """Сверка обещаний со свежим фактом (kept/missed/pending со счётчиком)."""
+    try:
+        from engines.promises import check_promises
+        result = check_promises(req.project_dir)
+        if (
+            result.get('status') == 'error'
+            and result.get('error_code') in ('NO_MODEL', 'NO_DATA')
+        ):
+            return JSONResponse(status_code=404, content=result)
+        return JSONResponse(content=result)
+    except Exception as e:
+        logger.exception('Promises check FAILED')
+        return JSONResponse(status_code=500, content={
+            'status': 'error', 'message': _friendly_error(e), 'type': type(e).__name__})
 
 
 class InverseOptimizeRequest(BaseModel):
@@ -2002,6 +2454,10 @@ class InverseOptimizeRequest(BaseModel):
     mode: str = 'roi'           # 'roi' | 'effectiveness' | 'manual' (for logging)
     max_budget: float | None = None
     min_budget: float | None = None
+    # OPP-02 (2026-07-03): «бюджет под вероятность». None = медианный режим
+    # (back-compat); напр. 0.8 = минимальный бюджет с P(достижения цели) >= 80%
+    # (квантильная бисекция по posterior-draws, optimize/inverse.py).
+    confidence: float | None = None
 
 
 @app.post('/optimize/inverse')
@@ -2028,6 +2484,7 @@ def optimize_inverse_endpoint(req: InverseOptimizeRequest):
             kpi_kind=req.kpi_kind,
             mode=req.mode,
             budget_constraints=budget_constraints,
+            confidence=req.confidence,
         )
         if 'status' not in result:
             result['status'] = 'ok'
@@ -2036,7 +2493,7 @@ def optimize_inverse_endpoint(req: InverseOptimizeRequest):
         logger.exception('Inverse optimize FAILED')
         return JSONResponse(status_code=500, content={
             'status': 'error',
-            'message': str(e),
+            'message': _friendly_error(e),
             'type': type(e).__name__,
         })
 
@@ -2103,7 +2560,7 @@ def project_auto_price(req: AutoPriceRequest):
         logger.exception('Auto price detection FAILED')
         return JSONResponse(status_code=500, content={
             'status': 'error',
-            'message': str(e),
+            'message': _friendly_error(e),
             'type': type(e).__name__,
         })
 
@@ -2331,7 +2788,7 @@ def project_save_kpi_settings(req: ValuePerCountUnitSaveRequest):
         logger.exception('Save KPI settings FAILED')
         return JSONResponse(status_code=500, content={
             'status': 'error',
-            'message': str(e),
+            'message': _friendly_error(e),
             'type': type(e).__name__,
         })
 

@@ -108,6 +108,12 @@ pub struct ProjectInfo {
     /// проекты без поля → true (всегда учитывали праздники).
     #[serde(default = "default_true")]
     pub use_holidays: bool,
+    /// Автосезонность А (2026-07-04): мастер-флаг учёта сезонности. True по умолчанию.
+    /// True → modeler.py авто-детектит сезонную волну и инжектит Фурье-гармоники
+    /// (гейт INV-50: ≥2 цикла + статзначимость). False → сезонность не инжектится.
+    /// Backward compat: legacy проекты без поля → true.
+    #[serde(default = "default_true")]
+    pub use_seasonality: bool,
 }
 
 fn default_industry() -> String {
@@ -303,6 +309,7 @@ pub async fn project_create(name: String, industry: Option<String>) -> Result<Pr
         per_channel_input: HashMap::new(),
         disabled_holidays: Vec::new(),
         use_holidays: true,
+        use_seasonality: true,
     };
     write_project(&dir, &info)?;
 
@@ -362,6 +369,11 @@ pub async fn project_update(project_id: String, updates: Value) -> Result<Projec
     // читает config.use_holidays и пропускает всю инъекцию при false.
     if let Some(uh) = updates.get("use_holidays").and_then(|v| v.as_bool()) {
         info.use_holidays = uh;
+    }
+    // Автосезонность А (2026-07-04): modeler.py читает config.use_seasonality и
+    // отключает авто-детект + инъекцию Фурье при false.
+    if let Some(us) = updates.get("use_seasonality").and_then(|v| v.as_bool()) {
+        info.use_seasonality = us;
     }
     if let Some(file) = updates.get("data_file").and_then(|v| v.as_str()) {
         info.data_file = Some(file.to_string());
@@ -617,6 +629,10 @@ pub async fn project_load_results(project_id: String) -> Result<Value, String> {
         "modelDiagnostics": read_json("model-diagnostics.json"),
         "decomposition":    read_json("decomposition.json"),
         "optimization":     read_json("optimization.json"),
+        // Аудит 2026-07-10 (Critical): без этих ключей hasPlanning всегда false →
+        // завершённое Планирование деградировало в ready при каждом открытии проекта.
+        "planning":         read_json("planning.json"),
+        "mediaPlan":        read_json("media_plan.json"),
     }))
 }
 
@@ -1112,6 +1128,7 @@ mod atomic_write_tests {
             per_channel_input: HashMap::new(),
             disabled_holidays: Vec::new(),
             use_holidays: true,
+            use_seasonality: true,
         }
     }
 

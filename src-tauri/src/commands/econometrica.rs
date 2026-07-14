@@ -38,10 +38,16 @@ const QUICK_TIMEOUT_SECS: u64 = 60;
 /// Timeout for long-running endpoints (MCMC training)
 const TRAIN_TIMEOUT_SECS: u64 = 900; // 15 minutes
 
+/// E1 (2026-07-03): rolling-backtest переобучает модель на N окнах —
+/// на слабом CPU bayesian-окно ≈ время полного обучения (2-3 мин), 8 окон
+/// не влезают в TRAIN_TIMEOUT. Отдельный клиент с часовым потолком.
+const BACKTEST_TIMEOUT_SECS: u64 = 3600;
+
 /// Static clients - avoid TLS bootstrap + connection pool setup per request.
 static QUICK_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
 static TRAIN_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
 static HEALTH_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
+static BACKTEST_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
 
 fn quick_client() -> &'static reqwest::Client {
     QUICK_CLIENT.get_or_init(|| reqwest::Client::builder()
@@ -58,6 +64,12 @@ fn train_client() -> &'static reqwest::Client {
 fn health_client() -> &'static reqwest::Client {
     HEALTH_CLIENT.get_or_init(|| reqwest::Client::builder()
         .timeout(Duration::from_secs(5))
+        .build().unwrap_or_default())
+}
+
+fn backtest_client() -> &'static reqwest::Client {
+    BACKTEST_CLIENT.get_or_init(|| reqwest::Client::builder()
+        .timeout(Duration::from_secs(BACKTEST_TIMEOUT_SECS))
         .build().unwrap_or_default())
 }
 
@@ -267,6 +279,13 @@ pub async fn econ_forecast_context(project_dir: String) -> Result<Value, String>
     post_json("/compute/forecast-context", &body, quick_client()).await
 }
 
+/// A3/OPP-08 (2026-07-03, решение по месту): фронт эту команду НЕ вызывает —
+/// потребность «план vs история» покрыта доставкой extrapolation-маркеров
+/// прямо в результаты goal-seek (F-01), сценариев (F-04) и forward-оптимизации
+/// (OPP-03). Endpoint /compute/forecast-scaling остаётся внутренним API
+/// (контур математики масштабирования, ~10 тестов: test_phase2_synergies G5,
+/// test_server_phase2_endpoints); мост сохранён как кандидат для E1
+/// backtest-витрины (ROADMAP v3). НЕ считать этот мост «фичей с UI».
 #[tauri::command]
 pub async fn econ_forecast_scaling(
     project_dir: String,
@@ -314,6 +333,10 @@ pub async fn econ_scenario(
     unit_cost_inflation_pct: Option<Value>,
     // v2.1.0 (ADR-021): money equivalents для count KPI scenario forecast.
     kpi_unit_cost: Option<f64>,
+    // planning-mode: даты будущих периодов для инжекта праздников РФ (INT-2/1c);
+    // carry_in — управление переносом adstock-хвоста истории через границу (default true).
+    future_dates: Option<Value>,
+    carry_in: Option<bool>,
 ) -> Result<Value, String> {
     info!("econ_scenario: {scenario_name}");
     let body = serde_json::json!({
@@ -326,6 +349,8 @@ pub async fn econ_scenario(
         "forecast_period_label": forecast_period_label,
         "unit_cost_inflation_pct": unit_cost_inflation_pct,
         "kpi_unit_cost": kpi_unit_cost,
+        "future_dates": future_dates,
+        "carry_in": carry_in,
     });
     post_json("/compute/scenario", &body, quick_client()).await
 }
@@ -615,6 +640,177 @@ pub async fn econ_safe_corridor(
     post_json("/optimize/corridor", &body, quick_client()).await
 }
 
+/// A3/OPP-05 (2026-07-03): preflight-проверка данных ДО запуска обучения.
+/// Endpoint /compute/preflight существовал с S1-аудита (engine recommend +
+/// quick_proxy + prior_predictive → overall_tier), но не имел Rust-команды и
+/// UI — «вычисленная, но не доставленная честность» (мат-аудит F-13 закрыл
+/// in-train страховку; этот гейт показывает предупреждение ДО кнопки).
+/// prior_predictive 300 samples ≈ 5-15 c → train_client.
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub async fn econ_preflight(
+    project_dir: String,
+    file_path: String,
+    media_columns: Vec<String>,
+    control_columns: Option<Vec<String>>,
+    kpi_column: String,
+    date_column: Option<String>,
+    adstock_config: Option<Value>,
+    mode_override: Option<String>,
+    skip_prior_predictive: Option<bool>,
+) -> Result<Value, String> {
+    info!("econ_preflight: project_dir={project_dir}, channels={}", media_columns.len());
+    let body = serde_json::json!({
+        "project_dir": project_dir,
+        "file_path": file_path,
+        "media_columns": media_columns,
+        "control_columns": control_columns.unwrap_or_default(),
+        "kpi_column": kpi_column,
+        "date_column": date_column.unwrap_or_else(|| "date".to_string()),
+        "adstock_config": adstock_config.unwrap_or_else(|| serde_json::json!({})),
+        "mode_override": mode_override,
+        "skip_prior_predictive": skip_prior_predictive.unwrap_or(false),
+    });
+    post_json("/compute/preflight", &body, train_client()).await
+}
+
+/// A4/OPP-04 (2026-07-03): интервалы неопределённости оптимального сплита
+/// (Jin 2017) — пере-оптимизация на подвыборке posterior-draws, ~секунды →
+/// отдельная кнопка в UI, train_client.
+#[tauri::command]
+pub async fn econ_optimize_split_ci(
+    project_dir: String,
+    total_budget_money: Option<f64>,
+    n_draws: Option<i64>,
+    unit_costs: Option<Value>,
+) -> Result<Value, String> {
+    info!("econ_optimize_split_ci: {project_dir} draws={n_draws:?}");
+    let body = serde_json::json!({
+        "project_dir": project_dir,
+        "total_budget_money": total_budget_money,
+        "n_draws": n_draws.unwrap_or(60),
+        "unit_costs": unit_costs,
+    });
+    post_json("/optimize/split-ci", &body, train_client()).await
+}
+
+/// E1 (2026-07-03): backtest-витрина «модель vs факт» — rolling-origin
+/// проверка на удержанной истории (coverage 90% PI, наивные бенчмарки).
+/// Дорого: bayesian ≈ N окон × время обучения → backtest_client (1 час).
+/// read_only=true — мгновенное чтение сохранённой витрины (models/backtest.json).
+#[tauri::command]
+pub async fn econ_backtest(
+    project_dir: String,
+    horizon_periods: Option<i64>,
+    min_train: Option<i64>,
+    mode: Option<String>,
+    max_windows: Option<i64>,
+    read_only: Option<bool>,
+) -> Result<Value, String> {
+    let ro = read_only.unwrap_or(false);
+    info!("econ_backtest: {project_dir} read_only={ro} windows={max_windows:?}");
+    let body = serde_json::json!({
+        "project_dir": project_dir,
+        "horizon_periods": horizon_periods,
+        "min_train": min_train,
+        "mode": mode.unwrap_or_else(|| "auto".to_string()),
+        "max_windows": max_windows.unwrap_or(8),
+        "read_only": ro,
+    });
+    let client = if ro { quick_client() } else { backtest_client() };
+    post_json("/compute/backtest", &body, client).await
+}
+
+/// E3 (2026-07-03): список архивных поколений модели (models/history/) —
+/// endpoint существовал с v2.0, но не был доставлен до UI (F-E3-1).
+#[tauri::command]
+pub async fn econ_model_history(project_dir: String) -> Result<Value, String> {
+    info!("econ_model_history: {project_dir}");
+    let body = serde_json::json!({ "project_dir": project_dir });
+    post_json("/compute/model_history", &body, quick_client()).await
+}
+
+/// E3 (2026-07-03): сравнение текущей модели с архивным поколением
+/// («что изменилось с прошлого квартала», вердикты по перекрытию CI).
+/// read_only=true — мгновенное чтение сохранённого сравнения.
+#[tauri::command]
+pub async fn econ_generation_compare(
+    project_dir: String,
+    baseline_ts: Option<String>,
+    unit_costs: Option<Value>,
+    read_only: Option<bool>,
+) -> Result<Value, String> {
+    let ro = read_only.unwrap_or(false);
+    info!("econ_generation_compare: {project_dir} baseline={baseline_ts:?} read_only={ro}");
+    let body = serde_json::json!({
+        "project_dir": project_dir,
+        "baseline_ts": baseline_ts,
+        "unit_costs": unit_costs,
+        "read_only": ro,
+    });
+    post_json("/compute/generation-compare", &body, quick_client()).await
+}
+
+/// E3 (2026-07-03): дрейф — архивное поколение на свежем хвосте данных;
+/// вердикт «пора переобучить» / «держит точность».
+#[tauri::command]
+pub async fn econ_drift_check(
+    project_dir: String,
+    baseline_ts: Option<String>,
+) -> Result<Value, String> {
+    info!("econ_drift_check: {project_dir} baseline={baseline_ts:?}");
+    let body = serde_json::json!({
+        "project_dir": project_dir,
+        "baseline_ts": baseline_ts,
+    });
+    post_json("/compute/drift-check", &body, quick_client()).await
+}
+
+/// E4 (2026-07-03): прогнозы-обещания — список зафиксированных.
+#[tauri::command]
+pub async fn econ_promises_list(project_dir: String) -> Result<Value, String> {
+    info!("econ_promises_list: {project_dir}");
+    let body = serde_json::json!({ "project_dir": project_dir });
+    post_json("/compute/promises", &body, quick_client()).await
+}
+
+/// E4: «Зафиксировать прогноз» — рекомендация становится проверяемым обещанием.
+#[tauri::command]
+#[allow(clippy::too_many_arguments)]
+pub async fn econ_promise_create(
+    project_dir: String,
+    action_text: String,
+    expected_kpi_total: f64,
+    ci_low: Option<f64>,
+    ci_high: Option<f64>,
+    horizon_periods: i64,
+    channel_changes: Option<Value>,
+    extrapolation_flag: Option<bool>,
+    source: Option<String>,
+) -> Result<Value, String> {
+    info!("econ_promise_create: {project_dir} horizon={horizon_periods}");
+    let body = serde_json::json!({
+        "project_dir": project_dir,
+        "action_text": action_text,
+        "expected_kpi_total": expected_kpi_total,
+        "ci_low": ci_low,
+        "ci_high": ci_high,
+        "horizon_periods": horizon_periods,
+        "channel_changes": channel_changes,
+        "extrapolation_flag": extrapolation_flag.unwrap_or(false),
+        "source": source.unwrap_or_else(|| "optimize".to_string()),
+    });
+    post_json("/compute/promises/create", &body, quick_client()).await
+}
+
+/// E4: сверка обещаний со свежим фактом (kept/missed/pending).
+#[tauri::command]
+pub async fn econ_promises_check(project_dir: String) -> Result<Value, String> {
+    info!("econ_promises_check: {project_dir}");
+    let body = serde_json::json!({ "project_dir": project_dir });
+    post_json("/compute/promises/check", &body, quick_client()).await
+}
+
 #[tauri::command]
 pub async fn econ_optimize_inverse(
     project_dir: String,
@@ -623,6 +819,9 @@ pub async fn econ_optimize_inverse(
     mode: Option<String>,
     max_budget: Option<f64>,
     min_budget: Option<f64>,
+    // OPP-02 (2026-07-03): «бюджет под вероятность» — None = медианный режим
+    // (back-compat), Some(0.8) = квантильная бисекция P(hit) >= 80%.
+    confidence: Option<f64>,
 ) -> Result<Value, String> {
     info!("econ_optimize_inverse: project_dir={project_dir}, target={target_sales}");
     let body = serde_json::json!({
@@ -632,6 +831,7 @@ pub async fn econ_optimize_inverse(
         "mode": mode.unwrap_or_else(|| "roi".to_string()),
         "max_budget": max_budget,
         "min_budget": min_budget,
+        "confidence": confidence,
     });
     // Inverse + bisection может занимать до 10s - use train_client с longer timeout.
     post_json("/optimize/inverse", &body, train_client()).await
@@ -687,6 +887,68 @@ pub async fn econ_save_kpi_settings(
         "budget_inputs": budget_inputs,
     });
     post_json("/project/save_kpi_settings", &body, quick_client()).await
+}
+
+/// Planning mode: генерация Excel-шаблона медиаплана.
+///
+/// Читает обученную модель, строит xlsx с историческими строками
+/// и N пустыми строками будущего (даты продолжены, медиа/KPI пусты).
+/// Атомарная запись в <project_dir>/exports/media_plan_template.xlsx.
+/// Возвращает {status, path} — path используется для reveal_path.
+#[tauri::command]
+pub async fn econ_download_media_plan_template(
+    project_dir: String,
+    n_future_periods: Option<i64>,
+) -> Result<Value, String> {
+    info!("econ_download_media_plan_template: {project_dir} n={n_future_periods:?}");
+    validate_project_dir(&project_dir)?;
+    let body = serde_json::json!({
+        "project_dir": project_dir,
+        "n_future_periods": n_future_periods.unwrap_or(12),
+    });
+    post_json("/compute/media-plan-template", &body, quick_client()).await
+}
+
+/// Planning mode: подтверждение/отклонение медиаплана.
+///
+/// Записывает confirmed=true/false в results/media_plan.json.
+/// confirmed=true → медиаплан принят, шаг Планирования будет активен.
+/// confirmed=false → медиаплан проигнорирован.
+#[tauri::command]
+pub async fn econ_confirm_media_plan(
+    project_dir: String,
+    confirmed: bool,
+) -> Result<Value, String> {
+    info!("econ_confirm_media_plan: {project_dir} confirmed={confirmed}");
+    validate_project_dir(&project_dir)?;
+    let body = serde_json::json!({
+        "project_dir": project_dir,
+        "confirmed": confirmed,
+    });
+    post_json("/compute/confirm-media-plan", &body, quick_client()).await
+}
+
+/// Planning mode: запись манифеста прогноза-плана в results/planning.json.
+///
+/// Связывает сохранённые сценарии (results/scenarios/*.json) с отчётностью —
+/// без манифеста PPTX/HTML/XLSX-раздел прогноза «не найден». Пишется после
+/// авто-прогноза базового плана (P-1) и при фиксации вариантов.
+#[tauri::command]
+pub async fn econ_save_planning(
+    project_dir: String,
+    variant_ids: Vec<String>,
+    accepted_variant: Option<String>,
+    disclaimers: Option<Vec<String>>,
+) -> Result<Value, String> {
+    info!("econ_save_planning: {project_dir} variants={}", variant_ids.len());
+    validate_project_dir(&project_dir)?;
+    let body = serde_json::json!({
+        "project_dir": project_dir,
+        "variant_ids": variant_ids,
+        "accepted_variant": accepted_variant,
+        "disclaimers": disclaimers.unwrap_or_default(),
+    });
+    post_json("/compute/planning/save", &body, quick_client()).await
 }
 
 async fn parse_resp(resp: reqwest::Response, path: &str) -> Result<Value, String> {

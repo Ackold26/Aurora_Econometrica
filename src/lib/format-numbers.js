@@ -1,3 +1,5 @@
+import { getDisplay as _getKpiDisplay } from './kpi/kpi-display.js';
+
 /**
  * Aurora Econometrica - unified number formatting (v1.3.0).
  *
@@ -17,6 +19,7 @@
 /**
  * Format currency value (₽).
  * Compact format для > 1M, full format для < 1M.
+ * @deprecated для значений результата KPI — используй formatKpiValue; formatMoney только для явно-денежных величин (затраты, бюджет, spend).
  * @param {number | null | undefined} n
  * @param {{compact?: boolean, decimals?: number}} [opts]
  */
@@ -111,4 +114,51 @@ export function formatCountCompact(n, unitLabel = '') {
   if (abs >= 1e6) return `${(n / 1e6).toFixed(1)} млн${suffix}`;
   if (abs >= 1e3) return `${(n / 1e3).toFixed(0)} тыс.${suffix}`;
   return `${Math.round(n).toLocaleString('ru-RU')}${suffix}`;
+}
+
+/**
+ * Format spend / budget — ВСЕГДА валюта (₽).
+ * Семантически отличается от formatKpiValue: затраты — деньги для любого KPI,
+ * даже если целевая метрика count (лиды, упаковки).
+ *
+ * @param {number | null | undefined} n
+ * @param {{compact?: boolean, decimals?: number}} [opts]
+ * @returns {string}
+ */
+export function formatSpend(n, opts = {}) {
+  return formatMoney(n, opts);
+}
+
+/**
+ * Format KPI result value по паспорту kpiType:
+ *   - monetary (sales, revenue, profit) → compact ₽ (например «5,8 млрд ₽»)
+ *   - count (leads, sales_packs, ...) → компактное число + короткая единица из паспорта
+ *     (например «5,8 млн упак.», «1,2 млн лид.»)
+ *   - неизвестный/отсутствующий kpiType → formatMoney (safe fallback)
+ *
+ * @param {number | null | undefined} n
+ * @param {{ kpiType?: string | null }} ctx
+ * @param {{compact?: boolean, decimals?: number}} [opts]
+ * @returns {string}
+ */
+export function formatKpiValue(n, ctx = {}, opts = {}) {
+  if (n == null || !isFinite(n)) return '-';
+  const { kpiType } = ctx;
+  if (!kpiType) return formatMoney(n, opts);
+
+  let P = null;
+  try {
+    P = _getKpiDisplay(kpiType);
+  } catch (_) {
+    return formatMoney(n, opts);
+  }
+
+  if (P.kpi_kind === 'monetary') {
+    return formatMoney(n, opts);
+  }
+  if (P.kpi_kind === 'count') {
+    return formatCountCompact(n, P.result_unit_short || 'ед.');
+  }
+  // proportional / unknown → money fallback
+  return formatMoney(n, opts);
 }

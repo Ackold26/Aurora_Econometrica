@@ -147,6 +147,34 @@ git tag v0.7.5-описание-изменения
 Формат: `v{версия}-{краткое-описание}`. Хранить минимум 5 последних тегов для возможности отката.
 При откате: `git checkout <tag>` → пересинхронизировать 5 вариантов → clean build.
 
+### 18. Регламент правки промптов и доставки (аудит 2026-07-13, Батч 5)
+Разовые находки аудита промптов кабинета econometrist стали автопроверками — держать зелёными.
+
+**Правка промпта кабинета** (`New_AI_Agency/econometrist/CLAUDE.md`, `.claude/commands/*.md`
+или `LEGACY_COMMANDS.md`):
+1. `python tools/lint_prompt_commands.py` — 0 FAIL (U+2014 запрещён; «доверительный
+   интервал»/«CI» запрещены в клиентском тексте — байесовский интервал называется
+   «правдоподобный диапазон», INV-50; единая языковая шапка первой строкой каждой
+   команды; паттерны блокировки диалога «ОСТАНОВИСЬ»/«не продолжай»/«жди ввода»/
+   «не генерируй» запрещены).
+2. Задетые команды прогнать через `cabinet_eval --dry` (детерминированный, без
+   egress) ДО пуша — калибровка без просадки.
+
+**Правка content-pack** (`content-packs/*.json`):
+1. `python tools/check_help_consistency.py` — четверное совпадение `cabinet.rs`
+   (блок `"econometrist" => vec![...]`) = `cabinets.json` = файлы-владельцы в
+   `.claude/commands/*.md` = описания в `command-meta-data.json`; U+2014=0 по
+   всем `content-packs/*.json`.
+2. После любой правки `content-packs/*.json` — **re-sign ОБЯЗАТЕЛЕН**:
+   `python tools/sign_content_pack.py --bump` (иначе sha256 в manifest устаревает →
+   `verify_manifest` у клиента падает → доставка молча не доезжает). Проверка:
+   `python tools/check_content_pack_sync.py` = OK.
+
+**CI** (`.github/workflows/ci.yml`, job `check`) и **pre-commit** (`lefthook.yml`)
+уже гоняют все три линтера (`prompt-lint`, `help-consistency`, `content-pack-sync`).
+Не обходить `--no-verify` без причины. Каждый новый линтер — проверять
+«внести-поймать-откатить» (способен реально падать, не мёртвый обвес).
+
 ---
 
 ## Структура проекта
@@ -208,7 +236,7 @@ New_AI_Agency/                    # Промпты и скрипты кабин�
 CARGO_TARGET_DIR="D:/cargo-targets/ai-agency" npm run tauri build
 
 # Локальная редакция (M1, 152-ФЗ — только MMM-пайплайн, 0 Claude egress):
-CARGO_TARGET_DIR="D:/cargo-targets/ai-agency" npm run tauri build -- --no-default-features
+CARGO_TARGET_DIR="D:/cargo-targets/ai-agency" npm run tauri:build:local
 ```
 Результат: `<cargo_target>/release/bundle/nsis/*-setup.exe`
 
@@ -216,8 +244,18 @@ CARGO_TARGET_DIR="D:/cargo-targets/ai-agency" npm run tauri build -- --no-defaul
 `claude.rs::run_claude`/`run_claude_pipeline` делают ранний bail ДО спавна Claude CLI
 (egress к Anthropic статически недостижим), а `filter_by_product` скрывает кабинет-советник
 `econometrist`. Гейт MMM-справки в Ctrl+K — по продукту (`isEconometrica`), не по advisor-кабинету.
-TODO упаковки: для сосуществования двух редакций у локальной нужен отдельный
-`productName`/`identifier` (сейчас обе = `com.aurora.econometrica`).
+
+**Упаковка двух редакций (D2, решено 2026-07-03):** локальная собирается через
+`npm run tauri:build:local` = оверлей `src-tauri/tauri.local.conf.json`
+(productName «Optimizer MMM Local», identifier `com.aurora.econometrica.local`)
++ `--no-default-features`. Редакции сосуществуют на одной машине: свои пути
+`%APPDATA%\com.aurora.econometrica[.local]` (license.json, кэш, проекты —
+изоляция ПДн локальной редакции). Канал обновлений разведён:
+`updater::update_product_key()` даёт `aurora-econometrica-gui-local` для
+локальной — публиковать ОТДЕЛЬНЫЙ манифест (регламент aurora-release-update),
+иначе локальным клиентам приедет облачный exe. Лицензия: тот же формат
+(fingerprint-based), кладётся в per-app путь локального identifier — см.
+`2_Выдача_лицензий/CLAUDE.md`.
 
 ## Тесты
 

@@ -21,6 +21,8 @@
   import ConfigPanel from '$lib/components/ConfigPanel.svelte';
   import TrainingProgress from '$lib/components/pipeline/TrainingProgress.svelte';
   import ConvergenceDashboard from '$lib/components/pipeline/ConvergenceDashboard.svelte';
+  import BacktestCard from '$lib/components/pipeline/BacktestCard.svelte';
+  import ModelHistoryCard from '$lib/components/pipeline/ModelHistoryCard.svelte';
   import MQSBadge from '$lib/components/MQSBadge.svelte';
   import PipelineOnboarding from '$lib/components/pipeline/PipelineOnboarding.svelte';
   import { TOURS } from '$lib/pipeline-tours.js';
@@ -51,6 +53,31 @@
   // mqsView (честный backend cap по эффективным параметрам, как MQSBadge/диск/
   // отчёты). Фронт НЕ раскапывает score по media-ratio.
   const mqs = $derived(mqsView(diagnostics));
+
+  // Холодный старт (G-2, 2026-07-04): при открытии сохранённого проекта
+  // restoreProjectResults гидрирует modelData.diagnostics с диска, но локальный
+  // stepState стартует 'idle' и переключается в 'trained' лишь в handleComplete
+  // (живое обучение) или из localStorage-задачи. Без этого весь блок результатов
+  // (диагностика, MQS, BacktestCard E1, ModelHistoryCard E3) остаётся скрыт —
+  // пользователь, открывший готовый проект, не видит модель и петлю доверия.
+  // Канон Оптимизации: показ реактивен от стора. Здесь — минимально: если
+  // диагностика восстановлена извне и обучение не идёт, поднять stepState.
+  $effect(() => {
+    if (stepState === 'idle' && diagnostics && !activeTaskId) {
+      stepState = 'trained';
+    }
+  });
+
+  // Аудит 2026-07-04 (регресс G-2-фикса): обратная симметрия. Компонент не
+  // размонтируется при смене проекта (панели visibility) — переключение
+  // A(с моделью)→B(без) оставляло stepState='trained' при diagnostics=null,
+  // и ConfigPanel показывал ложное «Обучено · Перетренировать» на проекте
+  // без модели. Диагностика исчезла извне (resetPipeline) → вернуть 'idle'.
+  $effect(() => {
+    if (stepState === 'trained' && !diagnostics && !activeTaskId) {
+      stepState = 'idle';
+    }
+  });
 
   // Онбординг - запуск когда модель обучена (есть и config, и результаты на экране).
   $effect(() => {
@@ -88,7 +115,7 @@
             activeTaskId = savedTaskId;
             stepState = 'training';
             isComputing.set(true);
-            computeStatus.set('Сэмплирование байесовских цепей...');
+            computeStatus.set('Обучаем модель — байесовский расчёт...');
           } else if (progress.status === 'completed') {
             const result = /** @type {any} */ (await invoke('econ_train_result', { taskId: savedTaskId }));
             handleComplete(result);
@@ -121,7 +148,7 @@
     errorMessage = null;  // clear прошлый error (stale из pipelineStepMeta/localStorage)
     setStepError(2, null); // сброс errored-статуса текущего шага, чтобы UI не показывал cached сообщение
     isComputing.set(true);
-    computeStatus.set('Сэмплирование байесовских цепей...');
+    computeStatus.set('Обучаем модель — байесовский расчёт...');
     try { localStorage.setItem(TASK_KEY, taskId); } catch { /* ignore */ }
     // Сброс downstream-шагов: при перетренировке Decompose/Optimize/Report устаревают.
     // Без этого на stepper'е оставались старые статусы (например ✕ от прошлой ошибки).
@@ -300,6 +327,15 @@
     <div data-tour="model-convergence" data-tour-step="results-section">
       <ConvergenceDashboard {diagnostics} />
     </div>
+
+    <!-- E1 (2026-07-03): backtest-витрина «модель vs факт» — проверка на
+         удержанной истории. Ключ по picklePath: свежее обучение пересоздаёт
+         карточку (перечитывает сохранённую витрину + пометку устаревания). -->
+    {#key $modelData?.picklePath}
+      <BacktestCard />
+      <!-- E3 (2026-07-03): жизненный цикл — поколения, сравнение, дрейф. -->
+      <ModelHistoryCard />
+    {/key}
 
     {#if $expertMode}
       <ExpertModelPanel />

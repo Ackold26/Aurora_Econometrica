@@ -58,6 +58,8 @@ ColumnKind = Literal[
     'signed_weather',     # NEW v2.0.0 - weather (signed unconstrained)
     'signed_macro',       # NEW v2.0.0 - macroeconomic (CPI, GDP, FX)
     'holiday',            # NEW v2.0.0 - holiday dummy
+    'seasonality',        # NEW 2026-07-04 - auto-injected Fourier sin/cos harmonics
+    'category',           # NEW 2026-07-04 (Фаза Б) - продажи рынка/категории (spread demand)
     'unknown',            # unrecognized
 ]
 
@@ -71,8 +73,19 @@ _END = r'(?=[_\s\-]|$)'         # followed by sep OR end of string
 
 
 def _sep_pattern(token: str) -> str:
-    """Wrap token с separator-aware boundaries для Cyrillic + underscore-prefixed names."""
-    return _SEP + token + _END
+    """Wrap token с separator-aware boundaries для Cyrillic + underscore-prefixed names.
+
+    R1 (2026-07-05, корпус-зонд): внутренний `_` СОСТАВНОГО токена
+    (`курс_доллара`, `price_index`, `usd_rub`, `sales_rub`) — тоже separator-класс
+    `[_\\s\\-]`, а не буквальный underscore. Иначе частая клиентская форма с
+    ПРОБЕЛОМ («курс доллара», «price index», «usd rub») не матчит → колонка
+    падает в unknown (а «usd rub» ещё и ловилась голым валютным маркером `usd`
+    в MONETARY → media с ROI). Границы токена уже гибкие через _SEP/_END; здесь
+    гибкость распространяется на СТЫКИ суб-токенов. Внутри паттернов `_`
+    встречается только как разделитель слов (не regex-мета/char-class) —
+    проверено по всему набору паттернов + анти-ложным корпусом коварных соседей.
+    """
+    return _SEP + token.replace('_', r'[_\s\-]') + _END
 
 
 # Money / budget / spend / cost. Matches: tv_spend, tv_budget, тв_бюджет, costs_tv,
@@ -230,6 +243,10 @@ SIGNED_COMPETITOR_PATTERNS = [
     _sep_pattern(r'конкурент_(?:трп|показы|спенд|охват)'),
     _sep_pattern(r'доля_голоса_конкурент(?:ов|а)?'),
     _sep_pattern(r'svok'),  # ROSST industry term: share_of_voice_konkurentov
+    # R2 (2026-07-06): прилагательная форма «конкурентные продажи» → signed_competitor.
+    # Анти-ложное: «конкурентоспособность» НЕ должна матчить (нет объёмной части,
+    # _END не сработает на суффикс «оспособность» → проверяем канарейкой).
+    _sep_pattern(r'конкурентн(?:ые|ый|ых|ом)?'),
 ]
 
 # Price - signed unconstrained (может быть positive [premium effect, BOGO] или
@@ -297,6 +314,35 @@ HOLIDAY_PATTERNS = [
     _sep_pattern(r'8_март(?:а|ом)?'),
     _sep_pattern(r'23_феврал(?:я|ем)?'),
     _sep_pattern(r'9_ма(?:я|ем)?'),
+]
+
+# Category demand — продажи ВСЕЙ категории/рынка (ОБЪЁМ, не доля). Экзогенный
+# контроль спроса (Chan & Perry §4.2.2): спрос всей категории не зависит от медиа
+# одного бренда, но задаёт волну, на которую бренд «плывёт» → сильнейший прокси
+# спроса (сильнее Фурье: реальный ряд, не гладкая аппроксимация). Детектится комбо
+# ТЕМА(категория/рынок) И ОБЪЁМ(продажи/руб/шт/...) — зеркало validator.detect_column_role
+# (Фаза Б 2026-07-04, F-AUD-5: голое «категори» ловило текстовые атрибуты). classify_column
+# использует это для prior (positive-leaning shared demand); validator — для роли UI.
+# 🔴 ПАРИТЕТ: списки синхронизированы с validator.py::_CATEGORY_THEME/_CATEGORY_VOLUME.
+# R2 (2026-07-06): +рыночн* (прилагательная форма «рыночные продажи» → category);
+# маркер market-wide EN не нужен — 'market' уже есть в теме.
+# Анти-ложное: «рыночная цена» НЕ должна быть category (VOLUME='цена' не включён
+# намеренно); проверяется канарейкой TestCategoryCompetitorR2.
+_CATEGORY_THEME = ('категори', 'рынок', 'рынк', 'market', 'category', 'рыночн')
+_CATEGORY_VOLUME = (
+    'продаж', 'объем', 'объём', 'руб', 'уп.', 'уп ', 'шт', 'спрос', 'всего',
+    'sales', 'volume', 'units', 'value', 'total', 'demand',
+)
+
+
+# Seasonality — auto-injected Fourier harmonics (season_fourier_sin_K / _cos_K).
+# Инжектятся движком (modeler) как гладкая сезонная волна спроса, семантически
+# ОТДЕЛЬНЫЙ фактор (не generic control): decomposer выносит их одной агрегированной
+# полосой «Сезонность». Prior — zero-centered (sin/cos симметричны, modeler.py).
+# 🔴 ПАРИТЕТ: префикс синхронизирован с utils/fourier_seasonality.FOURIER_COL_PREFIX
+# = 'season_fourier'. При смене префикса там — обновить паттерн здесь.
+SEASONALITY_PATTERNS = [
+    _sep_pattern(r'season_fourier'),
 ]
 
 # Positive control factors - distribution, trade_activity, promo. Sign expected
@@ -450,16 +496,30 @@ def classify_column(column_name: str) -> ColumnKind:
 
     # v2.0.0 priority order:
     # 1. Date (наиболее однозначно)
-    # 2. Signed controls (specific patterns: competitor, price, weather, macro)
-    # 3. Holiday markers
-    # 4. Positive controls (distribution, trade_activity)
-    # 5. Target count (sales_packs, leads — before bare 'sales')
-    # 6. Target monetary (sales_rub, revenue, profit)
-    # 7. Monetary input (budget, spend, cost)
-    # 8. Physical input (impressions, clicks, TRP, GRP)
+    # 2. Seasonality (auto-injected Fourier season_fourier_* — префикс однозначен)
+    # 3. Signed controls (specific patterns: competitor, price, weather, macro)
+    # 4. Holiday markers
+    # 5. Positive controls (distribution, trade_activity)
+    # 6. Target count (sales_packs, leads — before bare 'sales')
+    # 7. Target monetary (sales_rub, revenue, profit)
+    # 8. Monetary input (budget, spend, cost)
+    # 9. Physical input (impressions, clicks, TRP, GRP)
+
+    # Клиентские формы событий БЕЗ префикса holiday_ (аудит №4, 2026-07-05):
+    # SSOT-алиасы календаря (black_friday / 8_марта / чёрная_пятница /
+    # день_россии) → 'holiday' ДО date-паттернов: специфичное имя события
+    # точнее generic-токена «день» ('день_россии' ловился DATE как ложная
+    # дата). Анти-ложная защита — в _alias_matches (whitelist + гейт длины).
+    from utils.holiday_calendar_ru import is_holiday_like_name
+    if is_holiday_like_name(column_name):
+        return 'holiday'
 
     if _matches_any(column_name, DATE_PATTERNS):
         return 'date'
+
+    # Seasonality (auto-injected Fourier) — префикс однозначен, проверяем рано.
+    if _matches_any(column_name, SEASONALITY_PATTERNS):
+        return 'seasonality'
 
     # Signed controls — specific patterns checked before general monetary/physical
     if _matches_any(column_name, SIGNED_COMPETITOR_PATTERNS):
@@ -474,6 +534,24 @@ def classify_column(column_name: str) -> ColumnKind:
     # Holiday markers (auto-injected или user-supplied)
     if _matches_any(column_name, HOLIDAY_PATTERNS):
         return 'holiday'
+
+    # Category demand (Фаза Б, 2026-07-04): ТЕМА(категория/рынок) И ОБЪЁМ(продажи/руб/...)
+    # — экзогенный контроль спроса. Комбо-условие (не single-pattern) → не в registry
+    # export; проверяется ДО generic control/target, иначе «Продажи категории руб» ушло
+    # бы в target_monetary (по «продаж...руб»).
+    # 🔴 Аудит 2026-07-04 (F-1): derived-гейт ОБЯЗАТЕЛЕН и здесь, не только в validator.
+    # «Доля рынка в руб» / «Market share value» / «SOM в руб. категория» = ТЕМА+ОБЪЁМ →
+    # без гейта падали в category → prior mu 0.3 positive-leaning на ЭНДОГЕННУЮ
+    # производную от KPI (доля = brand/total). Авто-путь validator даёт им unused, но
+    # ручной override в Roles UI кладёт колонку в control_columns → modeler зовёт
+    # classify_column напрямую → prior-утечка. Доля/share/SOM/SOV → НЕ category
+    # (упадут в unknown → честный zero-centered prior).
+    _lower_cat = column_name.lower()
+    _DERIVED_MARKERS = ('доля', 'share', 'som', 'sov')
+    if (any(k in _lower_cat for k in _CATEGORY_THEME)
+            and any(v in _lower_cat for v in _CATEGORY_VOLUME)
+            and not any(d in _lower_cat for d in _DERIVED_MARKERS)):
+        return 'category'
 
     # Positive controls (distribution, trade_activity)
     if _matches_any(column_name, CONTROL_POSITIVE_PATTERNS):
@@ -552,6 +630,7 @@ _PATTERN_KIND_REGISTRY = {
     'signed_weather': SIGNED_WEATHER_PATTERNS,
     'signed_macro': SIGNED_MACRO_PATTERNS,
     'holiday': HOLIDAY_PATTERNS,
+    'seasonality': SEASONALITY_PATTERNS,
     'control': CONTROL_POSITIVE_PATTERNS,
     'date': DATE_PATTERNS,
 }
@@ -559,6 +638,7 @@ _PATTERN_KIND_REGISTRY = {
 # Priority order matches classify_column() decision tree.
 _CLASSIFY_PRIORITY = [
     'date',
+    'seasonality',
     'signed_competitor',
     'signed_price',
     'signed_weather',

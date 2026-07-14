@@ -1,7 +1,9 @@
 use anyhow::Result;
 use log::info;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::{Mutex, OnceLock};
 use tauri::Emitter;
 
 use crate::errors::{coded_err, ErrorCode};
@@ -12,6 +14,32 @@ fn update_base_url() -> String {
 
 fn supabase_update_url() -> String {
     obfstr::obfstr!("https://quzhkfvglqmppxcrindh.supabase.co/functions/v1/app-update").to_string()
+}
+
+/// Хосты, с которых мы публикуем установщики: Supabase Storage (текущий прод),
+/// GitHub Releases и GitHub Pages (fallback). Схема обязана быть https.
+/// Основную защиту даёт то, что download_url приходит из серверного манифеста
+/// (см. tauri-обёртку download_update), а не с фронта; это - defense-in-depth:
+/// даже подменённый манифест не отправит загрузку на посторонний хост.
+fn is_trusted_update_url(raw: &str) -> bool {
+    let parsed = match reqwest::Url::parse(raw) {
+        Ok(u) => u,
+        Err(_) => return false,
+    };
+    if parsed.scheme() != "https" {
+        return false;
+    }
+    let host = match parsed.host_str() {
+        Some(h) => h.to_ascii_lowercase(),
+        None => return false,
+    };
+    // Суффикс с ведущей точкой = сам домен или любой его поддомен;
+    // без точки = только точное совпадение хоста.
+    const TRUSTED: [&str; 4] = [".supabase.co", ".github.io", ".githubusercontent.com", "github.com"];
+    TRUSTED.iter().any(|t| match t.strip_prefix('.') {
+        Some(bare) => host == bare || host.ends_with(t),
+        None => host == *t,
+    })
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -64,11 +92,29 @@ async fn check_github_pages(product: &str) -> Result<VersionInfo> {
     Ok(resp.json().await?)
 }
 
+/// Product-ключ канала обновлений.
+///
+/// D2 (2026-07-03, двухредакционная упаковка): локальная редакция
+/// (`--no-default-features`, identifier com.aurora.econometrica.local)
+/// обязана получать ТОЛЬКО локальные сборки — общий канал затянул бы
+/// облачный exe поверх локального (в нём живёт Claude-канал → нарушение
+/// «0 egress»). Суффикс «-local» разводит манифесты:
+///   облачная:  aurora-econometrica-gui/latest.json
+///   локальная: aurora-econometrica-gui-local/latest.json
+/// Публикация локального манифеста — регламент aurora-release-update.
+pub fn update_product_key() -> String {
+    if cfg!(feature = "cloud_advisors") {
+        env!("CARGO_PKG_NAME").to_string()
+    } else {
+        format!("{}-local", env!("CARGO_PKG_NAME"))
+    }
+}
+
 /// Check if a newer version is available.
 /// Tries Supabase first, falls back to GitHub Pages.
 /// Returns `Some(VersionInfo)` if update available, `None` if current.
 pub async fn check_for_updates(current_version: &str) -> Result<Option<VersionInfo>> {
-    let product = env!("CARGO_PKG_NAME");
+    let product = &update_product_key();
 
     let info = match check_supabase(product).await {
         Ok(info) => info,
@@ -87,15 +133,33 @@ pub async fn check_for_updates(current_version: &str) -> Result<Option<VersionIn
 
 /// Download update .exe to a temp directory, emitting progress events.
 pub async fn download_update(url: &str, app_handle: &tauri::AppHandle) -> Result<PathBuf> {
+    // SEC-04 defense-in-depth: качаем только с доверенных хостов публикации.
+    if !is_trusted_update_url(url) {
+        return Err(coded_err(ErrorCode::UP002, "Update URL is not from a trusted host"));
+    }
+
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(600))
+        // SEC-04: reqwest по умолчанию следует до 10 редиректов БЕЗ повторной проверки
+        // хоста. Валидация исходного url недостаточна: open-redirect на доверенном
+        // хосте или подменённый Location увели бы загрузку на посторонний сервер.
+        // checksum-gate ниже это отклонил бы, но слой доверенного хоста должен быть
+        // полным - re-валидируем КАЖДЫЙ хоп (github.com → githubusercontent.com при
+        // релизах остаётся легитимным, оба в allowlist).
+        .redirect(reqwest::redirect::Policy::custom(|attempt| {
+            if is_trusted_update_url(attempt.url().as_str()) {
+                attempt.follow()
+            } else {
+                attempt.error("update redirect to an untrusted host")
+            }
+        }))
         .build()?;
 
     let resp = client.get(url).send().await
-        .map_err(|e| coded_err(ErrorCode::UP002, &format!("Download failed: {e}")))?;
+        .map_err(|e| coded_err(ErrorCode::UP002, &format!("Не удалось загрузить обновление (проверьте подключение к интернету): {e}")))?;
 
     if !resp.status().is_success() {
-        return Err(coded_err(ErrorCode::UP002, &format!("Download returned {}", resp.status())));
+        return Err(coded_err(ErrorCode::UP002, &format!("Сервер обновлений вернул ошибку {} — повторите позже.", resp.status())));
     }
 
     let total_size = resp.content_length().unwrap_or(0);
@@ -105,8 +169,20 @@ pub async fn download_update(url: &str, app_handle: &tauri::AppHandle) -> Result
         .map_err(|e| coded_err(ErrorCode::UP002, &format!("Failed to create temp dir: {e}")))?;
     let temp_dir_path = temp_dir.keep();
 
-    // Extract filename from URL
-    let filename = url.rsplit('/').next().unwrap_or("update-setup.exe");
+    // Extract filename from URL — sanitize to a bare basename with a strict
+    // whitelist: a manifest-controlled download_url must never place the .exe
+    // outside temp (Windows `\`, drive letters, `..`), because apply_update
+    // runs it elevated and the checksum comes from the same manifest — so it
+    // is no barrier. (Backport of Oracle 891a80f.)
+    let raw = url.rsplit(['/', '\\']).next().unwrap_or("");
+    let filename = if !raw.is_empty()
+        && raw.ends_with(".exe")
+        && raw.bytes().all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-'))
+    {
+        raw
+    } else {
+        "update-setup.exe"
+    };
     let dest_path = temp_dir_path.join(filename);
 
     let mut file = tokio::fs::File::create(&dest_path).await?;
@@ -135,10 +211,63 @@ pub async fn download_update(url: &str, app_handle: &tauri::AppHandle) -> Result
     Ok(dest_path)
 }
 
+// SEC-03/04: реестр установщиков, прошедших проверку контрольной суммы в этом сеансе.
+// apply_update запускает файл с повышением прав, поэтому обязан принимать ТОЛЬКО
+// путь, скачанный и верифицированный здесь же, а не любой существующий .exe,
+// переданный с фронта. Ключ - канонизированный путь (устраняет .. и симлинки),
+// значение - SHA-256 верифицированного содержимого: apply пере-хеширует файл и
+// сверяет с этим хешем, закрывая TOCTOU (подмена содержимого между verify и apply).
+fn verified_installers() -> &'static Mutex<HashMap<PathBuf, String>> {
+    static REG: OnceLock<Mutex<HashMap<PathBuf, String>>> = OnceLock::new();
+    REG.get_or_init(|| Mutex::new(HashMap::new()))
+}
+
+fn mark_verified(path: &std::path::Path, hash: &str) {
+    if let Ok(canon) = path.canonicalize() {
+        // LOW: восстановление отравленного mutex (into_inner), иначе одна паника в
+        // критической секции навсегда заблокировала бы обновления до рестарта.
+        // Секция тривиальна (insert), инвариантов при панике не нарушает.
+        let mut reg = verified_installers()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        reg.insert(canon, hash.to_ascii_lowercase());
+    }
+}
+
+/// Путь верифицирован в этом сеансе И его ТЕКУЩЕЕ содержимое совпадает с хешем,
+/// зафиксированным при verify_checksum. Пере-хеширование здесь (не только сверка
+/// пути) закрывает TOCTOU: между verify и apply содержимое по verified-пути могло
+/// быть подменено локальным процессом → запуск elevated разрешаем, только если
+/// байты те же, что прошли проверку контрольной суммы.
+fn is_verified(path: &std::path::Path) -> bool {
+    let canon = match path.canonicalize() {
+        Ok(c) => c,
+        Err(_) => return false, // не можем канонизировать - fail closed
+    };
+    let expected = {
+        let reg = verified_installers()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
+        match reg.get(&canon) {
+            Some(h) => h.clone(),
+            None => return false, // путь не верифицирован в этом сеансе
+        }
+    };
+    // Пере-хешируем СЕЙЧАС, непосредственно перед решением о запуске.
+    let data = match std::fs::read(&canon) {
+        Ok(d) => d,
+        Err(_) => return false, // файл исчез/недоступен - fail closed
+    };
+    let actual = hex::encode(sha2::Sha256::digest(&data));
+    actual == expected
+}
+
 /// Verify SHA256 checksum of a downloaded file.
+/// B2/B3 (2026-07-03): сообщения по-русски — уходят в errorMsg блокирующего
+/// оверлея обновления, клиент должен понимать, что делать.
 pub fn verify_checksum(file_path: &std::path::Path, expected: &str) -> Result<()> {
     if expected.is_empty() {
-        anyhow::bail!("Update checksum is missing - refusing to install unverified update");
+        anyhow::bail!("Контрольная сумма обновления отсутствует в манифесте — установка непроверенного файла отклонена. Повторите позже или обратитесь в поддержку.");
     }
 
     // Strip "sha256:" prefix if present
@@ -150,13 +279,57 @@ pub fn verify_checksum(file_path: &std::path::Path, expected: &str) -> Result<()
 
     if actual != expected_hash.to_lowercase() {
         return Err(coded_err(ErrorCode::UP003, &format!(
-            "Download integrity check failed. Expected: {}..., got: {}...",
+            "Файл обновления повреждён при загрузке (контрольная сумма не совпала: ожидалась {}…, получена {}…). Повторите загрузку.",
             &expected_hash[..12.min(expected_hash.len())],
             &actual[..12]
         )));
     }
 
     info!("Checksum verified: {}", &actual[..16]);
+    // SEC-03/04: фиксируем путь + верифицированный хеш; apply пере-хеширует и сверит.
+    mark_verified(file_path, &actual);
+    Ok(())
+}
+
+/// Проверки формы + gate происхождения БЕЗ побочных эффектов (без запуска/exit).
+/// Вынесено из apply_update, чтобы позитивный путь (verified → разрешён) был покрыт
+/// юнит-тестом: apply_update завершает процесс (process::exit) и напрямую не тестируем.
+fn ensure_launchable(installer_path: &std::path::Path) -> Result<()> {
+    if !installer_path.exists() {
+        return Err(coded_err(ErrorCode::UP004, &format!("Файл установщика не найден: {}. Повторите загрузку обновления.", installer_path.display())));
+    }
+
+    // SEC-02 defense-in-depth: refuse paths that could break out of the
+    // PowerShell single-quoted string in unanticipated ways. The double-up
+    // escape below handles regular single quotes, but a non-absolute path,
+    // wrong extension, or embedded control character signals an upstream
+    // bug we should fail closed on.
+    if !installer_path.is_absolute() {
+        return Err(coded_err(ErrorCode::UP004, &format!(
+            "Installer path must be absolute: {}", installer_path.display()
+        )));
+    }
+    if installer_path.extension().and_then(|s| s.to_str()).map(|s| s.to_ascii_lowercase()) != Some("exe".to_string()) {
+        return Err(coded_err(ErrorCode::UP004, &format!(
+            "Installer must be .exe: {}", installer_path.display()
+        )));
+    }
+    let path_str_validate = installer_path.to_string_lossy();
+    if path_str_validate.chars().any(|c| c.is_control()) {
+        return Err(coded_err(ErrorCode::UP004, "Installer path contains control characters"));
+    }
+
+    // SEC-03/04 gate: путь обязан быть результатом успешного verify_checksum в этом
+    // сеансе И его содержимое не изменилось с момента проверки (is_verified пере-
+    // хеширует). Проверки формы выше (absolute/.exe/no-control) не гарантируют
+    // происхождение: без gate любой существующий .exe валидной формы можно было бы
+    // запустить elevated, вызвав apply_update с фронта минуя download+verify.
+    if !is_verified(installer_path) {
+        return Err(coded_err(
+            ErrorCode::UP004,
+            "Installer did not pass checksum verification - refusing to launch",
+        ));
+    }
     Ok(())
 }
 
@@ -177,9 +350,7 @@ pub fn verify_checksum(file_path: &std::path::Path, expected: &str) -> Result<()
 /// → app stays functional → NSIS PREINSTALL hook fires later для actual sidecar kill
 /// когда installer actually extracts.
 pub fn apply_update(installer_path: &std::path::Path) -> Result<()> {
-    if !installer_path.exists() {
-        return Err(coded_err(ErrorCode::UP004, &format!("Installer not found: {}", installer_path.display())));
-    }
+    ensure_launchable(installer_path)?;
 
     info!("Applying update: {}", installer_path.display());
 
@@ -201,7 +372,7 @@ pub fn apply_update(installer_path: &std::path::Path) -> Result<()> {
     if !ps_status.success() {
         return Err(coded_err(
             ErrorCode::UP004,
-            "Installer launch failed (UAC denied or PowerShell error). App remains functional — please retry update.",
+            "Установщик не запустился (отказ в правах администратора). Приложение продолжает работать — повторите обновление и подтвердите запрос прав.",
         ));
     }
 
@@ -223,6 +394,12 @@ pub fn apply_update(installer_path: &std::path::Path) -> Result<()> {
 
 /// Check if an update is required based on server response (v2 online path).
 /// Returns VersionInfo built from the online auth data.
+///
+/// B3-аудит (2026-07-03): фронт эту команду НЕ вызывает — путь обязательного
+/// обновления идёт через heartbeat → checkFullUpdate → `check_update` (полный
+/// манифест С checksum). Мост оставлен для back-compat; НЕ строить на нём
+/// установку: собранный здесь VersionInfo имеет ПУСТОЙ checksum → строгий
+/// verify_checksum откажет (защита от непроверенных установок).
 pub fn check_server_update(
     current_version: &str,
     app_min_version: &str,
@@ -251,7 +428,7 @@ pub fn check_server_update(
 ///   - stable (без `-`) ранжируется ВЫШЕ любого prerelease той же базы (rank = u32::MAX);
 ///   - `rc11` > `rc10` (числовой хвост тега, не лексический — иначе "rc2" > "rc10");
 ///   - база ("2.1.0") доминирует над prerelease-рангом.
-fn is_newer(remote: &str, current: &str) -> bool {
+pub(crate) fn is_newer(remote: &str, current: &str) -> bool {
     fn parse(v: &str) -> (Vec<u32>, u32) {
         let v = v.trim_start_matches('v');
         let (base, pre_rank) = match v.split_once('-') {
@@ -296,6 +473,67 @@ mod tests {
         assert!(!is_newer("v0.0.1", "0.0.1"));
     }
 
+    /// D2: канал обновлений согласован с редакцией сборки — облачная идёт
+    /// по базовому ключу, локальная по «-local» (иначе локальным клиентам
+    /// приедет облачный exe с Claude-каналом — нарушение «0 egress»).
+    #[test]
+    fn update_channel_matches_edition() {
+        let key = update_product_key();
+        if cfg!(feature = "cloud_advisors") {
+            assert_eq!(key, env!("CARGO_PKG_NAME"));
+            assert!(!key.ends_with("-local"));
+        } else {
+            assert_eq!(key, format!("{}-local", env!("CARGO_PKG_NAME")));
+        }
+    }
+
+    // ── B3 (2026-07-03): ворота установки — verify_checksum ──────────────────
+
+    fn tmp_file_with(content: &[u8]) -> std::path::PathBuf {
+        let p = std::env::temp_dir().join(format!(
+            "aurora-test-upd-{}.bin",
+            uuid::Uuid::new_v4().simple()
+        ));
+        std::fs::write(&p, content).unwrap();
+        p
+    }
+
+    /// Корректная сумма проходит; форма с префиксом sha256: (как в живом
+    /// манифесте GitHub Pages/Supabase) — тоже.
+    #[test]
+    fn checksum_valid_passes_with_and_without_prefix() {
+        let p = tmp_file_with(b"aurora update payload");
+        let hash = hex::encode(sha2::Sha256::digest(b"aurora update payload"));
+        verify_checksum(&p, &hash).expect("голый hex должен проходить");
+        verify_checksum(&p, &format!("sha256:{hash}")).expect("sha256:-префикс должен проходить");
+        // Регистр не важен: expected нормализуется to_lowercase (манифест мог отдать верхний).
+        verify_checksum(&p, &hash.to_uppercase())
+            .expect("верхний регистр ожидаемой суммы должен нормализоваться и проходить");
+        let _ = std::fs::remove_file(&p);
+    }
+
+    /// Повреждённый файл (сумма не совпала) → отказ UP-003 с русским сообщением.
+    #[test]
+    fn checksum_mismatch_rejected_up003() {
+        let p = tmp_file_with(b"corrupted download");
+        let wrong = hex::encode(sha2::Sha256::digest(b"original payload"));
+        let err = verify_checksum(&p, &wrong).expect_err("несовпадение суммы обязано отклоняться");
+        let msg = err.to_string();
+        assert!(msg.contains("UP-003"), "Ожидался код UP-003: {msg}");
+        assert!(msg.contains("повреждён"), "Сообщение должно быть понятным по-русски: {msg}");
+        let _ = std::fs::remove_file(&p);
+    }
+
+    /// Пустая сумма в манифесте → отказ от установки непроверенного файла
+    /// (строгие ворота: обязательное обновление без checksum НЕ ставится).
+    #[test]
+    fn checksum_empty_refused() {
+        let p = tmp_file_with(b"whatever");
+        let err = verify_checksum(&p, "").expect_err("пустая сумма обязана отклоняться");
+        assert!(err.to_string().contains("отклонена"), "Русское сообщение: {err}");
+        let _ = std::fs::remove_file(&p);
+    }
+
     #[test]
     fn version_comparison_prerelease() {
         // rc → rc одной базы: раньше оба сводились к [2,1] и считались равными (баг rc10→rc11).
@@ -311,5 +549,105 @@ mod tests {
         // числовая база доминирует над prerelease-рангом
         assert!(is_newer("2.2.0-rc1", "2.1.0-rc11"));
         assert!(is_newer("2.1.0-rc1", "2.0.0"));
+    }
+
+    // SEC-03: apply_update обязан отклонять .exe, не прошедший verify_checksum,
+    // ДО запуска процесса - иначе с фронта можно запустить любой существующий exe.
+    #[test]
+    fn apply_update_refuses_unverified_installer() {
+        let dir = tempfile::tempdir().unwrap();
+        let exe = dir.path().join("evil.exe"); // валидная форма, существует, НЕ верифицирован
+        std::fs::write(&exe, b"MZfake").unwrap();
+        let abs = exe.canonicalize().unwrap();
+        let res = apply_update(&abs);
+        assert!(res.is_err(), "неверифицированный установщик должен быть отклонён");
+        let msg = format!("{:?}", res.unwrap_err());
+        assert!(
+            msg.contains("verification") || msg.contains("verif"),
+            "причина отказа должна упоминать верификацию: {msg}"
+        );
+    }
+
+    #[test]
+    fn verify_checksum_marks_path_verified() {
+        use sha2::Digest;
+        let dir = tempfile::tempdir().unwrap();
+        let f = dir.path().join("inst.exe");
+        let data = b"installer-payload";
+        std::fs::write(&f, data).unwrap();
+        assert!(!is_verified(&f), "до verify путь не должен быть верифицирован");
+        let hash = hex::encode(sha2::Sha256::digest(data));
+        verify_checksum(&f, &hash).unwrap();
+        assert!(is_verified(&f), "после verify_checksum путь должен быть в реестре");
+    }
+
+    #[test]
+    fn failed_verify_does_not_mark_verified() {
+        let dir = tempfile::tempdir().unwrap();
+        let f = dir.path().join("inst.exe");
+        std::fs::write(&f, b"data").unwrap();
+        assert!(verify_checksum(&f, "sha256:deadbeef").is_err());
+        assert!(!is_verified(&f), "провал verify не должен помечать путь верифицированным");
+    }
+
+    // HIGH TOCTOU (attack-test): файл верифицирован, затем подменён по ТОМУ ЖЕ
+    // пути до apply. Реестр path-only пропустил бы подменённый payload (gate
+    // проверял лишь наличие пути). После фикса gate пере-хеширует содержимое и
+    // отклоняет несоответствие серверному хешу. На старом коде тест ПАДАЕТ.
+    #[test]
+    fn apply_refuses_file_swapped_after_verify() {
+        use sha2::Digest;
+        let dir = tempfile::tempdir().unwrap();
+        let f = dir.path().join("inst.exe");
+        let good = b"legit-installer-payload";
+        std::fs::write(&f, good).unwrap();
+        let hash = hex::encode(sha2::Sha256::digest(good));
+        verify_checksum(&f, &hash).unwrap();
+        assert!(is_verified(&f), "честный файл после verify проходит gate");
+        // Локальный процесс без админ-прав подменяет содержимое по verified-пути.
+        std::fs::write(&f, b"EVIL-payload-that-would-run-elevated").unwrap();
+        assert!(
+            !is_verified(&f),
+            "TOCTOU: подменённый после verify файл обязан быть отклонён"
+        );
+    }
+
+    // Дыра покрытия закрыта: позитивный путь (verified → разрешён) тестируется через
+    // ensure_launchable без запуска процесса (apply_update завершает раннер exit(0)).
+    #[test]
+    fn ensure_launchable_accepts_verified_installer() {
+        use sha2::Digest;
+        let dir = tempfile::tempdir().unwrap();
+        let f = dir.path().join("inst.exe");
+        let data = b"installer-payload";
+        std::fs::write(&f, data).unwrap();
+        let abs = f.canonicalize().unwrap();
+        assert!(ensure_launchable(&abs).is_err(), "до verify запуск запрещён");
+        verify_checksum(&abs, &hex::encode(sha2::Sha256::digest(data))).unwrap();
+        assert!(
+            ensure_launchable(&abs).is_ok(),
+            "верифицированный неизменённый .exe допускается к запуску"
+        );
+    }
+
+    // SEC-04 defense-in-depth: доменная валидация download_url (к «checksum из манифеста»).
+    #[test]
+    fn rejects_untrusted_download_url() {
+        // Легитимные источники публикации не ломаются:
+        assert!(is_trusted_update_url(
+            "https://quzhkfvglqmppxcrindh.supabase.co/storage/v1/object/public/updates/aurora-legal/x.exe"
+        ));
+        assert!(is_trusted_update_url(
+            "https://github.com/Ackold26/rosst-updates/releases/download/v0.8.10/x.exe"
+        ));
+        assert!(is_trusted_update_url(
+            "https://ackold26.github.io/rosst-updates/aurora-legal/x.exe"
+        ));
+        // Векторы атаки отклонены:
+        assert!(!is_trusted_update_url("http://attacker.example/evil.exe")); // не https
+        assert!(!is_trusted_update_url("https://github.com.attacker.example/evil.exe")); // подставной хост
+        assert!(!is_trusted_update_url("https://evilsupabase.co/evil.exe")); // не поддомен supabase.co
+        assert!(!is_trusted_update_url("file:///C:/Windows/evil.exe")); // не https
+        assert!(!is_trusted_update_url("not even a url"));
     }
 }

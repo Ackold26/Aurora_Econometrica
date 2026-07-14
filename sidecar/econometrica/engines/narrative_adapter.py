@@ -258,10 +258,31 @@ def _merge_channels(decomp_chs: list | None, opt_chs: list | None) -> list[dict]
 # Stop-tokens stripped from channel names to leave only the media instrument.
 # Case-insensitive match; also handles Cyrillic variants. Order matters: longer
 # phrases before shorter to avoid leaving orphan fragments.
+# Т3-плюс (аудит №3, предложение 1): агрегатные слова «итого/всего/сумма/total» —
+# колонка «ИТОГО Бюджет» раньше нормализовалась в канал «ИТОГО» и проходила в
+# модель суммарной строкой (задвоение вклада). Критерий ЕДИНЫЙ для таблицы
+# (_merge_channels) и гейта валидации (validate_data total_budget_as_media);
+# ложное снятие юзер видит warning'ом (В-1) и возвращает роль вручную —
+# асимметрия рисков в пользу снятия.
+# A6-1 (2026-07-10): добавлены английские агрегатные токены (budget/spend) и
+# русские (общий/расходы/затраты). Ранее матчинг через \b не работал для
+# snake_case: в строке «total_media_budget» символ _ считается словесным — \b не
+# стоит между словом и _, поэтому \btotal\b не матчился. Исправление: перед
+# матчингом заменять _ на пробел (только для целей regex).
 _CHANNEL_NAME_STOP_PHRASES = [
     r'ДО\s*НДС\s+до\s+АК', r'после\s*АК', r'с\s*НДС', r'без\s*НДС', r'до\s*НДС',
     r'Бюджет', r'Вклад', r'млн\s*₽?', r'руб\.?', r'Доля',
+    r'итого', r'всего', r'сумма', r'total',
+    r'budget', r'spend',
+    r'общий', r'расходы', r'затраты',
 ]
+# A6-1b (аудит 2026-07-11): 'media'/'overall'/'grand'/'gross' — квалификаторы, а
+# НЕ самостоятельные стоп-слова. В общем стоп-листе они калечили реальные имена
+# каналов: 'social_media'→'social', 'Media Radar'→'Radar', голый 'media'→None
+# (тихо, без warning). Теперь роль снимается только когда после вычистки шума
+# не осталось НИЧЕГО, кроме одного такого квалификатора (см. _normalize_channel_name):
+# 'total_media_budget'→'media'→None, но 'social media' сохраняется целиком.
+_AGGREGATE_QUALIFIERS = {'media', 'overall', 'grand', 'gross', 'медиа'}
 _CHANNEL_NAME_RE = re.compile(
     r'\b(?:' + '|'.join(_CHANNEL_NAME_STOP_PHRASES) + r')\b',
     re.IGNORECASE,
@@ -280,15 +301,37 @@ def _normalize_channel_name(raw: str | None) -> str | None:
       "Бюджет до НДС"                → None  (signals total budget column)
       "TRPs бренд (W 25-50)"         → "TRPs бренд (W 25-50)"  (parentheses kept)
       "TV"                           → "TV"
+      "tv_spend"                     → "tv"   (snake_case: _ → пробел для \b)
+      "total_media_budget"           → None   (после вычистки остался квалификатор "media")
+      "social_media"                 → "social media"  (составное имя, НЕ агрегат)
+      "olv_budget"                   → "olv"  (olv — живой канал)
+
+    A6-1 fix: regex применяется к версии строки с заменой _ → пробел, чтобы \b
+    корректно работал в snake_case именах. Результат возвращается как clean_label
+    (без подчёркиваний — они были разделителями шума, не частью имени канала).
     """
     if not raw:
         return None
-    s = str(raw)
-    cleaned = _CHANNEL_NAME_RE.sub('', s)
+    # A6-1: для целей regex-матчинга заменяем _ на пробел — иначе \b не стоит
+    # между словом и _, и токены внутри snake_case не матчатся.
+    s_match = str(raw).replace('_', ' ')
+    cleaned = _CHANNEL_NAME_RE.sub('', s_match)
     # Collapse whitespace + strip punctuation edges, but keep parentheses/
     # hyphens inside (audience quantifiers like "W 25-50" are signal).
     cleaned = re.sub(r'\s+', ' ', cleaned).strip(' ,.;:-_')
-    return cleaned if cleaned else None
+    if not cleaned:
+        return None
+    # A6-1b (уточнено аудитом 2026-07-11): если ВСЁ, что осталось после вычистки
+    # денежного/агрегатного шума, — квалификаторы, это агрегатная колонка:
+    #   'total_media_budget'→'media'→None; 'gross media budget'→'gross media'→None;
+    #   'overall media budget'→'overall media'→None; 'grand_total'→'grand'→None.
+    # Но составное имя с реальным инструментом сохраняется целиком:
+    #   'social media'→'social media'; 'gross rating points'→'gross rating points'.
+    # (Проверка ТОЛЬКО первого слова пропускала двух-квалификаторные агрегаты →
+    # задвоение вклада total-budget-as-media.)
+    if all(w in _AGGREGATE_QUALIFIERS for w in cleaned.lower().split()):
+        return None
+    return cleaned
 
 
 def derive_verdict(channel: dict) -> str:
@@ -394,11 +437,11 @@ def derive_action_headline(
     media_pct = facts.get("media_contribution_pct")
     if honest and media_pct is not None:
         if slide_hint == "mroas":
-            return f"Низкая инкрементальность медиа ({media_pct:.1f}% от продаж) - проверить adstock и saturation"
+            return f"Низкая инкрементальность медиа ({media_pct:.1f}% от продаж) – проверить отложенный эффект (adstock) и насыщение"  # П8-2 П8-1
         if slide_hint == "portfolio":
-            return "Все каналы под breakeven - рассмотреть сокращение медиа или диагностику данных"
+            return "Все каналы под breakeven – рассмотреть сокращение медиа или диагностику данных"  # П8-1
         if slide_hint == "timeline":
-            return f"Медиа-вклад {media_pct:.1f}% - модель преимущественно объясняет продажи через baseline"
+            return f"Медиа-вклад {media_pct:.1f}% – модель преимущественно объясняет продажи через базовый спрос"  # П8-2 П8-1
         if slide_hint == "scqar":
             return "Перед перераспределением: диагностика низкой инкрементальности медиа"
 
@@ -431,7 +474,15 @@ def derive_action_headline(
                 return f"Нарастить {hero} и сократить {leader} - {lift_txt}"
             return f"Нарастить {hero} - mROAS {hero_m:.1f}x против {leader}"
         if hero and hero_m >= 1.2:
-            return f"Защитить лидерство {hero} - mROAS {hero_m:.1f}x устойчив"
+            # B1-fix R-14-семейство: «устойчив» — только когда нижняя граница
+            # CI выше безубыточности; при широком интервале эпитет не заявляем.
+            _ci_lo = hero_ch.get("mroas_ci_low")
+            try:
+                _stable = _ci_lo is not None and float(_ci_lo) >= 1.0
+            except (TypeError, ValueError):
+                _stable = False
+            _sfx = " устойчив" if _stable else ""
+            return f"Защитить лидерство {hero} - mROAS {hero_m:.1f}x{_sfx}"
         if all_underperf:
             return "Сократить неэффективные каналы и сфокусировать бюджет"
         return "Сбалансировать портфель по mROAS - один канал не доминирует"
@@ -463,10 +514,16 @@ def derive_action_headline(
         return f"Консолидировать до топ-{top_n} каналов - они обеспечивают {pct}% продаж"
 
     if slide_hint == "timeline":
-        # s08: schedule action
+        # B1-fix R-09 (2026-07-03): прежний заголовок «Перейти на пульсирующее
+        # размещение - экономия 15-20% без потери охвата» — выдуманное обещание
+        # с числами: модель flighting-стратегии НЕ вычисляет. Честный заголовок
+        # строится из реального числа (доля лидера в медиа-вкладе) без обещаний.
+        share = facts.get("leader_share_contrib_pct")
+        if leader and share is not None:
+            return f"{leader} – {share:.0f}% медиа-вклада: контролировать динамику и признаки насыщения"  # П8-1
         if leader:
-            return f"Перейти на пульсирующее размещение {leader} - экономия 15-20% без потери охвата"
-        return "Пульсирующее размещение вместо непрерывного - экономия без потери охвата"
+            return f"Контролировать динамику {leader} – опора медиа-вклада портфеля"  # П8-1
+        return "Динамика вкладов: базовый уровень и медиа по периодам"
 
     if slide_hint == "scqar":
         # s09 - 3 scenarios: Rebalance / Hold+control / Risk
@@ -480,6 +537,11 @@ def derive_action_headline(
         if hero and leader and hero != leader and realloc >= 1:
             # Rebalance без верного lift - action без числа
             return f"Перераспределить {realloc:.0f} млн руб из {leader} в {hero}"
+        # B1-fix R-14: «сбалансирован» при неопределённых вердиктах — не то же
+        # самое; сначала снять неопределённость, потом перераспределять.
+        _uncertain_n = sum(1 for c in channels if c.get("verdict") == "Uncertain")
+        if _uncertain_n >= max(2, (total_ch + 1) // 2):
+            return "Снять неопределённость вердиктов перед ре-аллокацией - интервалы эффективности широки"
         # Hold + control scenario
         return "Портфель сбалансирован - рекомендуется A/B тест перед ре-аллокацией"
 
@@ -647,6 +709,14 @@ def _derive_narrative_facts(
         "hero_channel": hero.get("name"),
         "n_active_channels": n_active,
         "total_budget_mln": total_spend / 1_000_000.0 if total_spend else 0.0,
+        # Fix 2026-07-13 (INV-50): «млн» НЕ units-neutral. Прежний комментарий
+        # утверждал, что деление на 1e6 корректно для любой метрики, а единицу
+        # выбирает consumer — неверно: для count consumer подписывал «лид.» (без
+        # «млн»), а значение делилось на 1e6 → «1.3 лид.» вместо «1.3 млн лид.»
+        # (занижение в 1e6). Consumer'ы теперь берут raw вклад и масштабируют через
+        # _contrib_scale (единица ↔ масштаб вместе). total_contrib_mln оставлен
+        # (= raw/1e6) для обратной совместимости; для count consumer домножает
+        # обратно на 1e6 и форматирует через _fmt_contrib.
         "total_contrib_mln": total_contrib / 1_000_000.0 if total_contrib else 0.0,
         "weighted_roi": weighted_roi,
         "leader_share_spend_pct": (leader_spend / total_spend * 100) if total_spend > 0 else None,
@@ -681,6 +751,51 @@ def _derive_narrative_facts(
     }
 
 
+# B1-fix R-02/R-03/R-04 (2026-07-03): честное покрытие данных из time_series.dates
+# вместо wireframe-дефолтов билдера («W01 W13 2026», «наблюдений = каналы×13»,
+# «Еженедельно»). Считаем ТОЛЬКО из реальных дат; непарсибельные (порядковые
+# '1','2',...) → None — билдер покажет «—», НЕ выдумает.
+_RU_MONTHS_SHORT = ['янв', 'фев', 'мар', 'апр', 'май', 'июн',
+                    'июл', 'авг', 'сен', 'окт', 'ноя', 'дек']
+
+
+def _derive_data_coverage(decompose_data: dict | None) -> dict | None:
+    ts = (decompose_data or {}).get('time_series') or {}
+    dates = ts.get('dates') or []
+    parsed: list[datetime] = []
+    for d in dates:
+        try:
+            parsed.append(datetime.strptime(str(d)[:10], '%Y-%m-%d'))
+        except (ValueError, TypeError):
+            return None  # не даты (legacy порядковые метки) — не гадаем
+    if len(parsed) < 2:
+        return None
+    deltas = [(b - a).days for a, b in zip(parsed, parsed[1:])]
+    med = sorted(deltas)[len(deltas) // 2]
+    if med == 1:
+        freq = 'Ежедневно'
+    elif 6 <= med <= 8:
+        freq = 'Еженедельно'
+    elif 27 <= med <= 32:
+        freq = 'Ежемесячно'
+    elif 88 <= med <= 95:
+        freq = 'Поквартально'
+    else:
+        freq = None
+    # Разрывы оси дат: дельта, заметно превышающая типичный шаг.
+    date_gaps = sum(1 for d in deltas if d > med * 1.5) if med > 0 else 0
+
+    def _lbl(dt: datetime) -> str:
+        return f'{_RU_MONTHS_SHORT[dt.month - 1]} {dt.year}'
+
+    return {
+        'window_label': f'{_lbl(parsed[0])} – {_lbl(parsed[-1])}',
+        'n_observations': len(parsed),
+        'frequency_label': freq,
+        'date_gaps': date_gaps,
+    }
+
+
 def _map_pipeline_to_builder_data(
     model_data: dict | None,
     decompose_data: dict | None,
@@ -688,6 +803,10 @@ def _map_pipeline_to_builder_data(
     scenarios: list[dict] | None,
     project_id: str | None = None,
     version: str = "1.0.11",
+    backtest: dict | None = None,
+    generation_compare: dict | None = None,
+    promises: list[dict] | None = None,
+    forecast: dict | None = None,
 ) -> dict:
     """Translate Econometrica pipeline output into deliverable builder schema.
 
@@ -740,6 +859,13 @@ def _map_pipeline_to_builder_data(
         "version": version,
         "report_date": _fmt_ru_date(now),
     }
+    # B1-fix R-02 (2026-07-03): честный период данных из реальных дат — прежде
+    # билдер рисовал wireframe «Q1 2026» / «W01 W13 2026» на ЛЮБОМ живом отчёте
+    # (внутреннее противоречие: timeline-слайд показывал настоящие даты).
+    data_coverage = _derive_data_coverage(decompose_data)
+    if data_coverage:
+        meta["period_label"] = data_coverage["window_label"]
+        meta["data_window_label"] = data_coverage["window_label"]
 
     # --- Diagnostics ---
     diag_src = model_data.get("diagnostics", {}) or {}
@@ -758,6 +884,15 @@ def _map_pipeline_to_builder_data(
     mape_pct = _first(metrics.get("mape_pct"), diag_src.get("mape"), default=None)
     r_hat_max = _first(metrics.get("r_hat_max"), metrics.get("r_hat"), diag_src.get("r_hat"), default=None)
     ess_min = _first(metrics.get("ess_min"), metrics.get("ess"), diag_src.get("ess"), default=None)
+    # B1-fix R-01 (2026-07-03): после F-11 мат-аудита движок отдаёт
+    # ess_bulk_min / ess_tail_min (ключа ess_min больше нет) → этот шов терял
+    # ESS, и билдер рисовал wireframe-дефолт 1247 в живом отчёте, маскируя
+    # реальные значения (Kagocel-зонд: tail 382.7 < 400 по Vehtari et al. 2021).
+    # Консервативно берём минимум из bulk/tail — семантика «ESS (min)».
+    if ess_min is None:
+        _ess_cands = [v for v in (metrics.get("ess_bulk_min"), metrics.get("ess_tail_min"))
+                      if isinstance(v, (int, float))]
+        ess_min = min(_ess_cands) if _ess_cands else None
     # INV-50 F-DELIVERABLE-1: data-thinness disclosure fields (прежде дропались).
     # thinness_cap читаем из mqs (там его кладёт model_quality_score), ratio —
     # из metrics (эффективный, драйвит cap). None — когда cap не применён.
@@ -803,9 +938,94 @@ def _map_pipeline_to_builder_data(
         except (TypeError, ValueError):
             pass
 
+    # B1-fix R-16 (2026-07-03): honesty-контур модели в отчёт. Прежде вердикт
+    # надёжности и preflight (prior predictive FAIL на Kagocel-зонде: coverage
+    # 42%) вычислялись движком, показывались в программе — и НЕ доезжали до
+    # клиентского PPTX/HTML вовсе («вычисленная, но не доставленная честность»).
+    if diag_src:
+        try:
+            from utils.optimizer_honesty import model_reliability_verdict
+            _verdict = model_reliability_verdict(diag_src)
+            diagnostics["honesty_verdict"] = _verdict.get("verdict")
+            _reasons = [str(r) for r in (_verdict.get("reasons") or [])]
+            if _reasons:
+                diagnostics["honesty_reasons"] = _reasons[:3]
+        except Exception:  # noqa: BLE001 - honesty-доставка не роняет экспорт
+            pass
+        _pf = diag_src.get("preflight") or {}
+        _pp = _pf.get("prior_predictive") or {}
+        _qp = _pf.get("quick_proxy") or {}
+        if _pp or _qp:
+            diagnostics["preflight"] = {
+                "prior_predictive_status": _pp.get("status"),
+                "prior_predictive_coverage": _pp.get("coverage"),
+                "quick_proxy_tier": _qp.get("tier"),
+            }
+        # E2 (2026-07-03): калибровка lift-тестами — пометка [CALIBRATED] у
+        # канала + честное расхождение модель-vs-тест (within_ci=False НЕ
+        # замалчивается — §E2.4 ROADMAP).
+        _calib_applied = diag_src.get("calibration_applied") or []
+        _calib_checks = diag_src.get("calibration_check") or []
+        if _calib_applied or _calib_checks:
+            diagnostics["calibration"] = {
+                "applied": _calib_applied,
+                "checks": _calib_checks,
+            }
+
     data: dict[str, Any] = {"meta": meta}
     if diagnostics:
         data["diagnostics"] = diagnostics
+    # B1-fix R-03/R-04: честное покрытие данных (наблюдения/частота/разрывы) —
+    # билдер рисует эти строки из факта вместо «каналы×13» и «Еженедельно».
+    if data_coverage:
+        data["data_coverage"] = data_coverage
+
+    # --- KPI kwargs для compute_channel_action (Фаза 3, пласт 1 — 2026-07-11) ---
+    # Читаем из decompose_data ДО декорирования каналов, чтобы прокинуть в action.
+    # Дублирует логику блока «v1.3.0: KPI metadata» ниже — намеренно (DRY нарушено
+    # минимально: одна переменная-группа _kpi_action_kwargs передаётся в декоратор).
+    _kpi_action_kwargs: dict = {}
+    if decompose_data:
+        _ak_kpi_kind = decompose_data.get('kpi_kind', 'monetary')
+        _ak_derived_mode = decompose_data.get('derived_mode', 'roi')
+        _ak_vpcu_raw = decompose_data.get('value_per_count_unit')
+        try:
+            _ak_vpcu = float(_ak_vpcu_raw) if _ak_vpcu_raw is not None else None
+        except (TypeError, ValueError):
+            _ak_vpcu = None
+        # money_roi_unavailable: count без vpcu ИЛИ derived_mode=effectiveness
+        # — идентично compute_roi_verdict в decomposer.py
+        _ak_mriu = (
+            (_ak_kpi_kind == 'count' and (_ak_vpcu is None or _ak_vpcu <= 0))
+            or _ak_derived_mode == 'effectiveness'
+        )
+        # Паспортные подписи для reasoning-строк
+        try:
+            from utils.kpi_labels import metric_short_label
+            _ak_metric_short = metric_short_label(
+                _ak_kpi_kind, _ak_derived_mode,
+                kpi_type=decompose_data.get('kpi_type') or None,
+            )
+        except Exception:  # noqa: BLE001
+            _ak_metric_short = 'CPU' if _ak_kpi_kind == 'count' else 'ROI'
+        try:
+            from aurora_pptx.kpi_helpers import kpi_view as _kv
+            _kpi_v = _kv({'kpi': {
+                'kpi_kind': _ak_kpi_kind,
+                'derived_mode': _ak_derived_mode,
+                'kpi_type': decompose_data.get('kpi_type') or None,
+                'labels': {},
+            }})
+            _ak_cpu_per_label = _kpi_v.get('cpu_per_label', '₽/ед.')
+        except Exception:  # noqa: BLE001
+            _ak_cpu_per_label = '₽/ед.'
+        _kpi_action_kwargs = {
+            'kpi_kind': _ak_kpi_kind,
+            'vpcu': _ak_vpcu,
+            'money_roi_unavailable': _ak_mriu,
+            'metric_short': _ak_metric_short,
+            'cpu_per_label': _ak_cpu_per_label,
+        }
 
     # --- Channels + narrative facts ---
     channels = _merge_channels(
@@ -817,9 +1037,11 @@ def _map_pipeline_to_builder_data(
     # math-fix v1.0.14.1, B (2026-04-28): decorate с action structured data.
     # Templates (HTML/PPTX) reads ch['action_label']/['action_reasoning'] вместо
     # генерируя свои hardcoded строки → coherence between table + commentary.
+    # Фаза 3, пласт 1 (2026-07-11): прокидываем kpi_action_kwargs → честные
+    # вердикты для count-метрик (исправляет «огульный Cut» при mROAS=0.01–0.05).
     from engines.channel_action import compute_channel_action
     for ch in channels:
-        action = compute_channel_action(ch)
+        action = compute_channel_action(ch, **_kpi_action_kwargs)
         ch["verdict"] = action.key
         ch["action"] = action.key
         ch["action_label"] = action.label_ru
@@ -875,11 +1097,14 @@ def _map_pipeline_to_builder_data(
         derived_mode = decompose_data.get('derived_mode', 'roi')
         value_per_count_unit = decompose_data.get('value_per_count_unit')
         value_per_count_unit_label = decompose_data.get('value_per_count_unit_label', '')
+        # Фаза 1a: kpi_type для паспортных подписей (kpi_labels/kpi_helpers).
+        kpi_type = decompose_data.get('kpi_type') or None
     else:
         kpi_kind = 'monetary'
         derived_mode = 'roi'
         value_per_count_unit = None
         value_per_count_unit_label = ''
+        kpi_type = None
 
     try:
         from utils.kpi_labels import (
@@ -888,11 +1113,11 @@ def _map_pipeline_to_builder_data(
             cover_metric_summary, verdict_loss_threshold_label,
         )
         kpi_labels = {
-            'metric_label': metric_label(kpi_kind, derived_mode),
-            'metric_short_label': metric_short_label(kpi_kind, derived_mode),
-            'target_unit_label': target_unit_label(kpi_kind),
-            'target_axis_label': target_axis_label(kpi_kind),
-            'methodology_label': verdict_loss_threshold_label(kpi_kind),
+            'metric_label': metric_label(kpi_kind, derived_mode, kpi_type=kpi_type),
+            'metric_short_label': metric_short_label(kpi_kind, derived_mode, kpi_type=kpi_type),
+            'target_unit_label': target_unit_label(kpi_kind, kpi_type=kpi_type),
+            'target_axis_label': target_axis_label(kpi_kind, kpi_type=kpi_type),
+            'methodology_label': verdict_loss_threshold_label(kpi_kind, kpi_type=kpi_type),
         }
     except ImportError:
         kpi_labels = {
@@ -908,8 +1133,53 @@ def _map_pipeline_to_builder_data(
         'derived_mode': derived_mode,
         'value_per_count_unit': value_per_count_unit,
         'value_per_count_unit_label': value_per_count_unit_label,
+        # Фаза 1a: протаскиваем kpi_type для паспортных подписей в kpi_helpers/sections.
+        'kpi_type': kpi_type,
         'labels': kpi_labels,
     }
+
+    # E1 (2026-07-03): backtest-витрина «модель vs факт» (models/backtest.json).
+    # Передаётся билдеру ТОЛЬКО завершённая проверка (status ok + окна) —
+    # insufficient/error не рождают слайд (никаких wireframe-суррогатов).
+    if backtest and backtest.get('status') == 'ok' and backtest.get('windows'):
+        data['backtest'] = backtest
+
+    # E3 (2026-07-03): сравнение поколений («что изменилось с прошлого
+    # квартала», models/generation_compare.json) — тот же принцип: только ok.
+    if (
+        generation_compare
+        and generation_compare.get('status') == 'ok'
+        and generation_compare.get('channels')
+    ):
+        data['generation_compare'] = generation_compare
+
+    # E4 (2026-07-03): сбывшиеся рекомендации — в отчёт попадают ТОЛЬКО
+    # сверенные обещания (kept/missed): pending нечего показывать клиенту,
+    # wireframe-суррогатов нет по построению.
+    _checked = [
+        p for p in (promises or [])
+        if p.get('status') in ('kept', 'missed')
+    ]
+    if _checked:
+        data['promises_summary'] = {
+            'kept': sum(1 for p in _checked if p['status'] == 'kept'),
+            'missed': sum(1 for p in _checked if p['status'] == 'missed'),
+            'examples': [
+                {
+                    'action_text': p.get('action_text'),
+                    'status': p.get('status'),
+                    'status_ru': p.get('status_ru'),
+                    'verdict_note': p.get('verdict_note'),
+                }
+                for p in _checked[:2]
+            ],
+        }
+
+    # E5 (2026-07-10): прогноз-план (results/planning.json + сценарии).
+    # Передаётся билдеру ТОЛЬКО завершённый план (status ok + сценарии) —
+    # wireframe-суррогатов нет по построению (INV-50).
+    if forecast and forecast.get('status') == 'ok' and forecast.get('scenarios'):
+        data['forecast'] = forecast
 
     logger.info(
         f"narrative_adapter: client={client_label!r} "
@@ -917,6 +1187,8 @@ def _map_pipeline_to_builder_data(
         f"channels={len(channels)} "
         f"facts={'yes' if narrative_facts else 'fallback'} "
         f"scenarios={len(scenarios or [])} "
-        f"kpi_kind={kpi_kind!r} mode={derived_mode!r}"
+        f"kpi_kind={kpi_kind!r} mode={derived_mode!r} "
+        f"backtest={'yes' if data.get('backtest') else 'no'} "
+        f"forecast={'yes' if data.get('forecast') else 'no'}"
     )
     return data

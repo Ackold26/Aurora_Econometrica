@@ -198,3 +198,141 @@ def mqs_gauge(score: float, tier: str, color: str) -> str:
     fig.patch.set_facecolor(COLORS['bg'])
 
     return fig_to_base64(fig)
+
+
+def scenarios_comparison_chart(scenarios: list, kpi_label: str = 'Прогноз KPI') -> str:
+    """Generate bar chart comparing scenario KPI forecasts.
+
+    Args:
+        scenarios: list of dicts with keys:
+            - name or title (str): scenario name
+            - total_kpi (float): total KPI forecast
+            - total_spend_money (float, optional): total spend
+            - roas_money (float, optional): ROAS
+            - predictions (list, optional): per-period predictions
+            - predictions_ci_low (list, optional): CI lower bound per period
+            - predictions_ci_high (list, optional): CI upper bound per period
+            - period_labels (list, optional): period labels
+        kpi_label: Y-axis label
+    Returns:
+        Base64 PNG string, or "" if scenarios is empty/None
+    """
+    if not scenarios:
+        return ""
+
+    n = len(scenarios)
+
+    # Gather names and KPI values
+    names = []
+    kpi_values = []
+    for i, sc in enumerate(scenarios):
+        name = sc.get('name') or sc.get('title') or sc.get('variant_id') or f'Вариант {i + 1}'
+        names.append(name)
+        kpi_values.append(float(sc.get('total_kpi') or 0.0))
+
+    # Find best scenario index
+    best_idx = int(np.argmax(kpi_values))
+
+    # Bar colors
+    bar_colors = [
+        COLORS['success'] if i == best_idx else COLORS['accent']
+        for i in range(n)
+    ]
+
+    # Compute CI error bars where available
+    ci_lows = []
+    ci_highs = []
+    has_ci = False
+    for sc in scenarios:
+        kpi = float(sc.get('total_kpi') or 0.0)
+
+        # Try direct total keys first
+        ci_low = sc.get('ci_low_total')
+        ci_high = sc.get('ci_high_total')
+
+        # Fall back to summing per-period lists
+        if ci_low is None:
+            preds_ci_low = sc.get('predictions_ci_low')
+            ci_low = sum(preds_ci_low) if preds_ci_low else None
+        if ci_high is None:
+            preds_ci_high = sc.get('predictions_ci_high')
+            ci_high = sum(preds_ci_high) if preds_ci_high else None
+
+        if ci_low is not None and ci_high is not None:
+            ci_lows.append(max(0.0, kpi - float(ci_low)))
+            ci_highs.append(max(0.0, float(ci_high) - kpi))
+            has_ci = True
+        else:
+            ci_lows.append(0.0)
+            ci_highs.append(0.0)
+
+    # ROAS values
+    roas_values = [sc.get('roas_money') for sc in scenarios]
+
+    # Horizontal layout for >=5 scenarios, vertical otherwise
+    horizontal = n >= 5
+
+    if horizontal:
+        figsize = (10, max(6, n * 1.2))
+    else:
+        figsize = (max(8, n * 2), 6)
+
+    fig, ax = plt.subplots(figsize=figsize)
+
+    if horizontal:
+        bars = ax.barh(
+            range(n),
+            kpi_values,
+            color=bar_colors,
+            edgecolor='none',
+            xerr=([[ci_lows[i] for i in range(n)], [ci_highs[i] for i in range(n)]] if has_ci else None),
+            error_kw={'ecolor': COLORS['text_secondary'], 'capsize': 4, 'alpha': 0.7},
+        )
+        ax.set_yticks(range(n))
+        ax.set_yticklabels(names, fontsize=9)
+        ax.set_xlabel(kpi_label)
+        ax.grid(axis='x', alpha=0.2)
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+
+        # ROAS annotations
+        for i, roas in enumerate(roas_values):
+            if roas is not None:
+                x_pos = kpi_values[i] + (ci_highs[i] if has_ci else 0)
+                ax.text(
+                    x_pos, i,
+                    f'  ROAS {float(roas):.2f}',
+                    va='center', ha='left', fontsize=8,
+                    color=COLORS['text_secondary'],
+                )
+    else:
+        bars = ax.bar(
+            range(n),
+            kpi_values,
+            color=bar_colors,
+            edgecolor='none',
+            yerr=([[ci_lows[i] for i in range(n)], [ci_highs[i] for i in range(n)]] if has_ci else None),
+            error_kw={'ecolor': COLORS['text_secondary'], 'capsize': 4, 'alpha': 0.7},
+        )
+        ax.set_xticks(range(n))
+        ax.set_xticklabels(names, rotation=15, ha='right', fontsize=9)
+        ax.set_ylabel(kpi_label)
+        ax.grid(axis='y', alpha=0.2)
+        ax.spines['top'].set_visible(False)
+        ax.spines['right'].set_visible(False)
+
+        # ROAS annotations
+        for i, roas in enumerate(roas_values):
+            if roas is not None:
+                y_pos = kpi_values[i] + (ci_highs[i] if has_ci else 0)
+                ax.text(
+                    i, y_pos,
+                    f'ROAS {float(roas):.2f}',
+                    ha='center', va='bottom', fontsize=8,
+                    color=COLORS['text_secondary'],
+                )
+
+    ax.set_title('Сравнение вариантов: ' + kpi_label)
+    fig.tight_layout()
+
+    return fig_to_base64(fig)

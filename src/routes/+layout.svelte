@@ -159,7 +159,7 @@
       // 1. Product type + content packs in parallel (both needed before filtering)
       const [, cmdMeta, psyData, classifierData, onboardingData, themesData] =
         await Promise.all([
-          initCreativeStore(),
+          initCreativeStore().catch(() => null),
           invoke('get_content_pack', { packName: 'command-meta-data.json' }).catch(() => null),
           invoke('get_content_pack', { packName: 'psy-data.json' }).catch(() => null),
           invoke('get_content_pack', { packName: 'classifier-data.json' }).catch(() => null),
@@ -207,16 +207,17 @@
     // информирует и разблокирует кабинеты-советники. В локальной редакции advisorsEnabled=false.
     (async () => {
       try {
-        const st = /** @type {{cloud_advisors_enabled: boolean, consent_required: boolean}} */ (
+        const st = /** @type {{cloud_advisors_enabled: boolean, consent_required: boolean, local_only: boolean}} */ (
           await invoke('get_cloud_consent_status')
         );
         const advisorsEnabled = !!st?.cloud_advisors_enabled;
         const granted = !st?.consent_required;
-        cloudConsent.set({ advisorsEnabled, granted, loaded: true });
+        const localOnly = !!st?.local_only;
+        cloudConsent.set({ advisorsEnabled, granted, localOnly, loaded: true });
         if (advisorsEnabled && !granted) cloudConsentPromptOpen.set(true);
       } catch {
         // Статус недоступен → гейт не активируем (бэкенд run_claude всё равно не даст egress без согласия).
-        cloudConsent.set({ advisorsEnabled: false, granted: false, loaded: true });
+        cloudConsent.set({ advisorsEnabled: false, granted: false, localOnly: false, loaded: true });
       }
     })();
 

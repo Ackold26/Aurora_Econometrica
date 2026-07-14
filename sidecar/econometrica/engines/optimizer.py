@@ -358,11 +358,26 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
 
     # Read original data for current spend
     import pandas as pd
-    data_file = config_model['data_file']
+    # C3-N3 (2026-07-03): протухший абсолютный путь из pickle → фолбэк на
+    # каталог проекта / понятная русская ошибка (не сырой Errno в HTTP 500).
+    from utils.data_file_resolver import resolve_data_file
+    data_file = str(resolve_data_file(config_model.get('data_file'), project_dir))
     df = pd.read_excel(data_file) if data_file.endswith(('.xlsx', '.xls')) else pd.read_csv(data_file)
     # Материализация виртуальных каналов (совпадает с train-time merge_rules)
     from utils.merge_rules import apply_merge_rules
     apply_merge_rules(df, config_model.get('merge_rules'))
+
+    # NaN-KPI row filter: drop media-plan tail before computing current_spend.
+    # Invariant: если хвоста нет — notna() для всех строк → no-op.
+    _kpi_col_opt = config_model.get('kpi_column')
+    if _kpi_col_opt and _kpi_col_opt in df.columns:
+        df = df[df[_kpi_col_opt].notna()].reset_index(drop=True)
+    else:
+        import logging as _logging
+        _logging.getLogger(__name__).warning(
+            'optimizer: kpi_column %r not found in data — NaN-tail filter skipped.',
+            _kpi_col_opt,
+        )
 
     # Phase 2 audit pass 4 - per-channel inflation. Apply BEFORE current_spend
     # money totals computed downstream (current_spend × unit_cost).
@@ -901,16 +916,58 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
     else:
         _default_anchor_enabled = False
 
-    def _safe_minimize_money(x_start: np.ndarray):
+    # P1 fix (planning-mode numerical scaling 2026-07-06):
+    # SLSQP использует внутренний абсолютный шаг eps≈1.49e-8 для численного
+    # якобиана. При переменных порядка 10⁷–10⁸ (money axis, planning budget)
+    # это даёт relative step ~1e-15 — градиент вычисляется в зоне машинного
+    # нуля, SLSQP считает функцию «плоской» и завершается nit=1 в стартовой
+    # точке (ложный KKT-оптимум ≡ пропорциональный сплит).
+    # Диагностика 2026-07-06: KKT violation=1.52e-7, uniform-grid нашла
+    # obj=-14.29 vs proportional -12.01 (+19%); с y=x/budget SLSQP сошёлся
+    # success=True nit=9 к тому же -14.29. Analyst mode не затронут (money
+    # scale там training-horizon, достаточно хорошо обусловлен при n=48).
+    #
+    # Фикс: при planning_mode нормализовать внутреннее пространство SLSQP на
+    # money_target. Снаружи всё остаётся в money-axis (result.x денормируется
+    # обратно, r.fun идентичен). Analyst mode (planning_mode=False) — без изменений.
+    _plan_scale = float(money_target) if (planning_mode and money_target > 1.0) else 1.0
+
+    def _safe_minimize_money(x_start: np.ndarray, use_bounds=bounds_money, use_constraints=constraints):
         try:
-            r = minimize(
-                _objective_fn, x_start,
-                method='SLSQP',
-                bounds=bounds_money,
-                constraints=constraints,
-                options={'maxiter': 200, 'ftol': 1e-7, 'disp': False},
-            )
-            return r
+            if _plan_scale != 1.0:
+                # Normalize: y = x / _plan_scale → переменные порядка 1.
+                y_start = x_start / _plan_scale
+                y_bounds = [(lo / _plan_scale, hi / _plan_scale) for lo, hi in use_bounds]
+                # Equality constraint в нормализованном пространстве: Σy = 1.
+                y_constraints = [{'type': 'eq', 'fun': lambda y: float(np.sum(y) - 1.0)}]
+                # Objective принимает x_money — денормируем y обратно.
+                def y_objective(y):
+                    return _objective_fn(y * _plan_scale)
+                raw = minimize(
+                    y_objective, y_start,
+                    method='SLSQP',
+                    bounds=y_bounds,
+                    constraints=y_constraints,
+                    options={'maxiter': 200, 'ftol': 1e-9, 'disp': False},
+                )
+                # Wrap result: денормировать x обратно в money-axis.
+                class _ScaledResult:
+                    def __init__(self, inner, scale):
+                        self.x = inner.x * scale
+                        self.fun = inner.fun  # objective value не зависит от масштаба
+                        self.success = inner.success
+                        self.message = inner.message
+                        self.nit = inner.nit
+                return _ScaledResult(raw, _plan_scale)
+            else:
+                r = minimize(
+                    _objective_fn, x_start,
+                    method='SLSQP',
+                    bounds=use_bounds,
+                    constraints=use_constraints,
+                    options={'maxiter': 200, 'ftol': 1e-7, 'disp': False},
+                )
+                return r
         except (np.linalg.LinAlgError, ValueError, RuntimeError) as e:
             _logger.warning(f"SLSQP attempt failed: {type(e).__name__}: {e}")
             return None
@@ -980,14 +1037,10 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
             anchor_candidates_local = []
             for _name, x_anchor_start in anchor_starts:
                 try:
-                    r_a = minimize(
-                        _objective_fn, x_anchor_start,
-                        method='SLSQP',
-                        bounds=_default_anchor_bounds,
-                        constraints=constraints,
-                        options={'maxiter': 200, 'ftol': 1e-7, 'disp': False},
-                    )
-                    if r_a.success:
+                    # P1 fix: используем _safe_minimize_money с default_anchor_bounds
+                    # чтобы нормализация planning_mode применялась и здесь.
+                    r_a = _safe_minimize_money(x_anchor_start, use_bounds=_default_anchor_bounds)
+                    if r_a is not None and r_a.success:
                         anchor_candidates_local.append(r_a)
                 except (np.linalg.LinAlgError, ValueError, RuntimeError):
                     pass
@@ -1471,8 +1524,50 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
         if top_decrease['delta_pct'] < -5:
             insight += f" Сократить {top_decrease['name']} на {abs(top_decrease['delta_pct']):.0f}%."
 
+    # A3/OPP-03 (2026-07-03): единый язык extrapolation-тиров на forward-
+    # оптимизации. Goal-seek (F-01) и сценарии (F-04) уже помечают выход
+    # per-period трат за наблюдавшийся диапазон (канонические тиры p95/p99,
+    # Chan & Perry 2017 Fig. 2: кривая вне наблюдённого диапазона не
+    # идентифицируется данными) — forward-рекомендация обязана говорить тем же
+    # языком: optimal_spend_money канала vs его история в НАТИВНЫХ единицах.
+    extrapolation = None
+    try:
+        from utils.forecast_validation import extrapolation_severity
+        _ex_channels = []
+        _ex_max = 0
+        for _ch in channels:
+            _money = float(_ch.get('optimal_spend_money') or 0)
+            _name = _ch.get('name')
+            if _money <= 0 or _name not in df.columns:
+                continue
+            _uc_c = float(unit_costs.get(_name, 1.0) or 1.0)
+            _pp_native = (_money / _uc_c) / max(int(forecast_n_periods), 1)
+            _hist = df[_name].fillna(0).to_numpy(dtype=float)
+            _hist_pos = _hist[_hist > 0]
+            if _hist_pos.size == 0:
+                continue
+            _q = {
+                'p95': float(np.quantile(_hist_pos, 0.95)),
+                'p99': float(np.quantile(_hist_pos, 0.99)),
+            }
+            _sev = extrapolation_severity(_pp_native, _q)
+            _ex_max = max(_ex_max, _sev)
+            if _sev > 0:
+                _hist_max = float(_hist.max())
+                _ex_channels.append({
+                    'name': _name,
+                    'per_period_native': round(_pp_native, 2),
+                    'hist_max_native': round(_hist_max, 2),
+                    'ratio_vs_max': round(_pp_native / _hist_max, 2) if _hist_max > 0 else None,
+                    'severity': _sev,
+                })
+        extrapolation = {'severity': _ex_max, 'channels': _ex_channels}
+    except Exception:  # noqa: BLE001 - honesty-контур не роняет оптимизацию
+        extrapolation = None
+
     result_data = {
         'status': 'ok',
+        'extrapolation': extrapolation,
         'total_budget': round(total_budget, 0),
         'total_budget_money': round(total_budget_money, 0),
         'total_current_money': round(total_current_money, 0),

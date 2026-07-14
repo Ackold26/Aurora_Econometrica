@@ -171,9 +171,9 @@
     const s = $forecastContext?.seasonality_detected;
     if (!s) return null;
     if (customPeriods == null) {
-      return `Обнаружена сезонность период=${s.period} (autocorr ${s.autocorr.toFixed(2)}). Выберите период планирования - он повлияет на результат в зависимости от месяца старта.`;
+      return `Обнаружена сезонность период=${s.period} (сила сигнала ${s.autocorr.toFixed(2)}). Выберите период планирования — он повлияет на результат в зависимости от месяца старта.`;
     }
-    return `Обнаружена сезонность период=${s.period} (autocorr ${s.autocorr.toFixed(2)}). Прогноз с ${customPeriods} периодов даст разные результаты в зависимости от месяца старта - see methodology.`;
+    return `Обнаружена сезонность период=${s.period} (сила сигнала ${s.autocorr.toFixed(2)}). Прогноз с ${customPeriods} периодов даст разные результаты в зависимости от месяца старта — см. методологию.`;
   });
 
   // Audit pass 4 (Антон 2026-05-02): при denежной оценке медиа за multi-year
@@ -303,7 +303,8 @@
       </div>
       <div class="budget-meta">
         {#if budgetManuallyEdited}
-          <span class="budget-tag manual">Свой бюджет</span>
+          {@const suggested = suggestBudget(customPeriods)}
+          <span class="budget-tag manual">ваше значение (изменено){#if suggested != null && suggested !== budgetInput} · предложено {suggested.toLocaleString('ru-RU')} ₽{/if}</span>
           <button type="button" class="budget-reset" onclick={resetBudgetToSuggested}>
             Сбросить к предложенному
           </button>
@@ -323,7 +324,7 @@
           Годовая медиаинфляция (CPP/CPM) могла значительно меняться год от года (типично 25–30% по РФ).
           Денежные оценки - средняя по training, не per-year split.
           <strong>Для года планирования используйте свой бюджет</strong> или применяйте инфляцию
-          (Блок D).
+          (раздел «Прогноз на период»).
           {#each trainingYearRanges as r}
             <span class="year-chip">{r.year}<span class="year-n">{r.n_periods}п.</span></span>
           {/each}

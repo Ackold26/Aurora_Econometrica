@@ -63,6 +63,7 @@ describe('buildTrainConfig — байт-в-байт спецификация (go
       channel_categories: { tv: 'brand', digital: 'performance' },
       disabled_holidays: ['holiday_defender_day', 'holiday_russia_day'],
       use_holidays: true, // useHolidays отсутствует → default true
+      use_seasonality: true, // Т6 (2026-07-04): useSeasonality отсутствует → default true
     });
   });
 
@@ -85,6 +86,7 @@ describe('buildTrainConfig — байт-в-байт спецификация (go
       'channel_categories',
       'disabled_holidays',
       'use_holidays',
+      'use_seasonality', // Т6 (2026-07-04): мастер-флаг автосезонности
     ]);
   });
 
@@ -127,6 +129,7 @@ describe('buildTrainConfig — байт-в-байт спецификация (go
       channel_categories: {}, // undefined → {}
       disabled_holidays: [], // undefined → []
       use_holidays: true, // undefined → true (default ON)
+      use_seasonality: true, // undefined → true (default ON)
     });
   });
 });
@@ -142,6 +145,20 @@ describe('buildTrainConfig — use_holidays (мастер-флаг праздн�
 
   it('явный false → false (отключение праздников)', () => {
     expect(buildTrainConfig(baseState({ useHolidays: false })).use_holidays).toBe(false);
+  });
+});
+
+describe('buildTrainConfig — use_seasonality (мастер-флаг автосезонности, Т6 2026-07-04)', () => {
+  it('undefined → true (default ON — гейт INV-50 сам решает инжект)', () => {
+    expect(buildTrainConfig(baseState({ useSeasonality: undefined })).use_seasonality).toBe(true);
+  });
+
+  it('явный true → true', () => {
+    expect(buildTrainConfig(baseState({ useSeasonality: true })).use_seasonality).toBe(true);
+  });
+
+  it('явный false → false (отключение автосезонности)', () => {
+    expect(buildTrainConfig(baseState({ useSeasonality: false })).use_seasonality).toBe(false);
   });
 });
 

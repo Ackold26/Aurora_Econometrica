@@ -100,8 +100,8 @@
     <div class="header-left">
       <span class="kicker">КАЧЕСТВО ДАННЫХ</span>
       <h3 class="card-title">
-        Соотношение данных
-        <span class="help-icon" title={RATIO_HELP} aria-label="Что такое Ratio">?</span>
+        Запас данных
+        <span class="help-icon" title={RATIO_HELP} aria-label="Что такое запас данных (Ratio)">?</span>
       </h3>
     </div>
     <div class="ratio-display">

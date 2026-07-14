@@ -95,6 +95,31 @@ class TestDetectSeasonality:
         assert result is not None
         assert result['period'] in {13, 26, 52}
 
+    def test_u4_prefers_longer_period_among_comparable(self):
+        """У4 (М-2): при сопоставимой автокорреляции выбирается НАИБОЛЬШИЙ период.
+        Квартальная волна: lag=13 и lag=26 оба autocorr≈1.0 (26 кратно 13) —
+        старое max-autocorr дало бы 13 (первый максимум), У4 предпочитает 26."""
+        t = np.arange(104)
+        y = 50 + 20 * np.sin(2 * np.pi * t / 13)
+        result = detect_seasonality(y, granularity='W', period_candidates=[13, 26])
+        assert result is not None
+        assert result['period'] == 26, (
+            f"У4 должен предпочесть длинный период 26, получено {result['period']}"
+        )
+
+    def test_u4_fallback_to_short_when_long_much_weaker(self):
+        """У4: если длинный период ЗАМЕТНО слабее (autocorr < 0.8·max) — остаёмся
+        на сильном коротком. Тренд+шум: короткий лаг сильно коррелирован, дальний
+        лаг гораздо слабее → выбор короткого (защита от навязывания длинного)."""
+        rng = np.random.default_rng(11)
+        t = np.arange(120)
+        y = 100 + 1.2 * t + rng.normal(0, 25, 120)
+        result = detect_seasonality(y, granularity='W', period_candidates=[4, 52])
+        assert result is not None
+        assert result['period'] == 4, (
+            f"длинный период 52 слишком слаб — ожидался короткий 4, получено {result['period']}"
+        )
+
 
 class TestComputeXNormQuantiles:
     def test_basic(self):

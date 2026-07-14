@@ -53,6 +53,7 @@
    *   predictions?: number[],
    *   ciLowSeries?: number[],
    *   ciHighSeries?: number[],
+   *   extrapolation?: { severity: number, channels?: Array<{ name: string, ratio_vs_max?: number | null }> } | null,
    * }} Scenario
    */
 
@@ -428,6 +429,27 @@
                   <span class="sc-name">{sc.name}</span>
                   {#if isBaseline}
                     <span class="badge-baseline">базовый</span>
+                  {/if}
+                  <!-- A3/OPP-03: единый язык extrapolation-тиров — бейдж из
+                       сохранённого scenario-JSON (движок пишет с F-04);
+                       прежде маркер вычислялся, но compare-страница молчала. -->
+                  {#if sc.extrapolation && sc.extrapolation.severity >= 1}
+                    <span
+                      class="badge-extrapolation"
+                      class:critical={sc.extrapolation.severity >= 2}
+                      title={
+                        (sc.extrapolation.severity >= 2
+                          ? 'Сильная экстраполяция: '
+                          : 'Экстраполяция: ')
+                        + 'план уводит траты за диапазон, на котором обучалась модель'
+                        + ((sc.extrapolation.channels ?? []).length
+                          ? ' (' + (sc.extrapolation.channels ?? []).map((/** @type {any} */ c) =>
+                              c.ratio_vs_max != null ? `${c.name} – ${c.ratio_vs_max}×` : c.name
+                            ).join(', ') + ')'
+                          : '')
+                        + '. Форма кривой отклика в этой зоне не подтверждена данными.'
+                      }
+                    >📈 {sc.extrapolation.severity >= 2 ? 'сильная экстраполяция' : 'экстраполяция'}</span>
                   {/if}
                 </td>
                 <td class="col-budget">{fmtBudget(sc.budget)}</td>
@@ -857,6 +879,27 @@
     border: 1px solid var(--border-subtle, rgba(255,255,255,0.06));
     border-radius: 3px;
     padding: 1px 5px;
+  }
+
+  /* A3/OPP-03: бейдж экстраполяции сценария (warn tier; severity>=2 — danger). */
+  .badge-extrapolation {
+    margin-left: 6px;
+    font-size: 9px;
+    font-weight: 700;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    color: var(--warning, #fbbf24);
+    background: color-mix(in srgb, var(--warning, #fbbf24) 10%, transparent);
+    border: 1px solid color-mix(in srgb, var(--warning, #fbbf24) 35%, transparent);
+    border-radius: 3px;
+    padding: 1px 5px;
+    cursor: help;
+    white-space: nowrap;
+  }
+  .badge-extrapolation.critical {
+    color: var(--danger, #ef4444);
+    background: color-mix(in srgb, var(--danger, #ef4444) 10%, transparent);
+    border-color: color-mix(in srgb, var(--danger, #ef4444) 35%, transparent);
   }
 
   .col-kpi strong {

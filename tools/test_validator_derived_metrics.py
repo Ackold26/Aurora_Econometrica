@@ -90,6 +90,44 @@ class TestCompetitorOverrideStillWorks:
         assert role == 'control', f"Competitor override broken for {col_name!r}"
 
 
+class TestCategoryVolumeIsControl:
+    """Фаза Б: продажи ВСЕЙ категории/рынка (объём) → control (экзогенный спрос),
+    даже когда имя содержит «продажи». Доля рынка (derived) остаётся unused."""
+
+    @pytest.mark.parametrize("col_name", [
+        "Продажи категории",
+        "Продажи в руб. категория",
+        "Объём рынка",
+        "Объем рынка, уп.",
+        "Рынок всего",
+        "category sales",
+        "total market volume",
+    ])
+    def test_category_volume_is_control(self, col_name):
+        role, conf = detect_column_role_with_confidence(col_name)
+        assert role == 'control', f"Category volume должно быть control, got {role!r} для {col_name!r}"
+        assert conf >= 0.80
+
+    @pytest.mark.parametrize("col_name", [
+        "доля рынка",       # derived → unused (не перехвачено category)
+        "market_share",     # derived → unused
+    ])
+    def test_market_share_still_unused(self, col_name):
+        """Category-override НЕ должен захватить долю рынка (она endogenous)."""
+        assert detect_column_role(col_name) == 'unused'
+
+    @pytest.mark.parametrize("col_name", [
+        "Категория",           # текстовый атрибут-классификатор, НЕ объём
+        "Категория канала",    # атрибут медиа-строк
+        "Категоризация",       # служебная
+    ])
+    def test_text_category_attribute_not_control(self, col_name):
+        """Аудит 2026-07-04: голая «Категория» — текстовый столбец-атрибут;
+        предложить его контролем = падение обучения на astype(float).
+        Нужно объёмное слово (продажи/объём/руб) рядом с темой."""
+        assert detect_column_role(col_name) != 'control'
+
+
 class TestKpiTargetsStillKpi:
     """Sales / продажи / выручка не должны быть affected fix-ом."""
 

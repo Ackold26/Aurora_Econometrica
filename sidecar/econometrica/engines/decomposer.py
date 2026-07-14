@@ -54,7 +54,13 @@ def _fmt_roi(r) -> str:
     return f"{r:.2f}×" if abs(r) < 1 else f"{r:.1f}×"
 
 
-def _build_channel_insight(channels, money_roi_unavailable: bool = False) -> str:
+def _build_channel_insight(
+    channels,
+    money_roi_unavailable: bool = False,
+    kpi_kind: str = 'monetary',
+    kpi_type=None,
+    derived_mode: str = 'roi',
+) -> str:
     """SSOT инсайта «лучший/худший канал» (template, 0 токенов).
 
     REC-1-GAP (2026-06-03): channels отсортированы по ROI убыв.; channels[0] —
@@ -78,14 +84,31 @@ def _build_channel_insight(channels, money_roi_unavailable: bool = False) -> str
     ROI-артефакт 50976× проходил clean и короновался, хотя движок САМ флагнул roi_max
     high-severity). Гейт на money_roi_unavailable закрывает обход независимо от имени.
 
+    KPI-aware форматирование (feat/econ-kpi-units, 2026-07-11):
+    - monetary/roi: «ROI X×» — поведение как раньше.
+    - count/roi: метка «CPU», format_metric инвертирует ratio → ₽/ед. или ₽/лид.
+    - effectiveness: «доля канала в эффекте X%», без «ROI»/«окупается».
+
     @param channels: list dict с name/roi/efficiency_gap/unit_smell, sorted by ROI desc.
     @param money_roi_unavailable: True если ROI семантически нативное отношение (count
         KPI без kpi_unit_cost) — тогда ранжирование/коронование по ROI невалидно.
+    @param kpi_kind: 'monetary' (default) | 'count' | 'effectiveness' — управляет
+        словарём и форматированием метрики.
+    @param kpi_type: конкретный тип KPI ('leads'|'sales_packs'|...) для паспортных
+        подписей (format_metric → cpu_per_label). None — backward-compat.
+    @param derived_mode: 'roi' | 'effectiveness' | 'manual' — режим расчёта.
+        'effectiveness' меняет словарь на «доля эффекта».
     @returns insight-строка (или '' если нет каналов).
     """
+    from utils.kpi_labels import format_metric  # локальный импорт — избегаем circular на уровне модуля
+
     if not channels:
         return ''
-    if money_roi_unavailable:
+
+    # Нормализуем effective_mode: effectiveness доминирует над kpi_kind
+    _eff_mode = (derived_mode == 'effectiveness')
+
+    if money_roi_unavailable and not _eff_mode:
         return (
             'Денежный ROI каналов недоступен: задайте «ценность единицы» KPI для '
             'money-оценки эффективности. Продажи определяются в основном базовым '
@@ -108,10 +131,39 @@ def _build_channel_insight(channels, money_roi_unavailable: bool = False) -> str
             'Точную оценку отдачи и сценарии перераспределения см. в шаге «Оптимизация».'
         )
     top_roi = float(top.get('roi') or 0)
-    if top_roi >= ROI_BREAKEVEN:
+
+    # Форматирование метрики и словарь зависят от режима
+    if _eff_mode:
+        # Effectiveness: доля ВКЛАДА канала в эффект (share_of_effect / contribution_pct),
+        # НЕ ROI. Ранжируем по доле, а не по roi (roi для effectiveness невалиден — прогон
+        # roi через format_metric дал бы roi×100, т.е. бессмысленные «250% доли»).
+        def _share(c):
+            return float(c.get('contribution_pct') or c.get('share_of_effect') or 0)
+        top_share_ch = max(channels, key=_share)
+        worst_share_ch = min(channels, key=_share)
+        # Guard: если поля доли не заполнены (все _share=0) или один канал — max/min
+        # схлопнулись бы в один с «0.0%» → нейтральная формулировка (аудит 2026-07-11).
+        if _share(top_share_ch) <= 0 or top_share_ch['name'] == worst_share_ch['name']:
+            insight = (
+                'Доли вклада каналов в эффект недоступны для сравнения. '
+                'Точную оценку и сценарии перераспределения см. в шаге «Оптимизация».'
+            )
+        else:
+            insight = (
+                f"{top_share_ch['name']} - наибольшая доля эффекта ({_share(top_share_ch):.1f}%). "
+                f"{worst_share_ch['name']} - наименьшая доля эффекта ({_share(worst_share_ch):.1f}%)."
+            )
+    elif kpi_kind == 'count':
+        # Count/CPU: метка CPU, format_metric инвертирует ratio (units/₽ → ₽/ед.)
+        fmt_top = format_metric(top_roi, kpi_kind='count', mode='roi', kpi_type=kpi_type)
+        fmt_worst = format_metric(float(worst.get('roi') or 0), kpi_kind='count', mode='roi', kpi_type=kpi_type)
+        # Денежный breakeven (roi≥1.0) НЕвалиден для count: roi = units/₽ ≈ 0.01–0.05,
+        # порог 1.0 отправил бы count-каналы ВСЕГДА в негативную ветку (аудит 2026-07-11).
+        # Абсолютный вердикт окупаемости требует ценности единицы (её тут нет) → даём
+        # ОТНОСИТЕЛЬНОЕ сравнение по CPU (channels отсортированы по roi desc → top = мин CPU).
         insight = (
-            f"{top['name']} - самый эффективный канал (ROI {_fmt_roi(top['roi'])}). "
-            f"{worst['name']} - наименее эффективный (ROI {_fmt_roi(worst['roi'])})."
+            f"{top['name']} - самая низкая стоимость единицы (CPU {fmt_top}). "
+            f"{worst['name']} - самая высокая (CPU {fmt_worst})."
         )
         if top.get('efficiency_gap', 0) > GAP_GOOD and worst.get('efficiency_gap', 0) < -GAP_GOOD:
             insight += (
@@ -120,13 +172,26 @@ def _build_channel_insight(channels, money_roi_unavailable: bool = False) -> str
                 f"в {top['name']}. Точную оценку прироста см. в шаге «Оптимизация»."
             )
     else:
-        # INV-50: лучший канал сам не окупается → честная формулировка без «эффективный».
-        insight = (
-            f"Ни один канал не окупается напрямую (лучший - {top['name']}, "
-            f"ROI {_fmt_roi(top['roi'])}). Продажи определяются в основном базовым "
-            f"спросом, прямой медиа-вклад невелик. Точную оценку отдачи и сценарии "
-            f"перераспределения см. в шаге «Оптимизация»."
-        )
+        # Monetary: поведение как раньше (ROI ×)
+        if top_roi >= ROI_BREAKEVEN:
+            insight = (
+                f"{top['name']} - самый эффективный канал (ROI {_fmt_roi(top['roi'])}). "
+                f"{worst['name']} - наименее эффективный (ROI {_fmt_roi(worst['roi'])})."
+            )
+            if top.get('efficiency_gap', 0) > GAP_GOOD and worst.get('efficiency_gap', 0) < -GAP_GOOD:
+                insight += (
+                    f" Канал {worst['name']} использует больше бюджета чем даёт эффекта "
+                    f"(gap {worst['efficiency_gap']:+.0f} пп) - рассмотрите перераспределение "
+                    f"в {top['name']}. Точную оценку прироста см. в шаге «Оптимизация»."
+                )
+        else:
+            # INV-50: лучший канал сам не окупается → честная формулировка без «эффективный».
+            insight = (
+                f"Ни один канал не окупается напрямую (лучший - {top['name']}, "
+                f"ROI {_fmt_roi(top['roi'])}). Продажи определяются в основном базовым "
+                f"спросом, прямой медиа-вклад невелик. Точную оценку отдачи и сценарии "
+                f"перераспределения см. в шаге «Оптимизация»."
+            )
     return insight
 
 
@@ -276,8 +341,8 @@ def _load_v13_kpi_settings(project_path) -> dict:
         return {}
 
 
-def _resolve_output_kpi_meta(v13_kpi: dict, kpi_kind: str, kpi_unit_cost, derived_mode_default: str = 'roi') -> dict:
-    """Выходные kpi-метаданные decompose (kpi_kind/derived_mode/value_per_count_unit).
+def _resolve_output_kpi_meta(v13_kpi: dict, kpi_kind: str, kpi_unit_cost, derived_mode_default: str = 'roi', kpi_type: str | None = None) -> dict:
+    """Выходные kpi-метаданные decompose (kpi_kind/derived_mode/value_per_count_unit/kpi_type).
 
     F-A (synthetic-truth аудит 2026-06-06): `v13_kpi.json` НЕ создаётся (dead-save path,
     handleContinue мёртв — см. LOAD-1) → раньше эти поля дефолтили в monetary/roi/None
@@ -294,12 +359,15 @@ def _resolve_output_kpi_meta(v13_kpi: dict, kpi_kind: str, kpi_unit_cost, derive
     @param kpi_unit_cost: разрешённая ₽-ценность единицы (pickle/override) или None.
     @param derived_mode_default: реальный derived_mode из pickle model_data ('roi'|
         'effectiveness'|'manual'); fallback 'roi' если отсутствует.
+    @param kpi_type: конкретный тип KPI из pickle config ('leads'|'sales_packs'|...) или None.
+        Фаза 1a: протаскивается в output для паспортных подписей (kpi_labels/kpi_helpers).
     """
     return {
         'kpi_kind': v13_kpi.get('kpi_kind', kpi_kind),
         'derived_mode': v13_kpi.get('derived_mode', derived_mode_default or 'roi'),
         'value_per_count_unit': v13_kpi.get('value_per_count_unit', kpi_unit_cost),
         'value_per_count_unit_label': v13_kpi.get('value_per_count_unit_label', ''),
+        'kpi_type': kpi_type,
     }
 
 
@@ -309,6 +377,7 @@ def _resolve_output_kpi_meta(v13_kpi: dict, kpi_kind: str, kpi_unit_cost, derive
 # отдельно — поведение зеркалит ChannelTimeline.svelte).
 _BREAKOUT_TYPES = frozenset({
     'signed_competitor', 'signed_price', 'signed_weather', 'signed_macro', 'holiday',
+    'seasonality', 'category',
 })
 _FACTOR_GROUP_LABELS = {
     'signed_competitor': 'Конкуренты',
@@ -316,7 +385,87 @@ _FACTOR_GROUP_LABELS = {
     'signed_weather': 'Погода',
     'signed_macro': 'Макро-факторы',
     'holiday': 'Праздники',
+    'seasonality': 'Сезонность',
+    'category': 'Категория',
 }
+
+# Верхний уровень 4 групп декомпозиции (решение Антона 2026-07-04): свёртка
+# per-factor групп в 4 полосы верхнего уровня для drill-down UI и отчётов.
+# БАЗА (базовая линия + сезонность + праздники) · МЕДИА · ВНЕШНИЕ ФАКТОРЫ
+# (цена/погода/макро/дистрибуция/категория) · КОНКУРЕНТЫ (отдельная 4-я полоса).
+# Методология: Jin 2017 (аддитивная декомпозиция), Wang&Jin §5.2 (конкуренты =
+# отдельные control variables), Chan&Perry §4.2.2 (сезонность = контроль спроса).
+_TOP_GROUP_MAP = {
+    'База': 'БАЗА',
+    'Сезонность': 'БАЗА',
+    'Праздники': 'БАЗА',
+    'Медиа': 'МЕДИА',
+    'Цена': 'ВНЕШНИЕ ФАКТОРЫ',
+    'Погода': 'ВНЕШНИЕ ФАКТОРЫ',
+    'Макро-факторы': 'ВНЕШНИЕ ФАКТОРЫ',
+    'Дистрибуция': 'ВНЕШНИЕ ФАКТОРЫ',
+    'Категория': 'ВНЕШНИЕ ФАКТОРЫ',
+    'Внешние': 'ВНЕШНИЕ ФАКТОРЫ',
+    'Конкуренты': 'КОНКУРЕНТЫ',
+}
+
+# Порядок и человекочитаемые подписи 4 верхних групп — ЗЕРКАЛО фронта
+# (decomposition-view.js TOP_GROUP_ORDER / TOP_GROUP_DISPLAY); согласованность
+# держит канарейка decomposition-view-parity.test.js.
+_TOP_GROUP_ORDER = ('БАЗА', 'МЕДИА', 'ВНЕШНИЕ ФАКТОРЫ', 'КОНКУРЕНТЫ')
+_TOP_GROUP_DISPLAY = {
+    'БАЗА': 'База',
+    'МЕДИА': 'Медиа',
+    'ВНЕШНИЕ ФАКТОРЫ': 'Внешние факторы',
+    'КОНКУРЕНТЫ': 'Конкуренты',
+}
+
+
+def collapse_series_to_top_groups(series: list, *, eps: float = 1e-6) -> list:
+    """Свёртка канонических серий в ≤4 агрегата верхнего уровня — ЗЕРКАЛО
+    свёрнутого режима фронта (decomposition-view.js planViewSeries с пустым
+    expanded). Обзорный timeline «4 группы» для отчётов (двухуровневость Т3-плюс).
+
+    Тождество (гарантия конструкции): поэлементная сумма data всех агрегатов ==
+    сумма data всех исходных серий (свёртка НЕ меняет значения). Стек-сторона
+    агрегата (side) — по знаку суммарного вклада группы.
+
+    Args:
+        series: список серий из build_decomposition_series (у каждой top_group|group).
+    Returns:
+        list[{'top_group', 'name'(display), 'side', 'data', 'member_count'}]
+        в каноническом порядке _TOP_GROUP_ORDER (только непустые группы).
+    """
+    if not series:
+        return []
+    n = max((len(s.get('data') or []) for s in series), default=0)
+
+    buckets: dict[str, list] = {}
+    for s in series:
+        tg = s.get('top_group') or _TOP_GROUP_MAP.get(s.get('group'), 'ВНЕШНИЕ ФАКТОРЫ')
+        buckets.setdefault(tg, []).append(s)
+
+    ordered = [g for g in _TOP_GROUP_ORDER if g in buckets]
+    ordered += [g for g in buckets if g not in _TOP_GROUP_ORDER]
+
+    out = []
+    for tg in ordered:
+        members = buckets[tg]
+        agg = [0.0] * n
+        for s in members:
+            d = s.get('data') or []
+            for t in range(min(n, len(d))):
+                v = d[t]
+                agg[t] += float(v) if v is not None else 0.0
+        total = sum(agg)
+        out.append({
+            'top_group': tg,
+            'name': _TOP_GROUP_DISPLAY.get(tg, tg),
+            'side': 'negative' if total < -eps else 'positive',
+            'data': [round(v, 1) for v in agg],
+            'member_count': len(members),
+        })
+    return out
 
 
 def build_decomposition_series(
@@ -345,8 +494,12 @@ def build_decomposition_series(
     значит наборы остаются согласованными).
 
     Returns:
-        {"dates": [...], "series": [{name, role, type, group, side, data[]}]}
+        {"dates": [...], "series": [{name, role, type, group, top_group, side, data[]}]}
         role ∈ {baseline, media, factor}; side ∈ {positive, negative}.
+        top_group ∈ {БАЗА, МЕДИА, ВНЕШНИЕ ФАКТОРЫ, КОНКУРЕНТЫ} — верхний уровень
+        4-групповой декомпозиции (решение Антона 2026-07-04) для drill-down UI/отчётов.
+        Полоса «Сезонность» дополнительно несёт pct_of_base[] (сезонность помесячно
+        в % к базовой линии — мультипликативная подача «февраль +60% к базе»).
     """
     n = len(baseline_ts or [])
     baseline_reduced = [float(v or 0) for v in (baseline_ts or [])]
@@ -372,6 +525,27 @@ def build_decomposition_series(
             'data': [round(float(v or 0), 1) for v in pp],
         })
 
+    # Помесячная сезонность как % к базе (решение Антона 2026-07-04): для полосы
+    # «Сезонность» относительный ряд pct_of_base[t] = 100·эффект[t]/base[t], где
+    # base — ФИНАЛЬНАЯ базовая линия после выноса всех факторов (baseline_reduced
+    # уже досчитан циклом выше). Подача «февраль +60% к базе» — мультипликативная,
+    # хотя модель аддитивна.
+    # Guard (аудит 2026-07-04, INV-50): не только ~0, но и ВЫРОЖДЕННО МАЛАЯ база —
+    # деление на базу, упавшую в шум (<1% от среднего |base| по ряду), даёт
+    # дезинформирующие «+4000% к базе». Такие периоды честно получают 0.0.
+    _base_scale = (
+        sum(abs(v) for v in baseline_reduced) / len(baseline_reduced)
+        if baseline_reduced else 0.0
+    )
+    _base_floor = max(eps, 0.01 * _base_scale)
+    for b in bands:
+        if b['type'] == 'seasonality':
+            b['pct_of_base'] = [
+                round(b['data'][t] / baseline_reduced[t] * 100, 1)
+                if t < len(baseline_reduced) and abs(baseline_reduced[t]) > _base_floor else 0.0
+                for t in range(len(b['data']))
+            ]
+
     series = [{
         'name': 'Базовый уровень', 'role': 'baseline', 'type': 'baseline',
         'group': 'База', 'side': 'positive',
@@ -386,6 +560,9 @@ def build_decomposition_series(
     # Порядок стека зеркалит ChannelTimeline: media → positive bands → negative bands.
     series.extend(b for b in bands if b['side'] == 'positive')
     series.extend(b for b in bands if b['side'] == 'negative')
+    # Верхний уровень 4 групп (аддитивно — потребители старого формата не сломаются).
+    for s in series:
+        s['top_group'] = _TOP_GROUP_MAP.get(s.get('group'), 'ВНЕШНИЕ ФАКТОРЫ')
     return {'dates': list(dates or []), 'series': series}
 
 
@@ -394,6 +571,8 @@ def decompose(
     unit_costs_override: dict | None = None,
     unit_cost_inflation_pct: dict | None = None,
     kpi_unit_cost_override: float | None = None,
+    model_path: str | None = None,
+    save_results: bool = True,
 ) -> dict[str, Any]:
     """Decompose sales into baseline + channel contributions using trained model.
 
@@ -403,12 +582,16 @@ def decompose(
             Нужно, когда user изменил CPP/CPM после тренировки модели.
         kpi_unit_cost_override: v2.1.0 (ADR-021) override средней цены единицы count KPI
             для money ROI conversion. None = используем snapshot из pickle.
+        model_path: E3 (2026-07-03) - явный путь к модели (архивное поколение из
+            models/history/). None = models/latest.pkl (прежнее поведение).
+        save_results: E3 - False у сравнения поколений: расчёт по архивной модели
+            НЕ должен перетирать results/decomposition.json текущей.
 
     Returns:
         JSON with waterfall data, ROI, share of spend vs effect
     """
     project_path = Path(project_dir)
-    model_path = project_path / 'models' / 'latest.pkl'
+    model_path = Path(model_path) if model_path else project_path / 'models' / 'latest.pkl'
 
     if not model_path.exists():
         return {
@@ -452,11 +635,19 @@ def decompose(
     unit_costs = unit_costs_override if unit_costs_override is not None else (config.get('unit_costs', {}) or {})
 
     # Read original data for spend totals + adstock + control effects
-    data_file = config['data_file']
+    # C3-N3 (2026-07-03): протухший путь из pickle → фолбэк/понятная ошибка.
+    from utils.data_file_resolver import resolve_data_file
+    data_file = str(resolve_data_file(config.get('data_file'), project_dir))
     df = pd.read_excel(data_file) if data_file.endswith(('.xlsx', '.xls')) else pd.read_csv(data_file)
     # Материализация виртуальных каналов (если были merge_rules при train)
     from utils.merge_rules import apply_merge_rules
     apply_merge_rules(df, config.get('merge_rules'))
+    # Аудит 2026-07-10 (High): хвост-медиаплан (KPI пуст) искажал декомпозицию —
+    # n_periods=len(df) с хвостом при y_actual по истории; будущие траты текли
+    # в исторические вклады каналов. Файл без хвоста → no-op. Симметрично modeler.
+    _kpi_d = config.get('kpi_column')
+    if _kpi_d and _kpi_d in df.columns:
+        df = df[df[_kpi_d].notna()].reset_index(drop=True)
 
     # v2.1.0 (pilot 2026-05-16 fix B-01): re-inject holiday dummies для матча
     # с обученной моделью. modeler.py инжектирует 12 РФ holiday колонок в df
@@ -472,7 +663,15 @@ def decompose(
         if date_col in df.columns:
             try:
                 from utils.holiday_calendar_ru import generate_holiday_dummies
-                holiday_df = generate_holiday_dummies(df[date_col])
+                # v2.1 (2026-07-05): воспроизводим РЕЖИМ train-инжекта — β модели
+                # согласованы с теми X. Старые pickle (без ключа) обучались на
+                # binary_point; новые — на fraction (доля дней периода в окне
+                # подготовки к событию).
+                _hmode = (
+                    model_data.get('normalization', {}).get('holiday_dummies_mode')
+                    or 'binary_point'
+                )
+                holiday_df = generate_holiday_dummies(df[date_col], mode=_hmode)
                 for hcol in holiday_cols_to_inject:
                     if hcol not in df.columns and hcol in holiday_df.columns:
                         df[hcol] = holiday_df[hcol].values
@@ -500,6 +699,29 @@ def decompose(
                 date_col, len(holiday_cols_to_inject),
             )
             control_cols = [c for c in control_cols if c not in holiday_cols_to_inject]
+
+    # Автосезонность (2026-07-04): re-inject Фурье-контролей сезонной волны.
+    # modeler инжектил sin/cos гармоники периода в df при тренировке (control_cols),
+    # в исходном Excel их нет → df[control_cols] упал бы. Фурье по t-ИНДЕКСУ (не
+    # датам) — воспроизводим по длине ряда + period/K из fourier_seasonality;
+    # бит-в-бит с обучением (декомпозиция на тех же обучающих строках, тот порядок).
+    fourier_meta = model_data.get('fourier_seasonality')
+    if fourier_meta:
+        try:
+            from utils.fourier_seasonality import generate_fourier_terms
+            _fdf = generate_fourier_terms(
+                len(df), int(fourier_meta['period']), int(fourier_meta['n_harmonics'])
+            )
+            for _fc in fourier_meta.get('columns', []) or []:
+                if _fc not in df.columns and _fc in _fdf.columns:
+                    df[_fc] = _fdf[_fc].values
+        except Exception as exc:
+            logger.warning(
+                'Decomposer: re-injection Fourier seasonality failed (%s). '
+                'Убираем сезонные колонки из control_cols (β останутся, вклад 0).', exc,
+            )
+            _fcols = fourier_meta.get('columns', []) or []
+            control_cols = [c for c in control_cols if c not in _fcols]
 
     # Phase 2 audit pass 4 - per-channel inflation: customer entered current
     # cost (latest training year) + annual_inflation_pct → adjust к training-
@@ -860,10 +1082,23 @@ def decompose(
         # v2.0.0: per-factor contribution breakdown using column_detection classifier
         try:
             from utils.column_detection import classify_column
+            # Use y_actual.sum() для % normalization (вне цикла — нужно и для агрегата).
+            _y_total = float(y_actual.sum()) if len(y_actual) else 0.0
+            # Аккумулятор Фурье-гармоник → ОДИН агрегированный фактор «Сезонность».
+            season_effect_agg = None
             for i, col in enumerate(control_cols):
                 col_effect = (X_control_norm[:, i] * beta_c[i]) * y_std
-                col_total = float(col_effect.sum())
                 col_kind = classify_column(col)
+                # Сезонность: 2K колонок sin/cos агрегируются в ОДИН фактор «Сезонность»
+                # (не 6 полос отдельных гармоник — они не интерпретируемы поодиночке).
+                # Суммируем эффект поэлементно; beta_mean для суммы не осмыслен (опускаем).
+                if col_kind == 'seasonality':
+                    season_effect_agg = (
+                        col_effect if season_effect_agg is None
+                        else season_effect_agg + col_effect
+                    )
+                    continue
+                col_total = float(col_effect.sum())
                 # Map kind → factor_type для UI rendering
                 factor_type_map = {
                     'signed_competitor': 'signed_competitor',
@@ -871,18 +1106,29 @@ def decompose(
                     'signed_weather': 'signed_weather',
                     'signed_macro': 'signed_macro',
                     'holiday': 'holiday',
+                    'seasonality': 'seasonality',  # агрегируется выше (continue) — sanity
+                    'category': 'category',  # Фаза Б: продажи рынка — полоса «Категория» (ВНЕШНИЕ)
                     'control': 'positive_control',
                     'unknown': 'positive_control',  # legacy fallback
                 }
                 factor_type = factor_type_map.get(col_kind, 'positive_control')
-                # Use y_actual.sum() для % normalization
-                _y_total = float(y_actual.sum()) if len(y_actual) else 0.0
                 signed_factor_contributions[col] = {
                     'value': round(col_total, 1),
                     'pct': round(col_total / (_y_total + 1e-10) * 100, 1) if _y_total > 0 else 0.0,
                     'type': factor_type,
                     'beta_mean': float(beta_c[i]),
                     'per_period': [round(float(v), 1) for v in col_effect],
+                }
+            # Один агрегированный фактор «Сезонность» из всех Фурье-гармоник. Суммарное
+            # value за целое число циклов ≈ 0 (сезон перераспределяет, не добавляет) —
+            # ценность в per_period-волне и pct_of_base (build_decomposition_series).
+            if season_effect_agg is not None:
+                season_total = float(season_effect_agg.sum())
+                signed_factor_contributions['Сезонность'] = {
+                    'value': round(season_total, 1),
+                    'pct': round(season_total / (_y_total + 1e-10) * 100, 1) if _y_total > 0 else 0.0,
+                    'type': 'seasonality',
+                    'per_period': [round(float(v), 1) for v in season_effect_agg],
                 }
         except Exception as e:
             logger.warning('signed_factor_contributions computation failed: %s', e)
@@ -1028,7 +1274,13 @@ def decompose(
     # _money_roi_na (count-KPI без kpi_unit_cost) вычислен в per-channel loop выше;
     # пересчитываем явно для надёжности (loop мог не выполниться при 0 каналах).
     _insight_money_roi_na = bool(kpi_kind == 'count' and kpi_unit_cost is None)
-    insight = _build_channel_insight(channels, money_roi_unavailable=_insight_money_roi_na)
+    insight = _build_channel_insight(
+        channels,
+        money_roi_unavailable=_insight_money_roi_na,
+        kpi_kind=kpi_kind,
+        kpi_type=config.get('kpi_type'),
+        derived_mode=model_data.get('derived_mode') or 'roi',
+    )
 
     # Per-period dates
     date_col = config.get('date_column', 'date')
@@ -1101,6 +1353,7 @@ def decompose(
     _kpi_meta = _resolve_output_kpi_meta(
         v13_kpi, kpi_kind, kpi_unit_cost,
         derived_mode_default=model_data.get('derived_mode') or 'roi',
+        kpi_type=config.get('kpi_type') or None,
     )
 
     result = {
@@ -1114,6 +1367,8 @@ def decompose(
         'derived_mode': _kpi_meta['derived_mode'],
         'value_per_count_unit': _kpi_meta['value_per_count_unit'],
         'value_per_count_unit_label': _kpi_meta['value_per_count_unit_label'],
+        # Фаза 1a: конкретный тип KPI для паспортных подписей (kpi_labels/kpi_helpers).
+        'kpi_type': _kpi_meta['kpi_type'],
         'total_sales': round(total_sales, 0),
         'baseline': round(baseline_total, 0),
         'baseline_pct': round(baseline_total / total_sales * 100, 1) if total_sales else 0,
@@ -1160,7 +1415,8 @@ def decompose(
         # с negative bars + Report narrative.
         # Schema: { factor_col_name: { value, pct, type, beta_mean, per_period[] } }
         # type ∈ {'signed_competitor', 'signed_price', 'signed_weather', 'signed_macro',
-        #         'holiday', 'positive_control'}
+        #         'holiday', 'seasonality', 'positive_control'}
+        # Спец-ключ 'Сезонность' (агрегат Фурье sin/cos) — без beta_mean (сумма гармоник).
         'signed_factor_contributions': signed_factor_contributions,
         # Аудит #12 (2026-06-07, INV-50): канонический набор серий timeline-
         # декомпозиции — ЕДИНЫЙ источник для программы (ChannelTimeline) и всех
@@ -1171,10 +1427,13 @@ def decompose(
     }
 
     # Save (NaN-safe 2026-06-04 аудит: NaN→null, иначе Rust serde_json роняет файл).
-    from utils.safe_io import sanitize_nonfinite
-    results_dir = project_path / 'results'
-    results_dir.mkdir(parents=True, exist_ok=True)
-    with open(results_dir / 'decomposition.json', 'w', encoding='utf-8') as f:
-        json.dump(sanitize_nonfinite(result), f, ensure_ascii=False, indent=2)
+    # E3: save_results=False у сравнения поколений — расчёт по архивной модели
+    # не должен подменять результаты текущей.
+    if save_results:
+        from utils.safe_io import sanitize_nonfinite
+        results_dir = project_path / 'results'
+        results_dir.mkdir(parents=True, exist_ok=True)
+        with open(results_dir / 'decomposition.json', 'w', encoding='utf-8') as f:
+            json.dump(sanitize_nonfinite(result), f, ensure_ascii=False, indent=2)
 
     return result

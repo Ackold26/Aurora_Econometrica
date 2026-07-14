@@ -409,15 +409,15 @@
 {#if shouldShow}
   <section class="unit-costs">
     <div class="header">
-      <div class="title">Стоимость юнита для каналов в не-денежных единицах</div>
+      <div class="title">Цена единицы для каналов в не-денежных единицах</div>
       <div class="hint">
-        Добавь каналы, измеряемые не в рублях (TRP, показы, статьи, спецпроекты),
-        и укажи цену единицы <strong>в последнем году обучающих данных</strong>. Модель пересчитает их в рубли и даст корректный ROI.
+        Добавьте каналы, измеряемые не в рублях (TRP, показы, статьи, спецпроекты),
+        и укажите цену единицы <strong>в последнем году обучающих данных</strong>. Модель пересчитает их в рубли и даст корректный ROI.
         {#if isMultiYearTraining}
           <br>📅 <strong>Обучение охватывает несколько лет</strong> - задайте <em>исторический</em> темп инфляции CPP/CPM
-          (по РФ типично 25–30% год к году). Backend пересчитает цену по обучающим периодам:
-          текущая ÷ (1+rate)<sup>лет</sup> и применит weighted-average. 0 = цена не менялась.
-          <br><span class="hint-secondary"><TriangleAlert size={14} strokeWidth={1.5} style="vertical-align: -0.15em" /> Это <em>исторический</em> темп для training. Для прогноза будущего используйте <em>прогнозную</em> инфляцию в шаге «Оптимизация» (Блок D).</span>
+          (по РФ типично 25–30% год к году). Программа пересчитает цену по обучающим периодам:
+          текущая ÷ (1+темп)<sup>лет</sup> — со взвешенным средним по годам. 0 = цена не менялась.
+          <br><span class="hint-secondary"><TriangleAlert size={14} strokeWidth={1.5} style="vertical-align: -0.15em" /> Это <em>исторический</em> темп для training. Для прогноза будущего используйте <em>прогнозную</em> инфляцию в разделе прогноза.</span>
         {/if}
       </div>
     </div>
@@ -477,7 +477,7 @@
               {:else if def}
                 <div class="row-default" title="Дефолт по медиа-данным РФ 2026">≈ {def.label}</div>
               {:else}
-                <div class="row-default muted">Нет данных по объёму - укажи цену вручную</div>
+                <div class="row-default muted">Нет данных по объёму - укажите цену вручную</div>
               {/if}
               {#if preview != null}
                 {@const inflRate = parsedInflation[ch.name] ?? 0}

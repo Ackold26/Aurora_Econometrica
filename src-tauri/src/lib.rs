@@ -6,7 +6,7 @@ pub mod metrics;
 pub mod session;
 pub mod sidecar_runtime;
 
-use commands::{brand, cabinet, claude, content_pack, content_updater, feedback, license, online_auth, parser, updater, user_config, vault};
+use commands::{brand, cabinet, claude, content_pack, content_updater, feedback, license, online_auth, parser, rag_client, updater, user_config, vault};
 use session::manager::SessionManager;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -89,9 +89,31 @@ async fn get_cabinets(_state: tauri::State<'_, Arc<AppState>>, app_handle: tauri
             if !missing.is_empty() {
                 info!("Downloading {} missing vault(s) from server...", missing.len());
                 let checksums = serde_json::json!({});
-                match content_updater::download_updates(&config_dir, &data_dir, product, cv, &missing, &checksums, Some(&app_handle)).await {
+                match content_updater::download_updates(&config_dir, &data_dir, product, cv, &missing, &checksums, online.vault_versions.as_ref(), Some(&app_handle)).await {
                     Ok(updated) => info!("Downloaded {}/{} vault files", updated.len(), missing.len()),
                     Err(e) => warn!("Failed to download vaults: {e}"),
+                }
+            }
+
+            // ── Version-based докачка (Батч 0, 2026-07-13): доставка ПРАВОК промптов
+            // существующих кабинетов. Блок выше качает только missing/undecryptable
+            // vault'ы (новые кабинеты) - обновление контента УЖЕ установленного
+            // vault'а никогда не триггерилось. Сервер шлёт vault_versions per-cabinet
+            // в /auth (Phase 5, online_auth.rs:159) - сверяем с локальными.
+            if let Some(ref server_versions) = online.vault_versions {
+                let stale: Vec<String> = content_updater::check_update_per_cabinet(&config_dir, server_versions)
+                    .files_to_update
+                    .into_iter()
+                    .filter(|f| !missing.contains(f))
+                    .collect();
+
+                if !stale.is_empty() {
+                    info!("Downloading {} vault(s) with newer prompt content...", stale.len());
+                    let checksums = serde_json::json!({});
+                    match content_updater::download_updates(&config_dir, &data_dir, product, cv, &stale, &checksums, Some(server_versions), Some(&app_handle)).await {
+                        Ok(updated) => info!("Downloaded {}/{} updated vault files", updated.len(), stale.len()),
+                        Err(e) => warn!("Failed to download versioned vault updates: {e}"),
+                    }
                 }
             }
         }
@@ -126,7 +148,7 @@ async fn get_cabinets(_state: tauri::State<'_, Arc<AppState>>, app_handle: tauri
     let status = license.validate().map_err(|e| e.to_string())?;
 
     if !status.valid {
-        let err = status.error.unwrap_or("Invalid license".to_string());
+        let err = status.error.unwrap_or("Лицензия недействительна".to_string());
         metrics::audit::log_event("license_validate", &err, false);
         warn!("License invalid: {err}");
         return Err(err);
@@ -286,7 +308,7 @@ async fn update_content(
 ) -> Result<Vec<String>, String> {
     let config_dir = app_handle.path().app_config_dir().map_err(|e| e.to_string())?;
     let data_dir = app_handle.path().app_data_dir().map_err(|e| e.to_string())?;
-    content_updater::download_updates(&config_dir, &data_dir, &product, &version, &files, &checksums, Some(&app_handle))
+    content_updater::download_updates(&config_dir, &data_dir, &product, &version, &files, &checksums, None, Some(&app_handle))
         .await
         .map_err(|e| e.to_string())
 }
@@ -313,6 +335,56 @@ fn get_full_machine_hash() -> Result<String, String> {
 #[tauri::command]
 fn get_raw_fingerprint() -> Result<String, String> {
     crypto::fingerprint::get_raw_fingerprint_hex().map_err(|e| e.to_string())
+}
+
+/// Tier 2 (Claude-усилитель инсайтов MMM): inline-вопрос об уже посчитанном
+/// результате. Тонкий транспорт — готовый grounding-промпт строит фронт
+/// (`tier2-context.js`, железные правила INV-50), здесь только пересылка через
+/// ЕДИНЫЙ egress-чок-поинт `run_claude` (consent + feature-гейт наследуются;
+/// в локальной редакции 152-ФЗ команда вернёт ошибку «egress отключён»).
+///
+/// Требует открытой сессии кабинета `econometrist` (work_dir с vault) — фронт
+/// открывает его лениво при первом вопросе. Stateless (resume=None): каждый
+/// ответ строится строго на текущих фактах в промпте, без памяти прошлых
+/// вопросов — безопаснее для INV-50.
+#[tauri::command]
+async fn econ_ask_insight(
+    prompt: String,
+    state: tauri::State<'_, Arc<AppState>>,
+    app_handle: tauri::AppHandle,
+) -> Result<String, String> {
+    if prompt.trim().is_empty() {
+        return Err("[ASK-EMPTY] Пустой запрос к ИИ".to_string());
+    }
+    let cabinet_id = "econometrist";
+    let work_dir = state
+        .session_manager
+        .get_work_dir(cabinet_id)
+        .ok_or_else(|| {
+            "[ASK-NO-SESSION] Кабинет эконометриста не открыт — откройте его, чтобы спросить ИИ."
+                .to_string()
+        })?;
+
+    let user_model = app_handle
+        .path()
+        .app_config_dir()
+        .ok()
+        .map(|d| user_config::load(&d).model)
+        .unwrap_or(None);
+
+    claude::run_claude(
+        &work_dir,
+        &prompt,
+        app_handle.clone(),
+        cabinet_id.to_string(),
+        None,  // stateless — без --resume
+        state.active_pids.clone(),
+        true,  // suppress_export — inline-вопрос, не сохранять в exports
+        user_model,
+    )
+    .await
+    .map(|(_session_id, response_text)| response_text)
+    .map_err(|e| e.to_string())
 }
 
 #[tauri::command]
@@ -362,14 +434,15 @@ async fn open_cabinet(
         let license = license::License::load(&config_dir).map_err(|e| e.to_string())?;
         let status = license.validate().map_err(|e| e.to_string())?;
         if !status.valid {
-            return Err(status.error.unwrap_or("Invalid license".to_string()));
+            return Err(status.error.unwrap_or("Лицензия недействительна".to_string()));
         }
         allowed_cabinets = status.cabinets;
     }
 
     if !allowed_cabinets.contains(&cabinet_id) {
         warn!("Cabinet '{cabinet_id}' not allowed (cabinets: {:?})", allowed_cabinets);
-        return Err(format!("Cabinet '{cabinet_id}' not included in license"));
+        // B2 (2026-07-03): русское сообщение вместо технического английского.
+        return Err(format!("Кабинет «{cabinet_id}» не входит в вашу лицензию. Обратитесь в поддержку для расширения доступа."));
     }
 
     // ── Auto-download vault if missing ──
@@ -382,7 +455,7 @@ async fn open_cabinet(
             let product = online_auth::detect_product();
             let files = vec![vault_filename.clone()];
             let checksums = serde_json::json!({});
-            match content_updater::download_updates(&config_dir, &data_dir, product, cv, &files, &checksums, Some(&app_handle)).await {
+            match content_updater::download_updates(&config_dir, &data_dir, product, cv, &files, &checksums, online.vault_versions.as_ref(), Some(&app_handle)).await {
                 Ok(updated) => info!("Downloaded {} vault files from server", updated.len()),
                 Err(e) => warn!("Failed to download vault from server: {e}"),
             }
@@ -408,7 +481,7 @@ async fn open_cabinet(
                             Ok(salt) => crypto::hkdf::derive_key(&fp, &salt).map_err(|e| e.to_string())?,
                             Err(e) => return Err(e.to_string()),
                         },
-                        Err(e) => return Err(format!("Cannot decrypt vault: no valid key. {e}")),
+                        Err(e) => return Err(format!("Не удалось расшифровать данные кабинета: нет действующего ключа. {e}")),
                     }
                 }
             }
@@ -1941,6 +2014,7 @@ fn get_cloud_consent_status(app_handle: tauri::AppHandle) -> Result<serde_json::
         "cloud_advisors_enabled": claude::CLOUD_ADVISORS_ENABLED,
         "consent_required": user_config::cloud_consent_required(&config_dir),
         "terms_version": user_config::CLOUD_CONSENT_TERMS_VERSION,
+        "local_only": user_config::local_only_enabled(&config_dir),
     }))
 }
 
@@ -1969,6 +2043,17 @@ fn withdraw_cloud_consent(app_handle: tauri::AppHandle) -> Result<(), String> {
     let config_dir = app_handle.path().app_config_dir().map_err(|e| e.to_string())?;
     let mut config = user_config::load(&config_dir);
     config.cloud_consent = None;
+    user_config::save(&config_dir, &config)
+}
+
+/// Включить/выключить runtime-режим «только локально». Пишет `local_only` в
+/// user_config; egress-гейт `run_claude` (ensure_not_local_only) читает его и
+/// блокирует облачный ИИ, когда включено. Одна сборка, два режима.
+#[tauri::command]
+fn set_local_only(enabled: bool, app_handle: tauri::AppHandle) -> Result<(), String> {
+    let config_dir = app_handle.path().app_config_dir().map_err(|e| e.to_string())?;
+    let mut config = user_config::load(&config_dir);
+    config.local_only = enabled;
     user_config::save(&config_dir, &config)
 }
 
@@ -2182,14 +2267,12 @@ fn check_server_update(app_min_version: String, update_url: Option<String>) -> O
 }
 
 #[tauri::command]
-async fn download_update(url: String, checksum: String, app: tauri::AppHandle) -> Result<String, String> {
-    let path = updater::download_update(&url, &app)
-        .await
-        .map_err(|e| e.to_string())?;
-
-    updater::verify_checksum(&path, &checksum)
-        .map_err(|e| e.to_string())?;
-
+async fn download_update(app: tauri::AppHandle) -> Result<String, String> {
+    // SEC-04: url и checksum из серверного манифеста, НЕ с фронта.
+    let current = env!("CARGO_PKG_VERSION");
+    let info = updater::check_for_updates(current).await.map_err(|e| e.to_string())?.ok_or_else(|| "Обновление недоступно".to_string())?;
+    let path = updater::download_update(&info.download_url, &app).await.map_err(|e| e.to_string())?;
+    updater::verify_checksum(&path, &info.checksum).map_err(|e| e.to_string())?;
     Ok(path.to_string_lossy().to_string())
 }
 
@@ -2331,7 +2414,20 @@ fn has_verified_external_frontend(data_dir: &std::path::Path) -> bool {
 
     let frontend_dir = data_dir.join(format!("frontend-{}", version));
     match crypto::content_sig::verify_manifest(&frontend_dir) {
-        Ok(_) => {
+        Ok(manifest) => {
+            // Батч 0 (2026-07-13): манифест может требовать core-версию новее текущего
+            // .exe (min_core_version) - без этой проверки старый внешний OTA-бандл
+            // навсегда перекрывал бы embedded frontend после апдейта .exe с новыми
+            // промптами/JS (OTA-канал не достаёт до кода, вшитого в exe). Используем
+            // готовое semver-сравнение из updater (rc-aware, покрыто тестами).
+            let core_version = env!("CARGO_PKG_VERSION");
+            if updater::is_newer(&manifest.min_core_version, core_version) {
+                warn!(
+                    "External frontend {} requires core >= {} but running {} - using embedded",
+                    version, manifest.min_core_version, core_version
+                );
+                return false;
+            }
             info!("External frontend verified: {}", version);
             true
         }
@@ -3157,6 +3253,9 @@ fn build_app() -> Result<(), String> {
             get_full_machine_hash,
             get_raw_fingerprint,
             open_cabinet,
+            econ_ask_insight,
+            rag_client::econ_rag_search,
+            set_local_only,
             close_cabinet,
             send_message,
             list_inbox_files,
@@ -3270,6 +3369,20 @@ fn build_app() -> Result<(), String> {
             commands::econometrica::econ_train_cancel,
             commands::econometrica::econ_decompose,
             commands::econometrica::econ_optimize,
+            // A3/OPP-05 (2026-07-03): preflight-гейт до кнопки «Обучить»
+            commands::econometrica::econ_preflight,
+            // A4/OPP-04 (2026-07-03): интервалы оптимального сплита (Jin 2017)
+            commands::econometrica::econ_optimize_split_ci,
+            // E1 (2026-07-03): backtest-витрина «модель vs факт» (rolling-origin)
+            commands::econometrica::econ_backtest,
+            // E3 (2026-07-03): жизненный цикл модели - история/сравнение/дрейф
+            commands::econometrica::econ_model_history,
+            commands::econometrica::econ_generation_compare,
+            commands::econometrica::econ_drift_check,
+            // E4 (2026-07-03): прогнозы-обещания («Зафиксировать прогноз»)
+            commands::econometrica::econ_promises_list,
+            commands::econometrica::econ_promise_create,
+            commands::econometrica::econ_promises_check,
             // v1.3.0 - Goal-Seek + Safe Corridor + Auto-Price + KPI Settings (ADR-014..017)
             commands::econometrica::econ_safe_corridor,
             commands::econometrica::econ_optimize_inverse,
@@ -3297,6 +3410,10 @@ fn build_app() -> Result<(), String> {
             commands::econometrica::econ_causal_did,
             commands::econometrica::econ_causal_scm,
             commands::econometrica::econ_causal_forest,
+            // Planning mode commands (feat/econ-planning-mode)
+            commands::econometrica::econ_download_media_plan_template,
+            commands::econometrica::econ_confirm_media_plan,
+            commands::econometrica::econ_save_planning,
             // Project management commands
             commands::project::project_list,
             commands::project::project_create,
@@ -3447,6 +3564,80 @@ mod brief_tests {
     fn parse_slides_single() {
         let params = "Слайды: Конкретные: 5";
         assert_eq!(parse_slide_selection(params), Some(vec![5]));
+    }
+}
+
+#[cfg(test)]
+mod resolve_slash_tests {
+    use super::*;
+
+    /// Боевой путь консультационных команд эконометриста: фронт приклеивает блок
+    /// «=== Данные проекта ===» к сообщению, resolve_slash_command должен ДОСТАВИТЬ
+    /// его в промпт через $ARGUMENTS. Эвал-харнес шлёт message мимо send_message,
+    /// поэтому именно этот тест закрывает регрессию доставки данных (Critical
+    /// 2026-07-12: без $ARGUMENTS в шаблоне блок данных молча отбрасывался).
+    #[test]
+    fn resolve_injects_project_data_when_placeholder_present() {
+        let dir = tempfile::tempdir().unwrap();
+        let cmd_dir = dir.path().join(".claude").join("commands");
+        std::fs::create_dir_all(&cmd_dir).unwrap();
+        std::fs::write(
+            cmd_dir.join("interpret-model.md"),
+            "Осмысли модель.\n\n---\n\n$ARGUMENTS",
+        )
+        .unwrap();
+
+        let message = "/interpret-model\n\n=== Данные проекта (приложены приложением) ===\n[model-diagnostics]\n{\"mqs\": 72}";
+        let resolved = resolve_slash_command(message, dir.path());
+
+        assert!(resolved.contains("=== Данные проекта"), "блок данных должен доехать до промпта");
+        assert!(resolved.contains("72"), "числа модели должны попасть в промпт");
+        assert!(resolved.contains("Осмысли модель."), "инструкция шаблона сохранена");
+        assert!(!resolved.contains("$ARGUMENTS"), "плейсхолдер должен быть заменён");
+    }
+
+    /// Контракт-документация: БЕЗ $ARGUMENTS в шаблоне arguments (блок данных)
+    /// теряется — именно так возник Critical. Тест фиксирует причину и защищает
+    /// инвариант ниже (реальные промпты обязаны содержать $ARGUMENTS).
+    #[test]
+    fn resolve_without_placeholder_drops_arguments() {
+        let dir = tempfile::tempdir().unwrap();
+        let cmd_dir = dir.path().join(".claude").join("commands");
+        std::fs::create_dir_all(&cmd_dir).unwrap();
+        let template = "Инструкция без плейсхолдера.";
+        std::fs::write(cmd_dir.join("legacy-cmd.md"), template).unwrap();
+
+        let message = "/legacy-cmd\n\n=== Данные проекта ===\n{\"x\": 1}";
+        let resolved = resolve_slash_command(message, dir.path());
+
+        assert_eq!(resolved, template, "без $ARGUMENTS хвост сообщения отбрасывается");
+        assert!(!resolved.contains("Данные проекта"), "данные не доехали — это и был баг");
+    }
+
+    /// Регресс-детектор варианта A: каждая консультационная команда эконометриста,
+    /// получающая блок данных проекта (ECON_DATA_COMMANDS во фронте), ОБЯЗАНА иметь
+    /// $ARGUMENTS в своём .md — иначе доставка данных снова молча сломается.
+    #[test]
+    fn econometrist_consult_commands_have_arguments_placeholder() {
+        let base = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../New_AI_Agency/econometrist/.claude/commands");
+        let commands = [
+            "interpret-model",
+            "why-channel",
+            "explain-ratio",
+            "pilot-design",
+            "next-quarter-plan",
+            "data-gaps",
+        ];
+        for cmd in commands {
+            let path = base.join(format!("{cmd}.md"));
+            let content = std::fs::read_to_string(&path)
+                .unwrap_or_else(|e| panic!("не прочитать {}: {e}", path.display()));
+            assert!(
+                content.contains("$ARGUMENTS"),
+                "команда /{cmd} должна содержать $ARGUMENTS для доставки блока данных проекта",
+            );
+        }
     }
 }
 // rebuild

@@ -76,14 +76,14 @@
   let savedSamplePath = $state('');
   let savingSample = $state(false);
 
-  /** @param {string} filename @param {string} label */
-  async function downloadSample(filename, label) {
+  /** @param {string} filename @param {string} label @param {string} [subdir] подкаталог sample-data (напр. 'planning/') */
+  async function downloadSample(filename, label, subdir = '') {
     if (savingSample) return;
     savingSample = true;
     sampleMsg = '';
     savedSamplePath = '';
     try {
-      const resp = await fetch(`/sample-data/${filename}`);
+      const resp = await fetch(`/sample-data/${subdir}${filename}`);
       if (!resp.ok) throw new Error('файл не найден в сборке');
       const bytes = Array.from(new Uint8Array(await resp.arrayBuffer()));
       const outputPath = await save({
@@ -430,25 +430,25 @@
             onclick={() => downloadSample('synth_fmcg_brand.xlsx', 'FMCG бренд')}>
             <span class="sample-icon">🛒</span>
             <span class="sample-label">FMCG бренд</span>
-            <span class="sample-hint">Выручка ₽, ТВ, цифра, наружка, performance</span>
+            <span class="sample-hint">Выручка ₽ · пары: бюджет + TRP/показы/контакты/клики · категория</span>
           </button>
           <button class="sample-btn" type="button" disabled={savingSample}
             onclick={() => downloadSample('synth_otc_pharma.xlsx', 'OTC фарма')}>
             <span class="sample-icon">💊</span>
             <span class="sample-label">OTC фарма</span>
-            <span class="sample-hint">Упаковки, ТВ TRP, аптеки, цифра</span>
+            <span class="sample-hint">Упаковки · пары: бюджет + TRP/контакты/показы/клики · категория</span>
           </button>
           <button class="sample-btn" type="button" disabled={savingSample}
             onclick={() => downloadSample('synth_real_estate.xlsx', 'Недвижимость')}>
             <span class="sample-icon">🏠</span>
             <span class="sample-label">Недвижимость</span>
-            <span class="sample-hint">Лиды, ТВ, наружка, цифра, performance</span>
+            <span class="sample-hint">Лиды · пары: бюджет + GRP/контакты/показы/клики</span>
           </button>
           <button class="sample-btn" type="button" disabled={savingSample}
             onclick={() => downloadSample('synth_retail_ecom.xlsx', 'Ритейл / e-com')}>
             <span class="sample-icon">🏪</span>
             <span class="sample-label">Ритейл / e-com</span>
-            <span class="sample-hint">Выручка ₽, ТВ, цифра, наружка, retail media</span>
+            <span class="sample-hint">Выручка ₽ · пары: бюджет + TRP/показы/контакты · retail media</span>
           </button>
         </div>
         {#if sampleMsg}
@@ -459,6 +459,38 @@
             {/if}
           </div>
         {/if}
+      </div>
+
+      <!-- 3b. Карточка «Попробовать планирование на примере» — файлы с
+           хвостом-медиапланом: показывают весь функционал (планирование →
+           прогноз → оптимизация бюджета), а не только базовый анализ. -->
+      <div class="intro-card">
+        <div class="intro-card-header">
+          <div class="intro-card-icon">🗓</div>
+          <div class="intro-card-title">Попробовать планирование на примере</div>
+        </div>
+        <div class="intro-card-body">
+          Готовый файл с <strong>историей + медиапланом на будущее</strong> —
+          пройдите весь путь до <strong>оптимизации бюджета</strong>: модель на
+          истории, прогноз по вашему плану и рекомендация, как перераспределить
+          бюджет для роста результата.
+          <br><span class="planning-hint">Совет: на шаге «Валидация» для этих
+          категорий учёт праздников можно отключить — модель станет проще и надёжнее.</span>
+        </div>
+        <div class="sample-grid">
+          <button class="sample-btn" type="button" disabled={savingSample}
+            onclick={() => downloadSample('synth_fmcg_brand.xlsx', 'FMCG — планирование', 'planning/')}>
+            <span class="sample-icon">🛒</span>
+            <span class="sample-label">FMCG бренд · план</span>
+            <span class="sample-hint">Выручка ₽ · 2 года по неделям + медиаплан · оптимизация бюджета</span>
+          </button>
+          <button class="sample-btn" type="button" disabled={savingSample}
+            onclick={() => downloadSample('synth_otc_pharma.xlsx', 'OTC фарма — планирование', 'planning/')}>
+            <span class="sample-icon">💊</span>
+            <span class="sample-label">OTC фарма · план</span>
+            <span class="sample-hint">Упаковки · 5 лет по месяцам + медиаплан · оптимизация бюджета</span>
+          </button>
+        </div>
       </div>
 
       <!-- 4. Карточка «Загрузить сохранённый проект» -->
@@ -821,7 +853,7 @@
     border: 1px solid color-mix(in srgb, var(--danger) 30%, transparent);
     border-radius: 10px;
     font-size: 13px;
-    color: #fca5a5;
+    color: var(--danger);
     flex-shrink: 0;
   }
 
@@ -1086,8 +1118,9 @@
     width: 100%;
     padding: 24px 28px;
     background: var(--bg-surface-quiet, rgba(30, 33, 44, 0.92));
-    border: 1px solid var(--border-subtle, rgba(255,255,255,0.08));
+    border: 1px solid var(--border);
     border-radius: 14px;
+    box-shadow: var(--shadow-card);
   }
   .intro-title {
     margin: 0 0 8px 0;
@@ -1138,13 +1171,18 @@
   }
   .intro-card {
     padding: 18px 20px;
-    background: color-mix(in srgb, var(--accent-primary, #3b82f6) 4%, transparent);
-    border: 1px solid var(--border-subtle, rgba(255,255,255,0.06));
+    background: var(--bg-card);
+    border: 1px solid var(--border);
     border-radius: 10px;
+    box-shadow: var(--shadow-elevation-1);
     display: flex;
     flex-direction: column;
     gap: 10px;
-    transition: border-color 0.15s, background 0.15s;
+    transition: border-color 0.15s, background 0.15s, box-shadow 0.15s, transform 0.15s;
+  }
+  .intro-card:hover {
+    box-shadow: var(--shadow-elevation-2);
+    transform: translateY(-1px);
   }
   .intro-card:hover {
     border-color: color-mix(in srgb, var(--accent-primary, #3b82f6) 35%, transparent);
@@ -1273,6 +1311,13 @@
   }
   .sample-hint {
     font-size: 11px;
+    color: var(--text-muted);
+  }
+  .planning-hint {
+    display: inline-block;
+    margin-top: 6px;
+    font-size: 12px;
+    font-style: italic;
     color: var(--text-muted);
   }
   .archive-msg {

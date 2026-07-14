@@ -20,7 +20,18 @@ def hill_function(x: np.ndarray, alpha: float = 1.0, gamma: float = 0.5) -> np.n
     """
     x_safe = np.maximum(x, 0.0)
     gamma_safe = max(gamma, 1e-10)
-    return x_safe ** alpha / (x_safe ** alpha + gamma_safe ** alpha)
+    # Мат-аудит 2026-07-02 (F-09): x**alpha переполняется при x ≳ 1e154 (α=2) →
+    # inf/inf = NaN тихо уплывал в JSON (null). Честный математический предел
+    # hill(x→∞) = 1.0. Формула на нормальном диапазоне НЕ изменена (byte-exact,
+    # pin-регрессия цела); NaN-вход не маскируем (заменяем только переполнение
+    # конечного входа).
+    with np.errstate(over='ignore', invalid='ignore'):
+        num = x_safe ** alpha
+        out = num / (num + gamma_safe ** alpha)
+    overflow = np.isinf(num) & np.isfinite(x_safe)
+    if np.any(overflow):
+        out = np.where(overflow, 1.0, out)
+    return out
 
 
 def marginal_roi(x: np.ndarray, alpha: float, gamma: float, beta: float,
@@ -90,9 +101,15 @@ def hill_function_batch(
     gamma_safe = np.maximum(gamma, 1e-10)            # (n_samples, 1)
     x_pos = np.maximum(x_safe, 1e-10)                # avoid 0**negative
     # Broadcasting: result shape (n_samples, n_periods)
-    x_pow = x_pos ** alpha
-    gamma_pow = gamma_safe ** alpha
-    return x_pow / (x_pow + gamma_pow)
+    # Мат-аудит 2026-07-02 (F-09): overflow-предел hill(x→∞)=1.0 вместо NaN.
+    with np.errstate(over='ignore', invalid='ignore'):
+        x_pow = x_pos ** alpha
+        gamma_pow = gamma_safe ** alpha
+        out = x_pow / (x_pow + gamma_pow)
+    overflow = np.isinf(x_pow) & np.isfinite(x_pos)
+    if np.any(overflow):
+        out = np.where(overflow, 1.0, out)
+    return out
 
 
 def hill_derivative_batch(
@@ -121,11 +138,19 @@ def hill_derivative_batch(
     x_safe = np.maximum(x_arr, 1e-10).reshape(1, -1)
     gamma_safe = np.maximum(gamma, 1e-10)
 
-    x_pow_alpha = x_safe ** alpha
-    gamma_pow_alpha = gamma_safe ** alpha
-    numerator = alpha * gamma_pow_alpha * (x_safe ** (alpha - 1.0))
-    denominator = (x_pow_alpha + gamma_pow_alpha) ** 2
-    return numerator / denominator
+    # Мат-аудит 2026-07-02 (F-09): overflow-предел hill'(x→∞)=0.0 вместо NaN
+    # (числитель/знаменатель переполняются при экстремальном x). Нормальный
+    # диапазон byte-exact (формула не изменена).
+    with np.errstate(over='ignore', invalid='ignore'):
+        x_pow_alpha = x_safe ** alpha
+        gamma_pow_alpha = gamma_safe ** alpha
+        numerator = alpha * gamma_pow_alpha * (x_safe ** (alpha - 1.0))
+        denominator = (x_pow_alpha + gamma_pow_alpha) ** 2
+        out = numerator / denominator
+    overflow = (np.isinf(x_pow_alpha) | np.isinf(denominator)) & np.isfinite(x_safe)
+    if np.any(overflow):
+        out = np.where(overflow, 0.0, out)
+    return out
 
 
 def hill_function_batch_2d(
@@ -149,6 +174,12 @@ def hill_function_batch_2d(
     gamma = np.asarray(gamma_samples, dtype=np.float64).reshape(-1, 1)
     x_safe = np.maximum(np.asarray(x_norm_2d, dtype=np.float64), 1e-10)
     gamma_safe = np.maximum(gamma, 1e-10)
-    x_pow = x_safe ** alpha
-    gamma_pow = gamma_safe ** alpha
-    return x_pow / (x_pow + gamma_pow)
+    # Мат-аудит 2026-07-02 (F-09): overflow-предел hill(x→∞)=1.0 вместо NaN.
+    with np.errstate(over='ignore', invalid='ignore'):
+        x_pow = x_safe ** alpha
+        gamma_pow = gamma_safe ** alpha
+        out = x_pow / (x_pow + gamma_pow)
+    overflow = np.isinf(x_pow) & np.isfinite(x_safe)
+    if np.any(overflow):
+        out = np.where(overflow, 1.0, out)
+    return out

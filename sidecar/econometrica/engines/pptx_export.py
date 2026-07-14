@@ -53,6 +53,10 @@ def build_pptx(
     output_path: str,
     scenarios: list[dict] | None = None,
     project_id: str | None = None,
+    backtest: dict | None = None,
+    generation_compare: dict | None = None,
+    promises: list[dict] | None = None,
+    forecast: dict | None = None,
 ) -> dict[str, Any]:
     """Build a tier-1 client-ready PPTX from MMM pipeline data.
 
@@ -82,7 +86,10 @@ def build_pptx(
 
     try:
         data = _map_pipeline_to_builder_data(
-            model_data, decompose_data, optimize_data, scenarios, project_id=project_id
+            model_data, decompose_data, optimize_data, scenarios,
+            project_id=project_id, backtest=backtest,
+            generation_compare=generation_compare, promises=promises,
+            forecast=forecast,
         )
         prs = _aurora_build(data=data, lang="ru")
         prs.save(output_path)

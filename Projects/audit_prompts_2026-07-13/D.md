@@ -1,0 +1,302 @@
+# Аудитор D — ассистент «Аврора» (Tier 2) + системный промпт кабинета econometrist
+
+Дата: 2026-07-13. Read-only. Периметр: tier2-context.js, rag-query.js, program-help.js,
+scenario-advisor.js, InsightsPanel.svelte, insights-grounding.js (страж, только чтение),
+rag_client.rs / lib.rs econ_ask_insight / claude.rs (транспорт), New_AI_Agency/econometrist/CLAUDE.md.
+
+## src/lib/tier2-context.js (TIER2_SYSTEM_RULES + buildTier2Prompt) — зрелость 4 / эффективность 4
+
+Сильное: железные правила INV-50 (не считать, честность > полнота, honesty verbatim),
+методология из первоисточников с атрибуцией без года, «переводчик сложного», якорение
+диапазонов, стриппинг служебной телеметрии из grounding (stripOptTelemetry — фикс live-probe
+2026-07-11), sanitizeMethodologyFragment нейтрализует «===» и переносы в RAG-выдержках.
+
+- [medium] tier2-context.js:263-323 — промпт TIER2_SYSTEM_RULES содержит 23× длинное тире
+  U+2014 (побайтово подтверждено; напр. :264 «Ты — Аврора»), при этом правило 5 того же
+  промпта требует «короткое тире «–»» — модель имитирует стиль промпта → риск «—» в
+  клиентской выдаче + внутреннее противоречие. Ещё 3× U+2014 в преамбуле канона (:379).
+- [medium] tier2-context.js:407-408 — вопрос пользователя вставляется в промпт сырым
+  последней секцией «=== Вопрос пользователя ===»; sanitizeMethodologyFragment (:352,
+  фикс M1 2026-07-11) применяется ТОЛЬКО к RAG-выдержкам. Вопрос с «=== Факты модели ===»
+  создаёт фальшивую секцию фактов ПОСЛЕ настоящей (позиционно перекрывает). Тот же класс,
+  что M1, покрытие неполное.
+- [medium] tier2-context.js:396 — строки Tier-1 инсайтов (`- [${ins.severity}] ${ins.text}`)
+  идут в промпт без нейтрализации «===»/переносов; тексты инсайтов интерполируют имена
+  каналов из Excel-заголовков клиента (insights-rules.js) — канал с «\n=== … ===» ломает
+  структуру секций. Facts/honesty безопасны (JSON.stringify экранирует), инсайт-строки — нет.
+- [low] tier2-context.js:270 vs :372, :379 — правило 1 «числа ТОЛЬКО из блока «Факты
+  модели»» противоречит заголовкам секций справки и канона, объявляющим их числа
+  легитимными нормативами (страж их ground'ит) — строго следующая правилу 1 модель
+  откажется цитировать пороги R-hat из справки.
+- [low] tier2-context.js:402 — правило 3 требует приводить надёжность «ДОСЛОВНО из блока
+  «Надёжность»», но блок отсутствует на шагах MODEL/DECOMPOSE (honesty только из
+  optimization.json) — висячая ссылка на несуществующую секцию, модель может домыслить.
+
+## src/lib/rag-query.js — не промпт, пропущен
+
+Детерминированная сборка запроса к векторному поиску (не текст к LLM) + humanizeSource.
+Замечаний по периметру промптов нет; двуязычная тематизация соответствует канону
+Knowledge_Library. Атрибуция «БЕЗ года» согласована с правилами промпта (:379).
+
+## src/lib/program-help.js (PROGRAM_OVERVIEW — идёт в промпт Авроры) — зрелость 3 / эффективность 4
+
+- [high] program-help.js:51-65 — «Пайплайн — 6 шагов» без шага «Планирование», тогда как
+  пайплайн 7-шаговый (project-state.js:74-82: planning=5, report=6; STEP в tier2-context.js:22-30).
+  В связке с правилом промпта «чего нет в справке — так и скажи, не домысливай»
+  (tier2-context.js:286-288) Аврора будет ОТРИЦАТЬ существование шага Планирование,
+  на котором её же и спрашивают (STEP.PLANNING подаёт этот help). Клиентская поверхность.
+- [medium] program-help.js:47,70-71 — справка дважды называет интервал «доверительный
+  интервал», прямо нарушая правило 4 TIER2_SYSTEM_RULES (tier2-context.js:278-281:
+  «НЕ «доверительный интервал»») — противоречие система↔справка в одном промпте.
+- [medium] program-help.js:35-98 — 28× U+2014 в тексте, попадающем в промпт (критерий
+  рубрики «тире»; побайтово).
+- [low] program-help.js:96-97 — support@auroraai.pro и пути логов в каждом промпте — норм
+  для справки, но проверить актуальность домена не могу (вне периметра).
+
+## src/lib/scenario-advisor.js (buildScenarioParsePrompt, collinearityCaveat) — зрелость 4 / эффективность 4
+
+Сильное: жёсткий JSON-контракт с примерами конвертации («удвоить»=+100%), точные имена
+каналов через JSON.stringify (экранировано), extractScenarioConfig нормализует/деградирует
+в 'unclear', human-in-the-loop подтверждение до расчёта, неизвестные каналы игнорируются.
+
+- [medium] scenario-advisor.js:139 — describeScenario: «Сценарий — …» — U+2014 в
+  КЛИЕНТСКОМ тексте подтверждения (прямо видим в UI, scenarioConfirm) — критерий «тире»,
+  клиентская поверхность поднимает severity.
+- [low] scenario-advisor.js:48 — 1× U+2014 в тексте промпта разбора («если назван
+  приблизительно — выбери…»).
+- [low] scenario-advisor.js:51 — userText сырым в последней строке промпта (позиция
+  последней секции смягчает; выход всё равно проходит JSON-парс + подтверждение человеком —
+  инъекция купируется контрактом).
+
+## src/lib/insights-grounding.js — не промпт, пропущен (страж; читал для карты покрытия)
+
+Покрытие стража: применяется ТОЛЬКО к ответу «Спросить Аврору» (InsightsPanel:430).
+НЕ покрыты уходящие клиенту ответы Авроры: интерпретация сценария (InsightsPanel:576)
+и текст подтверждения разбора (describeScenario — числа из LLM-парса, но их подтверждает
+человек). Мягкий режим: негрунд-числа подсвечиваются (⚠), ответ не блокируется — осознанно.
+
+## src/lib/components/pipeline/InsightsPanel.svelte — зрелость 3 / эффективность 4
+
+Сильное: interlock двух LLM-потоков (M2 Rust), askEpoch против гонки шагов (M2 JS),
+ленивое открытие кабинета, graceful деградация RAG, sanitizeAvroraText как страховка,
+числа сценария в промпт — только 4 курируемые строки из движка (INV-50 в тракте).
+
+- [high] InsightsPanel.svelte:576 — scenarioInterpret (ответ Авроры об итогах сценария)
+  уходит клиенту БЕЗ рантайм-стража findUngroundedNumbers — страж применён только к
+  askAnswer (:430). Выдуманное число в интерпретации сценария не подсветится (INV-50,
+  клиентская поверхность).
+- [medium] InsightsPanel.svelte:556 — scenarioText (свободный ввод пользователя) вставлен
+  сырым В СЕРЕДИНУ interpPrompt (factLines, до «=== Задача ===») — «=== … ===» в тексте
+  сценария создаёт фальшивую секцию выше настоящей задачи; класс M1, нейтрализация не
+  применена.
+- [medium] InsightsPanel.svelte:462 — sanitizeAvroraText вырезает [STATISTICAL|MODELED|
+  MODEL|DATA|ASSUMPTION|INFERRED], но НЕ [ASSUMED] и НЕ [ASSUMED-CAUSAL] — именно эти теги
+  предписывает системный CLAUDE.md кабинета (строки 46-47) → служебные пометки могут дойти
+  до клиента, промпт-правило «чистота ответа» останется без страховки.
+- [medium] InsightsPanel.svelte:323-331 — switch(step) не имеет case 6 (Отчёт): insights=[]
+  → кнопка «Спросить» disabled (:697, insights.length===0) и пустой хинт «Загрузите данные
+  для получения рекомендаций» на шаге Отчёт; при этом tier2-context.js STEP.REPORT полностью
+  поддержан. Стейл-маппинг после вставки Планирования (комментарий :324-326 про «Отчёт»
+  относится к case 5). Аврора недоступна на финальном шаге.
+- [low] InsightsPanel.svelte:569-575 — interpPrompt не содержит блока «Надёжность»
+  (honesty verdict), хотя TIER2_SYSTEM_RULES правило 3 на него ссылается; интерпретация
+  сценария не предупредит о ненадёжной модели.
+
+## src-tauri/src/commands/rag_client.rs — не промпт, пропущен
+
+Транспорт до RAG-сервера: гейты consent/local-only/фича, loopback-only http, секрет в
+заголовке, k clamp 1..8, таймаут 5с. Промпт-текст не строится. Замечаний нет.
+
+## src-tauri/src/lib.rs:329-366 (econ_ask_insight) + claude.rs — не промпт, пропущен
+
+Тонкий транспорт: stateless (resume=None — сознательно для INV-50), suppress_export,
+единый egress-чок-поинт run_claude. Промпт строит фронт. Системный промпт сессии =
+CLAUDE.md кабинета econometrist из work_dir (vault) → аудит пункта 2 применим к каждому
+запросу Авроры.
+
+## New_AI_Agency/econometrist/CLAUDE.md (системный промпт кабинета, множитель) — зрелость 3 / эффективность 4
+
+Сильное: контракт данных (:75-95) сверен с кодом и СХОДИТСЯ (econ-project-context.js:96-161,
+секции/строка «нет – шаг … не пройден» дословно; ChatPanel.svelte:697-708 доставка); честная
+деградация без блокировок (:37 «давай результат с оговорками, а не отказывай», :94, :127 —
+допустимая деградация «сначала запустить шаг»); SSOT-таблица трёх порогов Ratio; антисикофантия
+с примерами; список 8 UI-команд совпадает с cabinet.rs:269-278 (labels 1:1).
+
+- [high] CLAUDE.md:163-171 — таблица «MQS — калиброванная шкала» в шкале 1–10 с тирами
+  Poor/Weak/Acceptable/Good/Excellent противоречит движку (MQS 0–100: score 70/88,
+  tier_label «Хорошее»/«Отличное» — metric-views.js:48, фикстуры тестов) И самому файлу
+  (:104 «MQS N/100», :129 «MQS < 55», :156 «cap 70 / cap 50»). :171 предписывает ВСЕГДА
+  указывать MQS с якорем по стейл-шкале → неверная тир-атрибуция в клиентском ответе.
+- [medium] CLAUDE.md:173,177-178,180-182 — требования bulk/tail-ESS ≥ 400, E-BFMI, trace
+  plots, PPC, которых НЕТ в контракте [model-diagnostics] (:85: MQS, R², MAPE, R-hat,
+  divergences, ratio) и нет в данных фронта (grep 'ess|e_bfmi' по src — 0 совпадений) —
+  тот же класс, что фикс «доставка данных $ARGUMENTS» 2026-07-12: инструкция ссылается
+  на недоставленные данные → мёртвое правило либо провокация фабрикации «проверил ESS».
+- [medium] CLAUDE.md:44-47 ↔ tier2-context.js:291-292 — система предписывает теги
+  [MODELED]/[STATISTICAL]/[ASSUMED]/[ASSUMED-CAUSAL], Tier2-правила в том же запросе их
+  запрещают; страховка sanitizeAvroraText (InsightsPanel.svelte:462) не вырезает [ASSUMED],
+  [ASSUMED-CAUSAL], [ОГРАНИЧЕНИЕ:…], [ЭКСТРАПОЛЯЦИЯ:…] (:33-39) → служебные теги могут
+  дойти до клиента.
+- [medium] CLAUDE.md:93 ↔ tier2-context.js:270-273 — система разрешает производные числа
+  с пометкой «≈»/«примерно», Tier2 запрещает вычисления вовсе, а страж пометит производное
+  число «⚠ не сверено с моделью» → клиент видит предупреждение на легитимном по системе
+  поведении. Противоречие система↔команда.
+- [medium] CLAUDE.md:97-147 — ~50 строк (≈ четверть файла) спецификаций 8 команд
+  (назначение/вход/выход/критерий) дублируют .claude/commands/*.md (проверено:
+  interpret-model.md повторяет :101-105) — бюджет множителя: грузится в КАЖДЫЙ запрос,
+  включая каждый Tier2-вопрос Авроры; два SSOT → дрейф.
+- [medium] CLAUDE.md:206-211 (+ :22) — «Связка с другими кабинетами» (media-analyst,
+  doc-master, strategist, creative-director) — в продукте Optimizer MMM других кабинетов
+  нет (cabinet.rs:121 "econometrica" => ["econometrist"]) → риск отсылки клиента к
+  недоступным функциям.
+- [medium] весь файл — 122× U+2014 (побайтово подтверждено) в системном промпте-множителе;
+  насаждает запрещённый стиль тире в клиентскую выдачу.
+- [low] mmm-model.md:22, mmm-full.md:13 — ссылка на секцию «Windows: облегчённый MCMC»
+  «в CLAUDE.md», секция переехала в LEGACY_COMMANDS.md:19 (известный класс; команды
+  legacy — скрыты из UI, но работают при ручном вводе).
+- [low] CLAUDE.md:20 «Не обучаю модели» ↔ :137-147 awareness-команды (в UI) с байесовской
+  регрессией силами Claude; Opus рекомендован только legacy (:6), awareness-расчёты не
+  упомянуты в Model Configuration.
+- [low] CLAUDE.md:155 «≥ 4:1 — абсолютный минимум» ↔ :35 (движок обучает при <4:1 с
+  horseshoe/R2D2) и строка MQS-кэп «2–4 — cap 70» той же таблицы.
+- [low] CLAUDE.md:190-194 запрет «сырые данные продаж с точными цифрами» в чат — строго
+  читающая модель откажется цитировать total_sales из фактов Tier2 (смягчено «РАЗРЕШЕНО:
+  модельные выходы»).
+
+## Сосед-проверка класса «Critical доставка данных $ARGUMENTS» (фикс 2026-07-12)
+
+Фикс подтверждён: econ-project-context.js + ChatPanel.svelte:697-708 доставляют блок
+«=== Данные проекта ===» для 6 консультационных команд; контракт CLAUDE.md:75-95 сходится
+с кодом дословно. Соседи того же класса:
+- [medium] ChatPanel.svelte:697 — гейт `$isEconometrica`: в продуктах Agency / Insights Hub
+  (кабинет econometrist в составе — CLAUDE.md репо, таблица продуктов) те же команды уйдут
+  БЕЗ блока данных, контракт кабинета обещает доставку.
+- [medium] CLAUDE.md:173-182 — ESS/E-BFMI/trace требуются, но не доставляются (выше).
+- [low] tier2-context.js:402 — правило 3 ссылается на блок «Надёжность», отсутствующий
+  на шагах MODEL/DECOMPOSE (выше).
+
+## Сводка периметра D
+
+| Поверхность | Зрелость | Эффективность |
+|---|---|---|
+| tier2-context.js (промпт Авроры) | 4 | 4 |
+| program-help.js (справка в промпте) | 3 | 4 |
+| scenario-advisor.js (промпт разбора) | 4 | 4 |
+| InsightsPanel.svelte (тракт + interpPrompt) | 3 | 4 |
+| econometrist/CLAUDE.md | 3 | 4 |
+| rag-query.js / insights-grounding.js / rag_client.rs / econ_ask_insight | не промпт, пропущены | — |
+
+Среднее: зрелость 3.4 / эффективность 4.0. Главный риск: ответ Авроры об итогах сценария
+уходит клиенту мимо рантайм-стража INV-50 (InsightsPanel.svelte:576) + стейл MQS-шкала в
+системном промпте-множителе (CLAUDE.md:163-171).
+
+---
+
+# aurora-upgrade — срез D: ядро MMM-методологии (canon vs mmm-model/decomposition/optimize/scenarios)
+
+Дата: 2026-07-13. Продукт: Aurora Econometrica (Optimizer MMM), репо `Aurora_Econometrica_v230`
+(`com.aurora.econometrica`, действующий). Периметр: `.claude/commands/mmm-model.md`,
+`mmm-decomposition.md`, `mmm-optimize.md`, `mmm-scenarios.md`, `CLAUDE.md`, `LEGACY_COMMANDS.md`.
+Метод: двуязычный RAG-поиск (`lib_vec.py`, cats «Эконометрика и статистика») + углубление в
+прочитанный текст книг. **Вывод по гейту зрелости:** ядро зрелое — большинство аспектов задания
+(half-normal priors на β, приоры adstock/Hill по носителю, L=13 недель, Hill-unidentifiability,
+regularized horseshoe/R2D2, backdoor/collider/M-bias по McElreath, «правдоподобный диапазон» вместо
+CI, экстраполяция за диапазон трат) уже дословно процитированы в CLAUDE.md/LEGACY_COMMANDS.md с
+атрибуцией к Jin 2017 / Chan-Perry 2017 / McElreath. Найденная дельта — узкая и сконцентрирована
+в одном месте: **multi-model uncertainty** (Chan-Perry §4.3.2) не покрыт, при том что смежный
+частный случай (2 спецификации adstock) уже есть в mmm-scenarios.md:22.
+
+## [GAP] mmm-scenarios.md п.4.1 — узкая проверка устойчивости (2 adstock-спецификации) вместо полного набора правдоподобных моделей — Chan & Perry 2017
+
+**Сейчас:** mmm-scenarios.md:22 требует прогнать оптимизацию на 2 контрастных спецификациях
+(geometric vs Weibull adstock) и пометить `[МОДЕЛЬНАЯ НЕОПРЕДЕЛЁННОСТЬ]` при расхождении по
+крупнейшему каналу. Это единственная проверка на нестабильность спецификации во всём ядре D.
+
+**Канон требует больше осей вариации, не только форму adstock.** Chan & Perry 2017, §4.3.2
+«Model uncertainty» — прямой эксперимент на реальном датасете: пять одинаково правдоподобных
+моделей (R²=0.98–0.99 у всех), отличающихся НЕ формой adstock, а прокси сезонности, длиной
+окна данных, включением/исключением branded search, линейным трендом. Дословная цитата (текст
+прочитан полностью, файл `Chan_Perry_2017_Challenges_and_Opportunities_in_Media_Mix_Modeling.md`):
+
+> «Model 1 is a baseline model and each of the others is a variation of Model 1. Model 2 uses a
+> different proxy variable to capture seasonality. Model 3 only includes the most recent two years
+> in the dataset… Model 4 excludes branded search ads as an ad channel… Model 5 includes a linear
+> time variable… Each model achieves an R2 value of either 0.98 or 0.99… The models differ in their
+> sales predictions by up to 50%… Most importantly, they disagree on ad channel A, which is by far
+> the largest channel for this advertiser.»
+
+и итоговый вывод раздела:
+
+> «So despite fitting the data equally well, the models disagree on what sales are achievable under
+> different ad spends… they lead to different conclusions about the overall value of the ad channels
+> and about how budget should be allocated.»
+
+**Обоснование дельты:** высокий R² не подтверждает правильность спецификации — это ядро уже знает
+про Hill-unidentifiability (LEGACY_COMMANDS.md:63) и про экстраполяцию (Chan-Perry Fig.2), но НЕ
+переносит тот же принцип на выбор сезонного прокси / окна данных / состава каналов. Промпт
+mmm-scenarios.md проверяет только ось adstock-формы — Chan-Perry показывает, что расхождение до
+50% в прогнозе и полная смена рекомендации по крупнейшему каналу возникают именно от ЭТИХ осей
+(прокси сезонности, окно, состав каналов), которые сейчас не варьируются вовсе.
+
+**Риск/применимость:** прямое применение, тот же домен (Bayesian/regression MMM), тот же тип
+данных (недельные национальные ряды с малым числом точек). РФ-специфики нет — общая эконометрика.
+Не противоречит INV-50 (наоборот усиливает честность оценки неопределённости).
+
+**Размещение (on-demand):** `mmm-scenarios.md` п.4.1 — расширить формулировку с «2 контрастных
+спецификации (geometric vs Weibull adstock)» до «2–3 осей вариации: (а) форма adstock
+(geometric/Weibull — уже есть), (б) прокси сезонности при наличии альтернативы в данных, (в) окно
+данных (полный период vs последние 2 года) при достаточной длине ряда». Не always-on CLAUDE.md —
+это специфика одной legacy-команды, не сквозной принцип кабинета.
+
+## [CONFIRM] mmm-model.md п.4 / LEGACY_COMMANDS.md §Priors — half-normal β, priors по носителю, L=13 — Jin 2017
+
+Дословно совпадает с прочитанным текстом Jin 2017 (Section 2.1, carryover: «L = 13 is a good
+approximation to infinity as the weights are less than 10−7 beyond 13 weeks»; Section 2.2, Hill
+unidentifiability: «the parameters of βHill are essentially unidentifiable in some scenarios… when
+S=1, within a finite range, the curve can be approximated very well with a curve constructed from
+a very different set of three parameters»). Атрибуция в LEGACY_COMMANDS.md:63,67-76 точна, не
+дубль — не переносить.
+
+## [CONFIRM] mmm-model.md п.3.5 — калибровка приоров из внешнего эксперимента — Chan & Perry 2017 + Jin 2017
+
+Chan-Perry §5.1 прямо рекомендует «a strong candidate method for developing informative priors is
+by fitting category level MMMs across brands within a category using a Bayesian hierarchical
+model», а Jin 2017 (Introduction) — «prior knowledge may come from industry experience or previous
+media mix models of the same or similar advertisers». Промпт п.3.5 уже реализует именно это
+(калибровка из A/B-теста / Geo-Lift / прошлого MMM того же бренда/категории, тег `[CALIBRATED]`,
+запрет чужого рынка/периода). Точное соответствие канону — не менять.
+
+## [SHIFTED→CONFIRM] Иерархические приоры для малых данных — Wang-Jin — N/A для кабинета в текущей форме данных
+
+Wang-Jin (category data) описывает partial pooling ЧЕРЕЗ несколько брендов/каналов одной категории
+в общей иерархической модели (HCM vs FCM, category-level Φ как prior для brand-level β). Кабинет
+эконометриста получает на вход ОДИН проект/бренд за раз (контракт данных CLAUDE.md:77-95: секции
+[model-diagnostics]/[decomposition]/[optimization] на один проект) — межбрендовый pooling
+архитектурно недоступен на этом слое (движок, не промпт, был бы точкой внедрения, и это увеличение
+объёма данных на вход, а не правка формулировки промпта). Кабинет уже даёт функциональный аналог
+для тонких данных на своём уровне — regularized horseshoe/R2D2 (mmm-model.md:21, тот же мотив
+«стабильность при дефиците данных»). Не GAP уровня промпта-советника; сигнал зафиксирован как
+возможное расширение движка (out of scope для файлов D).
+
+## [CONFIRM] mmm-optimize.md — Hill saturation формулировка, K/half-saturation, S/slope — Jin 2017
+
+Промпт использует `S(x) = x^α / (x^α + γ^α)` (эквивалентная параметризация Hill(x;K,S) из Jin
+2017 eq.4 с α↔S, γ↔K) и корректно описывает α<1→C-shape / α>1→S-shape — совпадает с прочитанным
+Section 2.2 («S>1 (red curve) is convex close to zero, resulting in an S shape; S<1 (green curve)
+is more concave close to zero and flattens faster»). mROI как производная кривой отклика в точке
+текущих затрат (mmm-optimize.md:11) — стандартная и корректная трактовка marginal response.
+
+## [CONFIRM] Регуляризация приором против переобучения — McElreath — уже вшито
+
+CLAUDE.md уже цитирует McElreath на «точечная оценка отбрасывает информацию» (п.7) и
+prior-predictive check (п.3 / mmm-model.md:24) — McElreath Ch.7 («regularizing priors reduce
+overfitting during estimation») подтверждает мотив regularized horseshoe/R2D2 в mmm-model.md:21
+(«shrinkage оптимизирует предсказание и тянет коэффициенты к нулю»). Атрибуция точна.
+
+## Сводка среза D
+
+5 аспектов задания проверены. 1 GAP (multi-model uncertainty — узкая проверка расширяется на
+прокси сезонности/окно данных, Chan-Perry §4.3.2), 4 CONFIRM/SHIFTED→N/A (приоры/adstock/Hill/
+регуляризация — ядро уже цитирует канон дословно и корректно; иерархия межбрендовая — архитектурно
+недоступна на уровне промпта, не GAP файлов D). Библиотека покрывает домен полностью, докупка не
+нужна. Единственная правка на ревью Антона — расширение формулировки mmm-scenarios.md п.4.1.

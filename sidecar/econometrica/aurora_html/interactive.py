@@ -333,24 +333,32 @@ def bootstrap_js(
     }};
   }}
 
+  // Т3-плюс (Б-5): режим timeline — 'overview' (4 группы, дефолт, паритет с
+  // программой) или 'detail' (каналы+факторы, состав Аудита #12). Переключается
+  // кнопкой #tl-view-toggle без пересборки отчёта (оба набора в CHART_DATA).
+  var TL_VIEW = 'overview';
+
   function buildTimelineOption(data) {{
     if (!data || !data.weeks || !data.weeks.length) return null;
+    // Двухрежимный payload {{weeks, overview, detail}}; выбор по TL_VIEW.
+    var v = (data[TL_VIEW] || data.overview || data);
+    if (!v) return null;
     var pal = currentPalette();
     var series = [];
-    if (data.baseline && data.baseline.length) {{
+    if (v.baseline && v.baseline.length) {{
       series.push({{
-        name: 'Baseline', type: 'line', stack: 'total', smooth: 0.3, showSymbol: false,
-        data: data.baseline, lineStyle: {{ width: 0 }},
+        name: v.baseline_label || 'Baseline', type: 'line', stack: 'total', smooth: 0.3, showSymbol: false,
+        data: v.baseline, lineStyle: {{ width: 0 }},
         itemStyle: {{ color: pal.baselineColor }},
         areaStyle: {{ color: pal.baselineColor, opacity: 0.85 }},
       }});
     }}
-    (data.channel_order || []).forEach(function(name, i) {{
-      if (!data.channels || !data.channels[name]) return;
+    (v.channel_order || []).forEach(function(name, i) {{
+      if (!v.channels || !v.channels[name]) return;
       var color = pal.palette[i % pal.palette.length];
       series.push({{
         name: name, type: 'line', stack: 'total', smooth: 0.3, showSymbol: false,
-        data: data.channels[name], lineStyle: {{ width: 0 }},
+        data: v.channels[name], lineStyle: {{ width: 0 }},
         itemStyle: {{ color: color }},
         areaStyle: {{ color: color, opacity: 0.85 }},
       }});
@@ -360,11 +368,15 @@ def bootstrap_js(
     // уходят в отдельный стек ниже нуля.
     var FACTOR_COLORS = {{ signed_competitor: '#dc2626', signed_price: '#ea580c',
       signed_weather: '#f59e0b', signed_macro: '#d97706', holiday: '#84cc16',
-      positive_control: '#06b6d4' }};
-    (data.factors || []).forEach(function(f) {{
+      seasonality: '#8b5cf6', category: '#10b981', positive_control: '#06b6d4' }};
+    (v.factors || []).forEach(function(f) {{
       if (!f || !f.data || !f.data.length) return;
-      var fcolor = FACTOR_COLORS[f.type] || pal.mutedColor;
-      var label = (f.group ? f.group + ': ' : '') + f.name;
+      // Т3-плюс: свёрнутый обзор передаёт explicit f.rgb на агрегат группы
+      // (приоритет над типовым цветом); детальные факторы — по типу как прежде.
+      var fcolor = f.rgb || FACTOR_COLORS[f.type] || pal.mutedColor;
+      // Б-8 (аудит №2, живой прогон): агрегированный фактор может называться как
+      // своя группа (Фурье → «Сезонность») — префикс дал бы «Сезонность: Сезонность».
+      var label = (f.group && f.group !== f.name ? f.group + ': ' : '') + f.name;
       series.push({{
         name: label, type: 'line', stack: (f.side === 'negative' ? 'neg' : 'total'),
         smooth: 0.3, showSymbol: false, data: f.data, lineStyle: {{ width: 0 }},
@@ -539,7 +551,7 @@ def bootstrap_js(
       '<div><span class="verdict-badge verdict-' + escapeAttr(safeVerdict) + '">' + escapeHtml(verdictText) + '</span></div>' +
       '<div style="margin-top:20px;">' +
         row('Бюджет, млн ₽',       d.spend_mln.toFixed(1)) +
-        row('Вклад, млн ₽',         d.contrib_mln.toFixed(1)) +
+        row(d.contrib_label || 'Вклад, млн ₽', (d.contrib_display != null ? d.contrib_display : d.contrib_mln.toFixed(1))) +
         row('mROAS',                formatMroas(d.mroas)) +
         (d.current_spend_mln ? row('Текущий spend, млн',   d.current_spend_mln.toFixed(1)) : '') +
         (d.optimal_spend_mln ? row('Оптимальный spend, млн', d.optimal_spend_mln.toFixed(1)) : '') +
@@ -688,6 +700,22 @@ def bootstrap_js(
         document.body.removeChild(a);
         toast((STRINGS.toasts && STRINGS.toasts.png_saved) || 'График сохранён');
       }});
+    }});
+  }}
+
+  // ─── Timeline view toggle (Т3-плюс Б-5: обзор 4 групп ⇄ детально) ──
+  function setupTimelineViewToggle() {{
+    var btn = document.getElementById('tl-view-toggle');
+    if (!btn) return;
+    btn.addEventListener('click', function() {{
+      TL_VIEW = (TL_VIEW === 'overview') ? 'detail' : 'overview';
+      btn.textContent = (TL_VIEW === 'overview') ? 'Детально' : 'Обзор';
+      // П4: подчёркиваем тождество — переключение вида не меняет сумму продаж.
+      btn.setAttribute('title', (TL_VIEW === 'overview')
+        ? 'Показать каналы и факторы по отдельности. Итоговая сумма продаж одинакова в обоих режимах'
+        : 'Свернуть в обзор по группам. Итоговая сумма продаж одинакова в обоих режимах');
+      var chart = AURORA_CHARTS['chart-timeline'];
+      if (chart) chart.setOption(buildTimelineOption(CHART_DATA.timeline), true);
     }});
   }}
 
@@ -1146,6 +1174,7 @@ def bootstrap_js(
     setupTableSearch();
     setupCopyCsv();
     setupCopyPng();
+    setupTimelineViewToggle();
     setupDrillPanel();
     setupChannelDrilldowns();
     setupCounters();

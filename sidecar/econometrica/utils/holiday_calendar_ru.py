@@ -1,13 +1,35 @@
 """
-Aurora Econometrica - РФ holiday calendar auto-injection (v2.0.0).
+Aurora Econometrica - РФ holiday calendar auto-injection (v2.1, 2026-07-05).
 
-Per ADR-019 §5: silent auto-injection 12 hardcoded РФ-events как binary dummy
+Per ADR-019 §5: silent auto-injection 12 hardcoded РФ-events как dummy
 control columns. Customer customization (opt-out specific holidays, custom events)
 отложено в v2.2.0 (Quality of Life sprint).
 
+🔴 Принцип окон (решения Антона 2026-07-05, два уточнения): окно события —
+это период ПОВЫШЕННОЙ ПОКУПАТЕЛЬСКОЙ АКТИВНОСТИ, и его положение зависит
+от КЛАССА события (window_kind):
+  * 'preparation' — праздники (НГ, 8 марта, 14/23 февраля, back-to-school):
+    активность идёт ДО события — закупки подарков/товаров ~1-3 недели до
+    (подарки к НГ покупают в декабре, не 1 января). Окно = [событие − 1-3
+    недели → событие].
+  * 'sale_period' — распродажи (Чёрная пятница, Cyber Monday, новогодние
+    распродажи): активность идёт С МОМЕНТА СТАРТА распродажи и по её
+    завершении, обычно ~2-3 недели от старта. Окно = [старт → старт + N].
+  * 'calendar_period' — календарные периоды потребления (майские, короткие
+    госвыходные, школьные каникулы): активность в сам период. Окно = период.
+Именно эти окна видит эконометрика в продажах.
+
+🔴 Грануляция (аудит 2026-07-05): значение дамми = ДОЛЯ дней периода строки,
+попавших в окно (0..1), а не принадлежность точечной даты строки окну.
+На месячных данных с датой конца месяца точечная проверка давала 6/12
+вечно-нулевых праздников (14 февраля никогда не конец месяца) и флаки-ЧП
+(окно цепляет 30-е число в 2/4 лет). Дневная грануляция вырождается в
+прежние 0/1. Старые модели (β обучены на бинарных X) воспроизводятся через
+mode='binary_point' — decomposer выбирает по normalization.holiday_dummies_mode.
+
 12 holidays cover ~80%+ типичной РФ-сезонности для FMCG / OTC / ритейл / e-commerce.
 
-Auto-injection происходит в Studio bundle stage (data preprocessing). Model
+Auto-injection происходит в modeler (data preprocessing). Model
 подхватывает holidays как control factors через `validator.py::CONTROL_PATTERNS`
 (`holiday` pattern уже существовал). Coefficient per holiday estimated в
 Bayesian model с zero-centered Gaussian prior (unconstrained sign — некоторые
@@ -20,8 +42,10 @@ Reference:
 """
 from __future__ import annotations
 
+import re
+
 import pandas as pd
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from itertools import combinations
 from typing import Dict, List, Optional
 
@@ -31,11 +55,20 @@ from typing import Dict, List, Optional
 # Each holiday: column_name, category, date predicate fn (year → list of dates).
 # Date predicates handle fixed dates + movable feasts (Black Friday = last Friday
 # of November, Cyber Monday = first Monday after Black Friday, etc.).
+# Окна gift-событий — ПОДГОТОВИТЕЛЬНЫЕ (см. принцип в докстринге модуля).
 
+# window_kind (решение Антона 2026-07-05, второе уточнение):
+#   'preparation'     — активность ДО события (окно подготовки/закупок);
+#   'sale_period'     — активность ОТ старта распродажи (~2-3 недели);
+#   'calendar_period' — активность в сам календарный период.
+# У распродаж дополнительно date_range_v20 — узкие окна v2.0 (сам момент
+# события): их обязан воспроизводить mode='binary_point' для старых моделей
+# (β обучены на тех X — см. generate_holiday_dummies).
 HOLIDAY_DEFINITIONS = [
     {
         'name': 'holiday_newyear_preshop',
         'category': 'gift',
+        'window_kind': 'preparation',
         'description': 'Pre-Новогодние закупки подарков (15-31 декабря)',
         'date_range': lambda year: [
             date(year, 12, d) for d in range(15, 32)
@@ -44,7 +77,8 @@ HOLIDAY_DEFINITIONS = [
     {
         'name': 'holiday_newyear_postsale',
         'category': 'commercial',
-        'description': 'Новогодние распродажи + январские каникулы (25 дек - 8 янв)',
+        'window_kind': 'sale_period',
+        'description': 'Новогодние распродажи + январские каникулы (старт 25 дек → 8 янв)',
         'date_range': lambda year: (
             [date(year, 12, d) for d in range(25, 32)]
             + [date(year + 1, 1, d) for d in range(1, 9)]
@@ -53,7 +87,8 @@ HOLIDAY_DEFINITIONS = [
     {
         'name': 'holiday_valentine',
         'category': 'gift',
-        'description': 'День Святого Валентина (1-14 февраля)',
+        'window_kind': 'preparation',
+        'description': 'День Святого Валентина (подготовка 1-14 февраля)',
         'date_range': lambda year: [
             date(year, 2, d) for d in range(1, 15)
         ],
@@ -61,7 +96,8 @@ HOLIDAY_DEFINITIONS = [
     {
         'name': 'holiday_defender_day',
         'category': 'gift',
-        'description': '23 февраля shopping (15-23 февраля)',
+        'window_kind': 'preparation',
+        'description': '23 февраля (подготовка 15-23 февраля)',
         'date_range': lambda year: [
             date(year, 2, d) for d in range(15, 24)
         ],
@@ -69,7 +105,8 @@ HOLIDAY_DEFINITIONS = [
     {
         'name': 'holiday_march8',
         'category': 'gift',
-        'description': '8 марта shopping (1-8 марта)',
+        'window_kind': 'preparation',
+        'description': '8 марта (подготовка 1-8 марта)',
         'date_range': lambda year: [
             date(year, 3, d) for d in range(1, 9)
         ],
@@ -77,6 +114,7 @@ HOLIDAY_DEFINITIONS = [
     {
         'name': 'holiday_may_holidays',
         'category': 'general',
+        'window_kind': 'calendar_period',
         'description': 'Майские праздники (28 апреля - 9 мая)',
         'date_range': lambda year: (
             [date(year, 4, d) for d in range(28, 31)]
@@ -86,6 +124,7 @@ HOLIDAY_DEFINITIONS = [
     {
         'name': 'holiday_russia_day',
         'category': 'general',
+        'window_kind': 'calendar_period',
         'description': 'День России (11-12 июня)',
         'date_range': lambda year: [
             date(year, 6, 11),
@@ -95,7 +134,8 @@ HOLIDAY_DEFINITIONS = [
     {
         'name': 'holiday_back_to_school',
         'category': 'category_specific',
-        'description': 'Back-to-school (15 августа - 1 сентября)',
+        'window_kind': 'preparation',
+        'description': 'Back-to-school — подготовка к 1 сентября (15 августа - 1 сентября)',
         'date_range': lambda year: (
             [date(year, 8, d) for d in range(15, 32)]
             + [date(year, 9, 1)]
@@ -104,6 +144,7 @@ HOLIDAY_DEFINITIONS = [
     {
         'name': 'holiday_unity_day',
         'category': 'general',
+        'window_kind': 'calendar_period',
         'description': 'День народного единства (3-4 ноября)',
         'date_range': lambda year: [
             date(year, 11, 3),
@@ -113,22 +154,39 @@ HOLIDAY_DEFINITIONS = [
     {
         'name': 'holiday_black_friday',
         'category': 'commercial',
-        'description': 'Чёрная Пятница (последняя пятница ноября + weekend)',
-        'date_range': lambda year: _black_friday_dates(year),
+        'window_kind': 'sale_period',
+        'description': 'Чёрная Пятница — распродажный период (старт: последняя пятница ноября, ~2 недели)',
+        # Активность идёт ОТ старта распродажи (уточнение Антона): 14 дней.
+        'date_range': lambda year: _sale_window(_last_friday_of_november(year), 14),
+        # v2.0-окно (сам момент: пятница + weekend) — для binary_point.
+        'date_range_v20': lambda year: _black_friday_dates(year),
     },
     {
         'name': 'holiday_cyber_monday',
         'category': 'commercial',
-        'description': 'Cyber Monday (понедельник после Чёрной пятницы)',
-        'date_range': lambda year: [_cyber_monday_date(year)],
+        'window_kind': 'sale_period',
+        'description': 'Cyber Monday — онлайн-распродажная неделя (старт: пн после ЧП, 7 дней)',
+        # Короткая онлайн-распродажа: Cyber Week от старта (внутри ЧП-периода —
+        # перекрытие ожидаемо, помечено в EXPECTED_OVERLAPS).
+        'date_range': lambda year: _sale_window(_cyber_monday_date(year), 7),
+        # v2.0-окно (один день) — для binary_point.
+        'date_range_v20': lambda year: [_cyber_monday_date(year)],
     },
     {
         'name': 'holiday_school_breaks',
         'category': 'family',
+        'window_kind': 'calendar_period',
         'description': 'Школьные каникулы (4 окна: осенние / зимние / весенние / летние)',
         'date_range': lambda year: _school_breaks_dates(year),
     },
 ]
+
+
+def _sale_window(start: date, days: int) -> List[date]:
+    """Окно распродажи ОТ старта (уточнение Антона 2026-07-05): повышенная
+    покупательская активность идёт с момента старта распродажи и по её
+    завершении (~2-3 недели), а не до события, как у праздников."""
+    return [start + timedelta(days=i) for i in range(days)]
 
 
 def _last_friday_of_november(year: int) -> date:
@@ -184,19 +242,61 @@ def _school_breaks_dates(year: int) -> List[date]:
 # ─── Public API ────────────────────────────────────────────────────────────
 
 
+def _infer_step_days(dates: List[date]) -> int:
+    """Медианный шаг между соседними датами в днях (1=daily, 7=weekly, ~30=monthly).
+
+    Одна строка / пустой ряд → 1 (дневная семантика, безопасный минимум)."""
+    diffs = sorted(
+        (b - a).days for a, b in zip(dates, dates[1:])
+        if (b - a).days > 0
+    )
+    return diffs[len(diffs) // 2] if diffs else 1
+
+
+def _row_period(d: date, step_days: int) -> tuple:
+    """Границы периода строки [start, end] ВКЛЮЧИТЕЛЬНО.
+
+    Месячный шаг (28–31 дн): период = календарный месяц даты — клиенты дают
+    дату и началом (2022-01-01), и концом месяца (2022-01-31), обе означают
+    январь (инвариант: обе трактовки дают одинаковый ряд дамми).
+    Дневной шаг (≤1): период = сама дата (вырождение в прежние 0/1).
+    Иначе (недельный/прочий): [d, d+step-1] — конвенция «дата = начало
+    периода» (стандарт недельных выгрузок; при дате-конце недели окно
+    сместится на неделю — так же вела себя и точечная проверка)."""
+    if 28 <= step_days <= 31:
+        start = d.replace(day=1)
+        if d.month == 12:
+            end = date(d.year, 12, 31)
+        else:
+            end = date(d.year, d.month + 1, 1) - timedelta(days=1)
+        return start, end
+    if step_days <= 1:
+        return d, d
+    return d, d + timedelta(days=step_days - 1)
+
+
 def generate_holiday_dummies(
     date_series: pd.Series,
     holidays: Optional[List[str]] = None,
+    mode: str = 'fraction',
 ) -> pd.DataFrame:
     """Generate РФ holiday dummy DataFrame для given date series.
 
     Args:
         date_series: pandas Series of dates (datetime). Indexed by row.
+            Строка = период наблюдения; частота выводится из медианного шага дат.
         holidays: optional subset of holiday names to inject. If None — all 12.
+        mode: 'fraction' (default, v2.1) — значение = доля дней периода строки
+            в окне подготовки к событию (0..1); честно работает на месячной и
+            недельной грануляции (декабрь получает 17/31 НГ-закупок, а не 0/1
+            по точечной дате). 'binary_point' — legacy-поведение v2.0 (дата
+            строки ∈ окно → 1): для decompose моделей, обученных до v2.1
+            (β согласованы с бинарными X; см. normalization.holiday_dummies_mode).
 
     Returns:
-        DataFrame с columns = holiday names, values = 0 или 1 per row.
-        Index match input date_series.
+        DataFrame с columns = holiday names; values ∈ [0, 1] (float в
+        'fraction', int 0/1 в 'binary_point'). Index match input date_series.
+        На дневной грануляции 'fraction' совпадает с 'binary_point' по значениям.
 
     Examples:
         >>> dates = pd.Series(pd.date_range('2024-01-01', '2024-12-31', freq='D'))
@@ -207,6 +307,9 @@ def generate_holiday_dummies(
          'holiday_russia_day', 'holiday_back_to_school', 'holiday_unity_day',
          'holiday_black_friday', 'holiday_cyber_monday', 'holiday_school_breaks']
     """
+    if mode not in ('fraction', 'binary_point'):
+        raise ValueError(f"mode must be 'fraction' | 'binary_point', got {mode!r}")
+
     if not isinstance(date_series, pd.Series):
         date_series = pd.Series(date_series)
 
@@ -226,17 +329,23 @@ def generate_holiday_dummies(
     else:
         holiday_defs = [h for h in HOLIDAY_DEFINITIONS if h['name'] in holidays]
 
-    # Build holiday date sets per holiday
+    # Build holiday date sets per holiday.
+    # binary_point (decompose моделей v2.0) обязан воспроизводить И точечную
+    # семантику, И СТАРЫЕ окна распродаж (date_range_v20) — β тех моделей
+    # обучены на тех X; новые окна sale_period существуют только в 'fraction'.
     holiday_date_sets: Dict[str, set] = {}
     for h_def in holiday_defs:
         name = h_def['name']
+        range_fn = h_def['date_range']
+        if mode == 'binary_point' and 'date_range_v20' in h_def:
+            range_fn = h_def['date_range_v20']
         dates_set: set = set()
         for year in years_in_data:
-            year_dates = h_def['date_range'](year)
+            year_dates = range_fn(year)
             dates_set.update(year_dates)
             # Also include preceding year holiday (since some span year boundary)
             try:
-                prev_year_dates = h_def['date_range'](year - 1)
+                prev_year_dates = range_fn(year - 1)
                 dates_set.update(prev_year_dates)
             except Exception:
                 pass
@@ -244,10 +353,183 @@ def generate_holiday_dummies(
 
     # Build DataFrame
     df = pd.DataFrame(index=date_series.index)
+
+    if mode == 'binary_point':
+        for name, dates_set in holiday_date_sets.items():
+            df[name] = date_series_dates.isin(dates_set).astype(int)
+        return df
+
+    # mode == 'fraction': доля дней периода строки, попавших в окно события.
+    valid_dates = [d for d in date_series_dates if d is not pd.NaT and d is not None]
+    step_days = _infer_step_days(sorted(valid_dates))
+    periods = []
+    for d in date_series_dates:
+        if d is pd.NaT or d is None:
+            periods.append(None)
+            continue
+        periods.append(_row_period(d, step_days))
+
     for name, dates_set in holiday_date_sets.items():
-        df[name] = date_series_dates.isin(dates_set).astype(int)
+        values = []
+        for period in periods:
+            if period is None:
+                values.append(0.0)
+                continue
+            start, end = period
+            period_len = (end - start).days + 1
+            overlap = sum(1 for wd in dates_set if start <= wd <= end)
+            values.append(round(overlap / period_len, 4))
+        df[name] = values
 
     return df
+
+
+# ─── Семантический дедуп имён (аудит 2026-07-05, углублён по решению Антона) ──
+# Дедуп авто-инжекта с ручными колонками шёл по ТОЧНОМУ имени → юзерская
+# `holiday_blackfriday` не гасила авто `holiday_black_friday`, обе уходили в
+# модель (частичный двойной учёт события). Расширено: клиент НЕ знает нашу
+# конвенцию префикса `holiday_` и назовёт колонку `black_friday` / `blackfriday`
+# / `чёрная_пятница` / `8_марта` — их тоже надо опознать и погасить авто-дубль.
+#
+# 🔴 АСИММЕТРИЯ РИСКА (ключевой принцип дизайна): ЛОЖНОЕ гашение ОПАСНЕЕ
+# пропущенного. Пропустили → двойной учёт (оба контроля в модели, слегка
+# коллинеарны — терпимо). Ложно погасили → контроль ПОТЕРЯН → эффект праздника
+# уходит в медиа (OVB, завышенный ROI — молча). Поэтому:
+#   1. Алиасы — КУРИРУЕМЫЙ whitelist специфичных «ядер», НЕ автоген из имени.
+#      Никаких голых коротких неоднозначных слов (may/russia/unity/march) —
+#      только полные формы: не погасит mayonnaise_sales / russian_market /
+#      community_reach / marchmadness_promo.
+#   2. Дата-формы (8марта, 23февраля, 4ноября) специфичны цифрой месяца.
+#   3. _alias_matches: короткий безцифровой алиас (<5) сматчит ТОЛЬКО точным
+#      равенством норм-имён (страховка на случай будущего короткого алиаса).
+#   4. ТОЧНОЕ совпадение с авто-именем покрывает РОВНО его (не расширяется на
+#      алиасы) — клиент, скопировавший наш шаблон, получает точное намерение.
+
+_MIN_SUBSTRING_ALIAS = 5  # ниже — только точное равенство (если нет цифры)
+
+# Курируемые алиасы события БЕЗ префикса holiday_ (варианты имени + синонимы
+# RU/EN + дата-формы). ⚠️ Добавляя алиас — держи его специфичным (длинным или
+# с цифрой месяца): substring-матч на коротком слове ложно гасит контроль.
+_HOLIDAY_ALIASES: Dict[str, tuple] = {
+    # Общий `newyear`/`новыйгод` намеренно в ОБОИХ НГ-событиях: клиент, назвавший
+    # колонку обобщённо «Новый год», берёт весь НГ-период на себя → гасим оба
+    # авто-дубля (а не плодим их рядом). Точное имя авто-события этот общий
+    # алиас не задевает (см. приоритет точного совпадения в user_covered_*).
+    'holiday_newyear_preshop': (
+        'newyear', 'новыйгод', 'newyearshopping', 'newyeargifts', 'предновогодн',
+    ),
+    'holiday_newyear_postsale': (
+        'newyear', 'новыйгод', 'newyearsale', 'newyearpostsale',
+        'новогодниераспродажи', 'январскиераспродажи', 'январскиеканикулы',
+    ),
+    # ⚠️ НЕ голое 'валентин': имя человека в названии колонки («Валентина_план»)
+    # дало бы ложное срабатывание — только событийные формы.
+    'holiday_valentine': (
+        'valentine', 'валентинк', 'деньвалентина', 'деньсвятоговалентина',
+        'деньвлюблённых', 'деньвлюбленных',
+        '14февраля', '14february', 'february14',
+    ),
+    'holiday_defender_day': (
+        'defenderday', 'деньзащитника', '23февраля', '23february', 'february23',
+    ),
+    'holiday_march8': (
+        'march8', '8march', '8марта', 'womensday', 'internationalwomensday',
+        'женскийдень', 'международныйженскийдень',
+    ),
+    'holiday_may_holidays': (
+        'mayholidays', 'майскиепраздники', 'майские', '1мая', '9мая',
+        'деньпобеды', 'victoryday', 'labourday',
+    ),
+    'holiday_russia_day': (
+        'russiaday', 'деньроссии', '12июня', 'june12',
+    ),
+    'holiday_back_to_school': (
+        'backtoschool', 'back2school', 'ктошколе', 'кшколе', '1сентября',
+        'backtoschoolseason',
+    ),
+    'holiday_unity_day': (
+        'unityday', 'деньнародногоединства', 'народногоединства',
+        '4ноября', 'november4',
+    ),
+    'holiday_black_friday': (
+        'blackfriday', 'чёрнаяпятница', 'чернаяпятница', 'блэкфрайдей',
+    ),
+    'holiday_cyber_monday': (
+        'cybermonday', 'киберпонедельник', 'кибермонди',
+    ),
+    'holiday_school_breaks': (
+        'schoolbreaks', 'школьныеканикулы', 'каникулы',
+    ),
+}
+
+
+def normalize_holiday_name(name: str) -> str:
+    """Каноническая форма имени для сравнения: lower + без разделителей.
+
+    'holiday_black_friday' == 'holiday_blackfriday' == 'Holiday Black-Friday'.
+    """
+    return re.sub(r'[\s_\-]+', '', str(name).lower())
+
+
+def _alias_matches(alias: str, col_norm: str) -> bool:
+    """Норм-имя колонки опознаётся алиасом события.
+
+    Длинный (≥_MIN_SUBSTRING_ALIAS) или содержащий цифру алиас — substring-матч
+    (ловит префиксы/суффиксы клиента: promo_black_friday_2024). Короткий
+    безцифровой — только точное равенство (страховка от ложных гашений)."""
+    if len(alias) >= _MIN_SUBSTRING_ALIAS or any(ch.isdigit() for ch in alias):
+        return alias in col_norm
+    return alias == col_norm
+
+
+def is_holiday_like_name(name: str) -> bool:
+    """Имя колонки — событийная дамми (точное авто-имя ИЛИ курируемый алиас).
+
+    SSOT-предикат для ОБОИХ детекторов (аудит №4, 2026-07-05): клиентская
+    колонка `black_friday`/`8_марта`/`чёрная_пятница` без нашего префикса
+    обязана получить роль control (validator) и kind 'holiday' (classify) —
+    иначе она unused, а дедуп гасит авто-инжект → контроль события ТЕРЯЕТСЯ
+    полностью (хуже дубля: OVB молча). Анти-ложная защита та же, что у дедупа
+    (whitelist специфичных ядер + гейт длины _alias_matches).
+    """
+    col_norm = normalize_holiday_name(name)
+    if not col_norm:
+        return False
+    for h in HOLIDAY_DEFINITIONS:
+        if col_norm == normalize_holiday_name(h['name']):
+            return True
+        if any(_alias_matches(a, col_norm) for a in _HOLIDAY_ALIASES.get(h['name'], ())):
+            return True
+    return False
+
+
+def user_covered_auto_holidays(existing_columns: List[str]) -> set:
+    """Авто-праздники, уже покрытые колонками пользователя.
+
+    Инжект обязан их пропустить: ручная колонка = источник истины пользователя,
+    авто-дубль (в т.ч. с иным написанием или без префикса holiday_) дал бы
+    двойной учёт события. Порядок: (1) точное совпадение норм-имени с авто-именем
+    покрывает РОВНО его; (2) иначе — курируемые алиасы (могут покрыть несколько
+    родственных событий, напр. общий «Новый год» → оба НГ-окна).
+
+    Returns:
+        set канонических имён авто-праздников (из HOLIDAY_DEFINITIONS),
+        конфликтующих с existing_columns.
+    """
+    existing_norm = {n for n in (normalize_holiday_name(c) for c in existing_columns) if n}
+    auto_norms = {normalize_holiday_name(h['name']): h['name'] for h in HOLIDAY_DEFINITIONS}
+    covered: set = set()
+    for col_norm in existing_norm:
+        # 1. Точное совпадение с авто-именем → покрывает РОВНО его.
+        if col_norm in auto_norms:
+            covered.add(auto_norms[col_norm])
+            continue
+        # 2. Иначе — курируемые алиасы (без-префиксные / синонимы / даты).
+        for h in HOLIDAY_DEFINITIONS:
+            name = h['name']
+            if any(_alias_matches(a, col_norm) for a in _HOLIDAY_ALIASES.get(name, ())):
+                covered.add(name)
+    return covered
 
 
 def detect_holiday_collinearity(
@@ -289,9 +571,11 @@ def detect_holiday_collinearity(
     MERGE_RECOMMENDED_THRESHOLD = 0.85
 
     for h1, h2 in combinations(holiday_cols, 2):
-        overlap_count = ((holidays_df[h1] == 1) & (holidays_df[h2] == 1)).sum()
-        h1_count = max(1, holidays_df[h1].sum())
-        h2_count = max(1, holidays_df[h2].sum())
+        # Активность периода = значение > 0: работает и для legacy binary 0/1,
+        # и для fraction-долей v2.1 (0.1 «ЧП заняла 3 дня ноября» — период активен).
+        overlap_count = ((holidays_df[h1] > 0) & (holidays_df[h2] > 0)).sum()
+        h1_count = max(1, int((holidays_df[h1] > 0).sum()))
+        h2_count = max(1, int((holidays_df[h2] > 0).sum()))
         # Use smaller denominator для proportion (small holiday vs large)
         overlap_pct = overlap_count / min(h1_count, h2_count)
 
@@ -339,12 +623,13 @@ def list_holiday_names() -> List[str]:
 
 
 def get_holiday_metadata(holiday_name: str) -> Optional[Dict[str, str]]:
-    """Get description + category для конкретного holiday."""
+    """Get description + category + window_kind для конкретного holiday."""
     for h in HOLIDAY_DEFINITIONS:
         if h['name'] == holiday_name:
             return {
                 'name': h['name'],
                 'category': h['category'],
+                'window_kind': h.get('window_kind', 'calendar_period'),
                 'description': h['description'],
             }
     return None

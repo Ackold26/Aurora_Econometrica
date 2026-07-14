@@ -8,7 +8,7 @@
   import CabinetCard from '$lib/components/CabinetCard.svelte';
   import BrandSelector from '$lib/components/BrandSelector.svelte';
   import AetherLogo from '$lib/components/AetherLogo.svelte';
-  import { activeProject, resetForNewAnalysis, PIPELINE_STEPS, showIntroTutorial } from '$lib/project-state.js';
+  import { activeProject, activeProjectId, resetForNewAnalysis, PIPELINE_STEPS, showIntroTutorial } from '$lib/project-state.js';
   import SkeletonCard from '$lib/components/SkeletonCard.svelte';
   import { milestones } from '$lib/psy.js';
 
@@ -42,7 +42,7 @@
       creatingBrand = false;
     }
   }
-  import DigitalClock from '$lib/components/DigitalClock.svelte';
+  import SessionTimer from '$lib/components/SessionTimer.svelte';
 
   import { filterCabinetsByProduct, getProductName } from '$lib/command-meta.js';
   import { LockKeyhole, Package } from 'lucide-svelte';
@@ -165,6 +165,22 @@
 
   onMount(() => {
     window.addEventListener('keydown', handleHomeKeydown);
+    // F1 (2026-07-02): гидрировать активный проект в стор на холодном старте,
+    // чтобы показать «Продолжить проект →». Backend знает активный (active_project.json),
+    // но фронт-стор пуст до захода в ProjectSelector/pipeline. Ставим ТОЛЬКО стор
+    // (id + info); pipeline data-сторы гидрирует /pipeline через resetPipeline (LOAD-1).
+    (async () => {
+      try {
+        const id = await invoke('project_get_active');
+        if (id) {
+          const info = await invoke('project_get', { projectId: id });
+          activeProjectId.set(id);
+          activeProject.set(info);
+        }
+      } catch (e) {
+        // нет активного проекта или ошибка — просто без кнопки «Продолжить»
+      }
+    })();
     return () => window.removeEventListener('keydown', handleHomeKeydown);
   });
 
@@ -201,13 +217,12 @@
     <div class="topbar-left">
       <img src="/logo-horizon.png" alt="Aurora AI" class="topbar-logo" />
       <div class="brand">
-        <span class="brand-product">ECONOMETRICA</span>
-        <span class="brand-sub">OPTIMIZER MMM</span>
+        <span class="brand-rosst">ECONOMETRICA</span>
+        <span class="brand-sub">MMM Optimizer</span>
       </div>
     </div>
     <div class="topbar-center">
-      <DigitalClock />
-      <span class="tz-label">МСК</span>
+      <SessionTimer />
     </div>
     <nav class="topbar-right">
       {#if $isCreativeHub && $brands.length > 0}
@@ -324,17 +339,39 @@
           alt="Aurora AI"
           class="hero-logo"
         />
-        <div class="pipeline-promo">
-          <div class="pipeline-promo-icon">
-            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="var(--accent, #3b82f6)" stroke-width="1.5" stroke-linecap="round">
-              <path d="M3 3v18h18"/><path d="M7 16l4-5 4 3 4-7"/>
-            </svg>
+        <div class="pipeline-promo pipeline-promo-rich">
+          <div class="promo-head">
+            <div class="promo-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M3 3v18h18"/><path d="M7 16l4-5 4 3 4-7"/>
+              </svg>
+            </div>
+            <div class="promo-head-text">
+              <h2 class="promo-title">MMM БЮДЖЕТИРОВАНИЕ И ОПТИМИЗАЦИЯ</h2>
+              <span class="promo-tagline">Определение размера бюджета и его распределения по каналам – на данных, а не на интуиции</span>
+            </div>
           </div>
-          <h2 class="pipeline-promo-title">Визуальный пайплайн</h2>
-          <p class="pipeline-promo-desc">
-            6-шаговый MMM-анализ с интерактивными графиками:<br>
+
+          <div class="promo-sections">
+            <div class="promo-section">
+              <h3>Когда использовать</h3>
+              <p>Когда размер рекламного бюджета и его распределение между каналами нужно обосновать расчётом на данных, а не экспертной оценкой.</p>
+            </div>
+            <div class="promo-section">
+              <h3>Что получите</h3>
+              <p>Обоснованный размер бюджета под цель по продажам, затем – оптимальное распределение по каналам, декомпозицию вклада каждого канала и прогноз результата.</p>
+            </div>
+            <div class="promo-section promo-section-typical">
+              <h3>Типичные задачи</h3>
+              <p>Определить оптимальный размер бюджета кампании, распределить его между каналами, оценить окупаемость и просчитать сценарии «что если».</p>
+            </div>
+          </div>
+
+          <p class="promo-process">
+            <span class="promo-process-label">Процесс</span>
             <span class="pipeline-steps-line">{PIPELINE_STEPS.map(s => s.labelRu).join(' → ')}</span>
           </p>
+
           <div class="pipeline-promo-actions">
             {#if $activeProject}
               <button
@@ -352,6 +389,10 @@
             >
               Новый проект
             </button>
+            <!-- «Причинность →» СКРЫТА с главной 2026-07-02 (решение Антона): модуль
+                 Sprint 3 Pharma Causal экспериментальный (v1.0.14-rc, был тупик навигации,
+                 не локализован). Вернуть после доработки (навигация + локализация RU +
+                 валидация на реальных данных). Роут /causal остаётся рабочим.
             {#if $activeProject}
               <button
                 class="pipeline-promo-btn pipeline-promo-secondary"
@@ -361,6 +402,8 @@
                 Причинность →
               </button>
             {/if}
+            -->
+
           </div>
           <!-- ONBOARD-1: теория MMM теперь по желанию (opt-in), не авто-старт. -->
           <button type="button" class="pipeline-promo-learn" onclick={() => showIntroTutorial.set(true)}>
@@ -415,7 +458,8 @@
   .brand {
     display: flex;
     flex-direction: column;
-    gap: 0px;
+    align-items: flex-start;
+    gap: 5px;
     line-height: 1;
   }
 
@@ -424,21 +468,31 @@
     width: auto;
   }
 
-  .brand-product {
-    font-size: 15px;
-    font-weight: 800;
-    letter-spacing: 0.08em;
-    color: var(--text-primary);
+  .brand-rosst {
+    /* Чип названия продукта (Aurora design SSOT §2, эталон DocMaster) —
+       пилюля accent-цветом, адаптируется к теме (blue/navy/coffee). */
+    font-size: 11.5px;
+    font-weight: 600;
+    letter-spacing: 0.14em;
     text-transform: uppercase;
+    color: var(--accent-primary);
+    border: 1px solid color-mix(in srgb, var(--accent-primary) 40%, transparent);
+    background: color-mix(in srgb, var(--accent-primary) 8%, transparent);
+    padding: 4px 11px;
+    border-radius: 999px;
   }
 
   .brand-sub {
-    font-size: 10px;
+    /* Вторичный чип продукта — приглушённая капсула под основным «ECONOMETRICA». */
+    font-size: 9.5px;
     font-weight: 600;
-    letter-spacing: 0.18em;
-    color: var(--text-secondary);
+    letter-spacing: 0.12em;
     text-transform: uppercase;
-    margin-top: 2px;
+    color: var(--text-secondary);
+    border: 1px solid var(--border);
+    background: color-mix(in srgb, var(--text-primary) 5%, transparent);
+    padding: 3px 9px;
+    border-radius: 999px;
   }
 
 
@@ -449,13 +503,6 @@
     display: flex;
     align-items: center;
     gap: 6px;
-  }
-
-  .tz-label {
-    font-size: 10px;
-    color: var(--text-muted);
-    letter-spacing: 0.05em;
-    font-weight: 500;
   }
 
   .topbar-right {
@@ -967,7 +1014,7 @@
     align-items: center;
     gap: 32px;
     width: 100%;
-    max-width: 520px;
+    max-width: 900px;
   }
 
   .hero-logo {
@@ -983,36 +1030,87 @@
   .pipeline-promo {
     display: flex;
     flex-direction: column;
-    align-items: center;
-    gap: 12px;
-    padding: 40px 48px;
+    align-items: stretch;
+    gap: 16px;
+    padding: 28px 32px;
     background: color-mix(in srgb, var(--accent-primary) 6%, transparent);
     border: 1px solid color-mix(in srgb, var(--accent-primary) 20%, transparent);
     border-radius: 16px;
     width: 100%;
-    max-width: 520px;
-    text-align: center;
+    max-width: 900px;
+    text-align: left;
     animation: promoFadeIn 0.3s ease-out;
   }
   @keyframes promoFadeIn { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
-  .pipeline-promo-icon { margin-bottom: 4px; }
-  .pipeline-promo-title { font-size: 20px; font-weight: 700; color: var(--text-primary); margin: 0; }
-  .pipeline-promo-desc {
-    font-size: 13px;
-    color: var(--text-secondary);
-    line-height: 1.7;
+
+  /* ── Rich promo (эталон облика — DocMaster CabinetCard) ── */
+  .promo-head {
+    display: grid;
+    grid-template-columns: 46px 1fr;
+    column-gap: 16px;
+    align-items: center;
+    padding-bottom: 14px;
+    border-bottom: 1px solid var(--hover-bg);
+  }
+  .promo-icon { width: 46px; height: 46px; color: var(--accent-primary); flex-shrink: 0; }
+  .promo-icon svg { width: 100%; height: 100%; }
+  .promo-head-text { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+  .promo-title {
+    font-size: 19px;
+    font-weight: var(--font-weight-heading, 700);
+    letter-spacing: -0.01em;
+    color: var(--text-primary);
     margin: 0;
-    text-align: center;
+    line-height: 1.15;
+  }
+  .promo-tagline { font-size: 12px; color: var(--text-secondary); line-height: 1.35; }
+
+  .promo-sections {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 22px;
+  }
+  .promo-section { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
+  .promo-section h3 {
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.08em;
+    color: var(--text-muted);
+    margin: 0;
+  }
+  .promo-section p { font-size: 12.5px; color: var(--text-secondary); line-height: 1.5; margin: 0; }
+  .promo-section-typical p { font-style: italic; color: var(--text-muted); }
+  @media (max-width: 920px) {
+    .promo-sections { grid-template-columns: 1fr; gap: 14px; }
+  }
+
+  .promo-process {
+    display: flex;
+    justify-content: center;
+    align-items: baseline;
+    gap: 8px;
+    margin: 18px 0 0;
+    font-size: 12px;
+    color: var(--text-secondary);
+    flex-wrap: wrap;
+  }
+  .promo-process-label {
+    text-transform: uppercase;
+    letter-spacing: 0.07em;
+    font-size: 10px;
+    font-weight: 700;
+    color: var(--text-muted);
   }
   .pipeline-steps-line {
     display: inline-block;
-    margin-top: 4px;
     white-space: nowrap;
     color: var(--text-primary);
     font-weight: 500;
   }
-  .pipeline-promo-actions { display: flex; gap: 12px; margin-top: 8px; }
+  .pipeline-promo-actions { display: flex; justify-content: center; flex-wrap: wrap; gap: 12px; margin-top: 4px; }
   .pipeline-promo-learn {
+    align-self: center;
     margin-top: 12px;
     padding: 0;
     background: none;
@@ -1027,16 +1125,17 @@
   .pipeline-promo-learn:hover { color: var(--accent, #3b82f6); }
   /* Action buttons - same size, shape, font-weight; differ only by color */
   .pipeline-promo-btn {
-    padding: 7px 16px;
-    font-size: 12px;
+    padding: 11px 28px;
+    font-size: 13.5px;
     font-weight: 600;
-    border-radius: 7px;
+    border-radius: 9px;
     border: 1px solid transparent;
     cursor: pointer;
     transition: all 0.15s;
     font-family: inherit;
     line-height: 1.2;
     white-space: nowrap;
+    letter-spacing: -0.005em;
   }
 
   /* Primary - solid accent */

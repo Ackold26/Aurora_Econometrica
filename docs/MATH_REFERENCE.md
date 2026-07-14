@@ -3,7 +3,7 @@
 **Purpose:** centralized math reference for all model components. Versioned sections per release.
 Replaces sprawled MATH_AUDIT_v1_*.md files (single source of truth).
 
-**Last updated:** 2026-04-28 (v1.2.0 development - Awareness KPI + Weibull Learnable; doc-extension session)
+**Last updated:** 2026-07-02 (мат-аудит ядра: Goal-Seek delta_posterior CI + p_hit + маркеры экстраполяции goal-seek/scenario; Hill overflow-предел; H11 status-честность)
 
 ---
 
@@ -608,7 +608,47 @@ Optimizer оперирует с total spend per channel (scalar), Hill ожид�
 | Posterior mean | Interactive sliders, real-time UI | Fast (1 SLSQP run) | point estimate |
 | Full per-draw | Final acceptance + uncertainty band | 100-500× slower (~1000 SLSQP runs) | distribution + HDI |
 
-UI toggle "Use full posterior" для accuracy mode. Default = posterior mean.
+> **Status (обновлено A4/OPP-04, 2026-07-03):** CI на оптимальный сплит долей
+> **РЕАЛИЗОВАН**: `optimize/split_ci.py::optimal_split_ci` — пере-оптимизация
+> SLSQP на подвыборке 50–100 posterior-draws → распределение оптимальных долей
+> → 90% HDI (SSOT `compute_ci_hdi`); формула отклика per-draw через
+> `evaluate_flat_allocation_response` (I8, без дублирования). Выход: «доля A
+> 38% [27–46%]» + пары каналов с перекрывающимися HDI («разница статистически
+> не выделяется», канон Jin 2017). Endpoint `/optimize/split-ci` + Rust
+> `econ_optimize_split_ci`; ~3–5 с на 60 draws → отдельная кнопка, не
+> интерактив. Тесты: `tools/test_split_ci.py` (narrow HDI≈0.05 ≪ wide≈0.40).
+> Прежний Status (F-05): full per-draw «UI toggle» в optimizer.py остаётся
+> НЕ реализованным дизайном; реализованное семейство — mROAS CI
+> (`_compute_mroas_money_samples`) + split-CI (этот блок).
+
+### Goal-Seek (inverse) — неопределённость и честность (мат-аудит 2026-07-02)
+
+**Module:** `sidecar/econometrica/optimize/inverse.py` · tests: `tools/test_goalseek_honesty.py`
+
+1. **CI бюджета — `delta_posterior`.** Прежний Delta-прокси `spread = |S(B+δ)−S(B−δ)|/2 ≈
+   |grad|·δ` алгебраически схлопывал `half = 1.28·spread/|grad|` в константу `1.28·δ`
+   (~±6.4% бюджета) — CI не зависел от неопределённости модели (зонд: posterior sd
+   β 0.05 и 0.45 → одинаковые 12.80% отн. ширины). Теперь при наличии posterior:
+   `sd(B) = z₀.₉ · sd_posterior(S(B*)) / |∂S/∂B|`, где `sd_posterior(S)` — std
+   per-sample forward через ту же `evaluate_flat_allocation_response` (SSOT формулы,
+   I8-alignment; intercept-разброс включён; epistemic, без σ_obs). Атрибуция: Gelman,
+   *Bayesian Workflow* — неопределённость поддерживается posterior-симуляциями;
+   Delta-аппроксимация — метод эпохи до симуляций. Fallback `delta` (старый прокси)
+   сохраняется для OLS/legacy-pickle. `capped=True` (упор в cap 50% ширины — почти
+   плоская кривая) поднимает UI-баннер насыщения наравне с `flat_response_fallback`.
+2. **P(достижения) — `p_hit_method='posterior'`.** Прежняя эвристика давала ≈0.5
+   всегда (бисекция останавливается на `S(B*)≈target` → z≈0). Теперь — доля posterior
+   draws ≥ цели. NB: на самом B* доля ~0.5 by construction (медиана у цели) —
+   осмысленна при пользовательском max_budget-капе; развитие «бюджет под P=80%»
+   (квантильная бисекция) — OPP-02.
+3. **Маркер экстраполяции.** `result['extrapolation'] = {severity 0..3, channels[]}` —
+   per-period рекомендованные траты канала против p95/p99 наблюдавшихся
+   (канонические тиры `utils/forecast_validation.extrapolation_severity`). Диапазон
+   бисекции `budget_hi = 5×current` сознательно шире safe-коридора (GS-1), но
+   рекомендация честно помечает выход за наблюдённый диапазон (Chan & Perry 2017,
+   Fig. 2: кривая вне наблюдённого диапазона не идентифицируется данными).
+   Аналогичный маркер возвращает `scenario.predict_scenario` (F-04): пик per-period
+   плана vs p95/p99 истории канала.
 
 ---
 
@@ -737,6 +777,17 @@ hill = x_norm**α / (x_norm**α + γ**α + 1e-12)     # γ=0 edge защищён
 
 В HTML report ранее ловили `media_mean=0 → NaN propagation` (Sprint 5 post-audit, commit `b68cf5b` 2026-04-27). Защита: 5 div-by-zero guards в `what_if.js`.
 
+**Overflow-предел (мат-аудит 2026-07-02, F-09):** `x**α` переполняется при
+x ≳ 1e154 (α=2) → прежде `inf/inf = NaN` тихо уплывал в JSON как null. Теперь
+`utils/saturation.py` (все 4 варианта: hill_function / batch / batch_2d /
+derivative_batch) возвращает честный математический предел `hill(x→∞)=1.0`,
+`hill'(x→∞)=0.0`. Нормальный диапазон byte-exact (формула не менялась — проверено
+`tools/test_hill_numerics.py::test_normal_range_byte_exact_vs_direct_formula`);
+NaN-вход НЕ маскируется. Известные документированные крайние свойства (не баги):
+производная при α<1, x→0 стремится к ∞ (истинная математика C-shape; смягчено
+floor 1e-10); α<0 математически инвертирует кривую — из posterior недостижимо
+(Gamma-prior > 0), defensive-проверка не добавлена (горячий путь).
+
 ### Geometric adstock (boundary θ)
 
 ```python
@@ -765,6 +816,15 @@ numpyro_jax (primary) → pymc_nuts → ADVI → ERROR
 
 **Metropolis-Hastings явно ИСКЛЮЧЁН** - на Adstock+Hill geometry даёт `R-hat > 2.0` (false-green выводы). Explicit comment `modeler.py:484`: «Adstock/Hill он даёт r_hat > 2.0 (ложный зелёный результат…)».
 
+### count-KPI money conversion (задокументированное допущение)
+
+`contribution_money = contribution_count × kpi_unit_cost` (ADR-021) предполагает
+**kpi_unit_cost константным во времени** (мат-аудит 2026-07-02, F-19). Если цена
+единицы KPI существенно менялась внутри периода обучения, money-ROI смещён
+пропорционально дрейфу цены. Для медиа-стороны инфляция CPP обрабатывается
+(`unit_cost_inflation`, weighted-average training cost); для KPI-стороны —
+допущение, вносить только при явной потребности клиента.
+
 ### Pickle version comparison
 
 `_parse_version()` парсит `'X.Y'`/`'X.Y.Z'` → tuple. Защищает от lex-compare bug (`'1.10' < '1.3'` ложно `True` при string compare). `'1.0-ols'` обрабатывается отдельно через regex.
@@ -792,11 +852,19 @@ assert np.percentile(y_pred_prior, 95) < 100      # ≤ ceiling
 assert np.std(y_pred_prior) < 5 * np.std(y_observed)  # not absurdly diffuse
 ```
 
-**Status (2026-04-28):** не integrated в pipeline. Priors validated через:
+**Status (актуализировано мат-аудитом 2026-07-02, F-13):** реализовано в
+`utils/reliability_a4.py::prior_predictive_check` (симуляция из priors,
+matching modeler; coverage-пороги 0.80/0.50) и вызывается:
+1. `/compute/preflight` (S1) — **однако endpoint НЕ подключён к UI** (Rust-команды
+   нет, фронт зовёт train напрямую) — до 2026-07-02 гейт не доставлялся;
+2. **in-train preflight** (modeler.py, перед MCMC): quick_proxy + prior_predictive
+   (300 samples) → `diagnostics['preflight']` → model-diagnostics.json →
+   `optimizer_honesty` (prior predictive **fail** → вердикт uncertain).
+   Атрибуция: McElreath ([ASSUMED]-priors обязаны пройти проверку до данных);
+   Gelman, *Bayesian Workflow* §5.10. Полноценный UX-гейт до кнопки «Обучить» —
+   OPP-05. Priors также validated через:
 - `test_kpi_registry.py::test_sales_config_priors_match_trust3_frozen` - frozen-values regression guard
 - `test_regression_pin_kagocel.py` - synthetic pickle hash drift detection
-
-Полноценная prior predictive simulation - задача Z (post-ship telemetry/regression) в плане.
 
 ---
 
@@ -810,7 +878,17 @@ assert np.std(y_pred_prior) < 5 * np.std(y_observed)  # not absurdly diffuse
 | `divergent transitions` | > 5% draws | **WARN** - recommend reparam (z-score non-centered already applied) | NUTS standard |
 | `ESS_bulk` | < 400 | **WARN** - chains недостаточно informative | Vehtari et al. 2021 |
 | `ESS_tail` | < 400 | **WARN** - extreme quantiles unreliable | Vehtari et al. 2021 |
-| `BFMI` | < 0.3 | **WARN** - energy mismatch, posterior geometry hard | Betancourt 2018 |
+| `BFMI` | < 0.3 | **WARN** - energy mismatch, posterior geometry hard | эвристика Stan/PyMC (у Betancourt 2016 жёсткого порога нет) |
+
+> **Status (мат-аудит 2026-07-02, F-11/F-12):** до этой даты строки ESS/BFMI были
+> декларацией без кода (diagnostics.py их не знал; собирался только per-channel
+> tail_ess_ok без потребителя в вердикте). Реализовано: modeler.py собирает
+> `ess_bulk_min`/`ess_tail_min` (min по β/α/γ/decay/intercept) + `bfmi_min`
+> (min по цепям, NUTS-only) → `metrics` + `checks.ess`/`checks.bfmi`
+> (ключи только при измеренных значениях; unknown ≠ pass) →
+> `optimizer_honesty.model_reliability_verdict` понижает вердикт до **uncertain**
+> (совет + громкий caveat). MQS-формула сознательно НЕ изменена. Тесты:
+> `tools/test_ess_bfmi_gate.py`.
 | Posterior predictive p-value | < 0.05 OR > 0.95 | **INFO** - model misspecification suspect | convention |
 
 > **Note on R-hat threshold:** Vehtari et al. 2021 ("Rank-normalization, folding, and localization") recommends **stricter R-hat < 1.01** для improved Ȓ statistic. Aurora использует более lenient `1.1` (Gelman-Rubin 1992 historical convention), что разумно для production MMM где occasionally noisy posteriors допустимы. Sprint 4+ enhancement: tighten к 1.01 после real-world coverage validation.
@@ -913,6 +991,76 @@ model_data.setdefault('feature_flags_used', [])
 - `decomposer.py` отклоняет `model_version < '1.1'` → returns `MODEL_OUTDATED` error → UI шлёт user retrain.
 - `optimizer.py` принимает `>= 1.1` (с graceful fallback на `decay=0.5` если `< 1.1.1`).
 - `narrative_adapter.py` версия-aware для Trust 3 sections (skip brand/perf split если `< 1.3`).
+
+---
+
+## Trust loop E1–E4 (ROADMAP v3, 2026-07-03/04)
+
+Петля доверия «предсказание → факт → калибровка». Математика четырёх механик
+и их канон — здесь; доставка/тесты — в `docs/audits/{E1_BACKTEST,E3_LIFECYCLE,E2_E4}_2026_07.md`.
+
+### E1 Rolling-origin backtest (`engines/backtest.py::run_rolling_backtest`)
+
+- Окна без нахлёста «кварталами» гранулярности (M→3, W→13, D→90): обучение
+  на `[0..k)`, прогноз `[k..k+h)` против факта; k скользит. Канон out-of-sample:
+  Gelman BW §9.4 (CV-predictive checking > in-sample PPC), McElreath §7.5,
+  Robyn 2024 (ts_validation).
+- Главная метрика — coverage 90% PI, два разреза: per-period и per-window
+  («X из Y кварталов» — тотал окна против HDI суммы).
+- **Предиктивный интервал, не интервал средней (D-10, живой Kagocel-урок):**
+  HDI сценария = неопределённость параметров; факт содержит ε_t. Гауссова
+  квадратура: `hw_pred = √(hw_mean² + (z₉₀·σ)²)`, σ ≈ in-sample RMSE окна
+  (native); тотал окна ⊕ `√h·z₉₀·σ`. `pi_method='posterior_predictive_90'`;
+  без RMSE — честный `posterior_hdi_90_mean_only`. OLS-путь — conformal
+  (уже включает остатки). Точный вариант (σ-samples в pickle) — backlog.
+- Наивные бенчмарки: naive-last + seasonal-naive (сезон по гранулярности);
+  сравнение с ЛУЧШИМ; проигрыш → вердикт `worse_than_naive` без смягчений.
+
+### E3 Сравнение поколений + дрейф (`engines/model_compare.py`)
+
+- Поколения: авто-архив modeler'ов (`models/history/model-*.pkl` + params-снимок,
+  ротация 5; паритет OLS восстановлен F-E3-2).
+- Сравнение: обе версии считаются ОДНИМ каноническим decompose-путём
+  (additive `model_path`, `save_results=False`); семантика — «обе модели на
+  сегодняшних данных» (persistence-repair y_actual, F-E3-3).
+- Вердикт сдвига ROI per-channel — перекрытие CI поколений (Jin 2017: у
+  оценок есть дисперсия): CI не пересекаются → `shift_strong`; пересекаются
+  и |Δ|/|roi_old| < 0.15 → `stable`; иначе `shift_within_ci`. Без CI —
+  `point_only` с теми же порогами (0.15/0.5). `DECAY_SHIFT_ABS=0.15`.
+- Дрейф: прогноз архивной моделью хвоста данных новее её окна обучения
+  (predict_scenario через времянку) → MAPE хвоста против train-MAPE поколения
+  (порог `×1.5` или `+10 пп`) и наивных; хвост < 3 точек → insufficient.
+
+### E2 Калибровка lift-тестами (`utils/calibration.py` + modeler)
+
+- Канон: Robyn 2024 §2.2/§4.3 (калибровка = идентификация, MAPE.LIFT),
+  Jin 2017 (experiments as priors).
+- **Реализация — likelihood-наблюдение, не ручной приор** (β_calib зависит
+  от sat/adstock — курица-яйцо): в PyMC-модель добавляется
+  `lift_obs ~ Normal(Σ_t∈test β_i·sat_i(t), σ_test/y_std)` с
+  `observed = lift_abs/y_std`; α/γ/decay/β согласуются совместно.
+- σ_test из интервала теста: `(hi−lo)/(2·z(level))`, level ∈ {0.8, 0.9, 0.95}.
+- Честность: `pm.Deterministic(calib_contrib)` → после сэмплирования
+  `diagnostics.calibration_check` (mean/CI90 native vs lift, `within_ci`);
+  расхождение НЕ замалчивается (строка в отчёте). OLS — отказ
+  `CALIBRATION_REQUIRES_BAYESIAN`. Характеризующий тест: на синтетике
+  r≈0.97 калиброванная модель ближе к истинному вкладу.
+
+### E4 Прогнозы-обещания (`engines/promises.py`)
+
+- Обещание: ожидание тотала KPI с CI будущего периода (сценарный
+  `predicted_kpi_ci_*` в planner-режиме) + `check_after_index` = длина данных
+  на момент фиксации.
+- Сверка: факт = Σ KPI строк `[check_after : check_after+horizon]`;
+  kept/missed по CI; текст missed всегда с оговоркой «сверка прогноза, не
+  каузальный вывод». Окончательные вердикты не пересматриваются.
+
+### NaN-гигиена HTTP-швов (F-MC-1, Венарус-зонд 2026-07-04)
+
+Файловые записи санитайзились (`sanitize_nonfinite`), а HTTP-ответы
+train-семейства — нет: NaN в диагностике (вырожденный канал) валил
+сериализацию 500-кой. Ответы `/compute/train`, `/compute/train/result/{id}`,
+`/compute/decompose` теперь проходят `sanitize_nonfinite` (NaN→null).
 
 ---
 

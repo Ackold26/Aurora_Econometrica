@@ -23,7 +23,7 @@ from typing import Any
 from . import TEMPLATES_DIR
 from . import themes as themes_mod
 from . import security
-from .sections import SECTION_RENDERERS
+from .sections import SECTION_RENDERERS, _kpi_view, _contrib_scale, _fmt_contrib
 from .interactive import bootstrap_js
 try:
     from econometrica.engines.narrative_adapter import compute_report_id, _normalize_channel_name
@@ -233,6 +233,26 @@ class AuroraHTMLBuilder:
         )
         return bootstrap
 
+    def _period_unit(self) -> str:
+        """Русское «по <единица>» для заголовков timeline из гранулярности дат
+        (detect_granularity). Нерегулярные/пустые/низкая уверенность → нейтральное
+        «по периодам» (П2: не врать «по неделям» на месячных/квартальных данных)."""
+        ts = self.raw_decompose.get("time_series") or {}
+        dates = ts.get("dates") or ts.get("weeks") or []
+        if len(dates) < 2:
+            return "по периодам"
+        try:
+            from utils.forecast_validation import detect_granularity
+            g = detect_granularity(dates)
+            if g.get("confidence", 0.0) < 0.5:
+                return "по периодам"
+            return {
+                "D": "по дням", "W": "по неделям", "M": "по месяцам",
+                "Q": "по кварталам", "Y": "по годам",
+            }.get(g.get("granularity"), "по периодам")
+        except Exception:
+            return "по периодам"
+
     def _chart_data_json(self) -> str:
         """Full ECharts data payload, safely embedded (ensure_ascii=True).
 
@@ -245,6 +265,33 @@ class AuroraHTMLBuilder:
             key=lambda c: float(c.get("mroas") or 0),
             reverse=True,
         )
+
+        # Drill-down вклад: count-aware масштаб+единица per channel (fix
+        # 2026-07-13, INV-50) — раньше жёстко «Вклад, млн ₽» + /1e6, что для
+        # count-KPI занижало значение в 1e6. Строка форматируется здесь (Python),
+        # JS её только показывает.
+        kpi = _kpi_view(self.data)
+        # Единый масштаб drill = как в таблице (по visible топ-10). Иначе для count-KPI
+        # клиент видит РАЗНЫЕ числа одного канала: таблица «0.0 млн лид.» ↔ drill «5 000
+        # лид.» (fix 2026-07-14, аудит: per-channel масштаб рассинхронил drill↔таблицу).
+        drill_scale, drill_unit = _contrib_scale(
+            kpi, [c.get("contribution") for c in self.channels[:10]]
+        )
+        mroas_details = {}
+        for c in self.channels:
+            if not c.get("name"):
+                continue
+            contrib_raw = float(c.get("contribution") or 0)
+            mroas_details[c.get("name")] = {
+                "spend_mln":    round(float(c.get("spend") or 0) / 1e6, 2),
+                "contrib_mln":  round(contrib_raw / 1e6, 2),
+                "contrib_display": _fmt_contrib(contrib_raw, drill_scale),
+                "contrib_label": "Вклад, " + drill_unit,
+                "mroas":        float(c.get("mroas") or 0),
+                "verdict":      c.get("verdict") or "Watch",
+                "current_spend_mln": round(float(c.get("current_spend") or 0) / 1e6, 2),
+                "optimal_spend_mln": round(float(c.get("optimal_spend") or 0) / 1e6, 2),
+            }
 
         # ─── Waterfall (decomposition) ─────────────────────────────────
         waterfall = self.raw_decompose.get("waterfall") or {}
@@ -275,23 +322,55 @@ class AuroraHTMLBuilder:
             except Exception:
                 ds = {"series": []}
         _ds_series = ds.get("series") or []
+        # Т3-плюс (двухуровневость, полная форма — аудит №2 Б-5): timeline несёт
+        # ДВА режима. overview — свёртка в 4 верхние группы (паритет с дефолтом
+        # программы, SSOT collapse_series_to_top_groups); detail — прежний набор
+        # Аудита #12 (reduced baseline + каждый канал + вынесенные факторы).
+        # JS-кнопка «Детально ⇄ Обзор» переключает режимы без пересборки отчёта.
+        from engines.decomposer import collapse_series_to_top_groups
+        _collapsed = collapse_series_to_top_groups(_ds_series)
+        _c_base = next((c for c in _collapsed if c["top_group"] == "БАЗА"), None)
+        _c_media = next((c for c in _collapsed if c["top_group"] == "МЕДИА"), None)
+        # ВНЕШНИЕ/КОНКУРЕНТЫ — полосами с explicit-цветом группы (зеркалит
+        # GROUP_COLORS фронта: amber / red); JS предпочитает f.rgb типовому цвету.
+        _GROUP_HEX = {"ВНЕШНИЕ ФАКТОРЫ": "#f59e0b", "КОНКУРЕНТЫ": "#dc2626"}
+        tl_overview = {
+            "baseline_label": _c_base["name"] if _c_base else "База",
+            "baseline": [float(v) for v in (_c_base["data"] if _c_base else (ts.get("baseline") or []))],
+            "channels": (
+                {_c_media["name"]: [float(v) for v in _c_media["data"]]} if _c_media else {}
+            ),
+            "channel_order": [_c_media["name"]] if _c_media else [],
+            "factors": [
+                {"name": c["name"], "type": None, "group": None,
+                 "rgb": _GROUP_HEX[c["top_group"]],
+                 "side": c["side"], "data": [float(v) for v in c["data"]]}
+                for c in _collapsed if c["top_group"] in _GROUP_HEX
+            ],
+        }
+        # Детальный режим — тот же состав, что до свёртки (канонические серии).
         _base = next((s for s in _ds_series if s.get("role") == "baseline"), None)
-        ts_baseline = _base.get("data") if _base else (ts.get("baseline") or [])
-        # Normalize channel keys to match self.channels names (JS lookup
-        # data.channels[channel_order[i]]).
-        ts_channels: dict[str, list] = {}
-        ts_channel_order: list[str] = []
+        _det_channels: dict[str, list] = {}
+        _det_order: list[str] = []
         for s in _ds_series:
             if s.get("role") != "media":
                 continue
             norm = _normalize_channel_name(s.get("name")) or s.get("name")
-            ts_channels[norm] = s.get("data") or []
-            ts_channel_order.append(norm)
-        ts_factors = [
-            {"name": s.get("name"), "type": s.get("type"), "group": s.get("group"),
-             "side": s.get("side"), "data": [float(v) for v in (s.get("data") or [])]}
-            for s in _ds_series if s.get("role") == "factor"
-        ]
+            _det_channels[norm] = [float(v) for v in (s.get("data") or [])]
+            _det_order.append(norm)
+        tl_detail = {
+            "baseline_label": "Базовый уровень",
+            "baseline": [
+                float(v) for v in ((_base.get("data") if _base else None) or ts.get("baseline") or [])
+            ],
+            "channels": _det_channels,
+            "channel_order": _det_order,
+            "factors": [
+                {"name": s.get("name"), "type": s.get("type"), "group": s.get("group"),
+                 "side": s.get("side"), "data": [float(v) for v in (s.get("data") or [])]}
+                for s in _ds_series if s.get("role") == "factor"
+            ],
+        }
 
         # ─── Optimize comparison ───────────────────────────────────────
         opt_chs = self.raw_optimize.get("channels") or []
@@ -321,17 +400,7 @@ class AuroraHTMLBuilder:
                 "values": [float(c.get("mroas") or 0) for c in channels_sorted_m],
                 "hero":   channels_sorted_m[0].get("name") if channels_sorted_m else None,
                 # Drill-down details per channel (for side-panel)
-                "details": {
-                    c.get("name"): {
-                        "spend_mln":    round(float(c.get("spend") or 0) / 1e6, 2),
-                        "contrib_mln":  round(float(c.get("contribution") or 0) / 1e6, 2),
-                        "mroas":        float(c.get("mroas") or 0),
-                        "verdict":      c.get("verdict") or "Watch",
-                        "current_spend_mln": round(float(c.get("current_spend") or 0) / 1e6, 2),
-                        "optimal_spend_mln": round(float(c.get("optimal_spend") or 0) / 1e6, 2),
-                    }
-                    for c in self.channels if c.get("name")
-                },
+                "details": mroas_details,
             },
             "share": {
                 "names":      [c.get("name") for c in self.channels],
@@ -340,13 +409,8 @@ class AuroraHTMLBuilder:
             },
             "timeline": {
                 "weeks":    ts_weeks,
-                "baseline": [float(v) for v in ts_baseline],
-                "channels": {
-                    name: [float(v) for v in series]
-                    for name, series in ts_channels.items()
-                },
-                "channel_order": ts_channel_order,
-                "factors": ts_factors,
+                "overview": tl_overview,
+                "detail":   tl_detail,
             },
             "optimize": {
                 "names":   opt_names,
@@ -463,6 +527,15 @@ class AuroraHTMLBuilder:
         """Build TOC <li> list from strings.sections."""
         items = []
         for sid, _ in SECTION_RENDERERS:
+            # E1-E4: условная секция «Петля доверия» — в TOC только при живых
+            # данных (иначе пункт вёл бы на отсутствующий якорь).
+            if sid == "trust" and not (
+                self.data.get("backtest")
+                or self.data.get("generation_compare")
+                or self.data.get("promises_summary")
+                or (self.diagnostics.get("calibration") or {}).get("applied")
+            ):
+                continue
             label = self.strings["sections"].get(sid, {}).get("label", sid)
             items.append(f'      <li><a href="#{sid}" data-toc-target="{sid}">{security.escape(label)}</a></li>')
         return "\n".join(items)
@@ -499,7 +572,18 @@ class AuroraHTMLBuilder:
             "strings":     self.strings,
             "report_id":   self.report_id,
             "model_version": model_version,
+            # П2 (2026-07-04): «по <единица>» из гранулярности дат — заголовки
+            # timeline не должны врать «по неделям» на месячных данных.
+            "period_unit": self._period_unit(),
             "brand_mark_svg": self._brand_mark_svg(),
+            # E1-E4 (2026-07-04): петля доверия — живые артефакты из адаптера
+            # (backtest / generation_compare / promises_summary; калибровка —
+            # внутри diagnostics.calibration). Пусто → секция не рендерится.
+            "trust": {
+                "backtest": self.data.get("backtest"),
+                "generation_compare": self.data.get("generation_compare"),
+                "promises_summary": self.data.get("promises_summary"),
+            },
         }
         sections_html = "\n".join(render(ctx) for _, render in SECTION_RENDERERS)
 

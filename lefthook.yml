@@ -29,3 +29,57 @@ pre-commit:
       run: |
         python tools/sync_help_lists.py
         git add src-tauri/help-econometrica/
+
+    kpi-display-drift:
+      # Фаза 4 — Гейт 3: Drift-страж паспорта KPI.
+      # Срабатывает при изменении canonical JSON реестра ИЛИ генератора ИЛИ
+      # сгенерированного JS — чтобы рассинхрон не попал в коммит.
+      # exit 1 при расхождении kpi_display_registry.json ↔ kpi-display.generated.js.
+      glob:
+        - "sidecar/econometrica/data/kpi_display_registry.json"
+        - "sidecar/econometrica/tools/sync_kpi_display.py"
+        - "src/lib/kpi/kpi-display.generated.js"
+      run: python sidecar/econometrica/tools/sync_kpi_display.py --check
+
+    cabinet-drift-guard:
+      # Аудит 2026-07: кабинет econometrist копировался руками в 11 репо/
+      # worktree без единого механизма синка — правки в SSOT молча не долетали
+      # до остальных. SSOT-пара (repo/worktree) должна совпадать после мержа
+      # веток; --strict-pair явно требует этого на коммите. Hub-копии со своей
+      # легитимной SCOPE-редакцией — вне этой проверки (см. tools/check_cabinet_drift.py).
+      glob: "New_AI_Agency/econometrist/**"
+      run: python tools/check_cabinet_drift.py --strict-pair
+
+    prompt-lint:
+      # Аудит промптов 2026-07-13, Батч 5: разовые находки (U+2014, «доверительный
+      # интервал»/CI, единая языковая шапка, паттерны блокировки диалога) стали
+      # постоянной проверкой — не давать регрессировать. Портировано из Legal.
+      # Сам линтер в glob (урок v40-xss): порча/ослабление регэкспа триггерит
+      # его же прогон, иначе сломанный линтер уходит в мастер молча.
+      glob:
+        - "New_AI_Agency/econometrist/**"
+        - "tools/lint_prompt_commands.py"
+      run: python tools/lint_prompt_commands.py
+
+    help-consistency:
+      # Батч 5: четверное совпадение cabinet.rs <-> cabinets.json <-> файлы
+      # промптов <-> command-meta-data.json — расхождение значит кнопка без
+      # промпта/описания или наоборот. Без glob по конкретным путям, т.к. любая
+      # из четырёх сторон может расходиться поодиночке (портировано из Legal).
+      glob:
+        - "content-packs/cabinets.json"
+        - "content-packs/command-meta-data.json"
+        - "src-tauri/src/commands/cabinet.rs"
+        - "New_AI_Agency/econometrist/.claude/commands/*.md"
+        - "New_AI_Agency/econometrist/LEGACY_COMMANDS.md"
+        - "tools/check_help_consistency.py"
+      run: python tools/check_help_consistency.py
+
+    content-pack-sync:
+      # Батч 5: правка content-packs/*.json без re-sign — sha256 в manifest
+      # устаревает, verify_manifest у клиента падает молча (кейс CRIT-1, Legal).
+      glob:
+        - "content-packs/*.json"
+        - "tools/check_content_pack_sync.py"
+        - "tools/sign_content_pack.py"
+      run: python tools/check_content_pack_sync.py

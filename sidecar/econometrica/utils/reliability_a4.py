@@ -39,11 +39,13 @@ def prior_predictive_check(
     media_means: dict | None = None,
     n_samples: int = 500,
     *,
+    dates: np.ndarray | None = None,
     intercept_prior_mu: float = 0.0,
     intercept_prior_sigma: float = 0.5,
     media_beta_sigma: float = 0.3,
     alpha_gamma_shape: tuple = (5, 3),  # Gamma(5, 3) for alphas
     gamma_beta_shape: tuple = (3, 3),   # Beta(3, 3) for gammas
+    control_beta_sigma: float = 0.3,    # Normal(0, 0.3) для сезон/праздников (SSOT: modeler.py:741)
     decay_default: float = 0.5,
     seed: int | None = 42,
 ) -> dict[str, Any]:
@@ -61,13 +63,22 @@ def prior_predictive_check(
         x_norm[t,j] = adstock(raw[t,j]; decay=0.5) / mean[j]
         sat[t,j] = hill(x_norm; alpha[j], gamma[j])
         y_norm[t] = intercept + sum_j(media_betas[j] * sat[t,j])
+                   + sum_k(control_betas[k] * X_control_norm[t,k])   # если dates переданы
         y_predicted[t] = y_norm[t] * y_std + y_mean
+
+    Если переданы dates — симуляция включает те же контрольные регрессоры, что modeler
+    инжектирует автоматически: Фурье-сезонность + праздники РФ. Это делает coverage
+    честным ответом на вопрос «может ли ПОЛНАЯ модель с этими приорами покрыть данные»
+    (без dates симуляция неполна — не учитывает компоненты, объясняющие сезонные паттерны).
 
     Args:
         y_observed: 1D array of observed KPI values, shape (n_obs,)
         media_matrix: 2D array shape (n_obs, n_channels) raw spend
         media_means: dict {channel_name: pre-computed mean} or None (compute from data)
         n_samples: number of prior predictive samples (500 = fast + reliable)
+        dates: optional datetime64 array shape (n_obs,) — если передан, симуляция включает
+               Фурье-сезонность и праздники РФ с теми же приорами что в modeler.py.
+               Backward compat: None (default) = старое поведение без control.
         seed: RNG seed for reproducibility
 
     Returns:
@@ -78,6 +89,7 @@ def prior_predictive_check(
           - y_simulated_quantiles: dict with p5, p50, p95 across samples × time
           - warning: human-readable issue if status != 'pass'
           - recommendation: actionable next step
+          - control_components: dict с описанием инжектированных контрольных регрессоров (если dates)
     """
     rng = np.random.default_rng(seed)
 
@@ -107,6 +119,83 @@ def prior_predictive_check(
         adstocked[t] = X[t] + decay_default * adstocked[t - 1]
     x_norm = adstocked / means_safe.reshape(1, -1)
 
+    # ── Сезонность + праздники (если dates переданы) ─────────────────────────
+    # SSOT: modeler.py инжектирует Фурье-сезонность (utils/fourier_seasonality.py) +
+    # праздники РФ (utils/holiday_calendar_ru.py), нормализует Z-score, использует
+    # приоры Normal(mu=0.0, sigma=0.3) для обоих типов (modeler.py:584-590).
+    # Без этих компонент симуляция НЕ охватывает сезонные наблюдения → coverage ниже.
+    X_control_norm: np.ndarray | None = None
+    control_components: dict = {}
+
+    if dates is not None:
+        try:
+            import pandas as pd
+            from utils.fourier_seasonality import (
+                decide_n_harmonics,
+                generate_fourier_terms,
+                should_inject_seasonality,
+            )
+            from utils.forecast_validation import detect_granularity, detect_seasonality
+
+            dates_pd = pd.to_datetime(dates)
+            control_cols_list: list[np.ndarray] = []
+
+            # 1. Фурье-сезонность — идентичный путь как в modeler.py:389-426
+            _season_y = y_obs
+            _season_gran = 'M'  # fallback (48 месячных наблюдений = типичный кейс)
+            try:
+                _gr = detect_granularity(dates_pd)
+                if _gr.get('confidence', 0) >= 0.4:
+                    _season_gran = _gr['granularity']
+            except Exception:
+                pass
+
+            _season = detect_seasonality(_season_y, granularity=_season_gran)
+            _inject, _reason = should_inject_seasonality(_season, n_obs)
+            fourier_n_cols = 0
+            if _inject:
+                _period = int(_season['period'])
+                _n_harm = decide_n_harmonics(_period)
+                _fdf = generate_fourier_terms(n_obs, _period, _n_harm)
+                if not _fdf.empty:
+                    for _fc in _fdf.columns:
+                        col_vals = _fdf[_fc].values.astype(np.float64)
+                        # Z-score нормализация (SSOT: modeler.py:528)
+                        _std = col_vals.std()
+                        if _std > 1e-9:
+                            col_vals = (col_vals - col_vals.mean()) / _std
+                        control_cols_list.append(col_vals)
+                    fourier_n_cols = len(_fdf.columns)
+                    control_components['fourier'] = {
+                        'period': _period, 'n_harmonics': _n_harm, 'n_cols': fourier_n_cols,
+                    }
+
+            # 2. Праздники РФ — идентичный путь как в modeler.py:307-336
+            holiday_n_cols = 0
+            try:
+                from utils.holiday_calendar_ru import generate_holiday_dummies
+                _hdf = generate_holiday_dummies(dates_pd, mode='fraction')
+                if not _hdf.empty:
+                    for _hc in _hdf.columns:
+                        col_vals = _hdf[_hc].values.astype(np.float64)
+                        _std = col_vals.std()
+                        if _std > 1e-9:
+                            col_vals = (col_vals - col_vals.mean()) / _std
+                            control_cols_list.append(col_vals)
+                            holiday_n_cols += 1
+                    if holiday_n_cols > 0:
+                        control_components['holidays'] = {'n_cols': holiday_n_cols}
+            except Exception:
+                pass  # праздники опциональны, не блокируют
+
+            # Собираем X_control_norm: (n_obs, n_control)
+            if control_cols_list:
+                X_control_norm = np.column_stack(control_cols_list)  # (n_obs, n_control)
+        except Exception:
+            X_control_norm = None  # graceful degradation — симуляция без control
+
+    n_control = X_control_norm.shape[1] if X_control_norm is not None else 0
+
     # y normalization stats (matches modeler)
     y_mean = float(y_obs.mean())
     y_std = max(float(y_obs.std()), 1e-10)
@@ -118,6 +207,9 @@ def prior_predictive_check(
     # Gamma(5, 3): scale = 1/3
     alphas = rng.gamma(alpha_gamma_shape[0], 1.0 / alpha_gamma_shape[1], size=(n_samples, n_channels))
     gammas = rng.beta(gamma_beta_shape[0], gamma_beta_shape[1], size=(n_samples, n_channels))
+    # Control betas — Normal(0.0, 0.3) для seasonality/holiday (SSOT: modeler.py:585-590, 584)
+    if n_control > 0:
+        control_betas = rng.normal(0.0, control_beta_sigma, size=(n_samples, n_control))
 
     # Compute simulated y_norm для each sample
     # Vectorized: for sample i, y_norm_i[t] = intercept_i + sum_j media_betas_i[j] * hill(x_norm[t,j]; alpha_i[j], gamma_i[j])
@@ -133,6 +225,11 @@ def prior_predictive_check(
         y_norm_sim += media_betas[:, j].reshape(-1, 1) * sat
     y_norm_sim += intercept.reshape(-1, 1)
 
+    # Control effect: (n_samples, n_control) @ (n_control, n_obs) → (n_samples, n_obs)
+    if n_control > 0:
+        # X_control_norm: (n_obs, n_control) → (n_control, n_obs) for matmul
+        y_norm_sim += control_betas @ X_control_norm.T
+
     # Denormalize to original units (matches y = y_norm * y_std + y_mean)
     y_sim = y_norm_sim * y_std + y_mean
 
@@ -146,11 +243,13 @@ def prior_predictive_check(
 
     if coverage < PRIOR_PRED_COVERAGE_FAIL:
         status = 'fail'
+        # C3-полутон (2026-07-03): текст уходит в клиентский preflight-баннер —
+        # «ROI gear» (жаргон) заменён на понятную формулировку.
         warning = (
-            f'Prior predictive coverage {coverage*100:.0f}% < {PRIOR_PRED_COVERAGE_FAIL*100:.0f}%. '
-            f'Приоры сильно расходятся с данными. '
-            f'Возможно: ваш бренд / категория нестандартны (ROI gear отличается от индустрии), '
-            f'либо проблема с unit_costs / нормализацией данных.'
+            f'Проверка приоров: покрытие {coverage*100:.0f}% < {PRIOR_PRED_COVERAGE_FAIL*100:.0f}%. '
+            f'Исходные предположения модели сильно расходятся с данными. '
+            f'Возможно: отдача каналов вашего бренда/категории нетипична для индустрии, '
+            f'либо проблема со стоимостью единицы (CPP) или нормализацией данных.'
         )
         recommendation = (
             'Проверьте unit_costs (для TRP/clicks). Если данные корректны - '
@@ -176,7 +275,7 @@ def prior_predictive_check(
         warning = ''
         recommendation = 'Приоры согласуются с диапазоном данных. Можно начинать обучение модели.'
 
-    return {
+    result: dict[str, Any] = {
         'coverage': round(coverage, 3),
         'status': status,
         'thresholds': {'ok': PRIOR_PRED_COVERAGE_OK, 'fail': PRIOR_PRED_COVERAGE_FAIL},
@@ -190,6 +289,9 @@ def prior_predictive_check(
         'recommendation': recommendation,
         'n_samples': n_samples,
     }
+    if control_components:
+        result['control_components'] = control_components
+    return result
 
 
 def nott_kl_divergence_per_channel(

@@ -75,6 +75,10 @@ def build_html(
     project_name: str = 'Marketing Mix Model',
     project_id: str | None = None,
     initial_theme: str = 'light',
+    backtest: dict | None = None,
+    generation_compare: dict | None = None,
+    promises: list[dict] | None = None,
+    forecast: dict | None = None,
 ) -> dict[str, Any]:
     """Build a tier-1 interactive HTML deliverable from MMM pipeline data.
 
@@ -115,6 +119,12 @@ def build_html(
             optimize_data=optimize_data,
             scenarios=scenarios,
             project_id=project_id,
+            # E1-E4 (2026-07-04): петля доверия в HTML тем же адаптером.
+            backtest=backtest,
+            generation_compare=generation_compare,
+            promises=promises,
+            # E5 (2026-07-10): прогноз-план.
+            forecast=forecast,
         )
 
         # Load full pickle for budget what-if if available

@@ -27,6 +27,12 @@ import { pluralizeRu } from './utils/i18n.js';
 // ratio. Инсайты больше НЕ читают эти производные из diagnostics напрямую —
 // только через mqsView/ratioView, чтобы honesty-баг не вернулся N+1-м слоем.
 import { mqsView, ratioView } from './metric-views.js';
+// Аудит 2026-07-05: пары «бюджет ₽ + натуральная метрика» одного канала
+// коррелированы by-design (r≈0.99 через закупочную цену) — инсайт-слой обязан
+// говорить о них то же, что heatmap (ожидаемо, в модель идёт одна колонка),
+// а не пугать «Мультиколлинеарностью» на встроенном примере.
+import { declaredPairKeys, isDeclaredPair } from './channel-pairs.js';
+import { DEFAULT_TRAINING_ESTIMATE } from './training-estimate.js';
 
 /**
  * Resolve KPI view с default legacy fallback.
@@ -205,8 +211,8 @@ export function validateKpiInsights(result, context = {}) {
   } else if (moneyCount > 0 && physCount > 0) {
     out.push({
       severity: 'info',
-      text: `В данных смешано: ${moneyCount} бюджетных + ${physCount} физических метрик (TRP / показы / клики). В **ROI режиме** физические каналы конвертируются в ₽ через цену единицы (CPP/CPM) - укажете на следующем шаге.`,
-      tip: 'Если у канала есть только физические метрики без бюджета, оцените средний CPP по вашей категории.',
+      text: `В данных смешано: ${moneyCount} бюджетных + ${physCount} физических метрик (TRP / показы / клики). На следующем шаге укажите, как обработать физические колонки: конвертировать в ₽ через цену единицы (CPP/CPM) или войдёт как парная переменная.`,
+      tip: 'Если физическая метрика парная с бюджетом одного канала — она войдёт как единое целое с бюджетным вариантом, конвертировать не нужно. Если канал только в физических метриках без бюджета — оцените CPP по вашей категории.',
     });
   }
 
@@ -351,17 +357,21 @@ export function validateConfirmInsights(result, context = {}) {
   const mediaCount = cols.filter(/** @param {any} c */ c => c.role === 'media').length;
   const controlCount = cols.filter(/** @param {any} c */ c => c.role === 'control').length;
   const rows = result.file?.rows ?? 0;
-  const ratio = rows > 0 && (mediaCount + controlCount) > 0 ? rows / (mediaCount + controlCount) : 0;
+  // F-A1-5: читаем эффективное число параметров из SSOT (backend /compute/validate
+  // проставляет detected.n_params_effective_pretrain = media + controls + 12 праздников
+  // + intercept). Фолбэк: user-visible media+controls (без авто-контролей).
+  const nParamsEffective = result.detected?.n_params_effective_pretrain ?? (mediaCount + controlCount);
+  const ratio = rows > 0 && nParamsEffective > 0 ? rows / nParamsEffective : 0;
 
   out.push({
     severity: 'success',
-    text: `Готово к обучению: ${mediaCount} медиаканал${mediaCount > 4 ? 'ов' : mediaCount > 1 ? 'а' : ''}${controlCount > 0 ? ` + ${controlCount} контрольн${controlCount === 1 ? 'ая' : 'ых'}` : ''}, режим **${(context.analysisMode || 'roi').toUpperCase()}**. Обучение займёт 30-60 секунд (Bayesian) или ~5 секунд (OLS fallback).`,
+    text: `Готово к обучению: ${mediaCount} медиаканал${mediaCount > 4 ? 'ов' : mediaCount > 1 ? 'а' : ''}${controlCount > 0 ? ` + ${controlCount} контрольн${controlCount === 1 ? 'ая' : 'ых'}` : ''}, режим **${(context.analysisMode || 'roi').toUpperCase()}**. Обучение займёт ${DEFAULT_TRAINING_ESTIMATE} (полная модель) или ~5 секунд (упрощённый режим).`,
   });
 
   if (ratio < 4) {
     out.push({
       severity: 'warning',
-      text: `Ratio данных ${ratio.toFixed(1)}:1 (наблюдения ÷ выбранные признаки, оценка до обучения) ниже рекомендованного 4:1. Модель обучится, но результаты с широкими диапазонами возможных значений.`,
+      text: `Ratio данных ${ratio.toFixed(1)}:1 (наблюдения ÷ выбранные признаки, оценка до обучения) ниже рекомендованного 4:1 с учётом авто-контролей (авто-праздники; сезонность может добавить ещё несколько признаков после обучения). Модель обучится, но результаты с широкими диапазонами возможных значений.`,
       tip: 'После обучения смотрите R-hat (показатель сходимости модели, < 1.05) и MQS - если < 1.05 и > 60 соответственно, модель надёжна для пилотных решений.',
     });
   }
@@ -393,7 +403,10 @@ export function validateInsights(result, objective = 'roi') {
   const mediaCount = colsCheck.filter(/** @param {any} c */ c => c?.role === 'media').length;
   const controlCount = colsCheck.filter(/** @param {any} c */ c => c?.role === 'control').length;
   const rowsCheck = result.file?.rows ?? result.detected?.rows ?? 0;
-  const paramCountCheck = mediaCount + controlCount;
+  // F-A1-5: эффективное число параметров (включая авто-контроли: 12 праздников + intercept).
+  // Backend /compute/validate проставляет detected.n_params_effective_pretrain;
+  // фолбэк — только user-visible media+controls.
+  const paramCountCheck = result.detected?.n_params_effective_pretrain ?? (mediaCount + controlCount);
   const liveRatio = rowsCheck > 0 && paramCountCheck > 0 ? rowsCheck / paramCountCheck : 0;
   /** @type {'ok'|'warning'|'error'} */
   let effectiveStatus = 'ok';
@@ -408,13 +421,23 @@ export function validateInsights(result, objective = 'roi') {
   }
 
   // ── Общий статус ──
+  // БАГ П5-1а (2026-07-10): ratio-число НЕ дублируем здесь — конкретика по ratio
+  // идёт из блока «Объём данных vs параметры» ниже. Этот блок — только статусный
+  // success/generic-warning без числа, чтобы не было двух инсайтов с разными
+  // тональностями на одно и то же значение ratio.
   if (effectiveStatus === 'ok') {
     out.push({ severity: 'success', text: 'Данные готовы к обучению модели. Структура валидна.' });
   } else if (effectiveStatus === 'warning') {
     if (liveRatio > 0 && liveRatio < 4) {
+      // Ratio-деталь отдаём второму блоку — здесь только краткое «предупреждение»
+      // без числа (иначе дубль: тот же ratio с другой формулировкой).
+      const warnCount = Array.isArray(result.warnings) ? result.warnings.length : 0;
+      const extraWarn = warnCount > 0
+        ? ` Плюс ${warnCount} предупреждени${warnCount === 1 ? 'е' : warnCount < 5 ? 'я' : 'й'} из валидации.`
+        : '';
       out.push({
         severity: 'warning',
-        text: `Ratio ${liveRatio.toFixed(1)}:1 - ниже рекомендованного 4:1. Модель работает, но с широкими доверительными интервалами.`,
+        text: `Данные можно использовать, но с ограничениями — подробности ниже.${extraWarn}`,
         tip: 'Рекомендации по приоритету: (1) объединить парные метрики каналов, (2) конвертировать физические метрики в ₽ через CPP, (3) собрать ≥52 недели данных.',
       });
     } else {
@@ -449,9 +472,12 @@ export function validateInsights(result, objective = 'roi') {
         tip: 'Медиа-канал - это вложение в маркетинговую активность (бюджет канала или его физическая метрика - TRP/показы/клики).',
       });
     } else if (liveRatio < 2) {
+      // БАГ П5-1а (2026-07-11): ratio-ЧИСЛО здесь НЕ дублируем — конкретика по ratio
+      // идёт из блока «Объём данных vs параметры» ниже (единый источник). Иначе два
+      // инсайта на одно значение ratio с разными тональностями (error vs «для пилота ок»).
       out.push({
         severity: 'error',
-        text: `Ratio ${liveRatio.toFixed(1)}:1 - слишком мало данных (минимум 2:1, рекомендуется ≥4:1). Модель почти наверняка переобучится.`,
+        text: 'Слишком мало данных (минимум 2:1, рекомендуется ≥4:1) – модель почти наверняка переобучится. Точная оценка объёма – в блоке ниже.',
         tip: 'Приоритет действий: (1) объединить парные метрики каналов (бюджет + показы того же канала), (2) конвертация физических метрик в ₽, (3) собрать ≥52 недели данных.',
       });
     }
@@ -540,9 +566,14 @@ export function validateInsights(result, objective = 'roi') {
   }
 
   // ── Объём данных vs параметры ──
-  // Унифицированная формула rows / (media + control) - соответствует Python validator и индустриальной практике (rows-to-cols ratio).
+  // D-1 (аудит 2026-07-11): знаменатель ЕДИНЫЙ со статусным liveRatio —
+  // эффективное число параметров (media+control + авто-контроли backend: 12
+  // праздников + intercept, detected.n_params_effective_pretrain). Раньше блок
+  // считал naive media+control → ratio завышался и ПРОТИВОРЕЧИЛ статусу (статус
+  // error по эффективному ~1.9, блок info по naive ~3.7). INV-50: не завышать
+  // достаточность данных. Fallback (нет backend-поля) = media+control, как было.
   const totalRows = result.file?.rows ?? result.detected?.rows ?? 0;
-  const paramCount = mediaCols.length + controlCols.length;
+  const paramCount = paramCountCheck;
   if (totalRows > 0 && mediaCols.length > 0) {
     const ratio = totalRows / Math.max(paramCount, 1);
 
@@ -585,7 +616,7 @@ export function validateInsights(result, objective = 'roi') {
       // единственного решения). Единственная зона настоящей «невозможности».
       out.push({
         severity: 'error',
-        text: `Модель не определяется: ${paramCount} переменных при ${totalRows} наблюдениях (ratio ${ratio.toFixed(1)}:1). Параметров не меньше, чем точек данных - у модели нет единственного решения (нет степеней свободы).`,
+        text: `Модель не определяется: ${paramCount} параметров модели при ${totalRows} наблюдениях (ratio ${ratio.toFixed(1)}:1). Параметров не меньше, чем точек данных - у модели нет единственного решения (нет степеней свободы).`,
         tip: `Сначала сократите число переменных или добавьте данные: (1) объедините парные метрики каналов (бюджет + показы одного канала = одна переменная); (2) исключите ${weakNames.length > 0 ? `${weakNames.length} каналов с >50% нулей` : 'каналы без активности'}; (3) соберите больше истории - недельная гранулярность даёт ~${Math.round(totalRows * 4.3)} наблюдений.`,
         action: weakNames.length > 0 ? { type: 'exclude', columns: weakNames, label: `Исключить ${weakNames.length} с >50% нулей` } : undefined,
       });
@@ -594,7 +625,7 @@ export function validateInsights(result, objective = 'roi') {
       // просто слабо. Не error (красный), а высокий warning (оранжевый).
       out.push({
         severity: 'warning',
-        text: `Критически мало данных: ${totalRows} наблюдений / ${paramCount} переменных (ratio ${ratio.toFixed(1)}:1). Модель обучится, но результаты - только направление (что наращивать, что сокращать), не точные цифры. Приемлемо для пилота как ориентир.`,
+        text: `Критически мало данных: ${totalRows} наблюдений / ${paramCount} параметров модели (ratio ${ratio.toFixed(1)}:1). Модель обучится, но результаты - только направление (что наращивать, что сокращать), не точные цифры. Приемлемо для пилота как ориентир.`,
         tip: `Bayesian модель обучится с информативными приорами, но доверительные интервалы будут широкими. Лучшие пути (по приоритету): (1) добавить данные - перейти на недельную гранулярность (${Math.round(totalRows * 4.3)} наблюдений) или собрать ещё ${Math.max(48 - totalRows, 12)} месяцев; (2) объединить парные метрики каналов (бюджет + показы одного канала = коллинеарность); (3) исключить ${weakNames.length > 0 ? `${weakNames.length} каналов с >50% нулей` : 'каналы без активности'} - только если их вклад в продажи действительно нулевой.`,
         action: weakNames.length > 0 ? { type: 'exclude', columns: weakNames, label: `Исключить ${weakNames.length} с >50% нулей` } : undefined,
       });
@@ -647,8 +678,12 @@ export function validateInsights(result, objective = 'roi') {
 
   // ── Мультиколлинеарность (корреляции) ──
   if (result.correlations) {
+    // Декларированные пары «бюджет + натуральная метрика» — не тревога
+    // (говорим то же, что CorrelationHeatmap: ожидаемо, в модель идёт одна).
+    const pairKeys = declaredPairKeys(Object.keys(result.correlations));
     const seen = new Set();
     const highCorr = [];
+    let channelPairCount = 0;
     for (const [a, row] of Object.entries(result.correlations)) {
       for (const [b, r] of Object.entries(/** @type {Record<string, number>} */ (row))) {
         if (a === b) continue;
@@ -656,12 +691,25 @@ export function validateInsights(result, objective = 'roi') {
         if (seen.has(key)) continue;
         seen.add(key);
         const absR = Math.abs(/** @type {number} */ (r));
-        if (absR > 0.85) highCorr.push({ a, b, r: absR });
+        if (absR > 0.85) {
+          if (isDeclaredPair(pairKeys, a, b)) {
+            channelPairCount += 1;
+            continue;
+          }
+          highCorr.push({ a, b, r: absR });
+        }
       }
     }
     if (highCorr.length > 0) {
       const pairs = highCorr.slice(0, 3).map(p => `${p.a} ↔ ${p.b} (r=${p.r.toFixed(2)})`).join('; ');
       out.push({ severity: 'warning', text: `Мультиколлинеарность: ${pairs}${highCorr.length > 3 ? ` и ещё ${highCorr.length - 3}` : ''}`, tip: 'Модель не сможет разделить вклады коррелирующих каналов. Решение: исключите один из пары, объедините в группу, или примите широкие доверительные интервалы.' });
+    }
+    if (channelPairCount > 0) {
+      out.push({
+        severity: 'info',
+        text: `${channelPairCount} ${pluralizeRu(channelPairCount, ['пара', 'пары', 'пар'])} «бюджет + натуральная метрика» с высокой корреляцией — ожидаемо`,
+        tip: 'Бюджет и объём одного канала связаны через закупочную цену. В модель идёт одна колонка пары (подшаг «Метрики каналов») — мультиколлинеарности в модели не будет.',
+      });
     }
   }
 
@@ -676,14 +724,25 @@ export function validateInsights(result, objective = 'roi') {
   const VOLUME_KEYS = ['ПОКАЗ','ПРОСМОТР','КЛИК','ВИЗИТ','ПРОЧТЕН','GRP','TRP','OTS','IMPRESSION','CLICK','VIEW','VISIT','READ'];
   const COST_KEYS = ['БЮДЖЕТ','РАСХОД','ЗАТРАТ','СТОИМОСТЬ','SPEND','COST','BUDGET','РУБ'];
 
-  /** @type {Map<string, {volume: any[], cost: any[]}>} */
+  /** @type {Map<string, {volume: any[], cost: any[], displayName: string}>} */
   const channelGroups = new Map();
 
   // Canonical prefix: letters only + truncated to 6 chars (stemming - handles Russian plural vs singular, e.g. "СПЕЦПРОЕКТЫ"/"СПЕЦПРОЕКТ")
+  // Используется ТОЛЬКО как ключ группировки, НЕ для отображения (БАГ П5-2 2026-07-10).
   /** @param {string} leading */
   const canonicalPrefix = (leading) => {
     const m = leading.match(/^[А-ЯЁA-Z]+/);
     return m ? m[0].slice(0, 6) : '';
+  };
+
+  // Отображаемое имя канала: до 14 символов без обрезки букв, потом «…»
+  // Источник — исходное написание имени колонки (не uppercase).
+  /** @param {string} leading @param {string} originalName */
+  const displayPrefix = (leading, originalName) => {
+    // leading — часть имени ДО ключевого слова (в верхнем регистре)
+    // Берём соответствующую часть из оригинального имени
+    const raw = originalName.slice(0, leading.length).trimEnd().replace(/[_\-\s]+$/, '');
+    return raw.length > 14 ? raw.slice(0, 13) + '…' : raw;
   };
 
   for (const c of cols) {
@@ -692,20 +751,27 @@ export function validateInsights(result, objective = 'roi') {
     const upper = (c.name ?? '').toUpperCase();
     // Extract channel prefix: everything before the metric keyword, canonicalized
     let prefix = '';
+    let rawLeading = '';
     let type = '';
     for (const k of VOLUME_KEYS) {
       const idx = upper.indexOf(k);
-      if (idx > 0) { prefix = canonicalPrefix(upper.slice(0, idx)); type = 'volume'; break; }
+      if (idx > 0) { rawLeading = upper.slice(0, idx); prefix = canonicalPrefix(rawLeading); type = 'volume'; break; }
     }
     if (!prefix) {
       for (const k of COST_KEYS) {
         const idx = upper.indexOf(k);
-        if (idx > 0) { prefix = canonicalPrefix(upper.slice(0, idx)); type = 'cost'; break; }
+        if (idx > 0) { rawLeading = upper.slice(0, idx); prefix = canonicalPrefix(rawLeading); type = 'cost'; break; }
       }
     }
     if (!prefix) continue;
 
-    if (!channelGroups.has(prefix)) channelGroups.set(prefix, { volume: [], cost: [] });
+    if (!channelGroups.has(prefix)) {
+      channelGroups.set(prefix, {
+        volume: [],
+        cost: [],
+        displayName: displayPrefix(rawLeading, c.name ?? ''),
+      });
+    }
     const g = channelGroups.get(prefix);
     if (!g) continue;  // unreachable due к has() above, но TS narrowing requires explicit guard
     if (type === 'volume') g.volume.push(c);
@@ -714,7 +780,8 @@ export function validateInsights(result, objective = 'roi') {
 
   /** @type {Insight[]} */
   const channelRecs = [];
-  for (const [prefix, g] of channelGroups) {
+  for (const [, g] of channelGroups) {
+    const prefix = g.displayName;  // П5-2: отображаем полное имя, не обрезанный ключ
     const allCols = [...g.volume, ...g.cost];
     const allZero = allCols.every(/** @param {any} c */ c => (c.stats?.zeros_pct ?? 0) > 90);
     const highZero = allCols.every(/** @param {any} c */ c => (c.stats?.zeros_pct ?? 0) > 60);
@@ -783,13 +850,34 @@ export function validateInsights(result, objective = 'roi') {
   for (const [, g] of channelGroups) {
     for (const c of [...g.volume, ...g.cost]) groupedNames.add(c.name);
   }
-  const ungroupedZero = mediaCols.filter(/** @param {any} c */ c => !groupedNames.has(c.name) && (c.stats?.zeros_pct ?? 0) > 60);
-  for (const c of ungroupedZero) {
+  // БАГ А5-1 (2026-07-10): расширяем на control-колонки тоже — они тоже бывают
+  // бинарными событийными (black_friday, is_promo и т.п.) и раньше выпадали из
+  // проверки, получая текст «объединить с каналом» через result.warnings.
+  const ungroupedHighZeroCols = [
+    ...mediaCols.filter(/** @param {any} c */ c => !groupedNames.has(c.name) && (c.stats?.zeros_pct ?? 0) > 60),
+    ...controlCols.filter(/** @param {any} c */ c => !groupedNames.has(c.name) && (c.stats?.zeros_pct ?? 0) > 60),
+  ];
+  for (const c of ungroupedHighZeroCols) {
     const pct = c.stats?.zeros_pct ?? 0;
-    if (pct > 90) {
+    // Определяем событийную колонку: бинарный флаг 0/1 (max === 1 — событие хотя бы
+    // раз было) ИЛИ имя содержит типичные маркеры праздников/событий ИЛИ роль — control.
+    // Для событийных нулей — норма: флаговые колонки в ~90% нулей, не нужно советовать
+    // «объединить с каналом». БАГ (аудит 2026-07-11): `max <= 1` ловил и МЁРТВЫЙ канал
+    // (max=0, 100% нулей) → ложно «норма для событий» вместо «исключите». Теперь max === 1.
+    const isBinaryEvent =
+      c.role === 'control' ||
+      (c.stats?.max != null && Number(c.stats.max) === 1 && Number(c.stats.min ?? 0) >= 0) ||
+      /black.?friday|holiday|праздн|promo|промо|event|событ|is_|флаг/i.test(String(c.name ?? ''));
+    if (isBinaryEvent) {
+      channelRecs.push({
+        severity: 'info',
+        text: `«${c.name}» – событийная колонка (${pct.toFixed(0)}% нулей – норма для событий). Проверьте, не дублирует ли авто-праздник.`,
+        tip: 'Бинарные флаги (0/1) вроде «чёрная пятница» или «промо» в норме имеют >80% нулей – праздник бывает редко. Если аналогичный праздник уже добавлен автоматически (12 праздников РФ), удалите дубль.',
+      });
+    } else if (pct > 90) {
       channelRecs.push({ severity: 'warning', text: `${c.name}: ${pct.toFixed(0)}% нулей - исключите.`, action: { type: 'exclude', columns: [c.name], label: 'Исключить' } });
     } else {
-      channelRecs.push({ severity: 'warning', text: `${c.name}: ${pct.toFixed(0)}% нулей - объединить или оставить с оговоркой.`, action: { type: 'exclude', columns: [c.name], label: 'Исключить' } });
+      channelRecs.push({ severity: 'warning', text: `${c.name}: ${pct.toFixed(0)}% нулей - рассмотрите объединение с похожим каналом или исключение.`, action: { type: 'exclude', columns: [c.name], label: 'Исключить' } });
     }
   }
 
@@ -913,35 +1001,37 @@ export function validateInsights(result, objective = 'roi') {
     const afterRatio = totalRows / Math.max((mediaCols.length - toExclude.length) + controlCols.length, 1);
 
     if (currentRatio < 2) {
+      // П5-1а: ratio-число НЕ дублируем — блок «Объём данных» уже его сказал.
+      // Здесь только канальный совет: сколько исключить и что станет.
       out.push({
         severity: 'error',
-        text: `Ratio ${currentRatio.toFixed(1)}:1 - критически мало. Нужно ≤${maxChannels} каналов (сейчас ${mediaCols.length}). Исключите ${toExclude.length} слабейших → ratio станет ${afterRatio.toFixed(1)}:1.`,
+        text: `Слишком много каналов: нужно ≤${maxChannels} (сейчас ${mediaCols.length}). Исключите ${toExclude.length} слабейших → ratio вырастет до ${afterRatio.toFixed(1)}:1.`,
         tip: `Будут исключены: ${toExclude.join(', ')}. Это каналы с наибольшей долей нулей, вклад которых модель не сможет оценить надёжно.`,
         action: { type: 'exclude', columns: toExclude, label: `Оптимизировать: оставить ${maxChannels} каналов` },
       });
     } else if (currentRatio < 4) {
+      // П5-1а: убираем ratio-число, фокус на канальном совете.
       out.push({
         severity: 'warning',
-        text: `Ratio ${currentRatio.toFixed(1)}:1 (рекомендуется ≥4:1). Исключите ${toExclude.length} каналов → ratio ${afterRatio.toFixed(1)}:1.`,
+        text: `Много каналов (${mediaCols.length}) — исключите ${toExclude.length} слабейших → ratio вырастет до ${afterRatio.toFixed(1)}:1.`,
         action: { type: 'exclude', columns: toExclude, label: `Оптимизировать до ${maxChannels} каналов` },
       });
     }
   }
 
   // Шаг 3: ratio ok, но есть предупреждения
+  // П5-1а: ratio-число здесь также убираем или оставляем только в «хорошем» случае.
   if (currentRatio >= 4 && mediaCols.length > 0 && kpiCols.length > 0) {
     const warnCount = out.filter(i => i.severity === 'warning').length;
     if (warnCount === 0) {
       out.push({ severity: 'success', text: `Данные готовы к моделированию. ${mediaCols.length} каналов, ratio ${currentRatio.toFixed(1)}:1. Нажмите «Далее».` });
     } else {
-      out.push({ severity: 'info', text: `Ratio ${currentRatio.toFixed(1)}:1 - допустимо. ${warnCount} предупреждений не блокируют моделирование, но могут снизить точность.` });
+      out.push({ severity: 'info', text: `${warnCount} предупреждений не блокируют моделирование, но могут снизить точность.` });
     }
   } else if (currentRatio >= 2 && currentRatio < 4 && excessChannels <= 0 && kpiCols.length > 0) {
-    out.push({
-      severity: 'warning',
-      text: `Ratio ${currentRatio.toFixed(1)}:1 - на грани. Модель посчитает, но доверительные интервалы будут широкими. Для надёжных результатов нужно ≥52 наблюдения.`,
-      tip: 'Байесовский подход (PyMC) работает лучше частотного при малых выборках, но не творит чудеса. Интерпретируйте результаты осторожно.',
-    });
+    // П5-1а: этот инсайт-дубль убираем целиком — блок «Объём данных» уже дал
+    // конкретный warning с ratio-числом и советом. Двойной warning запутывал.
+    // Ничего не добавляем.
   }
 
   return out;
@@ -982,11 +1072,20 @@ export function modelPreTrainingInsights(validateResult, enabledMediaNames = und
   const kpiNames = cols.filter(/** @param {any} c */ c => c.role === 'kpi').map(/** @param {any} c */ c => c.name);
   const mediaNames = activeMediaCols.map(/** @param {any} c */ c => c.name);
   const rows = validateResult.file?.rows ?? 0;
-  // v2.1.0 (RC2-AUD-04 fix): ratio считается из ТЕКУЩИХ ролей колонок
-  // (как в validateInsights), не из stale validateResult.detected.ratio
-  // (которое было посчитано один раз при первом econ_validate).
-  // Это устраняет рассогласование с SSOT validationHeaderMetrics.
-  const paramCount = mediaCount + controlCount;
+  // F-A1-5: используем эффективное число параметров (включает авто-контроли),
+  // а не только user-visible media+controls. Backend проставляет
+  // detected.n_params_effective_pretrain; учитывает активные каналы через
+  // фолбэк-формулу (activeMedia + allControls + 12 праздников + intercept).
+  // Примечание: detected.n_params_effective_pretrain считает все медиа-колонки
+  // (не фильтрует по enabledMediaNames) — при расхождении берём явный расчёт.
+  const userVisibleParams = mediaCount + controlCount;
+  const detectedEffective = validateResult.detected?.n_params_effective_pretrain;
+  // Если бэкенд знает эффективное число — используем, но пересчитываем дельту
+  // авто-контролей (12 праздников + 1 intercept) и добавляем к user-visible params.
+  const N_AUTO = 12 + 1; // праздники + intercept
+  const paramCount = detectedEffective != null
+    ? userVisibleParams + N_AUTO
+    : userVisibleParams;
   const ratio = rows > 0 && paramCount > 0 ? rows / paramCount : 0;
 
   // ── 1. Ready-state summary ──
@@ -1010,8 +1109,8 @@ export function modelPreTrainingInsights(validateResult, enabledMediaNames = und
   // ── 3. Adstock guidance ──
   out.push({
     severity: 'info',
-    text: 'Adstock: «Geometric» - быстрый спад эффекта (1-2 недели, digital). «Weibull» - плавная кривая с build-up (TV, OOH, Радио).',
-    tip: 'Geometric: стандарт для OLV, Banners, Social, Performance, Search - эффект рекламы затухает экспоненциально после контакта. Weibull: лучше для охватных (TV, OOH, Радио, Пресса) - эффект нарастает и уходит медленнее. «Авто» - программа выбирает по имени канала.',
+    text: 'Тип отклика подбирается по данным каждого канала. Часть каналов даёт быстрый эффект — почти сразу, но и затухает быстро. Другие работают вдолгую — нарастает постепенно и держится дольше.',
+    tip: 'Система оценивает форму отклика из истории и выбирает модель затухания сама. «Geometric» — быстрый спад; «Weibull» — плавный нарастающий эффект. «Авто» рекомендуется для большинства проектов.',
   });
 
   // ── 3b. v2.1.0 (пилот 2026-05-17): явная информация про auto-injected
@@ -1066,16 +1165,13 @@ export function modelPreTrainingInsights(validateResult, enabledMediaNames = und
     tip: 'MQS - агрегированная оценка качества от 0 до 100. R² - доля объяснённой вариации KPI. R-hat — показатель сходимости байесовских цепей; если > 1.05 — увеличьте число итераций (Расширенные настройки, режим Эксперт).',
   });
 
-  // ── 7. Time estimate (educational) - v2.1.0 (пилот 2026-05-16): считаем
-  // по active каналам, не по всем media-ролям. Раньше показывал «~4 мин
-  // для 10 каналов» при 7 включённых чекбоксах.
-  // JAX/NumPyro NUTS на CPU: ~1-3 мин на 4-8 каналах при дефолтах (4×(2000+2000) samples).
-  // Формула синхронизирована с ConfigPanel.svelte estimateMinutes (JIT + ~5-10 мс/sample).
-  const estimatedMinutes = Math.max(1, Math.round(0.3 * mediaCount + 1));
+  // ── 7. Time estimate (educational) - F-A1-7: SSOT из training-estimate.js.
+  // Раньше: три разных формулы (ConfigPanel / validateConfirm / modelPreTraining)
+  // давали разные числа — нарушение INV-50. Теперь единый дефолтный диапазон.
   if (mediaCount > 5) {
     out.push({
       severity: 'info',
-      text: `Оценка времени: ~${estimatedMinutes} мин для ${mediaCount} каналов на движке JAX/NumPyro. Для быстрого прогона можно уменьшить draws в Расширенных настройках (режим Эксперт).`,
+      text: `Оценка времени: ${DEFAULT_TRAINING_ESTIMATE} для ${mediaCount} каналов. Для быстрого прогона можно уменьшить количество итераций в расширенных настройках (режим эксперта).`,
       tip: 'Байесовский Markov Chain Monte Carlo (NUTS) проходит две фазы: warmup (подбор step-size) и sampling (основные выборки). Первый запуск включает ~20 сек JIT-компиляции XLA - далее каждый sample занимает миллисекунды.',
     });
   }
@@ -1467,7 +1563,10 @@ export function decomposeInsights(data, kpiInput = null) {
       const roi = c.roi != null ? c.roi.toFixed(2) + '×' : '-';
       const spend = c.spend?.toLocaleString('ru-RU') ?? '-';
       const contrib = c.contribution?.toLocaleString('ru-RU') ?? '-';
-      return `${rank} ${c.name}: ${c.contribution_pct?.toFixed(0)}% от медиа-вклада, ROI ${roi}, бюджет ${spend} → вклад ${contrib}`;
+      // fix 2026-07-13 (INV-50): вклад без единицы («вклад 1 300 000») не давал
+      // понять — лиды это или рубли. Единица результата из паспорта.
+      const contribUnit = kpi?.targetUnit || '₽';
+      return `${rank} ${c.name}: ${c.contribution_pct?.toFixed(0)}% от медиа-вклада, ROI ${roi}, бюджет ${spend} → вклад ${contrib} ${contribUnit}`;
     }).join('\n');
     out.push({
       severity: 'info',
@@ -1762,7 +1861,9 @@ export function optimizeInsights(data, ctx = {}) {
     out.push({
       severity: 'warning',
       text: `Прирост ≈${lift.toFixed(1)}%. Оптимизатор не нашёл выигрыша в рамках текущих ограничений.`,
-      tip: 'Это не баг - модель честно говорит «лучше уже не сделаешь в этих рамках». Причины обычно две: (1) большинство каналов уже на saturation plateau - каждый доп.рубль даёт меньше 1 рубля продаж, (2) Мин/Макс % слишком узкие, нет пространства для перекладки. Смотрите следующие инсайты для разбора по каналам.',
+      tip: kpi.isLegacy
+        ? 'Это не баг - модель честно говорит «лучше уже не сделаешь в этих рамках». Причины обычно две: (1) большинство каналов уже на saturation plateau - каждый доп.рубль даёт меньше 1 рубля продаж, (2) Мин/Макс % слишком узкие, нет пространства для перекладки. Смотрите следующие инсайты для разбора по каналам.'
+        : 'Это не баг - модель честно говорит «лучше уже не сделаешь в этих рамках». Причины обычно две: (1) большинство каналов уже на saturation plateau - каждый дополнительный рубль затрат почти не улучшает результат, (2) Мин/Макс % слишком узкие, нет пространства для перекладки. Смотрите следующие инсайты для разбора по каналам.',
     });
   }
 
@@ -1802,7 +1903,10 @@ export function optimizeInsights(data, ctx = {}) {
       // 842M / 1.781B = 0.47×, customer видел «0.18×» которое реально 842M /
       // 4.338B (training). Fix: показываем training spend (denominator avgROI)
       // → ratio совпадает: 0.18× = 842M / 4338M.
-      text: `${portfolioPhrase} - ${roiComment}. На ${Math.round(totalSpendDec).toLocaleString('ru-RU')}₽ обучающего расхода - медиа-вклад ${Math.round(totalContribDec).toLocaleString('ru-RU')}₽ (без baseline).`,
+      // Затраты (totalSpendDec) — всегда ₽. Медиа-ВКЛАД (totalContribDec) — в единице
+      // результата: для count это штуки (лиды/упаковки), НЕ ₽ (аудит 2026-07-11) → подпись
+      // из паспорта kpi.targetUnit ('₽' для monetary, 'лид.'/'упак.' для count).
+      text: `${portfolioPhrase} - ${roiComment}. На ${Math.round(totalSpendDec).toLocaleString('ru-RU')}₽ обучающего расхода - медиа-вклад ${Math.round(totalContribDec).toLocaleString('ru-RU')} ${kpi.targetUnit || '₽'} (без baseline).`,
       tip: kpi.isLegacy
         ? 'ROI рассчитан на обучающих данных (вся история). Прогноз для бюджета планирования может отличаться - см. блок B Прогноз KPI.\n\nBenchmark: ROI ≥ 2× - отлично; 1-2× - приемлемо, нужно улучшать микс; < 1× - медиа в среднем работает в убыток, требуется пересмотр каналов или креатива.'
         : `Метрика рассчитана на обучающих данных (вся история). Прогноз для бюджета планирования может отличаться.\n\nBenchmark: ${_topBenchmark(kpi)} - отлично; на грани с ценностью - приемлемо; выше ценности - убыточно.`,
@@ -1940,14 +2044,14 @@ export function optimizeInsights(data, ctx = {}) {
       text: `Предельная отдача (${metricShort}): лучший ${best.name} (${_fmtMetric(best.mroas, kpi)}), худший ${worst.name} (${_fmtMetric(worst.mroas, kpi)}).${spreadNote}`,
       tip: kpi.isLegacy
         ? 'mROAS - сколько рублей KPI приносит следующий рубль в канал (не путать с ROI, который про средний за период). Классическое правило оптимизации: переливать из канала с низким mROAS в канал с высоким, пока они не сравняются.'
-        : `${metricShort} - предельная отдача следующего рубля. Правило оптимизации: переливать из худшего канала в лучший, пока они не сравняются.`,
+        : `${metricShort} - предельная отдача следующего ₽ затрат. Правило оптимизации: переливать из худшего канала в лучший, пока они не сравняются.`,
     });
   } else if (activeSat.length === 1) {
     const only = activeSat[0];
     out.push({
       severity: 'warning',
-      text: `Активен только 1 канал (${only.name}, mROAS ${only.mroas.toFixed(2)}×). Модель не может оценить перекладку - нужно включить хотя бы 2 канала.`,
-      tip: 'Поставьте бюджет на остальных каналах > 0, чтобы увидеть сравнение mROAS. Каналы с 0₽ модель считает «не используются» и их отдача недоступна.',
+      text: `Активен только 1 канал (${only.name}, ${kpi.metricShort} ${_fmtMetric(only.mroas, kpi)}). Модель не может оценить перекладку - нужно включить хотя бы 2 канала.`,
+      tip: `Поставьте бюджет на остальных каналах > 0, чтобы увидеть сравнение ${kpi.metricShort}. Каналы с 0₽ модель считает «не используются» и их отдача недоступна.`,
     });
   } else if (satList.length > 0) {
     out.push({
@@ -1985,10 +2089,31 @@ export function optimizeInsights(data, ctx = {}) {
       const deltaAbs = Math.abs(c.delta).toLocaleString('ru-RU');
       return `${arrow} ${c.name}: ${sign}${c.deltaPct.toFixed(0)}% (${c.deltaPct > 0 ? '+' : '−'}${deltaAbs}₽)`;
     }).join('\n');
+
+    // F-A1-18: текст сдвигов из фактических знаков дельт (не хардкод).
+    const hasIncreases = significantChanges.some(/** @param {any} c */ c => c.deltaPct > 0);
+    const hasDecreases = significantChanges.some(/** @param {any} c */ c => c.deltaPct < 0);
+    /** @type {string} */
+    let shiftDescription;
+    if (hasIncreases && hasDecreases) {
+      // Реальная перекладка: есть и рост, и снижение
+      const fromChannels = significantChanges.filter(/** @param {any} c */ c => c.deltaPct < 0).map(/** @param {any} c */ c => c.name).slice(0, 2).join(', ');
+      const toChannels = significantChanges.filter(/** @param {any} c */ c => c.deltaPct > 0).map(/** @param {any} c */ c => c.name).slice(0, 2).join(', ');
+      shiftDescription = kpi.isLegacy
+        ? `Перекладка из ${fromChannels} в ${toChannels} — где каждый рубль ещё работает на полную.`
+        : `Перекладка из ${fromChannels} в ${toChannels} — где потенциал ещё не исчерпан.`;
+    } else if (hasDecreases && !hasIncreases) {
+      // Все снижаются — масштабирование вниз
+      shiftDescription = 'Масштабирование под плановый период, пропорции сохранены.';
+    } else {
+      // Все растут — наращивание
+      shiftDescription = 'Наращивание бюджета — каналы работают ниже насыщения.';
+    }
+
     out.push({
       severity: 'info',
       text: `Главные сдвиги бюджета (${significantChanges.length} канал${significantChanges.length > 4 ? 'ов' : significantChanges.length > 1 ? 'а' : ''}):`,
-      tip: lines + '\n\nПерекладка идёт из перенасыщенных каналов в недонасыщенные - где каждый рубль ещё работает на полную.',
+      tip: lines + `\n\n${shiftDescription}`,
     });
   } else if (Math.abs(lift) < 0.5) {
     out.push({
@@ -2035,20 +2160,20 @@ export function optimizeInsights(data, ctx = {}) {
   /** @type {string[]} */
   const actions = [];
   if (noLift) {
-    actions.push('• Блок C (What-if) - подвигайте общий бюджет ×1.2–×1.5: увидите куда модель хочет направить доп.деньги.');
-    actions.push('• Блок D (Forecast) - спрогнозируйте KPI на следующий период с учётом медиаинфляции.');
+    actions.push('• Другой бюджет — подвигайте общий бюджет ×1.2–×1.5: увидите куда модель хочет направить доп.деньги.');
+    actions.push('• Прогноз на период — спрогнозируйте KPI на следующий период с учётом медиаинфляции.');
     if (manyChannelsSaturated) {
       actions.push('• Расширьте границы - Мин. % → 20–30%, Макс. % → 200–300%: оптимизатор получит пространство для перекладки.');
       actions.push('• Стратегически - обновите креатив или добавьте новый канал: кривая насыщения «не знает» о новой кампании, но на практике свежий креатив возвращает канал к точке до плато.');
     }
   } else if (lift > 15) {
     actions.push('• Пилот 4-6 недель на 20-30% бюджета с новыми пропорциями - валидация модельных оценок.');
-    actions.push('• Блок E (Сценарии) - сохраните этот оптимум, сравните с другими конфигурациями.');
-    actions.push('• Эксперт-режим в блоке B - если есть бизнес-ограничения (подписанные контракты, sponsor obligations), зафиксируйте каналы.');
+    actions.push('• Сценарии — сохраните этот оптимум, сравните с другими конфигурациями.');
+    actions.push('• Расширенные настройки — если есть бизнес-ограничения (подписанные контракты, зафиксированные договорённости), зафиксируйте каналы.');
   } else {
-    actions.push('• Блок C (What-if) - поэкспериментируйте с бюджетом ±30%.');
-    actions.push('• Блок D (Forecast) - планирование следующего периода.');
-    actions.push('• Блок E (Сценарии) - сохраните и сравните несколько вариантов.');
+    actions.push('• Другой бюджет — поэкспериментируйте с бюджетом ±30%.');
+    actions.push('• Прогноз на период — планирование следующего периода.');
+    actions.push('• Сценарии — сохраните и сравните несколько вариантов.');
     actions.push('• Подтвердить и перейти к отчёту - когда план устраивает.');
   }
 

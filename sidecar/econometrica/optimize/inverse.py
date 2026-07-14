@@ -153,7 +153,12 @@ def build_proportional_forward(project_dir: str, unit_costs_override: Optional[D
     # training snapshot для Hill. Делает «текущий бюджет» goal-seek = forward.
     unit_costs = _resolve_current_unit_costs(project_dir, cfg, unit_costs_override)
 
-    data_file = cfg['data_file']
+    # C3-N3 (2026-07-03): абсолютный путь из pickle мог протухнуть (файл
+    # перемещён/другая машина) — резолвер даёт фолбэк на каталог проекта и
+    # понятную русскую ошибку вместо сырого Errno через HTTP 500 (боевая
+    # находка живого click-path на реальном Kagocel-проекте).
+    from utils.data_file_resolver import resolve_data_file
+    data_file = resolve_data_file(cfg.get('data_file'), project_dir)
     df = _pd.read_excel(data_file) if str(data_file).endswith(('.xlsx', '.xls')) else _pd.read_csv(data_file)
     apply_merge_rules(df, cfg.get('merge_rules'))
     n_periods = max(len(df), 1)
@@ -200,7 +205,137 @@ def build_proportional_forward(project_dir: str, unit_costs_override: Optional[D
             return {'expected_sales': 0.0, 'distribution': {}, 'status': 'error',
                     'error_message': str(exc)}
 
-    return forward, {'current_total_money': total_cur_money, 'baseline_total': baseline_total}
+    # ── Мат-аудит 2026-07-02 (F-02/F-03): posterior-распространение для goal-seek ──
+    # Прежний Delta-CI брал spread = |S(B+δ)−S(B−δ)|/2 ≈ |grad|·δ → half_width =
+    # 1.28·spread/|grad| ≈ 1.28·δ — константа ~±6.4% бюджета, СЛЕПАЯ к разбросу
+    # posterior (подтверждено зондом: narrow sd=0.05 и wide sd=0.45 дают одинаковые
+    # 12.80% отн. ширины). Правильный источник неопределённости — posterior draws
+    # через ТУ ЖЕ формулу forward (Gelman, Bayesian Workflow: «maintain the
+    # uncertainty in the posterior distribution using simulations»; delta-
+    # аппроксимация — метод эпохи до симуляций). Формула не дублируется:
+    # per-sample вызов evaluate_flat_allocation_response (SSOT, I8-alignment).
+    y_mean_f = float(norm.get('y_mean', 0.0))
+    ps = model_data.get('posterior_samples') or {}
+
+    def posterior_sampler(total_budget_money: float, max_samples: int = 200):
+        """Per-sample S(B) в KPI-масштабе (включая разброс intercept).
+
+        Возвращает np.ndarray shape (k,) или None (нет/битые posterior samples —
+        OLS-путь v1.0-ols, legacy pickle). Неопределённость ПАРАМЕТРОВ модели
+        (epistemic), без шума наблюдений σ_obs — вопрос goal-seek «ожидаемые
+        продажи за горизонт», не «одно наблюдение».
+        """
+        try:
+            betas = ps.get('media_betas')
+            alphas_s = ps.get('alphas')
+            gammas_s = ps.get('gammas')
+            if betas is None or alphas_s is None or gammas_s is None:
+                return None
+            betas = _np.asarray(betas, dtype=float)
+            alphas_a = _np.asarray(alphas_s, dtype=float)
+            gammas_a = _np.asarray(gammas_s, dtype=float)
+            if betas.ndim != 2 or betas.shape[1] < 2:
+                return None
+            ps_cols = list(ps.get('media_columns') or media_cols)
+            try:
+                row_idx = [ps_cols.index(c) for c in media_cols]
+            except ValueError:
+                return None  # канал вне posterior — не гадаем
+            decay_raw = ps.get('adstock_decay')
+            decay_a = _np.asarray(decay_raw, dtype=float) if decay_raw is not None else None
+            per_sample_decay = decay_a is not None and decay_a.ndim == 2 and decay_a.shape == betas.shape
+            inter_raw = ps.get('intercept')
+            inter_a = _np.asarray(inter_raw, dtype=float) if inter_raw is not None else None
+
+            n_s = betas.shape[1]
+            step = max(1, n_s // max_samples)
+            sel = _np.arange(0, n_s, step)[:max_samples]
+            alloc = _np.array([prop[c] * float(total_budget_money) for c in media_cols], dtype=float)
+            uc_train_pass = uc_train_arr if uc_applied else None
+
+            out = _np.empty(sel.size, dtype=float)
+            for j, s in enumerate(sel):
+                cp: Dict[str, Dict[str, Any]] = {}
+                for k_i, c in enumerate(media_cols):
+                    r = row_idx[k_i]
+                    point = channel_params.get(c, {}) or {}
+                    cp[c] = {
+                        'beta': float(betas[r, s]),
+                        'alpha': float(alphas_a[r, s]),
+                        'gamma': float(gammas_a[r, s]),
+                        'decay': (float(decay_a[r, s]) if per_sample_decay
+                                  else point.get('decay')),
+                        # Нормализация та же, что в точечном forward (Phase 1.1):
+                        'adstock_mean_posterior': point.get('adstock_mean_posterior'),
+                    }
+                resp_s = evaluate_flat_allocation_response(
+                    media_cols=media_cols,
+                    channel_params=cp,
+                    allocation_money=alloc,
+                    unit_costs=uc_arr,
+                    media_means=media_means,
+                    adstock_config=adstock_config,
+                    n_periods=n_periods,
+                    unit_costs_at_training=uc_train_pass,
+                )
+                base_s = ((float(inter_a[s]) * y_std + y_mean_f) * n_periods
+                          if inter_a is not None and inter_a.size > s else baseline_total)
+                out[j] = base_s + resp_s * y_std
+            if not _np.all(_np.isfinite(out)):
+                return None
+            return out
+        except Exception:  # noqa: BLE001 - honesty-контур не должен ронять goal-seek
+            return None
+
+    # ── Мат-аудит 2026-07-02 (F-01): отчёт об экстраполяции рекомендации ──────
+    # Диапазон бисекции budget_hi=5×current сознательно шире safe-коридора
+    # (GS-1: коридор на не-денежных каналах смешивал единицы), но рекомендация
+    # обязана ЧЕСТНО помечать выход трат за наблюдавшийся диапазон: кривая вне
+    # него не идентифицируется данными (Chan & Perry 2017, Fig. 2 — разные кривые,
+    # неотличимые на наблюдённом диапазоне, расходятся вне его). Тиры — канонические
+    # p95/p99 (utils.forecast_validation.extrapolation_severity), применённые к
+    # per-period тратам канала в НАТИВНЫХ единицах против его истории.
+    hist_native = {c: df[c].fillna(0).to_numpy(dtype=float) for c in media_cols}
+
+    def extrapolation_reporter(distribution_money: Dict[str, Any]) -> Dict[str, Any]:
+        from utils.forecast_validation import extrapolation_severity
+        channels = []
+        max_sev = 0
+        for c in media_cols:
+            money = float((distribution_money or {}).get(c, 0) or 0)
+            if money <= 0:
+                continue
+            uc_c = float(unit_costs.get(c, 1.0) or 1.0)
+            per_period_native = (money / uc_c) / n_periods
+            arr = hist_native.get(c)
+            if arr is None:
+                continue
+            arr_pos = arr[arr > 0]
+            if arr_pos.size == 0:
+                continue
+            q = {
+                'p95': float(_np.quantile(arr_pos, 0.95)),
+                'p99': float(_np.quantile(arr_pos, 0.99)),
+            }
+            sev = extrapolation_severity(per_period_native, q)
+            max_sev = max(max_sev, sev)
+            if sev > 0:
+                hist_max = float(arr.max())
+                channels.append({
+                    'name': c,
+                    'per_period_native': round(per_period_native, 2),
+                    'hist_max_native': round(hist_max, 2),
+                    'ratio_vs_max': round(per_period_native / hist_max, 2) if hist_max > 0 else None,
+                    'severity': sev,
+                })
+        return {'severity': max_sev, 'channels': channels}
+
+    return forward, {
+        'current_total_money': total_cur_money,
+        'baseline_total': baseline_total,
+        'posterior_sampler': posterior_sampler,
+        'extrapolation_reporter': extrapolation_reporter,
+    }
 
 
 def _verify_monotonicity(forward_fn, budget_lo: float, budget_hi: float, n_probes: int = 5) -> Dict[str, Any]:
@@ -363,18 +498,28 @@ def estimate_budget_ci(
     target_sales: float,
     delta_pct: float = 0.05,
     forward_fn=None,
+    posterior_std: Optional[float] = None,
 ) -> Dict[str, float]:
     """Estimate posterior CI на budget через Delta method (linearization).
 
     Идея:
     - Локальный gradient: ∂S/∂B ≈ (S(B + δ) - S(B - δ)) / (2δ).
-    - Posterior std на S(B*) - приближаем через 1-2 forward passes на B ± δ.
-    - B_ci_half_width ≈ S_std / |∂S/∂B|.
+    - sd(B) ≈ sd(S(B*)) / |∂S/∂B| (delta method).
 
-    MVP - простая Delta method. Phase B: full posterior re-bisection.
+    Мат-аудит 2026-07-02 (F-02): источник sd(S). Прежний прокси
+    response_spread = |S(B+δ)−S(B−δ)|/2 ≈ |grad|·δ алгебраически схлопывал
+    half_width = 1.28·spread/|grad| в константу 1.28·δ (~±6.4% бюджета) —
+    CI не зависел от неопределённости модели (зонд: narrow/wide posterior →
+    одинаковые 12.80%). Теперь при наличии posterior_std (std апостериорных
+    S(B*) через per-sample forward, см. build_proportional_forward.
+    posterior_sampler) — честный delta-метод: half = z₀.₉·sd_posterior/|grad|,
+    method='delta_posterior' (Gelman, Bayesian Workflow: неопределённость —
+    из posterior-симуляций). Без posterior (OLS-путь, legacy pickle) —
+    прежний прокси как fallback, method='delta'.
 
     Returns:
-        {'p10': float, 'p50': budget_optimum, 'p90': float, 'method': 'delta'}
+        {'p10': float, 'p50': budget_optimum, 'p90': float,
+         'method': 'delta_posterior'|'delta'|'flat_response_fallback'|'point'}
     """
     fwd = forward_fn if forward_fn is not None else (lambda B: _forward_at_budget(project_dir, B))
     delta = max(delta_pct * budget_optimum, 1.0)
@@ -400,19 +545,29 @@ def estimate_budget_ci(
             'method': 'flat_response_fallback',
         }
 
-    # Variance proxy: difference between f_plus and f_minus / 2 - std-like estimate.
-    response_spread = abs(f_plus['expected_sales'] - f_minus['expected_sales']) / 2
-    # Conservative half-width for ~80% CI: 1.28 * spread / |grad|.
-    half_width = 1.28 * response_spread / abs(grad_approx)
+    if posterior_std is not None and posterior_std > 0:
+        # z для 80% центрального интервала (p10..p90) = 1.2816.
+        half_width = 1.2816 * float(posterior_std) / abs(grad_approx)
+        method = 'delta_posterior'
+    else:
+        # Legacy-прокси (OLS / нет posterior): spread ≈ |grad|·δ → half ≈ 1.28·δ.
+        response_spread = abs(f_plus['expected_sales'] - f_minus['expected_sales']) / 2
+        half_width = 1.28 * response_spread / abs(grad_approx)
+        method = 'delta'
 
     # Cap CI width at 50% of optimum (paranoia против explosion).
+    # Мат-аудит 2026-07-02: упор в cap = grad мал (почти плоская кривая) →
+    # бюджет под цель слабо определён. Флаг 'capped' поднимает UI-баннер
+    # насыщения (та же семантика, что flat_response_fallback, но grad > 1e-9).
+    was_capped = half_width > 0.5 * budget_optimum
     half_width = min(half_width, 0.5 * budget_optimum)
 
     return {
         'p10': max(0.0, budget_optimum - half_width),
         'p50': budget_optimum,
         'p90': budget_optimum + half_width,
-        'method': 'delta',
+        'method': method,
+        'capped': was_capped,
     }
 
 
@@ -420,15 +575,29 @@ def estimate_p_hit_target(
     expected_sales_at_budget: float,
     target_sales: float,
     response_spread: float = 0.0,
+    sales_samples=None,
 ) -> float:
     """Estimate P(S(B*) >= target).
 
-    MVP: если expected >= target → 0.5+ (зависит от запаса). Если ниже - < 0.5.
-    Точный расчёт требует MCMC posterior on S(B*) - Phase B.
+    Мат-аудит 2026-07-02 (F-03): прежняя эвристика вырождалась в константу —
+    бисекция останавливается ровно на S(B*)≈target → z≈0 → erf-формула давала
+    p_hit≈0.5 ВСЕГДА (зонд подтвердил: 0.500 на любых проектах/целях). При
+    наличии sales_samples (posterior S(B*) через per-sample forward) — честная
+    доля draws, достигших цели (Gelman: вероятностные выводы — из
+    posterior-симуляций). Эвристика остаётся fallback'ом для OLS/legacy.
 
     Returns:
         Probability в [0, 1].
     """
+    if sales_samples is not None:
+        try:
+            import numpy as _np_local
+            arr = _np_local.asarray(sales_samples, dtype=float)
+            arr = arr[_np_local.isfinite(arr)]
+            if arr.size >= 2:
+                return float(_np_local.mean(arr >= float(target_sales)))
+        except Exception:  # noqa: BLE001 - фолбэк на эвристику ниже
+            pass
     if expected_sales_at_budget >= target_sales:
         # MVP: assume >50% if expected hits target. Crude.
         if response_spread > 0:
@@ -447,6 +616,7 @@ def optimize_inverse(
     mode: str = 'roi',
     budget_constraints: Optional[Dict[str, Any]] = None,
     unit_costs: Optional[Dict[str, Any]] = None,
+    confidence: Optional[float] = None,
 ) -> Dict[str, Any]:
     """High-level inverse / goal-seek optimization.
 
@@ -458,6 +628,17 @@ def optimize_inverse(
         kpi_kind: 'monetary' | 'count' (для logging, не влияет на math).
         mode: 'roi' | 'effectiveness' | 'manual' (для logging).
         budget_constraints: optional {'max_budget': float, 'min_budget': float}.
+        confidence: OPP-02 (2026-07-03) «бюджет под вероятность». None (default) —
+            прежнее поведение: бисекция по медианному (точечному) forward, бюджет
+            достигает цели с P≈50% by construction. float в (0, 1), напр. 0.8 —
+            квантильная бисекция: минимальный B, при котором квантиль уровня
+            (1−confidence) распределения posterior-draws S(B) ≥ target, т.е.
+            P(S(B) ≥ target) ≥ confidence. Монотонность квантильного forward
+            следует из per-draw монотонности S_s(B) (сумма Hill-откликов растёт
+            по B при фикс. параметрах draw ⇒ стохастическое доминирование ⇒
+            квантиль монотонен; подтверждено зондом). Требует posterior_samples:
+            на OLS/legacy-pickle честная деградация в медианный режим с маркером
+            confidence_unavailable (INV-50: не притворяться, что посчитали).
 
     Returns:
         Dict (achievable=True case):
@@ -490,6 +671,22 @@ def optimize_inverse(
             'message': 'Модель не найдена. Сначала обучите модель.',
         }
 
+    # OPP-02: валидация уровня доверия ДО тяжёлой работы.
+    if confidence is not None:
+        try:
+            confidence = float(confidence)
+        except (TypeError, ValueError):
+            confidence = -1.0  # провалит проверку диапазона ниже
+        if not (0.0 < confidence < 1.0):
+            return {
+                'achievable': False,
+                'error': 'INVALID_CONFIDENCE',
+                'message': (
+                    'Уровень вероятности должен быть числом строго между 0 и 1 '
+                    '(например, 0.8 для «бюджета под 80%»).'
+                ),
+            }
+
     # GS-1 (2026-06-02): proportional forward (фикс. текущий микс каналов) -
     # монотонен по построению, обрабатывает unit_costs напрямую (без UNIT_SMELL
     # guard, который ронял re-optimize forward на не-денежных каналах).
@@ -514,16 +711,67 @@ def optimize_inverse(
             budget_hi = float(budget_constraints['max_budget'])
         budget_lo = max(budget_lo, budget_constraints.get('min_budget', budget_lo))
 
-    # Bisection через proportional forward.
+    # ── OPP-02 (2026-07-03): квантильный forward для «бюджета под вероятность» ──
+    # q_fwd(B) — обёртка ТОЧЕЧНОГО forward: distribution (пропорциональный микс)
+    # берём из него, expected_sales заменяем квантилью уровня (1−confidence)
+    # posterior-draws S(B). Формула отклика не дублируется — per-sample вызов
+    # evaluate_flat_allocation_response внутри posterior_sampler (SSOT, I8).
+    # Стоимость: sampler(B) ≈ 12–15 мс × ~13 итераций бисекции ≈ 0.2 с (зонд
+    # tmp/probe_a2_sampler_cost.py) — в perf-бюджете goal-seek < 1 s.
+    confidence_applied: Optional[float] = None
+    confidence_unavailable_reason: Optional[str] = None
+    active_forward = forward_fn
+    if confidence is not None:
+        sampler_probe = fwd_meta.get('posterior_sampler')
+        probe_arr = sampler_probe(budget_hi) if callable(sampler_probe) else None
+        if probe_arr is None or len(probe_arr) < 2:
+            # Честная деградация (INV-50): нет posterior (OLS/legacy pickle) —
+            # медианный расчёт с явным маркером, НЕ тихая подмена семантики.
+            confidence_unavailable_reason = 'no_posterior_samples'
+        else:
+            import numpy as _np_q
+            q_level = 1.0 - confidence
+
+            def _quantile_forward(total_budget_money: float) -> Dict[str, Any]:
+                base = forward_fn(total_budget_money)
+                if base.get('status') == 'error':
+                    return base
+                arr = sampler_probe(total_budget_money)
+                if arr is None or len(arr) < 2:
+                    return {'expected_sales': 0.0, 'distribution': {}, 'status': 'error',
+                            'error_message': 'posterior sampler failed mid-bisection'}
+                return {
+                    'expected_sales': float(_np_q.quantile(arr, q_level)),
+                    'distribution': base['distribution'],
+                    'status': 'ok',
+                }
+
+            active_forward = _quantile_forward
+            confidence_applied = confidence
+
+    # Bisection через proportional forward (медианный или квантильный).
     bisect_result = bisect_for_target(
         project_dir=project_dir,
         target_sales=target_sales,
         budget_lo=budget_lo,
         budget_hi=budget_hi,
-        forward_fn=forward_fn,
+        forward_fn=active_forward,
     )
 
     if not bisect_result.get('achievable'):
+        message = bisect_result.get('message', 'Goal not achievable')
+        # OPP-02: в квантильном режиме fallback_max_sales = квантиль уровня
+        # (1−confidence) при бюджете hi — «максимум, достижимый с вероятностью
+        # ≥ confidence». Формулировка обязана это доносить (INV-50), иначе число
+        # выглядит противоречащим медианной вкладке.
+        if confidence_applied is not None and bisect_result.get('fallback_max_sales') is not None:
+            pct = round(confidence_applied * 100)
+            message = (
+                f'Цель {target_sales:,.0f} недостижима с вероятностью {pct}% '
+                f'в доступном диапазоне бюджета. Максимум продаж, достижимый '
+                f'с вероятностью {pct}% при текущем миксе каналов: '
+                f'{bisect_result["fallback_max_sales"]:,.0f}'
+            ).replace(',', ' ')
         return {
             'achievable': False,
             'kpi_kind': kpi_kind,
@@ -534,29 +782,77 @@ def optimize_inverse(
             'error': bisect_result.get('error'),
             'fallback_max_sales': bisect_result.get('fallback_max_sales'),
             'fallback_budget': bisect_result.get('fallback_budget'),
-            'message': bisect_result.get('message', 'Goal not achievable'),
+            'message': message,
             'iterations': bisect_result.get('iterations', 0),
+            'confidence': confidence_applied,
+            'confidence_unavailable': confidence_unavailable_reason is not None,
         }
 
     # Posterior CI via Delta method (тот же proportional forward для согласованного градиента).
     budget_optimum = bisect_result['budget']
-    ci = estimate_budget_ci(project_dir, budget_optimum, target_sales, forward_fn=forward_fn)
+
+    # Мат-аудит 2026-07-02 (F-02/F-03): posterior-разброс S(B*) — единый источник
+    # и для честного CI бюджета (delta: sd(B)=z·sd(S)/|grad|), и для честного
+    # P(достижения) = доля posterior draws ≥ цели. sampler отдаёт None на
+    # OLS/legacy-pickle → прежние fallback-пути нетронуты (back-compat).
+    sales_samples = None
+    posterior_std = None
+    sampler = fwd_meta.get('posterior_sampler')
+    if callable(sampler):
+        sales_samples = sampler(budget_optimum)
+        if sales_samples is not None and len(sales_samples) >= 2:
+            import numpy as _np_ci
+            posterior_std = float(_np_ci.std(_np_ci.asarray(sales_samples, dtype=float)))
+        else:
+            sales_samples = None
+
+    ci = estimate_budget_ci(
+        project_dir, budget_optimum, target_sales,
+        forward_fn=forward_fn, posterior_std=posterior_std,
+    )
     # #59 (2026-06-02): явный булев маркер насыщения для UI-баннера.
     # estimate_budget_ci ставит method='flat_response_fallback', когда локальный
     # градиент ∂S/∂B ≈ 0 (плоская кривая) — Goal-Seek нашёл бюджет, но маргинальная
     # отдача ≈ 0 и CI грубый (±10%). UI показывает баннер вместо сырого жаргона.
-    flat_response_fallback = ci.get('method') == 'flat_response_fallback'
+    # Мат-аудит 2026-07-02: + 'capped' (CI упёрся в потолок 50% — grad мал, но
+    # > 1e-9) — то же насыщение по сути, баннер обязан загореться и здесь.
+    flat_response_fallback = (
+        ci.get('method') == 'flat_response_fallback' or bool(ci.get('capped'))
+    )
 
-    # P(hit target): MVP - на основе expected_sales spread.
+    # P(hit target): posterior-доля при наличии samples, иначе прежний MVP-прокси.
     p_hit = estimate_p_hit_target(
         bisect_result['expected_sales'],
         target_sales,
-        response_spread=(ci['p90'] - ci['p10']) / 4,  # rough proxy
+        response_spread=(ci['p90'] - ci['p10']) / 4,  # rough proxy (fallback-ветка)
+        sales_samples=sales_samples,
     )
+
+    # Мат-аудит 2026-07-02 (F-01): честная пометка экстраполяции рекомендации —
+    # per-period траты каналов против наблюдавшегося диапазона (канонические тиры
+    # p95/p99; Chan & Perry 2017 Fig. 2: кривая вне наблюдённого диапазона не
+    # идентифицируется данными). None — если reporter недоступен (моки/edge).
+    extrapolation = None
+    reporter = fwd_meta.get('extrapolation_reporter')
+    if callable(reporter):
+        try:
+            extrapolation = reporter(bisect_result.get('distribution') or {})
+        except Exception:  # noqa: BLE001 - honesty-контур не роняет goal-seek
+            extrapolation = None
 
     delta_vs_current = (
         (budget_optimum - current_total) / current_total if current_total > 0 else 0.0
     )
+
+    # OPP-02: в квантильном режиме expected_sales = квантиль (1−confidence) при B*
+    # («продажи, достижимые с вероятностью ≥ confidence»). Дополнительно отдаём
+    # медианную (точечную) траекторию при том же бюджете — UI показывает
+    # «гарантия 80%: цель X; в типичном сценарии при этом бюджете: Y».
+    expected_sales_median = None
+    if confidence_applied is not None:
+        point_at_optimum = forward_fn(budget_optimum)
+        if point_at_optimum.get('status') == 'ok':
+            expected_sales_median = point_at_optimum['expected_sales']
 
     return {
         'achievable': True,
@@ -567,11 +863,20 @@ def optimize_inverse(
         'distribution': bisect_result['distribution'],
         'delta_vs_current': delta_vs_current,
         'p_hit_target': p_hit,
+        'p_hit_method': 'posterior' if sales_samples is not None else 'heuristic',
         'iterations': bisect_result['iterations'],
         'expected_sales': bisect_result['expected_sales'],
+        'expected_sales_median': expected_sales_median,
         'current_total_budget': current_total,
         'flat_response_fallback': flat_response_fallback,
+        'extrapolation': extrapolation,
         # GS-1: распределение получено масштабированием ТЕКУЩЕГО микса (фикс. пропорции),
         # а не оптимальным перераспределением. UI поясняет это пользователю.
         'allocation_mode': 'proportional',
+        # OPP-02: применённый уровень «бюджета под вероятность» (None = медианный
+        # режим); confidence_unavailable=True — просили, но модель без posterior.
+        'confidence': confidence_applied,
+        'confidence_unavailable': confidence_unavailable_reason is not None,
+        **({'confidence_unavailable_reason': confidence_unavailable_reason}
+           if confidence_unavailable_reason else {}),
     }

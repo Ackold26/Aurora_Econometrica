@@ -6,6 +6,9 @@
   import { toast } from '$lib/toast.js';
   import { getNextSteps, getRandomInsight, getCurrentPhase, trackRequest, getEmpathyError, getTimeGreeting, getUsageHint, startSession, incrementSessionMessages, endSession, pluralRu, getResponseActions, getSafetyTimeout, getEndowedProgressMessage, getContextInsight } from '$lib/psy.js';
   import { classifyMessage } from '$lib/chat-classifier.js';
+  import { isEconometrica } from '$lib/creative-store.js';
+  import { activeProject, modelData, decomposeData, optimizeData, validateData, unitCosts } from '$lib/project-state.js';
+  import { ECON_DATA_COMMANDS, buildProjectDataBlock } from '$lib/econ-project-context.js';
   import { playSendSound, playCompleteSound, playAchievementSound } from '$lib/audio.js';
   import { parseResponseSections, shouldRenderStructured, isSlideDeckResponse, splitSlideSections, cleanSlideTitle, extractCompletionStats } from '$lib/response-parser.js';
   import { fade } from 'svelte/transition';
@@ -96,6 +99,9 @@
     // econometrist
     '/mmm-full', '/mmm-prepare', '/mmm-model', '/mmm-decomposition', '/mmm-optimize',
     '/mmm-scenarios', '/mmm-report', '/awareness-forecast', '/awareness-to-sales',
+    // econometrist - консультационные команды - длинные ответы
+    '/interpret-model', '/why-channel', '/explain-ratio', '/pilot-design',
+    '/next-quarter-plan', '/data-gaps',
   ];
 
   /** @type {string|null} Track last executed command for auto-continue */
@@ -680,6 +686,28 @@
 
     const ts = Date.now();
 
+    // ── Правило №10 (CLAUDE.md): Pipeline context - inject в message, не файл ──
+    // Консультационные команды econometrist (/interpret-model и др.) документированы
+    // как читающие JSON-артефакты пайплайна из workspace, но runtime-restriction
+    // запрещает env-пути и ни один код туда эти файлы не кладёт - контракт иначе
+    // сломан. Прикладываем данные к сообщению, которое реально уходит в Claude;
+    // отображаемый/сохраняемый текст (messages/history) остаётся оригинальным -
+    // пользователь не должен видеть сырой JSON в чате.
+    let messageToSend = text;
+    if ($isEconometrica && ECON_DATA_COMMANDS.includes(text.split(/\s/)[0])) {
+      const uc = $unitCosts && Object.keys($unitCosts).length > 0 ? $unitCosts : null;
+      const meta = $activeProject || uc
+        ? { name: $activeProject?.name ?? null, kpi_type: $activeProject?.kpi_type ?? null, unit_costs: uc }
+        : null;
+      messageToSend = text + buildProjectDataBlock({
+        mod: $modelData?.diagnostics ? $modelData : null,
+        dec: $decomposeData,
+        opt: $optimizeData,
+        val: $validateData,
+        projectMeta: meta,
+      });
+    }
+
     // ── Phase 2.2: Classifier - перехват small talk ДО добавления user message ──
     // Важно: classifyMessage получает $messages ДО добавления нового сообщения,
     // чтобы follow-up protection корректно проверяла последнее сообщение ассистента.
@@ -748,7 +776,7 @@
     }, safetyMs);
 
     try {
-      await invoke('send_message', { cabinetId, message: text });
+      await invoke('send_message', { cabinetId, message: messageToSend });
     } catch (err) {
       clearTimeout(safetyTimer);
       messages.update(msgs => [...msgs, { role: 'system', content: `Ошибка: ${err}`, ts: Date.now() }]);

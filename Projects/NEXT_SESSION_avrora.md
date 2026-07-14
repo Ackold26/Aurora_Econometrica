@@ -1,0 +1,101 @@
+# Аврора + кабинет эконометриста — роутер следующей сессии
+
+> Скопировать в начало новой сессии. cwd = `D:\Docs\Aurora_Ai\Dev\Aurora_Econometrica_avrora`
+> (git worktree ветки `feat/econ-avrora-assistant`). Создан 2026-07-12.
+> Полное состояние → память [[INDEX_econometrica]] (шапка 2026-07-12).
+
+## Что сделано и на origin (НЕ переделывать)
+
+Ветка `feat/econ-avrora-assistant` от planning-mode `36857cd` — **запушена**
+(`origin/feat/econ-avrora-assistant`, 16 коммитов, 7 тегов, verify 0/0). Гейты:
+vitest 1142 · svelte-check 0 · cargo обе редакции ok.
+
+- **Ассистент «Аврора» восстановлен портом** (не merge — 233 коммита расхождения):
+  grounding-страж INV-50, «Что если», Rust-мост `econ_ask_insight`, тумблер «только локально».
+- **RAG-клиент узла Б** `rag_client.rs::econ_rag_search` → `127.0.0.1:8801/search`
+  corpus=econometrics (17 первоисточников от трека B), гейты как Claude-egress.
+- **Правила промпта** 4/11/12 (переводчик, правдоподобный диапазон).
+- **Аудит-фиксы** (2 Opus): validate_rag_url (http только loopback), interlock,
+  askEpoch (stale-write), sanitizeMethodologyFragment.
+- **Вырезка телеметрии** (stripOpt/Model/DecompTelemetry): промпт −25%, страж чист.
+- **Живой headless-прогон** доказал цепочку (ноль выдуманных чисел) —
+  `Projects/AVRORA_LIVE_RUN_2026-07-12.md`.
+- **Петля** `rag-query.js`: тематизация RAG двуязычно по шагу + humanizeSource.
+- **Кабинет эконометриста**: зрелость 2.0→4.0, эфф 3.0→4.3. Документ аудита —
+  `Dev/Aurora_Econometrica/docs/audits/CABINET_ECONOMETRIST_AUDIT_2026-07-12.md`
+  (коммит `fecdb84` в kpi-units). SSOT-страж `tools/check_cabinet_drift.py` +
+  эвал-харнес `tools/cabinet_eval` (6 кейсов, автогрейдеры реюз insights-grounding).
+
+## ✅ ПЕРВЫЙ ПУНКТ ВЫПОЛНЕН: внешний аудит проведён + все находки починены (2026-07-12)
+
+Внешний аудит запущен обычным сабагентом БЕЗ имени (Agent-name дважды зависал →
+не биться дважды вслепую) на пересобранном `Projects/audit.diff` (актуальный HEAD,
+без фикстур). Выдал 5 находок — **все 5 верифицированы лично как реальные** (детали
+`Projects/audit_verification_2026-07-12.md`, durable аудитора `audit_findings_live.md`):
+- **Critical** — данные проекта не доезжали до команд кабинета ($ARGUMENTS отсутствовал).
+- **High** — stripDecompTelemetry не дорезал signed_factor_contributions (~496 чисел).
+- **Medium-1** — рассинхрон шкал шагов STEP(5) vs PIPELINE_STEPS(7), корневой (3 таблицы).
+- **Medium-2** — humanizeSource искажал атрибуцию на краях.
+- **Low** — focusChannelType мёртвый код.
+
+**Починены все 5** (решение Антона: Critical=A `$ARGUMENTS`, Medium-1=корневой),
+каждая с регресс-тестом. Гейты: **cargo 188 · vitest 1152 · svelte-check 0**.
+Коммиты `d6a4b1a` / `68ccf5d` / `29540e7`, теги `v-avrora-audit-{critical-data-delivery,
+high-decomp-telemetry,medium-low}`. **ЛОКАЛЬНО, НЕ запушено** — push/мерж = гейт Антона.
+Follow-up (портирование Critical в Hub-копии, content-pack для прод) — в audit_verification §Follow-up.
+
+## ОСТАЛОСЬ (три хвоста, перенесены Антоном на новую сессию)
+
+### 1. Живой RAG в рантайме + прогон ассистента В ОКНЕ
+- Поднять туннель до узла Б системным ssh.exe (НЕ `! ssh-add` — уходит в Git-Bash-агент;
+  узел Б принимает `ackol@EVO-X1` в Windows-агенте; секрет `AURORA_CLIENT_SECRET`
+  из `~/.secrets/engine.env`, заголовок `X-Aurora-Auth`). Грабли → [[reference_windows_ssh_agent_dual_gitbash_vs_openssh]].
+- Прогнать тематизированный запрос живьём → убедиться, что поднимает Jin 2017/Chan-Perry
+  (гипотеза доказана вчерашней пробой adstock→Jin 2017; нужна финальная строка «по Jin 2017»
+  в ответе Авроры на релевантных хитах).
+- Прогон В ОКНЕ: `npm run tauri:dev` (с мостом, НЕ `npm run tauri dev`), окружение
+  БЕЗ `ANTHROPIC_API_KEY` (баланс исчерпан → claude.ai-подписка снятием ключа),
+  клики по кнопкам InsightsPanel. AVT-протокол: спросить состояние машины (:5173/:9223),
+  мост tauri после rebuild полумёртв → [[feedback_tauri_mcp_bridge_half_dead_after_rebuild]].
+
+### 2. Мерж линии
+- Ветка сцеплена с `feat/econ-kpi-units` и `feat/econ-planning-mode` (общая база `36857cd`).
+  Решение о порядке мержа/релиза — Антон. Перед мержем: `--strict-pair` cabinet-drift сработает
+  в основном дереве (сверить кабинет econometrist после мержа).
+
+### 3. Петля улучшения кабинета на находках эвал-харнеса
+- Живой smoke харнеса поймал (реальные дефекты поведения промпта): в why-channel модель
+  посчитала запретное отношение mROI/ROI + выдумала «помесячный расход» (числа не из данных).
+- Порядок петли: правка промпта → `node tools/cabinet_eval/run_eval.mjs --case <id>` →
+  сравнить грейдеры → фиксация. Флагманы: 6 UI-команд + путь Авроры.
+- Медиум-хвосты кабинета из аудит-документа §«Что осталось»: теги [MODELED] кабинет↔Аврора
+  свести к одному источнику (убрать зависимость от sanitizeAvroraText); эвал в CI (dry-гейт).
+
+## 🔴 Руководство по стилю действий (прочитать ПЕРВЫМ)
+
+Выведено из хода этой сессии — как работать эффективнее над задачами этого промта:
+
+1. **ssh к узлу Б — сразу системным ssh.exe, не `! ssh-add`.** Полдня потеряно на
+   ssh-агенты Windows: `! ssh-add` кладёт ключ в Git-Bash-агент, туннель системным
+   ssh.exe его не видит. Узел Б принимает `ackol@EVO-X1` в Windows-агенте. Первый
+   ход для туннеля: `"C:/Windows/System32/OpenSSH/ssh.exe" -o BatchMode=yes aurora@37.27.218.187 "echo OK"`
+   — если OK, ключ на месте; `Address already in use` на :8801 = туннель уже поднят.
+   → [[reference_windows_ssh_agent_dual_gitbash_vs_openssh]].
+2. **Claude egress — через подписку снятием ключа.** Баланс `ANTHROPIC_API_KEY`
+   исчерпан; для CLI/приложения снимать ключ дочернему процессу (`env -u ANTHROPIC_API_KEY`
+   / delete в spawn) → claude.ai-подписка. Проверять дешёвой пробой ДО поднятия окна.
+3. **Оркестратор + субагенты, но находки верифицировать ЛИЧНО.** Поймано 4
+   расхождения субагентских отчётов (дубль-копия стража, дизайн-дефект хука,
+   недосмотр маркера, графтелеметрия). Дешёвый dry/live-probe вскрывает то, что
+   юнит-тесты и отчёты пропускают (позитивный контроль стража INV-50).
+4. **Внешний аудитор через Agent-name зависал в idle.** Если повторится — пробовать
+   сабагент БЕЗ имени, синхронно, или дробить diff. Не долбить один и тот же
+   зависший — правило «не биться дважды вслепую».
+5. **Живой прогон цепочки дешевле окна.** Headless-прогон (данные→RAG→Claude→страж)
+   доказывает логику без хрупкого Tauri-моста; окно — только для UI-интеграции,
+   синхронно с Антоном (AVT: спросить состояние машины ДО поднятия).
+
+## Метод-уроки сессии
+[[strip_graphic_telemetry_from_llm_prompt]] · [[thematize_rag_query_bilingual_by_pipeline_step]] ·
+[[reference_windows_ssh_agent_dual_gitbash_vs_openssh]] · оперрежим оркестратор+субагенты,
+находки верифицировать лично (поймано 4 расхождения субагентских отчётов).

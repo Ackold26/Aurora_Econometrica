@@ -13,7 +13,19 @@ logger = logging.getLogger(__name__)
 
 
 # Column name patterns for auto-detection
+# Ф-1 (аудит примеров 2026-07-05): leads/лиды/заявки — легитимный count-KPI
+# (недвижимость, B2B); без него synth_real_estate падал «Не найден KPI-столбец».
+# Канарейка клиентских имён (аудит 2026-07-05): 'gmv' знал classify_column
+# (TARGET_MONETARY), но detect_column_role — нет → клиент с колонкой «GMV»
+# получал «не найден KPI-столбец» (рассинхрон детекторов, класс Д-1).
 KPI_PATTERNS = ['sales', 'revenue', 'market_share', 'conversions', 'units', 'volume',
+                'leads', 'лид', 'заявк', 'gmv',
+                # R1 (2026-07-05, корпус-зонд): count-KPI, что знал classify
+                # (target_count), но detect_column_role — нет → рассинхрон Д-1
+                # («sign up»/«app install» → unknown у validator). Все 3
+                # разделителя (паритет с classify). Голое 'install' НЕ
+                # добавлять (ловит «installment»/рассрочку).
+                'signup', 'sign up', 'sign-up', 'app install', 'app-install',
                 'продажи', 'выручка', 'конверси', 'заказ']
 MEDIA_PATTERNS = ['spend', 'budget', 'trp', 'grp', 'impressions', 'clicks', 'views',
                   'бюджет', 'расход', 'показ', 'клик', 'визит', 'прочтен', 'просмотр',
@@ -24,13 +36,19 @@ MEDIA_PATTERNS = ['spend', 'budget', 'trp', 'grp', 'impressions', 'clicks', 'vie
                   'ooh', 'outdoor', 'оон', 'наружн',
                   # OTS (Opportunity To See) - impression-like metric for OOH/TV
                   'ots',
+                  # Аудит примеров Д-1 (2026-07-05): контакты как Media KPI пар
+                  # (OOH/indoor/аптечные экраны) + аптечная сеть как носитель.
+                  'contact', 'контакт', 'apteka', 'аптек',
                   # TV (television) - English + Russian
                   'tv', 'television', 'тв ', 'тв_', 'тв-',
                   'promo', 'промо']
 # NOTE v2.0.0: 'price' removed from MEDIA_PATTERNS — moved to CONTROL_PATTERNS
 # (signed control factor per ADR-019, may be positive OR negative coefficient).
 # 'цен' also moved.
-DATE_PATTERNS = ['date', 'week', 'month', 'period', 'time', 'дата', 'неделя', 'месяц']
+# 'период' (рус) знал classify_column, но detect_column_role — только англ
+# 'period' → клиент с колонкой «Период» получал «не найден столбец с датами»
+# (рассинхрон детекторов, аудит канарейки 2026-07-05).
+DATE_PATTERNS = ['date', 'week', 'month', 'period', 'time', 'дата', 'неделя', 'месяц', 'период']
 CONTROL_PATTERNS = ['search', 'queries', 'competitor', 'distribution',
                     'seasonality', 'temperature', 'weather', 'holiday',
                     'som', 'sov', 'sos', 'share_of', 'share of',
@@ -42,8 +60,21 @@ CONTROL_PATTERNS = ['search', 'queries', 'competitor', 'distribution',
                     'avg_price', 'unit_price', 'mean_price',
                     'cpi', 'consumer_price', 'inflation', 'ипц', 'инфляция',
                     'gdp', 'ввп', 'gdp_growth',
-                    'fx_rate', 'exchange_rate', 'usd_rub', 'eur_rub',
-                    'курс_рубля', 'курс_доллара', 'курс_евро',
+                    # R1 (2026-07-05, корпус-зонд): underscore + ПРОБЕЛ + ДЕФИС
+                    # формы (тройка-прецедент: 'тв '/'тв_'/'тв-'). validator —
+                    # плоский substring; у курс_*/usd_rub/exchange_rate НЕТ
+                    # голого фолбэка (в отличие от price/цен/gdp/cpi), потому
+                    # клиентская форма с пробелом/дефисом падала в unknown —
+                    # рассинхрон Д-1 с classify (у него все 3 разделителя через
+                    # _sep_pattern). Специфичные компаунды — голое 'курс' НЕ
+                    # добавлять (ловит «дискурс»/«экскурсия»).
+                    'fx_rate', 'fx rate', 'fx-rate',
+                    'exchange_rate', 'exchange rate', 'exchange-rate',
+                    'usd_rub', 'usd rub', 'usd-rub',
+                    'eur_rub', 'eur rub', 'eur-rub',
+                    'курс_рубля', 'курс рубля', 'курс-рубля',
+                    'курс_доллара', 'курс доллара', 'курс-доллара',
+                    'курс_евро', 'курс евро', 'курс-евро',
                     'rain', 'snow', 'precipitation', 'осадк',
                     'temp', 'температур',
                     'svok',  # ROSST industry: share_of_voice_konkurentov
@@ -82,6 +113,12 @@ def detect_column_role_with_confidence(col_name: str) -> tuple[str, float]:
     if any(k in lower for k in COMPETITOR_KEYS):
         return 'control', 0.90
 
+    # Аудит примеров Д-2 (2026-07-05): *_indicator / индикатор — бинарный
+    # флаг-контрол по семантике (promo_indicator и т.п.); без override слово
+    # «promo» из MEDIA_PATTERNS утаскивало его в медиа-канал с ROI.
+    if 'indicator' in lower or 'индикатор' in lower:
+        return 'control', 0.85
+
     # BUG #3 fix (v2.0.1): derived metrics (SOM / SOV / market_share) — это
     # ratio computed from KPI (brand_sales / total_market). Использование как
     # predictor → endogeneity (predictor зависит от outcome). По умолчанию
@@ -98,6 +135,35 @@ def detect_column_role_with_confidence(col_name: str) -> tuple[str, float]:
             or lower in ('som', 'sov')
             or lower.endswith(' som') or lower.endswith(' sov')):
         return 'unused', 0.85
+
+    # Фаза Б (2026-07-04): продажи ВСЕЙ категории/рынка (ОБЪЁМ, не доля) —
+    # ЭКЗОГЕННЫЙ контроль спроса. Спрос всей категории (грипп-рынок, аллергия-
+    # рынок) не зависит от медиа одного бренда, но задаёт сезонную волну, на
+    # которую бренд «плывёт» → сильнейший прокси спроса (сильнее Фурье: реальный
+    # ряд, не гладкая аппроксимация). Приоритет над KPI: «продажи категории»
+    # содержит «продажи», но это контроль, не целевая метрика. Идёт ПОСЛЕ derived
+    # (market_share/доля рынка → unused выше, endogenous) — сюда попадает только
+    # ОБЪЁМ рынка/категории, не доля.
+    # Аудит 2026-07-04: голое «категори» ловило текстовые колонки-атрибуты
+    # («Категория», «Категория канала») → control для строкового столбца →
+    # падение обучения на astype(float). Комбинированное условие: ТЕМА
+    # (категория/рынок) И ОБЪЁМНОЕ слово (продажи/объём/руб/...) — только
+    # числовой объём рынка проходит; атрибуты-классификаторы не задеваются.
+    # 🔴 ПАРИТЕТ (R2 2026-07-06): используем SSOT-списки из column_detection,
+    # не локальные копии. Гарантирует автоматическое подхватывание новых токенов
+    # (напр. 'рыночн') без ручной синхронизации двух мест.
+    from utils.column_detection import _CATEGORY_THEME, _CATEGORY_VOLUME  # noqa: PLC0415
+    if (any(k in lower for k in _CATEGORY_THEME)
+            and any(v in lower for v in _CATEGORY_VOLUME)):
+        return 'control', 0.85
+
+    # Аудит №4 (2026-07-05): клиентские событийные дамми БЕЗ префикса holiday_
+    # (black_friday / 8_марта / чёрная_пятница) — SSOT-алиасы календаря →
+    # control. Без этого колонка падала в unknown→unused, а дедуп авто-инжекта
+    # гасил авто-дубль → контроль события терялся ПОЛНОСТЬЮ (OVB молча).
+    from utils.holiday_calendar_ru import is_holiday_like_name
+    if is_holiday_like_name(col_name):
+        return 'control', 0.85
 
     # Count pattern matches per category
     kpi_matches = sum(1 for p in KPI_PATTERNS if p in lower)
@@ -116,6 +182,31 @@ def detect_column_role_with_confidence(col_name: str) -> tuple[str, float]:
         return 'media', round(conf, 2)
     conf = min(0.50 + control_matches * 0.15, 0.90)
     return 'control', round(conf, 2)
+
+
+def _is_numeric_parseable(series: 'pd.Series', threshold: float = 0.8) -> bool:
+    """У3 (2026-07-04): ≥threshold непустых значений колонки парсятся в число?
+
+    media/control-предикторы входят в матрицу X численно (modeler astype(float));
+    текстовый столбец-атрибут (напр. «Категория А/Б») с именем-ловушкой → падение
+    обучения. Этот гейт отсекает нечисловые колонки ДО назначения роли-предиктора.
+
+    Числовой dtype → True сразу. Иначе строки чистятся от денежных/разделительных
+    символов и пробуются ДВЕ стратегии запятой (для гейта важен ФАКТ парсибельности,
+    не точное значение): A — запятая = разделитель тысяч (убрать); B — запятая =
+    десятичная (→ точка). Берётся лучшая. Money-строки «3 836 962 ₽» / «3,836,962 ₽»
+    проходят; чистый текст — нет.
+    """
+    s = series.dropna()
+    if len(s) == 0:
+        return False
+    if pd.api.types.is_numeric_dtype(s):
+        return True
+    txt = s.astype(str).str.strip().str.replace(r'[\s\xa0₽$€%]', '', regex=True)
+    a = pd.to_numeric(txt.str.replace(',', '', regex=False), errors='coerce')
+    b = pd.to_numeric(txt.str.replace(',', '.', regex=False), errors='coerce')
+    frac = max(int(a.notna().sum()), int(b.notna().sum())) / len(s)
+    return frac >= threshold
 
 
 def validate_role_compatibility(
@@ -210,6 +301,19 @@ def compute_histogram(series: 'pd.Series', bins: int = 10) -> dict:
     }
 
 
+def _read_csv_smart(path: 'Path') -> 'pd.DataFrame':
+    """C1 (2026-07-03): CSV русского Excel по умолчанию с разделителем «;» —
+    pd.read_csv(запятая) читал его в ОДНУ колонку → пользователь получал
+    невнятное «Не найден KPI-столбец». Дешёвый детект: если после запятой
+    вышла одна колонка с «;» в имени — перечитать с «;». Обычные CSV идут
+    прежним быстрым путём (без sniffer-замедления engine='python').
+    """
+    df = pd.read_csv(path)
+    if df.shape[1] == 1 and ';' in str(df.columns[0]):
+        df = pd.read_csv(path, sep=';')
+    return df
+
+
 def data_preview(file_path: str, n_rows: int = 20) -> dict[str, Any]:
     """Read first n_rows of a file and return preview data.
 
@@ -228,7 +332,7 @@ def data_preview(file_path: str, n_rows: int = 20) -> dict[str, Any]:
         if path.suffix in ('.xlsx', '.xls'):
             df = pd.read_excel(path)
         elif path.suffix == '.csv':
-            df = pd.read_csv(path)
+            df = _read_csv_smart(path)
         else:
             return {'status': 'error', 'message': f'Неподдерживаемый формат: {path.suffix}'}
     except Exception as e:
@@ -280,17 +384,104 @@ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, A
         if path.suffix in ('.xlsx', '.xls'):
             df = pd.read_excel(path)
         elif path.suffix == '.csv':
-            df = pd.read_csv(path)
+            df = _read_csv_smart(path)
         else:
             return {'status': 'error', 'message': f'Неподдерживаемый формат: {path.suffix}. Нужен xlsx или csv.'}
     except Exception as e:
         return {'status': 'error', 'message': f'Ошибка чтения файла: {e}'}
 
     n_rows, n_cols = df.shape
+
+    # C1 (2026-07-03): полностью пустой файл — ранний понятный отказ.
+    # Прежде каскад давал невпопад «Переименуйте столбец в "date"»,
+    # хотя переименовывать нечего.
+    if n_cols == 0 or (n_rows == 0 and n_cols == 0):
+        return {
+            'status': 'error',
+            'message': ('Файл пуст — в нём нет данных. Загрузите файл с колонками: '
+                        'дата, продажи (KPI) и медиа-каналы.'),
+        }
+
+    # ── Медиаплан-хвост: детекция до любой статистики ──────────────────────
+    # Если после исторических строк (KPI заполнен) идут строки будущего (KPI пуст),
+    # статистику и ratio считаем только по истории. Хвост не скрываем — возвращаем
+    # media_plan_detected и при наличии project_dir пишем media_plan.json.
+    _media_plan_detected: dict | None = None
+    try:
+        from engines.planning import detect_media_plan_tail, compute_source_hash
+        # Авто-детект колонок ролей для planning детектора (минимальный набор).
+        _date_col_hint = next(
+            (c for c in df.columns if detect_column_role_with_confidence(str(c))[0] == 'date'),
+            None,
+        )
+        _kpi_col_hint = next(
+            (c for c in df.columns if detect_column_role_with_confidence(str(c))[0] == 'kpi'),
+            None,
+        )
+        _media_hints = [
+            c for c in df.columns if detect_column_role_with_confidence(str(c))[0] == 'media'
+        ]
+        # F-AVT-1 (2026-07-10, живой прогон): role-детекция по имени не ловит
+        # кириллические/нестандартные каналы («ТВ»/«Онлайн-видео» → unknown) —
+        # типичный русский клиент. Тогда channels пустой → медиаплан не читается.
+        # Fallback: media-кандидаты = числовые колонки кроме даты и KPI (в хвосте
+        # это инвестиции медиаплана). detect_media_plan_tail сам проверит заполненность.
+        if not _media_hints and _date_col_hint and _kpi_col_hint:
+            _media_hints = [
+                c for c in df.columns
+                if c not in (_date_col_hint, _kpi_col_hint)
+                and pd.api.types.is_numeric_dtype(df[c])
+            ]
+        if _date_col_hint and _kpi_col_hint:
+            _tail_result = detect_media_plan_tail(df, _date_col_hint, _kpi_col_hint, _media_hints)
+            if _tail_result.get('found'):
+                _src_hash = compute_source_hash(file_path)
+                _media_plan_detected = {
+                    'n_future_periods': _tail_result['n_future_periods'],
+                    'period_labels': _tail_result['period_labels'],
+                    'granularity': _tail_result['granularity'],
+                    'future_dates': _tail_result['future_dates'],
+                    'channels': _tail_result['channels'],
+                    'warnings': _tail_result['warnings'],
+                    'source_hash': _src_hash,
+                    'confirmed': False,
+                }
+                # Статистику считаем только по истории
+                df = _tail_result['history_df'].reset_index(drop=True)
+                n_rows = len(df)
+                # Атомарная запись media_plan.json если project_dir задан
+                if project_dir and Path(project_dir).is_absolute():
+                    try:
+                        import json as _json
+                        import tempfile as _tempfile
+                        _mp_dir = Path(project_dir) / 'results'
+                        _mp_dir.mkdir(parents=True, exist_ok=True)
+                        _mp_path = _mp_dir / 'media_plan.json'
+                        _tmp_fd, _tmp_name = _tempfile.mkstemp(
+                            dir=_mp_dir, prefix='.mp_', suffix='.tmp'
+                        )
+                        try:
+                            with open(_tmp_fd, 'w', encoding='utf-8') as _f:
+                                _json.dump(_media_plan_detected, _f, ensure_ascii=False, indent=2)
+                            import os as _os
+                            _os.replace(_tmp_name, _mp_path)
+                        except Exception:
+                            try:
+                                _os.unlink(_tmp_name)
+                            except Exception:
+                                pass
+                            raise
+                    except Exception:
+                        logger.warning('media_plan.json write failed', exc_info=True)
+    except Exception:
+        logger.warning('media_plan tail detection failed — proceeding with full df', exc_info=True)
+
     issues = []
     warnings = []
 
     # ── Column detection ──
+    # П1 (аудит №3 В-3): импорт единого критерия total-budget один раз, не в цикле.
+    from engines.narrative_adapter import _normalize_channel_name
     columns = []
     date_col = None
     kpi_cols = []
@@ -299,6 +490,49 @@ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, A
 
     for col in df.columns:
         role, confidence = detect_column_role_with_confidence(col)
+        # У3 (2026-07-04): числовой гейт ролей. media/control входят в X численно —
+        # текстовый столбец-атрибут с именем-ловушкой («Категория А/Б», «Регион»)
+        # уронил бы обучение на astype(float). Понижаем до 'unused' с подсказкой;
+        # money-строки («3 836 962 ₽») парсятся → роль сохраняется.
+        if role in ('media', 'control') and not _is_numeric_parseable(df[col]):
+            warnings.append({
+                'column': col,
+                'type': 'non_numeric_role',
+                'message': (
+                    f'{col} — столбец текстовый (не парсится в число), не может быть '
+                    f'предиктором. Роль снята; при необходимости задайте её вручную.'
+                ),
+                'severity': 'warning',
+                # Аудит №4 Г-1: роль УЖЕ снята валидатором — кнопка «Исключить»
+                # (action='exclude') предлагала бы сделать сделанное; 'acknowledge'
+                # рендерится нейтральной «Принять».
+                'action': 'acknowledge',
+            })
+            role = 'unused'
+            confidence = 0.0
+        # Т3-плюс П1 (2026-07-04): суммарный бюджет как media задваивает вклад.
+        # Критерий ЕДИНЫЙ с фильтром таблицы каналов (_merge_channels): если после
+        # снятия медиа-токенов имени инструмента НЕ остаётся (_normalize_channel_name
+        # → None), это агрегатная колонка «Бюджет ДО НДС», а не отдельный канал.
+        # Как media она обучается отдельной серией (в MMX — 6.45% вклада) и рвёт
+        # согласованность timeline↔таблица. Понижаем до 'unused' (юзер вернёт вручную,
+        # как и в non_numeric_role) → новые модели её не обучают, состав серий сходится.
+        if role == 'media':
+            if _normalize_channel_name(col) is None:
+                warnings.append({
+                    'column': col,
+                    'type': 'total_budget_as_media',
+                    'message': (
+                        f'{col} — похоже на суммарный бюджет, а не отдельный канал '
+                        f'(после снятия слов «Бюджет / до НДС» имени инструмента не '
+                        f'осталось). Как медиа-канал он задвоит вклад и исказит ROI. '
+                        f'Роль снята; при необходимости задайте её вручную.'
+                    ),
+                    'severity': 'warning',
+                    'action': 'acknowledge',  # Г-1: роль уже снята — не «Исключить»
+                })
+                role = 'unused'
+                confidence = 0.0
         col_info: dict[str, Any] = {
             'name': col,
             'role': role,
@@ -389,6 +623,29 @@ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, A
             'severity': 'critical',
         })
 
+    # Фаза Б (2026-07-04): подсказка загрузить продажи категории/рынка. Экзогенный
+    # контроль спроса (Chan&Perry §4.2.2) — сильнейший прокси (реальный ряд спроса,
+    # сильнее гладкого Фурье). Прицельно: показываем, когда клиент УЖЕ отслеживает
+    # рынок (есть competitor-колонка), но объёма категории нет — тогда совет релевантен
+    # (фарма / конкурентный рынок). Info-level, не блокирует.
+    try:
+        from utils.column_detection import classify_column
+        _kinds = [classify_column(str(c)) for c in df.columns]
+        if 'category' not in _kinds and 'signed_competitor' in _kinds:
+            warnings.append({
+                'column': '',
+                'type': 'suggest_category',
+                'message': (
+                    'Совет: добавьте столбец «продажи категории/рынка» (в руб. или уп.) — '
+                    'модель точнее отделит спрос от вклада рекламы (честнее ROI). '
+                    'Особенно полезно для фармы и конкурентных рынков.'
+                ),
+                'severity': 'info',
+                'action': 'add_column',
+            })
+    except Exception:
+        pass
+
     # ── Data volume check ──
     # v2.1.0 (пилот 2026-05-17, #37): SSOT ratio thresholds + texts с
     # frontend ratio-classifier.js. 5 коридоров:
@@ -400,6 +657,20 @@ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, A
     # Labels одинаковые с frontend - юзер видит согласованный текст
     # в Validation, инсайтах и Контроле качества.
     n_predictors = len(media_cols) + len(control_cols)
+    # F-A1-5: оценочное число эффективных параметров ДО обучения.
+    # Учитывает авто-инжектируемые контроли которые пользователь не видит
+    # в таблице ролей, но которые реально раздувают n_params в модели:
+    #   - 12 праздников РФ (дефолт use_holidays=True; disabled_holidays в конфиге
+    #     не известен на этапе validate, используем дефолтные 12)
+    #   - intercept (1 параметр, всегда)
+    #   - Фурье-члены сезонности: условны (нужно ≥2 цикла + autocorr ≥ 0.2),
+    #     здесь НЕ включаем — честнее показать минимальную оценку; при обучении
+    #     фронт получит фактические данные из diagnostics.seasonality
+    # Значение проброшено в ответ как отдельное поле и читается фронтом
+    # вместо local (mediaCount + controlCount) для отображения ratio.
+    N_HOLIDAYS_DEFAULT = 12
+    N_INTERCEPT = 1
+    n_params_effective_pretrain = n_predictors + N_HOLIDAYS_DEFAULT + N_INTERCEPT
     ratio = n_rows / max(n_predictors, 1)
     if ratio < 2:
         issues.append({
@@ -433,11 +704,46 @@ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, A
                 'severity': 'warning',
             })
 
-    period_weeks = n_rows  # assume weekly
-    if period_weeks < 52:
+    # Аудит примеров Д-3 (2026-07-05): раньше n_rows считались НЕДЕЛЯМИ
+    # («36 наблюдений — менее 1 года» на 3 ГОДАХ месячных данных — ложный
+    # испуг у любого месячного клиента). Теперь длительность — по реальному
+    # диапазону дат; счёт наблюдений — второй, гранулярно-нейтральный критерий.
+    span_days = None
+    if date_col:
+        _dc = next((c for c in columns if c.get('name') == date_col), None)
+        _ds = (_dc or {}).get('date_stats') or {}
+        try:
+            _mn = pd.to_datetime(_ds.get('min_date'))
+            _mx = pd.to_datetime(_ds.get('max_date'))
+            if pd.notna(_mn) and pd.notna(_mx):
+                span_days = int((_mx - _mn).days)
+        except Exception:
+            span_days = None
+    if span_days is not None:
+        if span_days < 358:  # < ~1 года по календарю
+            warnings.append({
+                'type': 'short_period',
+                'message': (
+                    f'Период данных ~{max(span_days, 0)} дн. (< 1 года): сезонность и '
+                    f'длинные эффекты каналов не идентифицируются надёжно. '
+                    f'Рекомендуем ≥1 год, лучше ≥2 лет.'
+                ),
+                'severity': 'warning',
+            })
+        elif n_rows < 24:
+            warnings.append({
+                'type': 'short_period',
+                'message': (
+                    f'{n_rows} наблюдений — мало точек для устойчивой оценки '
+                    f'(adstock+Hill на канал). Рекомендуем ≥24 периода.'
+                ),
+                'severity': 'warning',
+            })
+    elif n_rows < 52:
+        # Нет валидной даты — консервативный старый критерий.
         warnings.append({
             'type': 'short_period',
-            'message': f'{period_weeks} наблюдений - менее 1 года. Рекомендуем ≥52 недели (≥104 для надёжных результатов)',
+            'message': f'{n_rows} наблюдений - менее 1 года. Рекомендуем ≥52 недели (≥104 для надёжных результатов)',
             'severity': 'warning',
         })
 
@@ -519,6 +825,7 @@ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, A
             'media': media_cols,
             'control': control_cols,
             'n_predictors': n_predictors,
+            'n_params_effective_pretrain': n_params_effective_pretrain,
             'ratio': round(ratio, 1),
             'date_frequency': date_frequency,
         },
@@ -527,6 +834,7 @@ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, A
         'warnings': warnings,
         'high_correlations': high_correlations,
         'full_correlation_matrix': full_correlation_matrix,
+        'media_plan_detected': _media_plan_detected,
     }
 
     # Save to project dir if provided.

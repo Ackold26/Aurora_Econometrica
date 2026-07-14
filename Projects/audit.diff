@@ -1,0 +1,526 @@
+diff --git a/sidecar/econometrica/aurora_html/builder.py b/sidecar/econometrica/aurora_html/builder.py
+index 61400a9..f5577a5 100644
+--- a/sidecar/econometrica/aurora_html/builder.py
++++ b/sidecar/econometrica/aurora_html/builder.py
+@@ -23,7 +23,7 @@ from typing import Any
+ from . import TEMPLATES_DIR
+ from . import themes as themes_mod
+ from . import security
+-from .sections import SECTION_RENDERERS
++from .sections import SECTION_RENDERERS, _kpi_view, _contrib_scale, _fmt_contrib
+ from .interactive import bootstrap_js
+ try:
+     from econometrica.engines.narrative_adapter import compute_report_id, _normalize_channel_name
+@@ -266,6 +266,28 @@ class AuroraHTMLBuilder:
+             reverse=True,
+         )
+ 
++        # Drill-down вклад: count-aware масштаб+единица per channel (fix
++        # 2026-07-13, INV-50) — раньше жёстко «Вклад, млн ₽» + /1e6, что для
++        # count-KPI занижало значение в 1e6. Строка форматируется здесь (Python),
++        # JS её только показывает.
++        kpi = _kpi_view(self.data)
++        mroas_details = {}
++        for c in self.channels:
++            if not c.get("name"):
++                continue
++            contrib_raw = float(c.get("contribution") or 0)
++            c_scale, c_unit = _contrib_scale(kpi, [contrib_raw])
++            mroas_details[c.get("name")] = {
++                "spend_mln":    round(float(c.get("spend") or 0) / 1e6, 2),
++                "contrib_mln":  round(contrib_raw / 1e6, 2),
++                "contrib_display": _fmt_contrib(contrib_raw, c_scale),
++                "contrib_label": "Вклад, " + c_unit,
++                "mroas":        float(c.get("mroas") or 0),
++                "verdict":      c.get("verdict") or "Watch",
++                "current_spend_mln": round(float(c.get("current_spend") or 0) / 1e6, 2),
++                "optimal_spend_mln": round(float(c.get("optimal_spend") or 0) / 1e6, 2),
++            }
++
+         # ─── Waterfall (decomposition) ─────────────────────────────────
+         waterfall = self.raw_decompose.get("waterfall") or {}
+         if isinstance(waterfall, dict):
+@@ -373,17 +395,7 @@ class AuroraHTMLBuilder:
+                 "values": [float(c.get("mroas") or 0) for c in channels_sorted_m],
+                 "hero":   channels_sorted_m[0].get("name") if channels_sorted_m else None,
+                 # Drill-down details per channel (for side-panel)
+-                "details": {
+-                    c.get("name"): {
+-                        "spend_mln":    round(float(c.get("spend") or 0) / 1e6, 2),
+-                        "contrib_mln":  round(float(c.get("contribution") or 0) / 1e6, 2),
+-                        "mroas":        float(c.get("mroas") or 0),
+-                        "verdict":      c.get("verdict") or "Watch",
+-                        "current_spend_mln": round(float(c.get("current_spend") or 0) / 1e6, 2),
+-                        "optimal_spend_mln": round(float(c.get("optimal_spend") or 0) / 1e6, 2),
+-                    }
+-                    for c in self.channels if c.get("name")
+-                },
++                "details": mroas_details,
+             },
+             "share": {
+                 "names":      [c.get("name") for c in self.channels],
+diff --git a/sidecar/econometrica/aurora_html/interactive.py b/sidecar/econometrica/aurora_html/interactive.py
+index e1d0f5c..1fb11b9 100644
+--- a/sidecar/econometrica/aurora_html/interactive.py
++++ b/sidecar/econometrica/aurora_html/interactive.py
+@@ -551,7 +551,7 @@ def bootstrap_js(
+       '<div><span class="verdict-badge verdict-' + escapeAttr(safeVerdict) + '">' + escapeHtml(verdictText) + '</span></div>' +
+       '<div style="margin-top:20px;">' +
+         row('Бюджет, млн ₽',       d.spend_mln.toFixed(1)) +
+-        row('Вклад, млн ₽',         d.contrib_mln.toFixed(1)) +
++        row(d.contrib_label || 'Вклад, млн ₽', (d.contrib_display != null ? d.contrib_display : d.contrib_mln.toFixed(1))) +
+         row('mROAS',                formatMroas(d.mroas)) +
+         (d.current_spend_mln ? row('Текущий spend, млн',   d.current_spend_mln.toFixed(1)) : '') +
+         (d.optimal_spend_mln ? row('Оптимальный spend, млн', d.optimal_spend_mln.toFixed(1)) : '') +
+diff --git a/sidecar/econometrica/aurora_html/sections.py b/sidecar/econometrica/aurora_html/sections.py
+index fdf14d2..122dd5d 100644
+--- a/sidecar/econometrica/aurora_html/sections.py
++++ b/sidecar/econometrica/aurora_html/sections.py
+@@ -47,6 +47,41 @@ def _fmt_mln(v: Any, fallback: str = "-") -> str:
+         return fallback
+ 
+ 
++def _contrib_scale(kpi: dict, raw_values: Any, money_unit: str = "₽ млн") -> tuple:
++    """Масштаб и единица столбца «Вклад» (fix 2026-07-13: единица ↔ масштаб).
++
++    Корень бага: вклад канала делился на 1e6 безусловно («₽ млн»), а для count-KPI
++    единица подписывалась без «млн» → клиент видел «1.3 лид.» вместо «1.3 млн лид.»
++    (занижение в 1e6, нарушение INV-50). Здесь масштаб и единица выбираются вместе.
++
++    monetary/effectiveness → (1e6, money_unit) «₽ млн».
++    count → адаптивный масштаб по макс |вклад|, единица результата из паспорта.
++    """
++    if kpi.get("kpi_kind") != "count":
++        return 1_000_000.0, money_unit
++    unit = kpi.get("target_unit") or "ед."
++    try:
++        mx = max((abs(float(v or 0)) for v in raw_values), default=0.0)
++    except (TypeError, ValueError):
++        mx = 0.0
++    if mx >= 1_000_000:
++        return 1_000_000.0, f"млн {unit}"
++    if mx >= 10_000:
++        return 1_000.0, f"тыс. {unit}"
++    return 1.0, unit
++
++
++def _fmt_contrib(value: Any, scale: float, fallback: str = "-") -> str:
++    """Значение вклада в масштабе из _contrib_scale (единый форматтер для ₽ и count)."""
++    try:
++        x = float(value) / scale
++    except (TypeError, ValueError, ZeroDivisionError):
++        return fallback
++    if scale == 1.0:
++        return f"{x:,.0f}".replace(",", chr(0xA0))
++    return f"{x:.1f}" if abs(x) < 10 else f"{x:.0f}"
++
++
+ def _fmt_x(v: Any, fallback: str = "-") -> str:
+     try:
+         return f"{float(v):.2f}×"
+@@ -1005,7 +1040,8 @@ def render_mroas(ctx: dict) -> str:
+         chart_title_text = "Доля каналов в эффекте · %"
+         chart_subtitle_text = "Bar chart по share of effect (доли в продажах)"
+     elif kpi["kpi_kind"] == "count":
+-        chart_title_text = "CPU по каналам · ₽ за единицу"
++        cpu_unit = kpi.get("cpu_per_label") or "₽ за единицу"
++        chart_title_text = f"CPU по каналам · {cpu_unit}"
+         chart_subtitle_text = "Стоимость следующей единицы (incremental cost-per-unit)"
+     else:
+         chart_title_text = "mROAS по каналам · мультипликатор"
+@@ -1128,12 +1164,9 @@ def render_action_table(ctx: dict) -> str:
+     # v1.3.2: KPI-aware main metric column (mROAS / CPU / Доля %).
+     metric_col_header, metric_col_unit = _table_metric_header(kpi)
+ 
+-    # Пласт 2 (2026-07-11): contrib column unit — для count вклад НЕ в рублях.
+-    # budget всегда «₽ млн» (затраты — деньги для любого KPI).
+-    if kpi["kpi_kind"] == "count":
+-        contrib_unit = kpi.get("target_unit") or "ед."
+-    else:
+-        contrib_unit = units["contrib"]  # «₽ млн» для monetary/effectiveness
++    # contrib column масштаб+единица вычисляются ниже (после visible) через
++    # _contrib_scale: единица и масштаб выбираются согласованно (fix 2026-07-13,
++    # INV-50). budget всегда «₽ млн» (затраты — деньги для любого KPI).
+ 
+     # Title branching (mirrors PPTX S7 post-audit logic)
+     if channels:
+@@ -1169,11 +1202,17 @@ def render_action_table(ctx: dict) -> str:
+ 
+     total_contrib = sum(float(c.get("contribution") or 0) for c in visible) or 1.0
+ 
++    # Масштаб+единица столбца «Вклад» — согласованно (fix 2026-07-13, INV-50):
++    # для count адаптивный масштаб (млн/тыс/ед) с единицей результата из паспорта,
++    # для monetary — «₽ млн» как раньше.
++    contrib_scale, contrib_unit = _contrib_scale(
++        kpi, [c.get("contribution") for c in visible], units["contrib"]
++    )
++
+     rows_html = []
+     for c in visible:
+         name = c.get("name") or "-"
+         spend_mln = float(c.get("spend") or 0) / 1_000_000.0
+-        contrib_mln = float(c.get("contribution") or 0) / 1_000_000.0
+         mroas = c.get("mroas")
+         verdict = c.get("verdict") or "Watch"
+         share_pct = int(round(float(c.get("contribution") or 0) / total_contrib * 100))
+@@ -1193,7 +1232,7 @@ def render_action_table(ctx: dict) -> str:
+             f'<tr data-channel="{escape(name)}">'
+             f'<td>{escape(name)}</td>'
+             f'<td class="num" data-sort="{spend_mln:.2f}">{_fmt_mln(spend_mln)}</td>'
+-            f'<td class="num" data-sort="{contrib_mln:.2f}">{_fmt_mln(contrib_mln)}</td>'
++            f'<td class="num" data-sort="{float(c.get("contribution") or 0):.2f}">{_fmt_contrib(c.get("contribution"), contrib_scale)}</td>'
+             f'<td class="num" data-sort="{float(mroas or 0):.3f}">{mroas_html}{fn_html}</td>'
+             f'<td class="num" data-sort="{share_pct}">{share_pct}</td>'
+             f'<td><span class="verdict-badge verdict-{escape(verdict)}">{escape(verdict)}</span></td>'
+@@ -1203,7 +1242,8 @@ def render_action_table(ctx: dict) -> str:
+     # Totals
+     if facts:
+         tb = facts.get("total_budget_mln") or 0
+-        tc = facts.get("total_contrib_mln") or 0
++        # raw total contrib для согласованного _fmt_contrib (total_contrib_mln = /1e6).
++        tc_raw = (facts.get("total_contrib_mln") or 0) * 1_000_000.0
+         wr = facts.get("weighted_roi")
+         # v1.3.2: aggregate cell - adapt unit per KPI/mode.
+         if not wr:
+@@ -1215,7 +1255,8 @@ def render_action_table(ctx: dict) -> str:
+         elif kpi["kpi_kind"] == "count":
+             try:
+                 cpu = 1.0 / float(wr) if float(wr) > 0 else None
+-                wr_cell = f"{cpu:.0f} ₽/ед." if cpu else "-"
++                cpu_unit = kpi.get("cpu_per_label") or "₽/ед."
++                wr_cell = f"{cpu:.0f} {cpu_unit}" if cpu else "-"
+             except (TypeError, ValueError, ZeroDivisionError):
+                 wr_cell = "-"
+         else:
+@@ -1224,7 +1265,7 @@ def render_action_table(ctx: dict) -> str:
+             f'<tr class="totals-row">'
+             f'<td>{escape(headers["totals"])}</td>'
+             f'<td class="num">{_fmt_mln(tb)}</td>'
+-            f'<td class="num">{_fmt_mln(tc)}</td>'
++            f'<td class="num">{_fmt_contrib(tc_raw, contrib_scale)}</td>'
+             f'<td class="num">{wr_cell}</td>'
+             f'<td class="num">100</td>'
+             f'<td></td>'
+diff --git a/sidecar/econometrica/aurora_pptx/builder.py b/sidecar/econometrica/aurora_pptx/builder.py
+index 7cbb186..0cf1009 100644
+--- a/sidecar/econometrica/aurora_pptx/builder.py
++++ b/sidecar/econometrica/aurora_pptx/builder.py
+@@ -136,6 +136,8 @@ from .kpi_helpers import (
+     table_metric_header as _table_metric_header_pptx,
+     lift_phrase as _lift_phrase_pptx,
+     hero_vs_leader_quote as _hero_vs_leader_quote_pptx,
++    contrib_scale as _contrib_scale_pptx,
++    fmt_contrib as _fmt_contrib_pptx,
+ )
+ 
+ 
+@@ -1001,6 +1003,11 @@ class AuroraPPTXBuilder:
+         # (Pre-fix bug: flagged could include channel 15+ which has no rendered
+         # row, leaving the bottom-block footnote orphaned.)
+         visible = channels[:10]
++        # Масштаб+единица столбца «Вклад» — согласованно с шапкой в s07 (fix
++        # 2026-07-13, INV-50). Та же логика по тем же данным = детерминированно.
++        contrib_scale, _ = _contrib_scale_pptx(
++            self.kpi, [c.get("contribution") for c in visible]
++        )
+         flagged = [c for c in visible if c.get("verdict") in ("Reduce", "Cut")][:3]
+         fn_by_name = {c["name"]: str(i + 1) for i, c in enumerate(flagged) if c.get("name")}
+ 
+@@ -1013,7 +1020,7 @@ class AuroraPPTXBuilder:
+             verdict = c.get("verdict", "Watch")
+ 
+             budget_str = f"{spend / 1_000_000:.0f}" if spend else "0"
+-            contrib_str = f"{contrib / 1_000_000:.0f}" if contrib else "0"
++            contrib_str = _fmt_contrib_pptx(contrib, contrib_scale) if contrib else "0"
+             # v1.3.2 audit fix (B4): KPI-aware metric cell - backend convention
+             # c.mroas = mathematical units/₽; для count display invert к CPU.
+             # legacy = '1.5'× / count = '80' (CPU; unit в header «₽/ед.») /
+@@ -1969,10 +1976,10 @@ class AuroraPPTXBuilder:
+         # Header - v1.3.2: main metric column adapts per KPI (mROAS/CPU/Доля).
+         # Пласт 2 (2026-07-11): contrib column unit — для count вклад НЕ в рублях.
+         metric_col_hdr, metric_col_unit = _table_metric_header_pptx(self.kpi)
+-        contrib_unit_pptx = (
+-            self.kpi.get("target_unit") or "ед."
+-            if self.kpi["kpi_kind"] == "count"
+-            else "₽ млн"
++        # Единица столбца «Вклад» — согласованно с масштабом ячеек в
++        # _build_action_table_rows (fix 2026-07-13, INV-50).
++        contrib_scale_s07, contrib_unit_pptx = _contrib_scale_pptx(
++            self.kpi, [c.get("contribution") for c in (self.channels or [])[:10]]
+         )
+         headers = ["Канал", "Бюджет", "Вклад", metric_col_hdr, "Доля эффекта", "Вердикт"]
+         units =   ["",      "₽ млн",  contrib_unit_pptx,  metric_col_unit, "%",  ""]
+@@ -2115,7 +2122,7 @@ class AuroraPPTXBuilder:
+         )
+         if self.facts:
+             tb = self.facts.get("total_budget_mln") or 0
+-            tc = self.facts.get("total_contrib_mln") or 0
++            tc_raw = (self.facts.get("total_contrib_mln") or 0) * 1_000_000.0
+             wr = self.facts.get("weighted_roi")
+             # v1.3.2: aggregate cell adapts per KPI (× / ₽/ед. inverse / 100%).
+             if wr is None:
+@@ -2134,7 +2141,7 @@ class AuroraPPTXBuilder:
+                 wr_cell = f"{wr:.2f}"
+             totals = [
+                 f"{tb:.0f}",
+-                f"{tc:.0f}",
++                _fmt_contrib_pptx(tc_raw, contrib_scale_s07),
+                 wr_cell,
+                 "100",
+             ]
+diff --git a/sidecar/econometrica/aurora_pptx/kpi_helpers.py b/sidecar/econometrica/aurora_pptx/kpi_helpers.py
+index c128ff4..c1710c0 100644
+--- a/sidecar/econometrica/aurora_pptx/kpi_helpers.py
++++ b/sidecar/econometrica/aurora_pptx/kpi_helpers.py
+@@ -146,6 +146,39 @@ def fmt_metric_with_ci_text(mean, ci_low, ci_high, kpi):
+         return base
+ 
+ 
++def contrib_scale(kpi, raw_values, money_unit="₽ млн"):
++    """Масштаб+единица столбца «Вклад» (mirror aurora_html.sections._contrib_scale).
++
++    Фикс 2026-07-13 (INV-50): вклад делился на 1e6 безусловно, а единица count-KPI
++    подписывалась без «млн» → клиент видел «1.3 лид.» вместо «1.3 млн лид.»
++    (занижение в 1e6). Масштаб и единица теперь выбираются согласованно.
++    monetary/effectiveness → (1e6, money_unit); count → адаптивно по макс |вклад|.
++    """
++    if kpi.get("kpi_kind") != "count":
++        return 1_000_000.0, money_unit
++    unit = kpi.get("target_unit") or "ед."
++    try:
++        mx = max((abs(float(v or 0)) for v in raw_values), default=0.0)
++    except (TypeError, ValueError):
++        mx = 0.0
++    if mx >= 1_000_000:
++        return 1_000_000.0, f"млн {unit}"
++    if mx >= 10_000:
++        return 1_000.0, f"тыс. {unit}"
++    return 1.0, unit
++
++
++def fmt_contrib(value, scale, fallback="-"):
++    """Значение вклада в масштабе contrib_scale (mirror aurora_html.sections)."""
++    try:
++        x = float(value) / scale
++    except (TypeError, ValueError, ZeroDivisionError):
++        return fallback
++    if scale == 1.0:
++        return f"{x:,.0f}".replace(",", chr(0xA0))
++    return f"{x:.1f}" if abs(x) < 10 else f"{x:.0f}"
++
++
+ def weighted_summary_phrase(weighted_value, kpi):
+     """Aggregate portfolio metric phrase per kpi/mode.
+ 
+diff --git a/sidecar/econometrica/engines/narrative_adapter.py b/sidecar/econometrica/engines/narrative_adapter.py
+index f599cc2..12bcdfa 100644
+--- a/sidecar/econometrica/engines/narrative_adapter.py
++++ b/sidecar/econometrica/engines/narrative_adapter.py
+@@ -709,10 +709,14 @@ def _derive_narrative_facts(
+         "hero_channel": hero.get("name"),
+         "n_active_channels": n_active,
+         "total_budget_mln": total_spend / 1_000_000.0 if total_spend else 0.0,
+-        # Пласт 2 (2026-07-11): масштаб «млн» units-neutral — одинаков для ₽ и счётных единиц.
+-        # Единица отображения (₽ млн vs ед.) выбирается на стороне consumer (table header)
+-        # через kpi_kind. При count kpi таблица подписывает столбец единицами результата,
+-        # а не «₽ млн». Само деление на 1e6 корректно для любой метрики.
++        # Fix 2026-07-13 (INV-50): «млн» НЕ units-neutral. Прежний комментарий
++        # утверждал, что деление на 1e6 корректно для любой метрики, а единицу
++        # выбирает consumer — неверно: для count consumer подписывал «лид.» (без
++        # «млн»), а значение делилось на 1e6 → «1.3 лид.» вместо «1.3 млн лид.»
++        # (занижение в 1e6). Consumer'ы теперь берут raw вклад и масштабируют через
++        # _contrib_scale (единица ↔ масштаб вместе). total_contrib_mln оставлен
++        # (= raw/1e6) для обратной совместимости; для count consumer домножает
++        # обратно на 1e6 и форматирует через _fmt_contrib.
+         "total_contrib_mln": total_contrib / 1_000_000.0 if total_contrib else 0.0,
+         "weighted_roi": weighted_roi,
+         "leader_share_spend_pct": (leader_spend / total_spend * 100) if total_spend > 0 else None,
+diff --git a/sidecar/econometrica/tests/test_report_text_kpi_aware.py b/sidecar/econometrica/tests/test_report_text_kpi_aware.py
+index bbe4b7b..2a97a18 100644
+--- a/sidecar/econometrica/tests/test_report_text_kpi_aware.py
++++ b/sidecar/econometrica/tests/test_report_text_kpi_aware.py
+@@ -290,6 +290,64 @@ class TestHtmlActionTableCountKpi:
+             assert th_text.strip() != "", "contrib th для count пустой"
+ 
+ 
++class TestContribScaleCountKpi:
++    """fix 2026-07-13 (INV-50): вклад count-KPI НЕ занижается в 1e6.
++
++    Регресс-гейт: старый тест 261 проверял только ЗАГОЛОВОК столбца; значение
++    ячейки делилось на 1e6 при единице без «млн» → «1.3 лид.» вместо «1.3 млн
++    лид.» (занижение в миллион раз). Здесь проверяется само ЗНАЧЕНИЕ, границы
++    масштаба и паритет HTML↔PPTX форматтеров.
++    """
++
++    def test_count_contrib_not_underscaled(self):
++        from aurora_html.sections import _contrib_scale, _fmt_contrib
++        kpi = _kpi_count()
++        scale, unit = _contrib_scale(kpi, [1_300_000])
++        shown = _fmt_contrib(1_300_000, scale)
++        shown_num = float(shown.replace(" ", "").replace(" ", ""))
++        # display × scale ≈ raw (не занижено в 1e6)
++        assert abs(shown_num * scale - 1_300_000) <= 1_300_000 * 0.05, \
++            f"вклад занижен: «{shown} {unit}» (scale {scale}) → {shown_num * scale}"
++        # старый баг: маленькое число с голой единицей результата
++        assert not (shown_num < 100 and unit == "лид"), \
++            f"баг занижения: «{shown}» с единицей «{unit}»"
++        # масштаб отражён в единице
++        assert scale == 1.0 or "млн" in unit or "тыс" in unit
++
++    def test_count_contrib_small_value_full(self):
++        """Малый count (5 000 лидов) — полное число, не «0.0 млн»."""
++        from aurora_html.sections import _contrib_scale, _fmt_contrib
++        kpi = _kpi_count()
++        scale, unit = _contrib_scale(kpi, [5000])
++        assert scale == 1.0 and unit == "лид"
++        assert _fmt_contrib(5000, scale) == "5" + chr(0xA0) + "000"
++
++    def test_monetary_contrib_unchanged(self):
++        """monetary вклад — прежнее поведение «₽ млн» (нет регрессии)."""
++        from aurora_html.sections import _contrib_scale, _fmt_contrib
++        kpi = _kpi_monetary()
++        scale, unit = _contrib_scale(kpi, [1_300_000], "₽ млн")
++        assert scale == 1_000_000.0 and unit == "₽ млн"
++        assert _fmt_contrib(1_300_000, scale) == "1.3"
++
++    def test_html_pptx_contrib_parity(self):
++        """HTML и PPTX форматтеры вклада идентичны (mirror — не разъезжаются)."""
++        from aurora_html.sections import (
++            _contrib_scale as html_scale, _fmt_contrib as html_fmt,
++        )
++        from aurora_pptx.kpi_helpers import (
++            contrib_scale as pptx_scale, fmt_contrib as pptx_fmt,
++        )
++        kpi = _kpi_count()
++        for val in (12_186_000, 1_300_000, 50_000, 5000, 0):
++            hs, hu = html_scale(kpi, [val])
++            ps, pu = pptx_scale(kpi, [val])
++            assert (hs, hu) == (ps, pu), \
++                f"scale drift @ {val}: html {(hs, hu)} vs pptx {(ps, pu)}"
++            assert html_fmt(val, hs) == pptx_fmt(val, ps), \
++                f"fmt drift @ {val}"
++
++
+ class TestHtmlAtAGlanceCountKpi:
+     """render_at_a_glance с count kpi: f3_realloc_support НЕ «ROAS»."""
+ 
+diff --git a/src-tauri/Cargo.toml b/src-tauri/Cargo.toml
+index 02e61b6..2e3cef4 100644
+--- a/src-tauri/Cargo.toml
++++ b/src-tauri/Cargo.toml
+@@ -1,6 +1,6 @@
+ [package]
+ name = "aurora-econometrica-gui"
+-version = "2.3.0"
++version = "2.3.1"
+ description = "Aurora AI Econometrica - Marketing Mix Modeling with Claude AI"
+ authors = ["Ackold"]
+ edition = "2021"
+diff --git a/src-tauri/installer_hooks.nsh b/src-tauri/installer_hooks.nsh
+index a7273a1..1b114c7 100644
+--- a/src-tauri/installer_hooks.nsh
++++ b/src-tauri/installer_hooks.nsh
+@@ -1,10 +1,10 @@
+-﻿; Aurora AI Econometrica — NSIS installer hooks (v1.0.9+)
++﻿; Aurora AI Econometrica – NSIS installer hooks (v1.0.9+)
+ ;
+ ; Цель: предотвратить Windows Defender Firewall prompt при первом запуске
+ ; sidecar'а на ephemeral port. На корпоративных RDP-серверах нет interactive
+-; admin для разрешения диалога — без правил sidecar блокируется.
++; admin для разрешения диалога – без правил sidecar блокируется.
+ ;
+-; Оба правила scoped на localip=127.0.0.1 — только loopback, никакого
++; Оба правила scoped на localip=127.0.0.1 – только loopback, никакого
+ ; внешнего экспозиш.
+ ;
+ ; Phase 3.1 (2026-05-23): PREINSTALL hook убивает running sidecar + GUI
+@@ -14,7 +14,7 @@
+ ; пропускает локнутые файлы → frontend новый + sidecar старый = silent gaps.
+ ;
+ ; rc10 (2026-06-07) + фикс кодировки (2026-07-07): ВСЕ внешние команды через
+-; nsExec::Exec — НЕ ExecWait и НЕ ExecToLog. ExecWait для консольных программ
++; nsExec::Exec – НЕ ExecWait и НЕ ExecToLog. ExecWait для консольных программ
+ ; (taskkill/netsh) открывает видимое чёрное окно cmd. ExecToLog запускает скрыто,
+ ; но ТАЩИТ локализованный вывод утилит (OEM/CP866) в installer-лог → кракозябры
+ ; на русской Windows (репорт Антона со скрином 2026-07-07). nsExec::Exec запускает
+@@ -23,9 +23,9 @@
+ 
+ !macro NSIS_HOOK_PREINSTALL
+   ; P3.1 install-lock fix: освобождаем .pyd / .dll перед extract.
+-  ; taskkill /IM matches by image name (idempotent — no-op если процесс уже мёртв).
++  ; taskkill /IM matches by image name (idempotent – no-op если процесс уже мёртв).
+   ; /T убивает дерево, /F форсирует. Игнорируем exit code: 128 = "process not
+-  ; found" — это OK, цель достигнута.
++  ; found" – это OK, цель достигнута.
+   ;
+   ; ASCII-only DetailPrint (audit 2026-05-23): Cyrillic в Tauri 2 NSIS template
+   ; не verified в production-tested Aurora products. Safer fallback на English.
+@@ -33,7 +33,7 @@
+   ; USERNAME filter (audit 2026-05-23): на multi-user RDP server taskkill /IM
+   ; без USERNAME filter может убить процесс другого пользователя с похожим
+   ; именем. /FI "USERNAME eq %USERNAME%" scope kill только к current installer
+-  ; user context (даже если elevated — installer runs as invoking user).
++  ; user context (даже если elevated – installer runs as invoking user).
+   DetailPrint "Preparing for update: stopping background processes..."
+   nsExec::Exec 'taskkill /IM "econometrica-sidecar.exe" /FI "USERNAME eq %USERNAME%" /T /F'
+   Pop $0
+@@ -63,7 +63,7 @@ dir=in action=allow protocol=TCP localip=127.0.0.1 \
+ program="$INSTDIR\sidecar\econometrica\econometrica-sidecar.exe"'
+   Pop $0
+   ; Явное окно успеха установки (распоряжение Антона 2026-07-02). В silent/passive
+-  ; режиме подавляется (IfSilent) — там app сам перезапустится по /R (onInstSuccess).
++  ; режиме подавляется (IfSilent) – там app сам перезапустится по /R (onInstSuccess).
+   IfSilent +2
+   MessageBox MB_ICONINFORMATION|MB_OK "Optimizer MMM успешно установлена."
+ !macroend
+@@ -73,7 +73,7 @@ program="$INSTDIR\sidecar\econometrica\econometrica-sidecar.exe"'
+   ; econometrica-sidecar.exe (или его python-воркеры) держит локи → uninstall
+   ; зависает / оставляет файлы → «танцы с бубном» при установке новой версии.
+   ; Тот же kill-блок, что в PREINSTALL (idempotent: exit 128 = "not found" = OK).
+-  ; USERNAME filter — RDP multi-user safety (не убить чужой процесс).
++  ; USERNAME filter – RDP multi-user safety (не убить чужой процесс).
+   DetailPrint "Stopping background processes before uninstall..."
+   nsExec::Exec 'taskkill /IM "econometrica-sidecar.exe" /FI "USERNAME eq %USERNAME%" /T /F'
+   Pop $0
+diff --git a/src-tauri/tauri.conf.json b/src-tauri/tauri.conf.json
+index 4dc0d0e..da7870e 100644
+--- a/src-tauri/tauri.conf.json
++++ b/src-tauri/tauri.conf.json
+@@ -1,7 +1,7 @@
+ {
+     "$schema": "https://schema.tauri.app/config/2",
+     "productName": "Optimizer MMM",
+-    "version": "2.3.0",
++    "version": "2.3.1",
+     "identifier": "com.aurora.econometrica",
+     "build": {
+         "beforeDevCommand": "npm run dev",
+diff --git a/src/lib/components/pipeline/DecomposeStep.svelte b/src/lib/components/pipeline/DecomposeStep.svelte
+index 8686e6f..9bc5688 100644
+--- a/src/lib/components/pipeline/DecomposeStep.svelte
++++ b/src/lib/components/pipeline/DecomposeStep.svelte
+@@ -253,7 +253,7 @@
+   // Help-tooltips для основной таблицы «Детализация по каналам».
+   const CH_HELP = {
+     spend:   'Расходы - суммарный бюджет канала за весь период анализа.\n\nПочему важно: основа для ROI и доли бюджета. Если канал не в рублях (TRP, показы) - ROI будет искажён.',
+-    contrib: 'Вклад - оценка дополнительных продаж от канала (в денежной валюте KPI).\n\nПочему важно: вклад ÷ расход = ROI. Это и есть «деньги, которые принесла реклама поверх базовых продаж».',
++    contrib: 'Вклад - оценка дополнительного результата от канала в единицах вашего KPI (продажи в рублях, лиды, упаковки и т.п.).\n\nПочему важно: вклад ÷ расход = отдача канала. Это результат, который принесла реклама поверх базового уровня.',
+     roi:     'ROI = вклад ÷ расход. Сколько рублей продаж приносит каждый вложенный рубль.\n\nROI ≥ 2× - отлично. 1-2× - окупается. < 1× - убыточен.\n\nВнимание: ROI > 50× обычно означает, что данные канала не в рублях (TRP, показы, клики) - нужна нормализация.',
+     gap:     'Gap = % эффекта − % бюджета. Разрыв между долей вклада и долей бюджета.\n\n+10% и выше: канал работает сильно эффективнее своей доли бюджета - кандидат на докрутку.\n0 ± 5%: сбалансирован.\n−10% и ниже: канал перенасыщен - каждый дополнительный рубль даёт меньше отдачи.',
+     verdict: 'Вердикт - комбинированная оценка по ROI и Gap.\n\n«Высокоэффективен / Эффективен» - приносит больше своей доли бюджета.\n«Сбалансирован» - окупается, доли совпадают.\n«Слабее своей доли / Перенасыщен» - приносит меньше, чем потребляет бюджета.\n«На грани окупаемости / Убыточный» - ROI ≤ 1×.\n«ROI завышен (не рубли?)» - данные канала не в денежных единицах.\n\n«(широкий ROI-интервал)» - для канала Bayesian-CI шире точечного ROI: читать как диапазон, не точное число. Качество модели в целом оценивается отдельно через R² / MAPE / R-hat. Типичные причины: мало наблюдений, низкая частота канала, корреляции с другими каналами.',
+diff --git a/src/lib/insights-rules.js b/src/lib/insights-rules.js
+index 0e71834..5dc7d8d 100644
+--- a/src/lib/insights-rules.js
++++ b/src/lib/insights-rules.js
+@@ -1563,7 +1563,10 @@ export function decomposeInsights(data, kpiInput = null) {
+       const roi = c.roi != null ? c.roi.toFixed(2) + '×' : '-';
+       const spend = c.spend?.toLocaleString('ru-RU') ?? '-';
+       const contrib = c.contribution?.toLocaleString('ru-RU') ?? '-';
+-      return `${rank} ${c.name}: ${c.contribution_pct?.toFixed(0)}% от медиа-вклада, ROI ${roi}, бюджет ${spend} → вклад ${contrib}`;
++      // fix 2026-07-13 (INV-50): вклад без единицы («вклад 1 300 000») не давал
++      // понять — лиды это или рубли. Единица результата из паспорта.
++      const contribUnit = kpi?.targetUnit || '₽';
++      return `${rank} ${c.name}: ${c.contribution_pct?.toFixed(0)}% от медиа-вклада, ROI ${roi}, бюджет ${spend} → вклад ${contrib} ${contribUnit}`;
+     }).join('\n');
+     out.push({
+       severity: 'info',
