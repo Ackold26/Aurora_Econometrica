@@ -2267,14 +2267,12 @@ fn check_server_update(app_min_version: String, update_url: Option<String>) -> O
 }
 
 #[tauri::command]
-async fn download_update(url: String, checksum: String, app: tauri::AppHandle) -> Result<String, String> {
-    let path = updater::download_update(&url, &app)
-        .await
-        .map_err(|e| e.to_string())?;
-
-    updater::verify_checksum(&path, &checksum)
-        .map_err(|e| e.to_string())?;
-
+async fn download_update(app: tauri::AppHandle) -> Result<String, String> {
+    // SEC-04: url и checksum из серверного манифеста, НЕ с фронта.
+    let current = env!("CARGO_PKG_VERSION");
+    let info = updater::check_for_updates(current).await.map_err(|e| e.to_string())?.ok_or_else(|| "Обновление недоступно".to_string())?;
+    let path = updater::download_update(&info.download_url, &app).await.map_err(|e| e.to_string())?;
+    updater::verify_checksum(&path, &info.checksum).map_err(|e| e.to_string())?;
     Ok(path.to_string_lossy().to_string())
 }
 

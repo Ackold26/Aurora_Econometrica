@@ -47,10 +47,8 @@
     });
 
     try {
-      const installerPath = await invoke('download_update', {
-        url: info.url,
-        checksum: info.checksum || '',
-      });
+      // SEC-04: url/checksum из серверного манифеста, НЕ с фронта.
+      const installerPath = await invoke('download_update');
       unlisten();
       updateState = 'installing';
       await invoke('apply_update', { installerPath });
