@@ -1,112 +1,78 @@
-# Econometrica — роутер следующей сессии (vault-заход: доставить промпты econometrist клиентам)
+# Econometrica — роутер следующей сессии (после сессии 2026-07-16/17)
 
-> Скопируй в начало новой сессии. cwd = `D:\Docs\Aurora_Ai\Dev\Aurora_Econometrica_v230`
-> (worktree `feat/econ-v2.3.0`, уже merged в master). Обновлён 2026-07-14 (wrap-up после релиза 2.3.1).
+> Скопируй в начало новой сессии. Два worktree: `D:\Docs\Aurora_Ai\Dev\Aurora_Econometrica_v230`
+> (ветка `feat/econ-v2.3.0`, прод-линия 2.3.1) и `D:\Docs\Aurora_Ai\Dev\Aurora_Econometrica`
+> (ветка `feat/econ-kpi-units`, planning+KPI линия, НЕ запушена — пуш по слову Антона).
+> Полный durable-бэклог → память `project_econometrica_backlog` (грузится по слову «Econometrica»).
+> Обновлён 2026-07-17 (wrap-up).
 
-## Контекст — что сделано (НЕ переделывать)
+## ✅ Сделано в сессии 2026-07-16/17 (НЕ переделывать)
 
-**🚀 РЕЛИЗ 2.3.1 ПОЛНОСТЬЮ В ПРОДЕ** (master, тег `v2.3.1`, PR#3 merged, HEAD `34b9aa2`).
-В сборку вошли: идеальные демо планирования + drill-fix count-KPI (`d4cbbb7`) + security-fix
-апдейтера SEC-03/04 (`1e53e03`, от параллельной сессии).
+1. **VAULT c2 В ПРОДЕ** — промпты econometrist доехали клиентам (4→17 команд). Ключевая механика:
+   правки промптов доставляет ТОЛЬКО заполненный `content_versions.vault_versions` (stale-блок клиента);
+   bump content_version сам по себе не доставляет. Схема → память `reference_econometrica_ota_vault_content_schema`.
+2. **P-2 РЕШЁН** (`85df196` на kpi-units) — слайд «Прогноз на будущий период» всегда был в PPTX, но
+   с ложными нулями (маппер `load_saved_forecast` читал вымышленную схему) и невидим в TOC. Исправлены
+   маппер (реальная `totals.*`, None→«—» INV-50), интервал = сумма за горизонт (SSOT с GUI-карточкой),
+   TOC-подстрока, график сравнения. Доказано на реальной демо-фикстуре; 696 pytest.
+3. **Pyarrow-инцидент разобран** — скрин «module 'pyarrow' has no attribute '__version__'» был со сборки
+   **2.1.0** (тестовые компы PC443/PC583 фактически на 2.1.0, не на «актуальной»); в 2.3.1 не
+   воспроизводится. Профилактика: смоук-гейт собранного бандла `build_sidecar.py::smoke_test_bundle`
+   (v230 `67c2c07` запушен + порт `479ef2c` в kpi-units), канон **INV-96** (aurora-meta `5e273c2`).
+4. **Дизайн-консистентность «Планирования»** (`8e0f8cc` на kpi-units) — full-width как соседи (было
+   960px-колонка), канонические токены вместо несуществующих --color-* (тема подхватывается), color-mix
+   идиома, hover opacity, шапка-дубль удалена. Живая верификация DOM-замером + скриншоты.
 
-**Демо переделаны** (задача Антона «очевидная эффективность + надёжная модель»):
-- FMCG недельный (104+26): прирост **+11.8%**, R² 0.94, backtest **directional**.
-- OTC противопростудные месячный (60+12, `use_holidays=False`): +3.3% итог / **+13.6% медиа**, **reliable**.
-- Генератор `tools/generate_demo_samples.py` (перекос насыщения Hill, seed 140/245).
-- UI-кнопка «Попробовать планирование на примере» (`ImportStep.svelte`).
+## 🔴 ОТКРЫТЫЕ ЗАДАЧИ (перенесены из сессии; приоритет выбрать с Антоном)
 
-**Публикация ВЕРИФИЦИРОВАНА** (curl+service key, MCP Unauthorized): GH Release `v2.3.1` +
-.exe `sha256:3c7f905b…` (256.6 MB) · app_versions ×2 (`aurora-econometrica-gui`+`econometrica`)
-→ 2.3.1 · Edge app-update → 2.3.1 · **content-pack v5→v7** (download+hash сверены).
+### Ждёт решения Антона (первым делом спросить/получить)
+- **Доставка 2.3.1 на тестовые компы (PC443, PC583 — сидят на 2.1.0).** Механика исправна (Edge отдаёт
+  2.3.1, is_newer в 2.1.0 корректен), но баннер необязательного обновления на главной отклоняют/не видят.
+  Варианты: (а) мягко — сказать тестировщикам нажать «Обновить» в баннере или скачать GH-установщик
+  v2.3.1 (рекомендация Маши); (б) форс — поднять `app_min_version` → блокирующий оверлей (риск: если
+  GitHub недоступен из их сети, клиент заблокирован). После доставки — перепроверить скрин-ошибку pyarrow.
+- **Пуш ветки `feat/econ-kpi-units`** (4 коммита Маши: P-2 `85df196` + роутер `553c0e3` + смоук-порт
+  `479ef2c` + дизайн `8e0f8cc`; плюс чужой `d9c74a0` копирайтерского стиль-ядра) — пуш по слову.
 
-## ✅ ВЫПОЛНЕНО 2026-07-16 — vault c2 опубликован (промпты econometrist доставлены)
+### Быстрые хвосты (дёшево, кандидаты «взять первыми»)
+- **F1** — даты прогноза на оси X графика «история→прогноз» ломаные («< -31T00:00:00»): future_dates
+  из media_plan.json идут ISO с временем, historical — без. Фикс-кандидат: нормализовать до YYYY-MM-DD
+  в `ContinuationChart` (см. TEST_FINDINGS_P1_live_2026_07_11.md, F1). Worktree kpi-units.
+- **F2** — вертикальный лейбл cutoff «Дата отсечки» накладывается на метки оси X (markLine label position),
+  тот же ContinuationChart.
+- **P-3** — текст «Сбывшихся рекомендаций» ссылается на старое место UI («блок „Что если", режим
+  „Планирование"») → заменить на «кнопка „Зафиксировать прогноз" выше на этом шаге».
+- **11 предсуществующих ошибок svelte-check линии KPI-units** (`format-numbers.js`,
+  `kpi-aware-formatting.js`, `InsightsPanel.svelte` — JSDoc-типы) — закрыть ДО мержа KPI+Planning.
+- **3 unhandled jsdom-флака** `scenario-export.test.js` (NotFoundError teardown) — мелкий тест-долг.
 
-Сделано: Storage `vaults/econometrica/c2/*.vault` (4 файла) + INSERT `content_versions` c2
-(is_current=true) + UNSET c1 + `vault_versions={"analysis":2,"data-model":2,"econometrist":2,
-"reporting":2}` заполнен впервые (content_pack_version=7 без изменений). Ключевое уточнение
-механики (выверено по lib.rs): bump `content_version` сам по себе НЕ доставляет правки
-установленным клиентам — единственный триггер докачки правок промптов — заполненный
-`vault_versions` (stale-блок автостарта, local < server); глобальная `check_update` в
-автостарте не вызывается, `resolve_vault_version` — запись номера ПОСЛЕ докачки, не триггер.
-Верификация: скачка каждого vault клиентским путём + sha сверен, живой `POST /auth` после
-flip отдаёт c2/vault_versions/новые checksums (SMOKE PASS), распаковка econometrist = 17/17
-команд. Остаточный риск: живой GUI fresh-install smoke (открыть кабинет в .exe, увидеть
-17 команд) не гонялся. Полная схема → [[reference_econometrica_ota_vault_content_schema]].
+### Средние / тяжёлые (следующие волны)
+- **Пересборка sidecar + выкат planning-линии.** P-2-фикс доедет до клиентов только с пересборкой
+  (`build_sidecar.py`, V39 — npm tauri build sidecar НЕ пересобирает; теперь в сборке смоук-гейт).
+  Путь: закрыть хвосты выше → аудит → мерж KPI+Planning → пересборка → installer по aurora-fix →
+  публикация по слову Антона.
+- **Аудит после `a188986`** — вся работа новее не аудирована внешним аудитором (wrap-up шаги 4-7,
+  2 opus-аудитора по диффу, фронт+python) — прогнать перед мержем.
+- **Мерж KPI+Planning** (сцеплены, master −220 коммитов) — после P-2 ✅ и аудита.
+- **GUI fresh-install smoke vault c2** — остаточный риск доставки: на чистой установке открыть
+  econometrist → 17 команд, нет «Unknown skill» (программный путь доказан, живой клик — нет).
+- **Волна 2 бэклога: пилот прогноз→факт** на СВОИХ данных Aurora — ⚠️ открытый вопрос Антону: есть ли
+  история продаж + медиасплит ≥12 мес? Если нет — фокус на E1 backtest-витрину (волна 3).
 
-### Исходный план (исторический, механика уточнена):
+## Инварианты/правила сессии (свежие грабли)
+- **INV-96:** собранный бандл смоучится ПРОГОНОМ артефакта (build_sidecar теперь делает сам); при
+  прод-скрине ошибки ПЕРВЫМ ходом сверять фактическую версию клиента с `activations.app_version`.
+- Сеть к Supabase/GitHub эпизодически сбрасывает TLS (WinError 10054 / curl 35) → все сетевые шаги
+  с retry; после обрыва POST — GET-проверка «не прошла ли вставка» (дубль-защита).
+- Supabase MCP Unauthorized → REST/Edge через `~/.claude/aurora-secrets.env` + curl/python;
+  Management API токен в `~/.secrets` истёк. Edge-исходников на диске НЕТ (только облако;
+  спецификация в `5_Документация\ARCHITECTURE_v2_ONLINE.md` §Edge Functions) — поведение зондировать живьём.
+- Shared-репо: в kpi-units живут чужие незакоммиченные (`installer_hooks.nsh`, `tokens.generated.css`,
+  `.claude/`) — НЕ трогать, коммитить своим pathspec. Зонд HEAD/origin до коммита.
+- JSON с кириллицей — только `json.dumps` в файл + `--data-binary @file`.
 
-Серверный vault **c1 (апрель) устарел**: кабинет `econometrist` несёт **4 команды**
-(configure/diagnose/train/validate) vs текущие **17** (mmm-*, awareness-*, next-quarter-plan…).
-Content-pack уже v7 (UI покажет 17 команд), а vault-промпты только для 4 → **рассинхрон
-UI(17)/промпты(4)** до выката vault. Нужен новый content_version с актуальным vault.
-
-**Полная схема разобрана** → память `reference_econometrica_ota_vault_content_schema` (ПРОЧИТАТЬ ПЕРВЫМ). Кратко:
-- vault = **4 файла plain gzip-tar** (`analysis`/`data-model`/`econometrist`/`reporting`.vault),
-  каждый = `tar czf` кабинета `New_AI_Agency/<каб>/` (CLAUDE.md + .claude/commands/*.md). НЕ AES
-  (vault-packer AES — только локальная лицензия).
-- Лежат в Storage `vaults/econometrica/c<N>/`. `content_versions` (product=**econometrica**)
-  несёт `checksums` (4 sha256) + `vault_versions` + content_pack + frontend.
-- Клиент качает по номеру: `resolve_vault_version` = `vault_versions[кабинет]` ИЛИ fallback
-  `content_version` (c1→1). Серверный `vault_versions={}` → все на fallback c1.
-
-**Шаги (выверенно, необратимо → ВМЕСТЕ с Антоном):**
-1. Собрать 4 gzip-tar: `tar --force-local -czf <каб>.vault -C New_AI_Agency/<каб> .` (⚠️ `--force-local`).
-2. Залить `vaults/econometrica/c2/*.vault` (bucket `vaults`, private, service key).
-3. `content_versions`: **INSERT c2** (product=econometrica, is_current=true, checksums 4 vault,
-   content_pack_version=7, content_pack_checksum, frontend_version=1) + **UPDATE c1 is_current=false**.
-   ⚠️ Проверить: клиент решает перекачку по `resolve_vault_version` — c1→c2 поднимает fallback 1→2 →
-   перекачает РОВНО раз (не на каждом старте). Свериться с `content_updater.rs::resolve_vault_version`.
-4. Верифицировать: скачать каждый vault по клиентскому пути + sha сверить; distinct-хеши (на c1
-   econometrist.vault==data-model.vault имели ОДИН хеш — проверить, что после пересборки различны).
-5. Fresh-install smoke: открыть econometrist → 17 команд с промптами, нет «Unknown skill».
-
-## 📋 ПОЛНЫЙ БЭКЛОГ ПРОДУКТА (перетекает сессия→сессия, НЕ терять)
-
-> **Правило Антона (2026-07-14):** ВСЕ открытые задачи Econometrica живут в durable-бэклоге
-> **[[project_econometrica_backlog]]** (память, грузится по имени «Econometrica» в любой сессии).
-> Задачи перетекают из сессии в сессию, пока не выполнены — приоритет определяем КАЖДЫЙ раз,
-> не фиксирован. Выполнил — пометь ✅ в бэклоге. **Прочитать бэклог в начале сессии** и вместе
-> с Антоном выбрать, за что берёмся.
-
-Кратко группы (детали + статусы → в `project_econometrica_backlog.md`):
-- 🔴 **Блокеры:** P-2 «Прогноз» не в PPTX · KPI-units+Planning merge · sidecar/выкат planning-линии · аудит после `a188986`.
-- 💰 **Коммерческая готовность:** пилот прогноз→факт (Горизонт 3, главное) · EULA/DPA · ПДн INV-38 · code-signing · support-контур · онбординг ≤15-30мин · нарратив честности.
-- 🧬 **Аврора Tier2 + RAG** (USP онлайн) — порт поверх линии + облачный RAG-слой.
-- 🧭 **Петля доверия E1→E4:** backtest-витрина · калибровка экспериментами · жизненный цикл модели · рекомендации-обещания.
-- 🔧 **Движок:** G7 SBC · G9 geo (анти-фокус) · medium Planning.
-- 🎨 **UX:** онбординг · валидация одним экраном · Фаза 5 OptimizeStep cleanup · Блок C от Антона.
-- 📦 **Инфра/отложено:** локальная M1 · is_newer баг · английский/multi-user/macOS (по триггеру).
-
-### 🎯 ПРИОРИТЕТЫ ВОЛН (порядок принят Антоном 2026-07-14 — «так и пойдём»)
-Критерий: максимальный эффект за минимум времени/усилия. Приоритет пересматриваем каждый раз, но базовый порядок такой:
-1. **🥇 Волна 1 — быстрые хвосты + разблокировка (дёшево, 1 сессия каждая):**
-   - **Vault c2 ✅ выполнен 2026-07-16** — чинит рассинхрон UI(17)/промпты(4).
-   - **Таймбокс P-2** («Прогноз» не в PPTX) — дать 1 сессию: разблокирует весь planning-выкат; не идёт — отступить, не увязать.
-2. **🥈 Волна 2 — запустить фоном, эффект стратегический (старт дёшев, ожидание бесплатно):**
-   - **Пилот прогноз→факт на СВОИХ данных Aurora** — единственное, что делает продукт «продаётся». Старт ~1 сессия (прогнать данные + зафиксировать прогноз), факт ждём фоном. ⚠️ **ОТКРЫТЫЙ ВОПРОС АНТОНУ: есть ли у Aurora свои маркетинг-данные (история продаж + медиасплит, ≥12 мес)?** Если да — стартуем; если нет — Горизонт 3 упирается во внешнего клиента, тогда фокус сдвигается на E1.
-3. **🥉 Волна 3 — лучший ROI видимой ценности (среднее усилие):**
-   - **E1 backtest-витрина** «проверка модели на истории» — движок `run_backtest` уже есть, нужна доставка (карточка+слайд+нарратив). Продающий USP честности. ⚠️ доставка = 80% работы (урок F-04/F-13), не недооценить.
-   - **Нарратив честности как сила** — почти бесплатно (текст), меняет «uncertain» с недостатка на достоинство.
-4. **Позже (дорогие, не первая волна):** Аврора Tier2 + RAG (порт 212 коммитов) · юр EULA/DPA · code-signing · KPI+Planning merge (после P-2).
-
-## Инварианты/правила
-- Публикация через `aurora-secrets.env` + curl (Supabase MCP **Unauthorized**). Сеть → `dangerouslyDisableSandbox`.
-- **Два product-id:** app_versions=`aurora-econometrica-gui` (raw pkg), content/vault=`econometrica` (mapped).
-- Vault OTA = plain gzip-tar (НЕ vault-packer AES). content-pack tar.gz `--force-local`.
-- JSON payload с русскими «ёлочками» — через python `json.dumps`, НЕ inline shell (кавычки ломают).
-- Shared-репо: зонд HEAD/origin ДО коммита (в этой сессии в ветку прилетел чужой security-fix `1e53e03`).
-
-## 🔴 Руководство по стилю действий (прочитать ПЕРВЫМ)
-1. **Vault-публикация — по схеме `reference_econometrica_ota_vault_content_schema`, не по роутеру.**
-   Роутер прошлой сессии путал (latest.json «нужен» — НЕ нужен; vault «один файл» — их 4; product-id).
-   Живая БД/код > записанный план (в этой сессии зонд БД опроверг роутер по 4 пунктам). Зондировать
-   реальное серверное состояние ПЕРЕД каждой записью.
-2. **content_versions bump — самое тонкое место.** До INSERT c2 прогони `resolve_vault_version`
-   мысленно на клиенте: c1→c2, vault_versions пусто → fallback parse('c2')=2 > local 1 → перекачка.
-   Убедиться РОВНО раз, не петля. Если сомнение — сначала выверить механику чтением Rust, потом писать.
-3. **JSON с кириллицей — только через `json.dumps` в файл + curl `--data-binary @file`.** Inline
-   `-d '{...«…»...}'` в shell ломается на «ёлочках» (в этой сессии первый app_versions PATCH молча упал).
-4. **tar на Windows — `--force-local`** (иначе `C:` принимается за remote host, «Cannot connect to C:»).
-5. **Каждый необратимый шаг: подготовка → проверка → запись → верификация (download+hash).** В этой
-   сессии так прошли .exe/app_versions/content-pack без единой ошибки на проде. Держать тот же ритм.
-6. **Публикация необратима → ВМЕСТЕ с Антоном.** Не заливать c2 в одиночку; согласовать bump-механику.
+## Историческое (прошлые заходы — сжатая справка)
+- Релиз 2.3.1 в проде (тег `v2.3.1`, PR#3 merged): идеальные демо FMCG/OTC + drill-fix + SEC-03/04;
+  публикация верифицирована по всем каналам (GH Release, app_versions ×2, Edge, content-pack v7).
+- Vault c2: Storage `vaults/econometrica/c2/*.vault`, строка c2 current (id `75605d6b…`), хеши 4 vault
+  различны; верификация клиентским путём + живой /auth SMOKE PASS.
