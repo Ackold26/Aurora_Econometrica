@@ -1267,6 +1267,20 @@ class AuroraPPTXBuilder:
             # Hairline
             self._hairline(slide, self.safe, y + 0.5, 9.7, weight=0.25)
             y += 0.5
+            # P-2 fix (2026-07-16): вставной слайд «Прогноз на будущий период»
+            # живёт внутри секции «Главное» и не имел следа в оглавлении —
+            # приёмка «раздел планирования не найден». Подстрока делает его
+            # находимым, не перекраивая сетку из 5 секций.
+            if i == 1 and self.forecast:
+                fc_pg = 6 + int(bool(self.backtest)) + int(bool(self.gen_compare))
+                # y уже за hairline секции (+0.5 выше); +0.02 — чтобы линия
+                # не прочерчивала подпись (находка аудита 2026-07-16).
+                self._text(
+                    slide, self.safe + 0.9, y + 0.02, 7.5, 0.25,
+                    f"в том числе «Прогноз на будущий период» — стр. {fc_pg:02d}",
+                    font=self.sans, size=10, color=self.deep_60,
+                )
+                y += 0.32
 
         # Right metadata sidebar
         side_x = 10.8
@@ -3666,11 +3680,12 @@ class AuroraPPTXBuilder:
             is_accepted = sc.get("variant_id") == accepted
             row_color = self.deep_100
 
-            # CI: берём последние элементы как репрезентативные для горизонта
-            ci_low_list = sc.get("ci_low") or []
-            ci_high_list = sc.get("ci_high") or []
-            ci_low_val = ci_low_list[-1] if ci_low_list else None
-            ci_high_val = ci_high_list[-1] if ci_high_list else None
+            # Интервал СУММЫ за горизонт (totals.predicted_kpi_ci_*) — та же
+            # величина, что «Прогноз KPI» рядом и что карточка в GUI (SSOT).
+            # P-2 fix 2026-07-16: прежний код брал CI ПОСЛЕДНЕГО периода —
+            # число другого масштаба рядом с суммарным KPI читалось как чужое.
+            ci_low_val = sc.get("total_kpi_ci_low")
+            ci_high_val = sc.get("total_kpi_ci_high")
             ci_str = (
                 f"{ci_low_val:,.0f} – {ci_high_val:,.0f}".replace(",", " ")
                 if ci_low_val is not None and ci_high_val is not None
