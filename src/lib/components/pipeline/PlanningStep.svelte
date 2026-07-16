@@ -580,14 +580,10 @@
 
 <div class="planning-step">
 
-  <!-- ── Шапка + водораздел ──────────────────────────────────────────────── -->
-  <header class="planning-header">
-    <h2 class="planning-title">Планирование – прогноз на будущий период</h2>
-    <p class="planning-subtitle">
-      Оптимизация показала, как перераспределить прошлый бюджет.
-      Здесь – прогноз того, что произойдёт при вашем медиаплане на будущее.
-    </p>
-  </header>
+  <!-- Дизайн-консистентность (Антон 2026-07-17): внутренней шапки-дубля нет
+       ни у одного соседнего шага — заголовок даёт степпер, вводный смысл
+       «оптимизация = прошлое, планирование = будущее» живёт в справке шага
+       (contextual-help). -->
 
   <!-- ── U1: плашка доверия (BacktestCard) ─────────────────────────────── -->
   <section class="trust-section">
@@ -926,33 +922,15 @@
 
 <style>
   .planning-step {
+    /* Дизайн-консистентность (2026-07-17): full-width + gap как у соседних
+       шагов (Optimize 20 / Decompose 16). Узкая центрированная колонка
+       960px и gap 32 выделяли раздел из программы. Скрол владеет
+       .pipeline-main — здесь никаких overflow / height: 100%. */
     display: flex;
     flex-direction: column;
-    gap: 32px;
-    padding: 24px 0 48px;
-    max-width: 960px;
-    margin: 0 auto;
-  }
-
-  .planning-header {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
-    padding-bottom: 16px;
-    border-bottom: 1px solid var(--border-subtle, rgba(255,255,255,0.08));
-  }
-  .planning-title {
-    font-size: 20px;
-    font-weight: 600;
-    color: var(--text-primary, #e2e8f0);
-    margin: 0;
-  }
-  .planning-subtitle {
-    font-size: 14px;
-    color: var(--text-secondary, #94a3b8);
-    margin: 0;
-    line-height: 1.6;
-    max-width: 640px;
+    gap: 20px;
+    padding: 0;
+    box-sizing: border-box;
   }
 
   .trust-section { /* BacktestCard управляет своим display */ }
@@ -963,7 +941,8 @@
     gap: 12px;
   }
   .section-title {
-    font-size: 16px;
+    /* 15px как .block-title у OptimizeStep — ближайший структурный сосед */
+    font-size: 15px;
     font-weight: 600;
     color: var(--text-primary, #e2e8f0);
     margin: 0 0 4px;
@@ -983,9 +962,9 @@
     align-items: center;
     gap: 6px;
     font-size: 12px;
-    color: var(--color-warn, #f59e0b);
+    color: var(--warning, #f59e0b);
     padding: 4px 8px;
-    background: rgba(245,158,11,0.08);
+    background: color-mix(in srgb, var(--warning) 8%, transparent);
     border-radius: 4px;
   }
   .mp-table-wrap {
@@ -1008,7 +987,7 @@
   .mp-table th {
     font-weight: 500;
     color: var(--text-secondary, #94a3b8);
-    background: var(--bg-surface-quiet, rgba(255,255,255,0.03));
+    background: var(--bg-surface-quiet, rgba(30,33,44,0.92));
   }
   .mp-table .ch-name { text-align: left; font-weight: 500; }
   .mp-table .val { font-variant-numeric: tabular-nums; }
@@ -1020,7 +999,7 @@
     align-items: flex-start;
     gap: 12px;
     padding: 20px 24px;
-    background: var(--bg-surface-quiet, rgba(255,255,255,0.03));
+    background: var(--bg-surface-quiet, rgba(30,33,44,0.92));
     border: 1px solid var(--border-subtle, rgba(255,255,255,0.08));
     border-radius: 12px;
   }
@@ -1060,15 +1039,15 @@
     padding: 20px 24px;
     font-size: 14px;
     color: var(--text-secondary, #94a3b8);
-    background: var(--bg-surface-quiet, rgba(255,255,255,0.03));
+    background: var(--bg-surface-quiet, rgba(30,33,44,0.92));
     border: 1px solid var(--border-subtle, rgba(255,255,255,0.08));
     border-radius: 12px;
   }
   .spinner {
     width: 16px;
     height: 16px;
-    border: 2px solid rgba(59,130,246,0.25);
-    border-top-color: var(--color-accent, #3b82f6);
+    border: 2px solid color-mix(in srgb, var(--accent-primary) 25%, transparent);
+    border-top-color: var(--accent-primary, #3b82f6);
     border-radius: 50%;
     animation: spin 0.7s linear infinite;
     flex-shrink: 0;
@@ -1080,9 +1059,9 @@
     gap: 10px;
     padding: 14px 18px;
     font-size: 14px;
-    color: var(--color-danger, #ef4444);
-    background: rgba(239,68,68,0.08);
-    border: 1px solid rgba(239,68,68,0.2);
+    color: var(--danger, #ef4444);
+    background: color-mix(in srgb, var(--danger) 8%, transparent);
+    border: 1px solid color-mix(in srgb, var(--danger) 20%, transparent);
     border-radius: 10px;
   }
   .btn-retry {
@@ -1090,20 +1069,24 @@
     font-size: 13px;
     padding: 6px 14px;
     border-radius: 8px;
-    border: 1px solid var(--color-accent, #3b82f6);
+    border: 1px solid var(--accent-primary, #3b82f6);
     background: transparent;
-    color: var(--color-accent, #3b82f6);
+    color: var(--accent-primary, #3b82f6);
     cursor: pointer;
     white-space: nowrap;
   }
-  .btn-retry:hover { background: rgba(59,130,246,0.1); }
+  .btn-retry:hover { background: color-mix(in srgb, var(--accent-primary) 10%, transparent); }
   .baseline-summary-card {
     display: flex;
     flex-wrap: wrap;
     gap: 32px;
     padding: 18px 24px;
-    background: linear-gradient(135deg, rgba(59,130,246,0.1), rgba(59,130,246,0.03));
-    border: 1px solid rgba(59,130,246,0.2);
+    background: linear-gradient(
+      135deg,
+      color-mix(in srgb, var(--accent-primary) 10%, transparent),
+      color-mix(in srgb, var(--accent-primary) 3%, transparent)
+    );
+    border: 1px solid color-mix(in srgb, var(--accent-primary) 20%, transparent);
     border-radius: 12px;
   }
   .bsc-metric {
@@ -1148,19 +1131,21 @@
     padding: 9px 18px;
     border-radius: 8px;
     border: none;
-    background: var(--color-accent, #3b82f6);
+    background: var(--accent-primary, #3b82f6);
     color: #fff;
     cursor: pointer;
-    transition: background 0.15s;
+    transition: opacity 0.15s;
   }
-  .btn-create-variant:hover { background: #2563eb; }
+  /* Hover-паттерн эталонных шагов — приглушение через opacity,
+     не смена на посторонний оттенок (#2563eb вне палитры тем). */
+  .btn-create-variant:hover { opacity: 0.85; }
 
   .variant-editor {
     display: flex;
     flex-direction: column;
     gap: 16px;
     padding: 20px;
-    background: var(--bg-surface-quiet, rgba(255,255,255,0.03));
+    background: var(--bg-surface-quiet, rgba(30,33,44,0.92));
     border: 1px solid var(--border-subtle, rgba(255,255,255,0.08));
     border-radius: 12px;
   }
@@ -1195,9 +1180,9 @@
   }
   .save-error {
     font-size: 13px;
-    color: var(--color-danger, #ef4444);
+    color: var(--danger, #ef4444);
     padding: 8px 12px;
-    background: rgba(239,68,68,0.08);
+    background: color-mix(in srgb, var(--danger) 8%, transparent);
     border-radius: 6px;
   }
   .variant-actions {
@@ -1218,12 +1203,12 @@
     padding: 8px 20px;
     border-radius: 8px;
     border: none;
-    background: var(--color-accent, #3b82f6);
+    background: var(--accent-primary, #3b82f6);
     color: #fff;
     cursor: pointer;
-    transition: background 0.15s;
+    transition: opacity 0.15s;
   }
-  .btn-save-variant:hover:not(:disabled) { background: #2563eb; }
+  .btn-save-variant:hover:not(:disabled) { opacity: 0.85; }
   .btn-save-variant:disabled { opacity: 0.5; cursor: not-allowed; }
 
   .variant-list {
@@ -1236,7 +1221,7 @@
     align-items: center;
     gap: 12px;
     padding: 10px 16px;
-    background: var(--bg-surface-quiet, rgba(255,255,255,0.03));
+    background: var(--bg-surface-quiet, rgba(30,33,44,0.92));
     border: 1px solid var(--border-subtle, rgba(255,255,255,0.08));
     border-radius: 8px;
   }
@@ -1266,7 +1251,7 @@
     padding: 0 4px;
     transition: color 0.15s;
   }
-  .variant-delete:hover { color: var(--color-danger, #ef4444); }
+  .variant-delete:hover { color: var(--danger, #ef4444); }
 
   .comparison-section {
     display: flex;
@@ -1277,7 +1262,7 @@
     border-radius: 12px;
     overflow: hidden;
     border: 1px solid var(--border-subtle, rgba(255,255,255,0.08));
-    background: var(--bg-surface-quiet, rgba(255,255,255,0.02));
+    background: var(--bg-surface-quiet, rgba(30,33,44,0.92));
   }
   .scenario-page-wrap { /* MultiScenarioPage управляет высотой */ }
 
@@ -1292,14 +1277,14 @@
     line-height: 1.6;
   }
   .verdict-best {
-    background: rgba(16,185,129,0.08);
-    border: 1px solid rgba(16,185,129,0.2);
-    color: #6ee7b7;
+    background: color-mix(in srgb, var(--success) 8%, transparent);
+    border: 1px solid color-mix(in srgb, var(--success) 20%, transparent);
+    color: var(--success, #10b981);
   }
   .verdict-ambiguous {
-    background: rgba(245,158,11,0.08);
-    border: 1px solid rgba(245,158,11,0.2);
-    color: #fcd34d;
+    background: color-mix(in srgb, var(--warning) 8%, transparent);
+    border: 1px solid color-mix(in srgb, var(--warning) 20%, transparent);
+    color: var(--warning, #f59e0b);
   }
 
   .disclaimers-section {
@@ -1325,7 +1310,7 @@
   .disclaimers-list {
     margin: 0;
     padding: 12px 20px;
-    background: var(--bg-surface-quiet, rgba(255,255,255,0.03));
+    background: var(--bg-surface-quiet, rgba(30,33,44,0.92));
     border: 1px solid var(--border-subtle, rgba(255,255,255,0.08));
     border-radius: 8px;
     display: flex;
@@ -1342,7 +1327,7 @@
     flex-direction: column;
     gap: 12px;
     padding: 20px 24px;
-    background: var(--bg-surface-quiet, rgba(255,255,255,0.03));
+    background: var(--bg-surface-quiet, rgba(30,33,44,0.92));
     border: 1px solid var(--border-subtle, rgba(255,255,255,0.08));
     border-radius: 12px;
   }
@@ -1362,16 +1347,16 @@
     font-size: 13px;
     padding: 8px 20px;
     border-radius: 8px;
-    border: 1px solid var(--color-accent, #3b82f6);
+    border: 1px solid var(--accent-primary, #3b82f6);
     background: transparent;
-    color: var(--color-accent, #3b82f6);
+    color: var(--accent-primary, #3b82f6);
     cursor: pointer;
     transition: background 0.15s;
   }
-  .btn-promise:hover:not(:disabled) { background: rgba(59,130,246,0.1); }
+  .btn-promise:hover:not(:disabled) { background: color-mix(in srgb, var(--accent-primary) 10%, transparent); }
   .btn-promise:disabled { opacity: 0.5; cursor: not-allowed; }
-  .promise-ok { font-size: 13px; color: #6ee7b7; }
-  .promise-err { font-size: 13px; color: var(--color-danger, #ef4444); }
+  .promise-ok { font-size: 13px; color: var(--success, #10b981); }
+  .promise-err { font-size: 13px; color: var(--danger, #ef4444); }
 
   .planning-footer {
     display: flex;
@@ -1385,10 +1370,10 @@
     padding: 10px 24px;
     border-radius: 10px;
     border: none;
-    background: var(--color-accent, #3b82f6);
+    background: var(--accent-primary, #3b82f6);
     color: #fff;
     cursor: pointer;
-    transition: background 0.15s;
+    transition: opacity 0.15s;
   }
-  .btn-to-report:hover { background: #2563eb; }
+  .btn-to-report:hover { opacity: 0.85; }
 </style>
