@@ -2007,10 +2007,11 @@ def render_forecast_plan(ctx: dict) -> str:
     rows = ""
     for sc in scenarios:
         is_accepted = sc.get("variant_id") == accepted
-        ci_low_list = sc.get("ci_low") or []
-        ci_high_list = sc.get("ci_high") or []
-        ci_low_val = ci_low_list[-1] if ci_low_list else None
-        ci_high_val = ci_high_list[-1] if ci_high_list else None
+        # Интервал СУММЫ за горизонт (totals.predicted_kpi_ci_*) — SSOT с
+        # колонкой «Прогноз KPI» и GUI-карточкой. P-2 fix 2026-07-16: прежний
+        # код брал CI последнего периода — масштаб не совпадал с суммой.
+        ci_low_val = sc.get("total_kpi_ci_low")
+        ci_high_val = sc.get("total_kpi_ci_high")
         ci_str = (
             f"{int(ci_low_val):,} – {int(ci_high_val):,}".replace(",", " ")
             if ci_low_val is not None and ci_high_val is not None else "—"

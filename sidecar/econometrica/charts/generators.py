@@ -220,6 +220,14 @@ def scenarios_comparison_chart(scenarios: list, kpi_label: str = 'Прогноз
     if not scenarios:
         return ""
 
+    # P-2 fix (2026-07-16): total_kpi из load_saved_forecast теперь легитимно
+    # None (INV-50 — таблица рисует «—», не ложный 0). Сценарий без KPI
+    # сравнивать нечем — исключаем из графика, а не рисуем нулевой столбец
+    # рядом с «—» в таблице.
+    scenarios = [sc for sc in scenarios if sc.get('total_kpi') is not None]
+    if not scenarios:
+        return ""
+
     n = len(scenarios)
 
     # Gather names and KPI values
@@ -246,16 +254,24 @@ def scenarios_comparison_chart(scenarios: list, kpi_label: str = 'Прогноз
     for sc in scenarios:
         kpi = float(sc.get('total_kpi') or 0.0)
 
-        # Try direct total keys first
-        ci_low = sc.get('ci_low_total')
-        ci_high = sc.get('ci_high_total')
-
-        # Fall back to summing per-period lists
+        # Try direct total keys first. total_kpi_ci_low/high — канонические
+        # имена builder-схемы load_saved_forecast (P-2 fix 2026-07-16: интервал
+        # СУММЫ за горизонт, тот же, что в таблице сценариев); ci_low_total —
+        # прежние имена, оставлены для совместимости.
+        ci_low = sc.get('total_kpi_ci_low')
+        ci_high = sc.get('total_kpi_ci_high')
         if ci_low is None:
-            preds_ci_low = sc.get('predictions_ci_low')
+            ci_low = sc.get('ci_low_total')
+        if ci_high is None:
+            ci_high = sc.get('ci_high_total')
+
+        # Fall back to summing per-period lists (builder-схема кладёт их в
+        # ci_low/ci_high; сырой сценарий — в predictions_ci_low/high)
+        if ci_low is None:
+            preds_ci_low = sc.get('predictions_ci_low') or sc.get('ci_low')
             ci_low = sum(preds_ci_low) if preds_ci_low else None
         if ci_high is None:
-            preds_ci_high = sc.get('predictions_ci_high')
+            preds_ci_high = sc.get('predictions_ci_high') or sc.get('ci_high')
             ci_high = sum(preds_ci_high) if preds_ci_high else None
 
         if ci_low is not None and ci_high is not None:

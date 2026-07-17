@@ -34,6 +34,11 @@ FORECAST_DATA = {
             "ci_low": [90, 99, 108, 117],
             "ci_high": [110, 121, 132, 143],
             "total_kpi": 460.0,
+            # P-2 (2026-07-16): интервал СУММЫ за горизонт (totals.predicted_kpi_ci_*
+            # из load_saved_forecast) — именно он рендерится в колонке интервала,
+            # НЕ CI последнего периода.
+            "total_kpi_ci_low": 414.0,
+            "total_kpi_ci_high": 506.0,
             "total_spend_money": 5_000_000.0,
             "roas_money": 0.092,
             "period_labels": ["Янв", "Фев", "Мар", "Апр"],
@@ -118,6 +123,68 @@ def test_forecast_slide_contains_title(base_payload, tmp_path):
     prs = _build_deck(payload_fc, out)
     all_text = _xml_text(prs)
     assert "Прогноз" in all_text, "Текст «Прогноз» не найден в XML колоды"
+
+
+def test_forecast_interval_is_horizon_total_not_last_period(base_payload, tmp_path):
+    """P-2 регресс (2026-07-16): в таблице сценариев — интервал СУММЫ за
+    горизонт (total_kpi_ci_*), не CI последнего периода (масштабы несоизмеримы
+    с колонкой «Прогноз KPI»)."""
+    payload_fc = copy.deepcopy(base_payload)
+    payload_fc["forecast"] = FORECAST_DATA
+    out = str(tmp_path / "deck_forecast_interval.pptx")
+    prs = _build_deck(payload_fc, out)
+    all_text = _xml_text(prs)
+    assert "414 – 506" in all_text, "Интервал суммы за горизонт не найден"
+    assert "117 – 143" not in all_text, (
+        "CI последнего периода попал в таблицу — регресс P-2"
+    )
+
+
+def test_forecast_missing_money_renders_dash_not_zero(base_payload, tmp_path):
+    """INV-50: сценарий физметрик (spend/roas = None) рисует «—», не ложный 0."""
+    payload_fc = copy.deepcopy(base_payload)
+    fc = copy.deepcopy(FORECAST_DATA)
+    fc["scenarios"][0]["total_spend_money"] = None
+    fc["scenarios"][0]["roas_money"] = None
+    payload_fc["forecast"] = fc
+    out = str(tmp_path / "deck_forecast_dash.pptx")
+    prs = _build_deck(payload_fc, out)
+    # Слайд прогноза — ищем по заголовку и проверяем его тексты точечно
+    target = None
+    for slide in prs.slides:
+        texts = [sh.text_frame.text for sh in slide.shapes if sh.has_text_frame]
+        if any("Прогноз на будущий период" in t for t in texts):
+            target = texts
+            break
+    assert target is not None, "Слайд «Прогноз на будущий период» не найден"
+    joined = "\n".join(target)
+    assert "—" in joined, "Прочерк для отсутствующих денег не найден"
+    # Ложный ноль: отдельно стоящий «0» или «0.00» в ячейках таблицы
+    cells = [t.strip() for t in joined.split("\n")]
+    assert "0" not in cells and "0.00" not in cells, (
+        f"Ложный ноль в ячейках слайда прогноза (INV-50): {cells}"
+    )
+
+
+def test_toc_mentions_forecast_when_present(base_payload, tmp_path):
+    """P-2 UX: оглавление содержит подстроку про прогноз при его наличии —
+    и не содержит без него (INV-50)."""
+    payload_fc = copy.deepcopy(base_payload)
+    payload_fc["forecast"] = FORECAST_DATA
+    out_fc = str(tmp_path / "deck_toc_fc.pptx")
+    prs_fc = _build_deck(payload_fc, out_fc)
+    toc_text = _xml_text(prs_fc)
+    assert "в том числе «Прогноз на будущий период»" in toc_text, (
+        "TOC-подстрока о прогнозе не найдена"
+    )
+
+    payload_no = copy.deepcopy(base_payload)
+    payload_no.pop("forecast", None)
+    out_no = str(tmp_path / "deck_toc_no_fc.pptx")
+    prs_no = _build_deck(payload_no, out_no)
+    assert "в том числе «Прогноз на будущий период»" not in _xml_text(prs_no), (
+        "TOC упоминает прогноз, которого нет (INV-50)"
+    )
 
 
 # ─── (b) Без forecast → кол-во слайдов не меняется (INV-50) ─────────────────
@@ -315,6 +382,27 @@ def test_scenarios_comparison_chart_empty_returns_empty():
 
     assert scenarios_comparison_chart([]) == "", "Пустой список должен возвращать ''"
     assert scenarios_comparison_chart(None) == "", "None должен возвращать ''"
+
+
+def test_scenarios_comparison_chart_skips_none_kpi():
+    """P-2 (аудит 2026-07-16): сценарий с total_kpi=None исключается из графика
+    (таблица рядом рисует «—» — нулевой столбец был бы ложью того же класса);
+    если ни у одного сценария нет KPI — график не строится вовсе."""
+    from charts.generators import scenarios_comparison_chart
+    import base64
+
+    mixed = [
+        {"name": "С данными", "total_kpi": 460.0},
+        {"name": "Без данных", "total_kpi": None},
+    ]
+    result = scenarios_comparison_chart(mixed)
+    assert result != "", "График должен строиться по сценариям с KPI"
+    base64.b64decode(result)
+
+    all_none = [{"name": "v1", "total_kpi": None}, {"name": "v2", "total_kpi": None}]
+    assert scenarios_comparison_chart(all_none) == "", (
+        "Без единого KPI график обязан вернуть '' (INV-50), а не нулевые столбцы"
+    )
 
 
 # ─── HTML: scenarios_comparison_chart встраивается при ≥2 вариантах ──────────
