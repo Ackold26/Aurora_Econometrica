@@ -1,5 +1,13 @@
 # MERGE_PLAN 2.4.0 — объединение линий v2.3.0 + kpi-units (durable-якорь)
 
+> 🔴 **ТОЧКА ВХОДА ПОСЛЕ ОБРЫВА (чекпоинт 2026-07-18 ~02:30):** шаги 0-4 ЗАКРЫТЫ
+> (merge `27f11e0` на `origin/feat/econ-2.4.0`, все гейты зелёные, pytest-флак диагностирован).
+> **ПРОДОЛЖАТЬ С:** фикс Agg-бэкенда (см. хвост в шаге 4) → шаг 5 (аудит диффа v2.3.1..HEAD,
+> 2 аудитора фронт+python, акцент — разрешения 3 конфликтов, перечислены в шаге 2) → шаг 6 (PR→CI)
+> → шаги 7-9 → СТОП перед шагом 10 (публикация — отдельная санкция Антона).
+> Песочница-worktree: `D:\Docs\Aurora_Ai\Dev\Aurora_Econometrica_merge` (node_modules стоят).
+> Исходные ветки НЕ тронуты (страховка), обе на origin.
+
 > Санкция Антона 2026-07-18: пуш веток ✅ · версия **2.4.0** ✅ · старт исполнения ✅.
 > Публикация (шаг 10) — ОТДЕЛЬНАЯ санкция по предъявленным результатам.
 > При обрыве сессии: продолжать отсюда, сверив чекбоксы. Ничего не переделывать.
@@ -50,9 +58,21 @@
       по регламенту (lint_prompt_commands ✅ уже OK 19/19 → cabinet_eval --dry → vault-pack c3 →
       строка c3 current в content_versions + vault_versions ЗАПОЛНИТЬ (без него stale-блок не доставит!)).
       Двойная проверка при упаковке: в pack-каталоге канон-блок присутствует.
-- [ ] **4.** Гейты на песочнице (node_modules: npm ci; python — окружением v230):
-      pytest `-m "not requires_real_data"` · vitest · svelte-check 0 · cargo test ·
-      `npm run build` (прод-сборка!) · линтеры промптов/контента/help-consistency.
+- [x] **4.** ✅ ГЕЙТЫ ПРОЙДЕНЫ 2026-07-18 (субагент + личная сверка Маши; песочница ЗАПУШЕНА
+      `origin/feat/econ-2.4.0` = 27f11e0):
+      npm ci чисто (lock не изменился) · svelte-check **0 ERRORS**/177 warn (предсущ.) ·
+      vitest **1279/1279 passed (79 файлов)** · npm run build ✅ (2 чанка >500kB — предсущ. warn) ·
+      cargo test **197 passed/0 failed** · pytest: у агента 698+2 FAIL (test_forecast_report
+      scenarios_comparison_chart ×2, TclError TkAgg), у Маши лично **700 passed/0 fail**, изолированный
+      прогон 2 тестов = **passed** ⇒ ФЛАК от распределения xdist, НЕ регрессия слияния.
+      **Корень (проверен grep):** НИКТО в sidecar не задаёт headless-backend matplotlib
+      (`matplotlib.use('Agg')` отсутствует, conftest пуст, MPLBACKEND не задан; generators.py:6
+      импортирует pyplot голым) — на dev-машине сломанный Tcl/Tk → TkAgg иногда взрывается.
+      📌 **ОТКРЫТЫЙ ХВОСТ → фикс до сборки:** форсировать Agg — в `charts/generators.py` (и
+      соседних chart-модулях, grep pyplot) `import matplotlib; matplotlib.use("Agg")` ДО pyplot
+      + в tests/conftest.py `MPLBACKEND=Agg` страховкой; заодно защищает клиентский бандл
+      (PyInstaller excludes tkinter НЕ найден в build_sidecar.py — бандл может нести Tk!).
+      Затем pytest ×2-3 прогона стабильно зелёный.
 - [ ] **5.** Аудит: handoff по диффу `v2.3.1..HEAD(песочницы)` → 2 независимых аудитора
       (фронт + python, subagent sonnet/opus) с явным заданием: сверить КАЖДОЕ разрешение
       конфликта против обеих родительских версий → триаж → фикс-коммит.
