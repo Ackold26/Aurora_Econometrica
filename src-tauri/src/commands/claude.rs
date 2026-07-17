@@ -13,6 +13,8 @@ use std::sync::{Arc, Mutex};
 use tauri::{Emitter, Manager};
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::Command;
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
 
 use crate::errors::{coded, coded_err, ErrorCode};
 
@@ -359,7 +361,7 @@ async fn run_claude_inner(
         // Kill the process on timeout
         if let Some(pid) = active_pids.lock().unwrap_or_else(|e| e.into_inner()).get(&cabinet_id).copied() {
             #[cfg(windows)]
-            { let _ = std::process::Command::new("taskkill").args(["/F", "/T", "/PID", &pid.to_string()]).spawn(); }
+            { let _ = std::process::Command::new("taskkill").args(["/F", "/T", "/PID", &pid.to_string()]).creation_flags(0x08000000).spawn(); }
             #[cfg(not(windows))]
             { let _ = std::process::Command::new("kill").args(["-9", &pid.to_string()]).spawn(); }
         }
@@ -465,14 +467,17 @@ fn convert_to_docx(md_path: &std::path::Path) {
     #[cfg(not(windows))]
     let pandoc_cmd = "pandoc";
 
-    match std::process::Command::new(pandoc_cmd)
-        .args([
-            md_path.to_string_lossy().as_ref(),
-            "-o",
-            docx_path.to_string_lossy().as_ref(),
-            "--from", "markdown",
-            "--to", "docx",
-        ])
+    let mut docx_cmd = std::process::Command::new(pandoc_cmd);
+    docx_cmd.args([
+        md_path.to_string_lossy().as_ref(),
+        "-o",
+        docx_path.to_string_lossy().as_ref(),
+        "--from", "markdown",
+        "--to", "docx",
+    ]);
+    #[cfg(windows)]
+    docx_cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+    match docx_cmd
         .output()
     {
         Ok(output) if output.status.success() => {
@@ -652,15 +657,18 @@ fn convert_to_xlsx(md_path: &std::path::Path) {
 fn convert_to_pdf(md_path: &std::path::Path) {
     let pdf_path = md_path.with_extension("pdf");
 
-    match std::process::Command::new("pandoc")
-        .args([
-            md_path.to_string_lossy().as_ref(),
-            "-o",
-            pdf_path.to_string_lossy().as_ref(),
-            "--from", "markdown",
-            "--to", "pdf",
-            "--pdf-engine=wkhtmltopdf",
-        ])
+    let mut pdf_cmd = std::process::Command::new("pandoc");
+    pdf_cmd.args([
+        md_path.to_string_lossy().as_ref(),
+        "-o",
+        pdf_path.to_string_lossy().as_ref(),
+        "--from", "markdown",
+        "--to", "pdf",
+        "--pdf-engine=wkhtmltopdf",
+    ]);
+    #[cfg(windows)]
+    pdf_cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+    match pdf_cmd
         .output()
     {
         Ok(output) if output.status.success() => {
@@ -771,7 +779,11 @@ fn find_claude_binary() -> Result<String> {
     .collect();
 
     for name in &candidates {
-        if let Ok(output) = std::process::Command::new("where").arg(name).output() {
+        let mut where_cmd = std::process::Command::new("where");
+        where_cmd.arg(name);
+        #[cfg(windows)]
+        where_cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+        if let Ok(output) = where_cmd.output() {
             if output.status.success() {
                 let path = String::from_utf8_lossy(&output.stdout);
                 if let Some(first_line) = path.lines().next() {

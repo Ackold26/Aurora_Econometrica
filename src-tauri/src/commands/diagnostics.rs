@@ -7,6 +7,8 @@
 use std::path::Path;
 use std::sync::OnceLock;
 use std::time::Instant;
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
 
 /// App start time - set once on first diagnostic call or app init.
 static APP_START: OnceLock<Instant> = OnceLock::new();
@@ -65,8 +67,11 @@ fn section(name: &str, f: impl FnOnce() -> String) -> String {
 }
 
 fn cmd_output(cmd: &str, args: &[&str]) -> String {
-    std::process::Command::new(cmd)
-        .args(args)
+    let mut command = std::process::Command::new(cmd);
+    command.args(args);
+    #[cfg(windows)]
+    command.creation_flags(0x08000000); // CREATE_NO_WINDOW
+    command
         .output()
         .map(|o| String::from_utf8_lossy(&o.stdout).trim().to_string())
         .unwrap_or_else(|e| format!("(error: {e})"))

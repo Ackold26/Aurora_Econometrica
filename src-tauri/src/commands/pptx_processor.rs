@@ -27,11 +27,14 @@ pub fn check_dependencies() -> DependencyStatus {
     let python = if cfg!(windows) { "python" } else { "python3" };
 
     // Check Python
-    let py_result = std::process::Command::new(python)
+    let mut py_version_cmd = std::process::Command::new(python);
+    py_version_cmd
         .args(["--version"])
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .output();
+        .stderr(Stdio::piped());
+    #[cfg(windows)]
+    py_version_cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+    let py_result = py_version_cmd.output();
 
     let (python_available, python_version) = match py_result {
         Ok(output) if output.status.success() => {
@@ -58,11 +61,14 @@ pub fn check_dependencies() -> DependencyStatus {
     // Check each required package via importlib
     let mut missing = Vec::new();
     for (import_name, pip_name) in REQUIRED_PACKAGES.iter().zip(PIP_PACKAGES.iter()) {
-        let check = std::process::Command::new(python)
+        let mut check_cmd = std::process::Command::new(python);
+        check_cmd
             .args(["-c", &format!("import {import_name}")])
             .stdout(Stdio::null())
-            .stderr(Stdio::null())
-            .output();
+            .stderr(Stdio::null());
+        #[cfg(windows)]
+        check_cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+        let check = check_cmd.output();
 
         match check {
             Ok(output) if output.status.success() => {}
@@ -86,10 +92,14 @@ pub fn install_packages(packages: &[String]) -> Result<usize> {
 
     info!("Installing pip packages: {:?}", packages);
 
-    let output = std::process::Command::new(python)
+    let mut pip_cmd = std::process::Command::new(python);
+    pip_cmd
         .args(&args)
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
+        .stderr(Stdio::piped());
+    #[cfg(windows)]
+    pip_cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+    let output = pip_cmd
         .output()
         .context("Failed to run pip install")?;
 

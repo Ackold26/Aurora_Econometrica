@@ -3,6 +3,8 @@ use log::info;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 use tauri::Emitter;
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
 
 use crate::errors::{coded_err, ErrorCode};
 
@@ -207,14 +209,17 @@ pub fn apply_update(installer_path: &std::path::Path) -> Result<()> {
     // installer process actually spawned. PS exits 1 если UAC denied OR Start-Process
     // fails for any other reason → we return Err, sidecar stays alive, app functional.
     let installer_str = installer_path.display().to_string().replace('\'', "''");
-    let ps_status = std::process::Command::new("powershell")
-        .args([
-            "-NoProfile", "-Command",
-            &format!(
-                "try {{ Start-Process -FilePath '{}' -ArgumentList '/S' -Verb RunAs -ErrorAction Stop }} catch {{ exit 1 }}",
-                installer_str
-            ),
-        ])
+    let mut ps_cmd = std::process::Command::new("powershell");
+    ps_cmd.args([
+        "-NoProfile", "-Command",
+        &format!(
+            "try {{ Start-Process -FilePath '{}' -ArgumentList '/S' -Verb RunAs -ErrorAction Stop }} catch {{ exit 1 }}",
+            installer_str
+        ),
+    ]);
+    #[cfg(windows)]
+    ps_cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW - hides PS host console, UAC prompt (separate secure desktop) still shows
+    let ps_status = ps_cmd
         .status()
         .map_err(|e| coded_err(ErrorCode::UP004, &format!("Failed to launch PowerShell: {e}")))?;
 

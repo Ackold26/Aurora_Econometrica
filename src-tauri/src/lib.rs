@@ -14,6 +14,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::{Emitter, Manager};
 #[allow(unused_imports)]
 use log::{debug, error, info, warn};
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
 
 /// Application state shared across Tauri commands.
 pub struct AppState {
@@ -1335,6 +1337,7 @@ fn cancel_claude(cabinet_id: String, state: tauri::State<'_, Arc<AppState>>) -> 
         #[cfg(windows)]
         std::process::Command::new("taskkill")
             .args(["/F", "/T", "/PID", &pid.to_string()])
+            .creation_flags(0x08000000) // CREATE_NO_WINDOW
             .spawn()
             .map_err(|e| e.to_string())?;
         #[cfg(not(windows))]
@@ -2912,12 +2915,15 @@ fn start_rag_server() {
     }
 
     let python = if cfg!(windows) { "python" } else { "python3" };
-    match std::process::Command::new(python)
+    let mut rag_cmd = std::process::Command::new(python);
+    rag_cmd
         .arg("server.py")
         .current_dir(&rag_dir)
         .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .spawn()
+        .stderr(std::process::Stdio::null());
+    #[cfg(windows)]
+    rag_cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+    match rag_cmd.spawn()
     {
         Ok(child) => {
             info!("RAG server started (PID={})", child.id());
@@ -2945,10 +2951,13 @@ fn start_parser_server() {
     // Try bundled exe first (PyInstaller), fallback to python
     let exe_path = base.join("dist").join("aurora-parser").join("aurora-parser.exe");
     if exe_path.exists() {
-        match std::process::Command::new(&exe_path)
+        let mut parser_exe_cmd = std::process::Command::new(&exe_path);
+        parser_exe_cmd
             .stdout(std::process::Stdio::null())
-            .stderr(std::process::Stdio::null())
-            .spawn()
+            .stderr(std::process::Stdio::null());
+        #[cfg(windows)]
+        parser_exe_cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+        match parser_exe_cmd.spawn()
         {
             Ok(child) => {
                 info!("Parser server started from exe (PID={})", child.id());
@@ -2969,12 +2978,15 @@ fn start_parser_server() {
     }
 
     let python = if cfg!(windows) { "python" } else { "python3" };
-    match std::process::Command::new(python)
+    let mut parser_py_cmd = std::process::Command::new(python);
+    parser_py_cmd
         .arg("server.py")
         .current_dir(&parser_dir)
         .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .spawn()
+        .stderr(std::process::Stdio::null());
+    #[cfg(windows)]
+    parser_py_cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+    match parser_py_cmd.spawn()
     {
         Ok(child) => {
             info!("Parser server started via python (PID={})", child.id());
@@ -3129,6 +3141,7 @@ fn build_app() -> Result<(), String> {
                 .inner_size(1280.0, 820.0)
                 .min_inner_size(900.0, 600.0)
                 .center()
+                .maximized(true)
                 .build()?;
 
             // v1.0.9: quarantine legacy AIAgency license files (contamination from
