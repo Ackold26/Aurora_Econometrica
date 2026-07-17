@@ -20,11 +20,21 @@ export function plural(n, forms) {
 }
 
 /**
+ * @typedef {Object} KpiDisplayPassport
+ * @property {string} kpi_kind - 'monetary' | 'count' | ...
+ * @property {string} result_axis_label
+ * @property {string} result_unit_short
+ * @property {string[]} result_forms
+ * @property {string|null} cpu_per_label
+ * @property {string|null} value_field_label
+ */
+
+/**
  * Возвращает паспорт отображения для типа KPI.
  * Для 'count_custom' можно передать customForms (3 строки).
  * @param {string} kpiType
  * @param {string[] | null} [customForms]
- * @returns {object}
+ * @returns {KpiDisplayPassport}
  */
 export function getDisplay(kpiType, customForms = null) {
   if (!(kpiType in KPI_DISPLAY)) {

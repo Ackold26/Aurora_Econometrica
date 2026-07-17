@@ -129,7 +129,7 @@ export function kpiView(input) {
   const kpiType = src.kpiType || null;
   // Merge order: defaults < derived (from kind+mode+kpiType) < explicit labels.
   const derived = deriveLabels(kpiKind, mode, kpiType);
-  const labels = { ...DEFAULT_LABELS, cpuPerLabel: '₽/ед.', ...derived, ...(src.labels || {}) };
+  const labels = { ...DEFAULT_LABELS, ...derived, ...(src.labels || {}) };
   return {
     kpiKind,
     mode,
