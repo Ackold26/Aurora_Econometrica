@@ -26,22 +26,30 @@
 
 ## Шаги (чекбоксы вести по факту)
 
-- [ ] **0a.** Пуш `feat/econ-kpi-units` (с `-u`, upstream нет) + `feat/econ-v2.3.0` (ahead) на origin.
-      Сеть флачит (TLS 10054/curl 35) → retry ×3-5; после обрыва — проверка `git status -sb`.
-- [ ] **0b.** Этот план закоммичен в v230 (docs, свой pathspec).
-- [ ] **1.** Песочница: `git worktree add -b feat/econ-2.4.0 D:\Docs\Aurora_Ai\Dev\Aurora_Econometrica_merge feat/econ-v2.3.0`
-      (третье дерево; существующие НЕ трогать — в обоих чужие незакоммиченные файлы).
-- [ ] **2.** В песочнице: `git merge feat/econ-kpi-units` (база fecdb84 3-way).
+- [x] **0a.** ✅ 2026-07-18: kpi-units запушена (-u, new branch) + v230 запушена (e79bab3..983e356→d473880).
+- [x] **0b.** ✅ План закоммичен `d473880` и запушен.
+- [x] **1.** ✅ Песочница создана: worktree `Dev/Aurora_Econometrica_merge`, ветка `feat/econ-2.4.0` от d473880.
+- [x] **2.** ✅ MERGE ЗАВЕРШЁН `27f11e0`. Авторазрешились: builder.py, sections.py, весь Rust,
+      insights-rules.js. Ручных конфликтов 3, все разрешены лично Машей:
+      (а) kpi-aware-formatting.js — обе стороны чинили один дубль cpuPerLabel → HEAD (фикс+комментарий);
+      (б) kpi-display.js — оба добавили typedef → HEAD (KpiDisplay, полнее; KpiDisplayPassport отброшен, ссылок 0);
+      (в) econometrist/CLAUDE.md — v230 переписал структуру (Батч-5), kpi-units нёс канон-блок
+      COPYWRITER_STYLE → новая структура + канон-секция вставлена после нового «Поведения в диалоге»,
+      байт-идентичность с kpi-units подтверждена diff, линтер промптов OK 19/19.
+      ГЕЙТ ПОЛНОТЫ: `git log feat/econ-kpi-units ^HEAD` ПУСТ и `git log feat/econ-v2.3.0 ^HEAD` ПУСТ —
+      обе линии целиком внутри. ⚠️ lefthook в песочнице не установлен (хуки не гонялись) — линтеры в шаге 4/6.
+      Старый вариант шага: `git merge feat/econ-kpi-units` (база fecdb84 3-way).
       Правила разрешения: обе ценности сохраняются; версии — сторона v230 (2.3.1, bump позже);
       идентичные правки (maximized/no-window/смоук) — авторазрешение или любая сторона (идентичны);
       builder.py/sections.py — P-2-маппер (реальная схема totals.*, None→«—», интервал суммы,
       TOC-подстрока) ОБЯЗАН выжить ВМЕСТЕ с правками отчётов 2.3.1; CLAUDE.md econometrist —
       стиль-ядро канон + Батч-5 линтер-правки вместе, сверка с `_shared/` каноном;
       содержательные конфликты решает Маша ЛИЧНО, не субагент.
-- [ ] **3.** Vault-развилка: вошло ли стиль-ядро (d9c74a0) в опубликованный vault c2?
-      (распаковать/сравнить CLAUDE.md кабинета). НЕТ → vault c3 в объём релиза по регламенту
-      (lint_prompt_commands 0 FAIL → cabinet_eval --dry → sign_content_pack --bump →
-      check_content_pack_sync OK). ДА → конфликт в пользу раскатанного текста.
+- [x] **3.** ✅ РЕШЕНО архео-следом: сообщение коммита d9c74a0 прямо говорит «Доставка клиентам –
+      публикацией vault (отдельный гейт)» ⇒ vault c2 канона НЕ содержит ⇒ **vault c3 В ОБЪЁМЕ РЕЛИЗА**
+      по регламенту (lint_prompt_commands ✅ уже OK 19/19 → cabinet_eval --dry → vault-pack c3 →
+      строка c3 current в content_versions + vault_versions ЗАПОЛНИТЬ (без него stale-блок не доставит!)).
+      Двойная проверка при упаковке: в pack-каталоге канон-блок присутствует.
 - [ ] **4.** Гейты на песочнице (node_modules: npm ci; python — окружением v230):
       pytest `-m "not requires_real_data"` · vitest · svelte-check 0 · cargo test ·
       `npm run build` (прод-сборка!) · линтеры промптов/контента/help-consistency.
