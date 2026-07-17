@@ -226,8 +226,15 @@ def smoke_test_bundle(exe_path):
         import pandas as _pd
         _pd.read_csv(csv_path).to_excel(xlsx_path, index=False)
     except Exception as e:
-        print(f'  WARN: xlsx fixture skipped ({e}) - смоук пойдёт только по CSV')
-        xlsx_path = None
+        # Аудит 2026-07-17 (Medium): отсутствие openpyxl в билд-окружении =
+        # отсутствие его и в бандле (PyInstaller собирает из того же venv) —
+        # деградация до CSV-only молчала бы ровно тогда, когда клиентский
+        # xlsx-путь битый. Коррелированный отказ → жёсткий FAIL.
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+        print(f'\nBuild FAILED: xlsx-фикстура смоука не создана ({e}) - '
+              'openpyxl/pandas обязаны быть в билд-окружении (они же уезжают в бандл).',
+              file=sys.stderr)
+        sys.exit(1)
 
     proc = subprocess.Popen(
         [str(exe_path), str(port)],
@@ -244,6 +251,7 @@ def smoke_test_bundle(exe_path):
             return json.loads(r.read())
 
     ok = False
+    health_ok = False
     try:
         # /health: холодный старт onedir-бандла на HDD бывает долгим
         for _ in range(90):
@@ -252,13 +260,17 @@ def smoke_test_bundle(exe_path):
                 break
             try:
                 urllib.request.urlopen(f'http://127.0.0.1:{port}/health', timeout=2)
+                health_ok = True
                 break
             except Exception:
                 time.sleep(1)
         else:
             print('  [FAIL] /health not ready in 90s')
 
-        if proc.poll() is None:
+        # Аудит 2026-07-17 (Medium): гейт по health_ok, не по proc.poll() —
+        # иначе бандл, поднявшийся на 91-й секунде, проходил validate после
+        # напечатанного [FAIL] (порог не enforced, лог противоречив).
+        if health_ok:
             targets = [('CSV', csv_path)] + ([('XLSX', xlsx_path)] if xlsx_path else [])
             for label, fpath in targets:
                 res = _post('/compute/validate',
@@ -305,8 +317,12 @@ def main():
 
     exe_path = DIST / OUTPUT_NAME / f'{OUTPUT_NAME}.exe'
     if not exe_path.exists():
-        print(f'\nWARNING: Expected exe not found at {exe_path}')
-        return
+        # Аудит 2026-07-17 (Medium): раньше здесь был WARNING + return с exit 0 —
+        # CI считал сборку успешной, а npm run tauri build паковал ПРЕЖНИЙ
+        # синкнутый бандл. Нет артефакта = сборка провалена.
+        print(f'\nBuild FAILED: exe не создан PyInstaller\'ом при rc=0: {exe_path}',
+              file=sys.stderr)
+        sys.exit(1)
 
     size_mb = sum(
         f.stat().st_size for f in (DIST / OUTPUT_NAME).rglob('*') if f.is_file()
