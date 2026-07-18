@@ -58,18 +58,18 @@
       <div class="att-label">Average Treatment Effect (ATT)</div>
       <div class="att-point">{formatNumber(att?.point)}</div>
       <div class="att-ci">
-        {Math.round((att?.confidence ?? 0.9) * 100)}% CI:
+        {Math.round((att?.confidence ?? 0.9) * 100)}%-й диапазон:
         <span class="ci-bracket">
           [{formatNumber(att?.ci_low)}, {formatNumber(att?.ci_high)}]
         </span>
         <span class="ci-method">({att?.ci_method})</span>
       </div>
       {#if att && att.ci_low > 0 && att.ci_high > 0}
-        <div class="att-verdict positive"><Check size={14} strokeWidth={1.5} style="vertical-align: -0.15em" /> Эффект статистически значим (CI больше 0)</div>
+        <div class="att-verdict positive"><Check size={14} strokeWidth={1.5} style="vertical-align: -0.15em" /> Эффект статистически значим (диапазон больше 0)</div>
       {:else if att && att.ci_low < 0 && att.ci_high < 0}
-        <div class="att-verdict negative"><TriangleAlert size={14} strokeWidth={1.5} style="vertical-align: -0.15em" /> Эффект отрицательный (CI меньше 0)</div>
+        <div class="att-verdict negative"><TriangleAlert size={14} strokeWidth={1.5} style="vertical-align: -0.15em" /> Эффект отрицательный (диапазон меньше 0)</div>
       {:else}
-        <div class="att-verdict inconclusive">- Эффект неоднозначен (CI пересекает 0)</div>
+        <div class="att-verdict inconclusive">- Эффект неоднозначен (диапазон пересекает 0)</div>
       {/if}
     </div>
 

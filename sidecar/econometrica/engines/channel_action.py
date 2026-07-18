@@ -418,7 +418,7 @@ def compute_channel_action(
             label_ru=ACTION_LABEL_RU['Uncertain'],
             tone=ACTION_TONE['Uncertain'],
             reasoning=(
-                f'CI [{_ci_lo_eff:.2f}-{_ci_hi_eff:.2f}] шире чем {_metric_str}, '
+                f'Диапазон [{_ci_lo_eff:.2f}-{_ci_hi_eff:.2f}] шире чем {_metric_str}, '
                 f'оптимизатор не предложил перераспределения - '
                 f'нужно больше данных для уверенной рекомендации'
             ),

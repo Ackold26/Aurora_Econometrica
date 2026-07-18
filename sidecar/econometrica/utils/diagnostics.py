@@ -178,7 +178,7 @@ def format_thinness_caveat(ratio: float | None, thinness_cap: int | None,
                 f"переобучения, результаты ненадёжны.")
     else:
         body = (f"⚠ Данных мало (Ratio {ratio:.1f}:1 < 4:1) - высокий R² может "
-                f"быть артефактом переобучения. Доверительные интервалы будут широкими.")
+                f"быть артефактом переобучения. Правдоподобный диапазон будет широким.")
     return (" " + body) if leading_space else body
 
 

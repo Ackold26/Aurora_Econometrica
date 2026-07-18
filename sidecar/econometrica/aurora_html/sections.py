@@ -1675,7 +1675,7 @@ def render_methodology(ctx: dict) -> str:
     # OLS guard: hide MCMC diagnostics; show method/CI labels вместо.
     if is_ols:
         diag_items.append(("Метод", "closed-form OLS"))
-        diag_items.append(("CI", "bootstrap n=200"))  # факт ols_bootstrap.py n_boot=200 (был n=1000, враньё R-07)
+        diag_items.append(("Диапазон", "bootstrap n=200"))  # факт ols_bootstrap.py n_boot=200 (был n=1000, враньё R-07)
     else:
         if diag.get("r_hat_max") is not None:
             diag_items.append(("R-hat (max)", f"{float(diag['r_hat_max']):.3f}"))
@@ -1702,7 +1702,7 @@ def render_methodology(ctx: dict) -> str:
         else _ats["s10_methodology"]
     )
     _prior_note = (
-        "Параметры отложенного эффекта (adstock) и насыщения: индустриальные бенчмарки OLS MMM, фиксированные. Bootstrap n=200 для CI."  # П8-2
+        "Параметры отложенного эффекта (adstock) и насыщения: индустриальные бенчмарки OLS MMM, фиксированные. Bootstrap n=200 для диапазона."  # П8-2
         if is_ols
         else meth["prior_note"]
     )

@@ -85,7 +85,7 @@ function collectChannels(scenarios, baseline) {
  *
  * Format:
  * ```
- * Scenario,Budget (₽),Predicted KPI,CI 90% Low,CI 90% High,Uplift %,<Channel1> %,...
+ * Scenario,Budget (₽),Predicted KPI,Правдоподобный диапазон 90% Low,Правдоподобный диапазон 90% High,Uplift %,<Channel1> %,...
  * Baseline,50000000,245000,230000,262000,-,40,35,15,10
  * План А,50000000,264000,248000,281000,+7.8,25,50,10,15
  * ```
@@ -102,8 +102,8 @@ export function exportToCsv(scenarios, baseline = null) {
     'Сценарий',
     'Бюджет (₽)',
     'Прогноз KPI',
-    'CI 90% нижн.',
-    'CI 90% верхн.',
+    'Правдоподобный диапазон 90% нижн.',
+    'Правдоподобный диапазон 90% верхн.',
     'Прирост %',
     ...channels.map(ch => `${ch} %`),
   ];

@@ -177,7 +177,7 @@ export function recomputeResultAfterObjective(result) {
   } else if (ratio < 4 && nPredictors > 0) {
     warnings.push({
       type: 'insufficient_data',
-      message: `Ratio данных ${ratio.toFixed(1)}:1 - ниже рекомендуемых 4:1. Модель запустится, но с широкими доверительными интервалами`,
+      message: `Ratio данных ${ratio.toFixed(1)}:1 - ниже рекомендуемых 4:1. Модель запустится, но с широкими правдоподобными диапазонами`,
       severity: 'warning',
     });
   }

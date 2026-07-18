@@ -406,8 +406,8 @@ def train_ols(config: dict, project_dir: str, progress_callback=None) -> dict[st
             f'OLS-режим (small data fallback): n={n_obs} наблюдений, p={p} параметров, '
             f'dof={dof}. Hill α={DEFAULT_ALPHA}, γ={DEFAULT_GAMMA}, decay={DEFAULT_DECAY} - '
             f'фиксированы, не обучаются (нужен n≥30 для Bayesian estimate). '
-            f'Доверительные интервалы - frequentist на β-коэффициенты + predictive intervals на y. '
-            f'НЕ posterior CI как в Bayesian-режиме.'
+            f'Правдоподобные диапазоны - frequentist на β-коэффициенты + predictive intervals на y. '
+            f'Не апостериорный правдоподобный диапазон, как в байесовском режиме.'
         ),
         # v2.1.0 (pilot D2 round 2 R02): expose unit_costs snapshot для frontend
         # hill.js pre-multiply symmetry (was scaled in modeler pre-multiply).
@@ -564,8 +564,8 @@ def recommend_engine(n_obs: int, *, override: str | None = None) -> dict[str, An
             'allowed': ['ols'],
             'reason': (
                 f'n={n_obs}: данных недостаточно для Bayesian MMM (нужен n≥20 для базовой '
-                f'идентифицируемости, n≥30 для надёжных posterior CI). Используется OLS-режим '
-                f'с frequentist CI на β + predictive intervals на y.'
+                f'идентифицируемости, n≥30 для надёжных правдоподобных диапазонов). Используется OLS-режим '
+                f'с частотным диапазоном на β + predictive intervals на y.'
             ),
             'banner_tone': 'bad',
             'override_active': False,
@@ -577,7 +577,7 @@ def recommend_engine(n_obs: int, *, override: str | None = None) -> dict[str, An
             'reason': (
                 f'n={n_obs}: пограничная область. По умолчанию рекомендуется OLS (стабильнее '
                 f'на малых выборках), но можно попробовать Bayesian с экспериментальным режимом. '
-                f'Bayesian результаты могут иметь R-hat>1.05 и широкие CI.'
+                f'Bayesian результаты могут иметь R-hat>1.05 и широкие правдоподобные диапазоны.'
             ),
             'banner_tone': 'warn',
             'override_active': False,
@@ -587,7 +587,7 @@ def recommend_engine(n_obs: int, *, override: str | None = None) -> dict[str, An
         'allowed': ['bayesian', 'ols'],
         'reason': (
             f'n={n_obs}: достаточно данных для Bayesian MMM (NUTS estimate Hill α/γ + adstock '
-            f'decay per channel + posterior CI). OLS доступен как быстрый baseline.'
+            f'decay per channel + правдоподобный диапазон). OLS доступен как быстрый baseline.'
         ),
         'banner_tone': 'good',
         'override_active': False,

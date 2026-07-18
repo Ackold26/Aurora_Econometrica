@@ -263,7 +263,7 @@ def prior_predictive_check(
             f'Prior predictive coverage {coverage*100:.0f}% между '
             f'{PRIOR_PRED_COVERAGE_FAIL*100:.0f}% и {PRIOR_PRED_COVERAGE_OK*100:.0f}%. '
             f'Приоры частично расходятся с данными - обучение продолжится, '
-            f'но posterior CI могут быть оптимистично узкими.'
+            f'но апостериорный правдоподобный диапазон может быть оптимистично узким.'
         )
         recommendation = (
             'Обучение возможно, но используйте результаты как направление. '

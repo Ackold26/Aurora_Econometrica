@@ -125,10 +125,10 @@ def model_reliability_verdict(diagnostics: dict[str, Any]) -> dict[str, Any]:
         ratio_ols = (n_obs / n_params) if (n_obs and n_params) else None
         rtxt = f', Ratio {ratio_ols:.1f}:1' if ratio_ols else ''
         reasons = [f'Режим малых данных OLS (n={n_obs}{rtxt}): Hill-параметры фиксированы '
-                   f'(не обучаются), доверительные интервалы частотные — рекомендации '
+                   f'(не обучаются), правдоподобные диапазоны частотные — рекомендации '
                    f'ориентировочные.']
         caveat = ('Режим малых данных (OLS): рекомендации ориентировочные, опирайтесь на '
-                  'доверительные интервалы и валидируйте крупные сдвиги лифт-тестом.')
+                  'правдоподобные диапазоны и валидируйте крупные сдвиги лифт-тестом.')
         if holidays_excluded:
             reasons.append(ovb_reason)
             caveat += ovb_caveat
@@ -188,7 +188,7 @@ def model_reliability_verdict(diagnostics: dict[str, Any]) -> dict[str, Any]:
         ratio_txt = f' (Ratio {ratio}:1 < 4:1)' if ratio is not None else ''
         reasons.append(
             f'Тонкие данные{ratio_txt} — высокий риск переобучения; ROI-оценки и '
-            f'доверительные интервалы ориентировочны (особенно аномально высокие mROAS).')
+            f'правдоподобные диапазоны ориентировочны (особенно аномально высокие mROAS).')
     if weak_tier:
         score_txt = f' (MQS {score})' if score is not None else ''
         reasons.append(f'Низкое качество модели{score_txt}, «{tier_label}».')
@@ -210,7 +210,7 @@ def model_reliability_verdict(diagnostics: dict[str, Any]) -> dict[str, Any]:
         reasons.append(
             f'Эффективный размер выборки MCMC ниже порога 400{_ess_txt} '
             f'(Vehtari et al. 2021) — цепи перемешаны слабо, при таком ESS сам '
-            f'R-hat ненадёжен; доверительные интервалы ориентировочны.')
+            f'R-hat ненадёжен; правдоподобные диапазоны ориентировочны.')
     if low_bfmi:
         _bf = metrics.get('bfmi_min')
         _bf_txt = f' {_bf:.2f}' if _bf is not None else ''
@@ -232,7 +232,7 @@ def model_reliability_verdict(diagnostics: dict[str, Any]) -> dict[str, Any]:
             # Тонкие/слабые данные — caveat про ограниченность данных (+OVB если ещё и
             # праздники исключены).
             caveat = ('Рекомендации ориентировочные: модель на ограниченных данных. '
-                      'Опирайтесь на доверительные интервалы, а не точечные цифры; '
+                      'Опирайтесь на правдоподобные диапазоны, а не точечные цифры; '
                       'крупные сдвиги бюджета валидируйте лифт-тестом.'
                       + (ovb_caveat if holidays_excluded else ''))
         else:

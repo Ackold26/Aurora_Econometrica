@@ -402,7 +402,7 @@
               <th class="col-kpi sortable" onclick={() => toggleSort('kpi')}>
                 {kpiLabel}{sortIndicator('kpi')}
               </th>
-              <th class="col-ci">CI 90%</th>
+              <th class="col-ci">Диапазон 90%</th>
               {#if baseline}
                 <th class="col-uplift sortable" onclick={() => toggleSort('uplift')}>
                   Δ%{sortIndicator('uplift')}

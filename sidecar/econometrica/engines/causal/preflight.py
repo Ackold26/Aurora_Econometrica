@@ -356,15 +356,15 @@ def cross_method_consistency(project_dir: str) -> dict[str, Any]:
         verdict = 'partial'
 
     if verdict == 'agree':
-        rec = 'Methods agree (CIs overlap, divergence < 30%). Triangulated estimate надёжен.'
+        rec = 'Methods agree (правдоподобные диапазоны пересекаются, divergence < 30%). Triangulated estimate надёжен.'
     elif verdict == 'partial':
         rec = (
-            'Partial agreement: not all CIs overlap, или divergence 30-70%. '
+            'Partial agreement: не все правдоподобные диапазоны пересекаются, или divergence 30-70%. '
             'Один из методов может нарушать assumptions - review honest_disclosure.'
         )
     else:
         rec = (
-            'Methods disagree (CIs не пересекаются, divergence > 70%). '
+            'Methods disagree (правдоподобные диапазоны не пересекаются, divergence > 70%). '
             'Identification problem: проверьте assumption violations '
             '(parallel-trends для DiD, convex-hull для SCM, overlap для Forest).'
         )

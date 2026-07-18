@@ -124,7 +124,7 @@ def awareness_chart(historical: list, forecast: list,
 
     # Forecast
     ax.plot(x_fore, forecast, color=COLORS['success'], linewidth=2, linestyle='--', label='Прогноз')
-    ax.fill_between(x_fore, ci_lower, ci_upper, color=COLORS['success'], alpha=0.15, label='95% CI')
+    ax.fill_between(x_fore, ci_lower, ci_upper, color=COLORS['success'], alpha=0.15, label='95%-й правдоподобный диапазон')
 
     # Divider line
     ax.axvline(n_hist - 0.5, color=COLORS['text_secondary'], linestyle=':', alpha=0.5)

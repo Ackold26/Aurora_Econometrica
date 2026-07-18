@@ -42,7 +42,7 @@
           <span class="metric-label">Запас данных</span>
           <span class="metric-value">{validationMetrics.ratio.toFixed(1)}:1</span>
         </span>
-        <span class="metric-chip light-{validationMetrics.vifStatus}" title="VIF max - коллинеарность медиа-каналов. ≤5 каналы независимы, 5–10 умеренная collinearity (CI шире), >10 модель не разделит вклады каналов.">
+        <span class="metric-chip light-{validationMetrics.vifStatus}" title="VIF max - коллинеарность медиа-каналов. ≤5 каналы независимы, 5–10 умеренная collinearity (диапазон шире), >10 модель не разделит вклады каналов.">
           <span class="metric-label">VIF max</span>
           <span class="metric-value">{validationMetrics.maxVif == null ? 'н/д' : validationMetrics.maxVif.toFixed(1)}</span>
         </span>

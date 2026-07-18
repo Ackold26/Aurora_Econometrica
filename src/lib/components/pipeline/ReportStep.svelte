@@ -250,7 +250,7 @@
     if (!mData?.diagnostics) return '';
     const parts = [];
     if (isOls) {
-      parts.push(`Линейная регрессия с ${nChannels} канал${nChannels > 4 ? 'ами' : nChannels > 1 ? 'ами' : 'ом'} медиа через Adstock (Geometric) + Hill saturation. β-коэффициенты оценены closed-form OLS. Доверительные интервалы - bootstrap.`);
+      parts.push(`Линейная регрессия с ${nChannels} канал${nChannels > 4 ? 'ами' : nChannels > 1 ? 'ами' : 'ом'} медиа через Adstock (Geometric) + Hill saturation. β-коэффициенты оценены closed-form OLS. Правдоподобные диапазоны - bootstrap.`);
     } else {
       parts.push(`Bayesian Marketing Mix Model с ${nChannels} канал${nChannels > 4 ? 'ами' : nChannels > 1 ? 'ами' : 'ом'} медиа через Adstock (отложенный эффект) + Hill saturation (убывающая отдача).`);
       parts.push(`Оценка через MCMC-сэмплер${rHat != null ? `, R-hat = ${rHat.toFixed(3)}` : ''}${divergences != null ? `, дивергенций ${divergences}` : ''}.`);
@@ -281,7 +281,7 @@
     if (ratio != null && ratio < 2) {
       items.push(`Данных критически мало (Ratio ${ratio.toFixed(1)}:1 < 2:1) - высокий риск переобучения. ROI и декомпозицию рассматривайте как ориентир, не истину.`);
     } else if (ratio != null && ratio < 4) {
-      items.push(`Данных мало (Ratio ${ratio.toFixed(1)}:1 < 4:1 рекомендуемых). Доверительные интервалы широкие, CI для отдельных каналов могут включать 0.`);
+      items.push(`Данных мало (Ratio ${ratio.toFixed(1)}:1 < 4:1 рекомендуемых). Правдоподобные диапазоны широкие, диапазон для отдельных каналов может включать 0.`);
     }
     if (suspiciousChannels.length > 0) {
       const names = suspiciousChannels.map(/** @param {any} c */ c => c.name).join(', ');
@@ -421,7 +421,7 @@
       actions.push(`Проверить **unit_costs и чистоту данных** для убыточных каналов (${lossChannels.map(/** @param {any} c */ c => escapeHtml(dispName(c))).join(', ')}) - часто причина в неправильных единицах измерения, а не в самом канале.`);
     }
     if (ratio != null && ratio < 4) {
-      actions.push(`**Накопить больше данных.** Сейчас Ratio ${ratio.toFixed(1)}:1 - мало для узких доверительных интервалов. ≥ 4:1 = ROI уверенные.`);
+      actions.push(`**Накопить больше данных.** Сейчас Ratio ${ratio.toFixed(1)}:1 - мало для узких правдоподобных диапазонов. ≥ 4:1 = ROI уверенные.`);
     }
     actions.push(`**Обновлять модель каждые 3-6 месяцев** по мере накопления новых данных и смены медиа-микса.`);
     return actions;
@@ -438,7 +438,7 @@
       if (mqs >= 80) {
         items.push({
           q: `Модель показывает MQS ${mqs.toFixed(0)} - это хорошо?`,
-          a: `Да, отличный результат. MQS ≥ 80 означает что прогнозы точны, доверительные интервалы узкие, модель сошлась. Можно уверенно использовать для принятия бюджетных решений.`,
+          a: `Да, отличный результат. MQS ≥ 80 означает что прогнозы точны, правдоподобные диапазоны узкие, модель сошлась. Можно уверенно использовать для принятия бюджетных решений.`,
         });
       } else if (mqs >= 60) {
         items.push({
@@ -533,7 +533,7 @@
     if (ratio != null && ratio < 4) {
       items.push({
         q: `Ratio ${ratio.toFixed(1)}:1 - что это значит для интерпретации?`,
-        a: `Ratio показывает сколько периодов данных приходится на каждый параметр модели. < 4:1 означает мало. Выводы работают для крупных решений (у какого канала ROI выше) но не для мелких сравнений (точное значение ROI с узкими CI). Накопите ещё 1-2 квартала - интервалы сузятся.`,
+        a: `Ratio показывает сколько периодов данных приходится на каждый параметр модели. < 4:1 означает мало. Выводы работают для крупных решений (у какого канала ROI выше) но не для мелких сравнений (точное значение ROI с узкими правдоподобными диапазонами). Накопите ещё 1-2 квартала - интервалы сузятся.`,
       });
     }
 
@@ -571,7 +571,7 @@
       lines.push('Структура презентации:');
       lines.push('- Executive summary - MQS, R², MAPE, прирост от оптимизации');
       lines.push(isOls
-        ? '- Спецификация модели - Линейная регрессия, Adstock + Hill, OLS · closed-form · bootstrap CI'
+        ? '- Спецификация модели - Линейная регрессия, Adstock + Hill, OLS · closed-form · bootstrap-правдоподобный диапазон'
         : '- Спецификация модели - Bayesian MMM, Adstock + Hill, MCMC');
       lines.push('- Декомпозиция продаж - baseline vs медиа по каналам');
       lines.push('- ROI-анализ - Share of Spend vs Share of Effect, Gap');
@@ -982,7 +982,7 @@
             <div class="format-title">PPTX - для презентации</div>
           </div>
           <p class="format-desc">
-            Executive summary, спецификация модели ({isOls ? 'OLS · closed-form · bootstrap CI' : 'Bayesian MMM, Adstock, Hill'}), декомпозиция продаж,
+            Executive summary, спецификация модели ({isOls ? 'OLS · closed-form · bootstrap-правдоподобный диапазон' : 'Bayesian MMM, Adstock, Hill'}), декомпозиция продаж,
             ROI по каналам, Share of Spend vs Effect, динамика по периодам, сравнение сценариев,
             оптимальное распределение, прогноз. С графиками и рекомендациями.
           </p>
@@ -1074,7 +1074,7 @@
                 <ul>
                   <li>Резюме - MQS, R², MAPE, прирост от оптимизации</li>
                   {#if isOls}
-                    <li>Спецификация модели - Линейная регрессия с Adstock (Geometric) + Hill saturation, β оценены closed-form OLS, доверительные интервалы - bootstrap</li>
+                    <li>Спецификация модели - Линейная регрессия с Adstock (Geometric) + Hill saturation, β оценены closed-form OLS, правдоподобные диапазоны - bootstrap</li>
                   {:else}
                     <li>Спецификация модели - Bayesian MMM, Adstock + Hill saturation, MCMC-сэмплер, priors</li>
                   {/if}
@@ -1090,7 +1090,7 @@
                 <ul>
                   <li><b>Резюме</b> - ключевые метрики качества модели</li>
                   {#if isOls}
-                    <li><b>Спецификация</b> - параметры модели (alpha, gamma, beta), OLS · closed-form · bootstrap CI</li>
+                    <li><b>Спецификация</b> - параметры модели (alpha, gamma, beta), OLS · closed-form · bootstrap-правдоподобный диапазон</li>
                   {:else}
                     <li><b>Спецификация</b> - параметры модели (alpha, gamma, beta), priors, методология</li>
                   {/if}

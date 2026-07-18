@@ -98,7 +98,7 @@
       {/if}
       {#if result.total_budget.p10 != null && result.total_budget.p90 != null}
         <div class="figure-ci">
-          80% доверительный интервал: {formatRub(result.total_budget.p10)} - {formatRub(result.total_budget.p90)}
+          80%-й правдоподобный диапазон: {formatRub(result.total_budget.p10)} - {formatRub(result.total_budget.p90)}
         </div>
       {/if}
       {#if result.current_total_budget != null && result.current_total_budget > 0}

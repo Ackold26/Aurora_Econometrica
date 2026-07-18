@@ -10,7 +10,7 @@
     "confidentiality": "CONFIDENTIAL",
     "copyright_template": "© {year} Aurora AI. Конфиденциально",
     "methodology_badge": "Bayesian MMM · Tier-1 методология",
-    "methodology_badge_ols": "OLS MMM · closed-form · bootstrap CI"
+    "methodology_badge_ols": "OLS MMM · closed-form · bootstrap-диапазон"
   },
   "sections": {
     "cover": {
@@ -171,7 +171,7 @@
       "   Hill function (fixed): α=1.5, γ=0.5",
       "β_i estimated via closed-form OLS",
       "ε_t ~ Normal(0, σ) (frequentist)",
-      "CI на ROI/mROAS – bootstrap n=200"
+      "Диапазон на ROI/mROAS – bootstrap n=200"
     ],
     "diag_header": "ДИАГНОСТИКА",
     "limits_header": "ЧТО МОДЕЛЬ НЕ УЧИТЫВАЕТ",
@@ -268,7 +268,7 @@
             "definition": "Органический уровень продаж без медиа - то, что продаётся без рекламы."
           },
           {
-            "term": "Credible interval",
+            "term": "Правдоподобный диапазон",
             "definition": "90% диапазон posterior (HDI), содержащий истинное значение с указанной вероятностью."
           },
           {

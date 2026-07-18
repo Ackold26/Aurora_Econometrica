@@ -45,7 +45,7 @@ describe('buildForecastTooltip', () => {
     expect(html).toContain(CTX.baselineColor);
   });
 
-  it('точка ПРОГНОЗА: показывает сценарии с ДИ 90% + метку «прогноз»', () => {
+  it('точка ПРОГНОЗА: показывает сценарии с диапазоном 90% + метку «прогноз»', () => {
     const params = [
       { axisValue: '2025-08-01', seriesName: 'A базовый', value: 320_000_000 },
       { axisValue: '2025-08-01', seriesName: 'A базовый_ci_low', value: 300_000_000 },
@@ -56,7 +56,7 @@ describe('buildForecastTooltip', () => {
     expect(html).toContain('прогноз');
     expect(html).toContain('A базовый');
     expect(html).toContain('B пик');
-    expect(html).toContain('ДИ'); // CI веер показан для A (low/high присутствуют)
+    expect(html).toContain('Диапазон'); // CI веер показан для A (low/high присутствуют)
     expect(html).toContain('300M');
     expect(html).toContain('340M');
     // helper-серии CI НЕ выводятся как отдельные строки
@@ -64,11 +64,11 @@ describe('buildForecastTooltip', () => {
     expect(html).not.toContain('_ci_high');
   });
 
-  it('сценарий без band → строка есть, ДИ нет', () => {
+  it('сценарий без band → строка есть, диапазона нет', () => {
     const params = [{ axisValue: '2025-08-01', seriesName: 'A базовый', value: 320_000_000 }];
     const html = buildForecastTooltip(params, CTX);
     expect(html).toContain('A базовый');
-    expect(html).not.toContain('ДИ');
+    expect(html).not.toContain('Диапазон');
   });
 
   it('пустые/нечисловые значения → пустая строка (нет фантомных строк)', () => {

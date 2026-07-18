@@ -258,7 +258,7 @@ def estimate_causal_forest(
             ate_ci_high = ate + z_crit * ate_se
             ci_method = 'cate_mean_se_fallback'
             disclosure.caveats.append(
-                'CI computed via SE-of-mean of CATE estimates (cate_mean_se_fallback) - '
+                'Правдоподобный диапазон посчитан по SE среднего CATE-оценок (cate_mean_se_fallback) - '
                 'underestimates true uncertainty because ignores estimator variance. '
                 'Используй ATT point estimate как directional, не quantitative.'
             )

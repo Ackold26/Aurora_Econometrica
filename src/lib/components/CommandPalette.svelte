@@ -30,7 +30,7 @@
   /** @type {HTMLInputElement|undefined} */
   let inputEl = $state(undefined);
 
-  /** @type {Array<{id: string, label: string, description: string, type: 'nav'|'command'|'cabinet'|'help'|'glossary', cabinetId?: string, action: () => void}>} */
+  /** @type {Array<{id: string, label: string, description: string, keywords?: string, type: 'nav'|'command'|'cabinet'|'help'|'glossary', cabinetId?: string, action: () => void}>} */
   let allItems = $state([]);
 
   const baseNavItems = [
@@ -102,7 +102,11 @@
           items.push({
             id: `help-${pg.id}`,
             label: pg.label,
-            description: `Открыть справку · ${pg.keywords}`,
+            // Видимый текст - канон INV-50 (без «доверительный интервал»).
+            description: `Открыть справку · ${pg.keywords.replace(/доверительный интервал/gi, 'правдоподобный диапазон')}`,
+            // Невидимое поле поиска: сохраняет старый термин как синоним - кто ищет
+            // привычным словом, всё равно найдёт страницу (см. filtered ниже).
+            keywords: pg.keywords,
             type: 'help',
             action: () => {
               invoke('open_help', { cabinetId: pg.id }).catch((err) => console.error(err));
@@ -138,7 +142,8 @@
       ? allItems.filter(item => {
           const q = query.toLowerCase();
           return item.label.toLowerCase().includes(q) ||
-                 item.description.toLowerCase().includes(q);
+                 item.description.toLowerCase().includes(q) ||
+                 (item.keywords?.toLowerCase().includes(q) ?? false);
         }).slice(0, 15)
       : allItems.slice(0, 15)
   );

@@ -253,7 +253,7 @@ def compare_generations(
         'thresholds': {
             'stable_rel_delta': STABLE_REL_DELTA,
             'decay_shift_abs': DECAY_SHIFT_ABS,
-            'verdict_rule': 'перекрытие CI поколений (Jin 2017); без CI — по точкам с пометкой point_only',
+            'verdict_rule': 'перекрытие правдоподобных диапазонов поколений (Jin 2017); без правдоподобного диапазона — по точкам с пометкой point_only',
         },
         'generations_available': [g['timestamp'] for g in generations],
         'generated_at': datetime.now(timezone.utc).isoformat(timespec='seconds'),

@@ -45,7 +45,7 @@ function tooltipRow(
     + `<b style="color:#fff;font-size:12px;white-space:nowrap;">${fmtFull(v)}</b></div>`;
   if (Number.isFinite(lo) && Number.isFinite(hi)) {
     s += '<div style="margin:-2px 0 5px 17px;color:rgba(255,255,255,0.5);font-size:11px;">'
-      + `ДИ&nbsp;90%: ${compactNum(/** @type {number} */ (lo))} – ${compactNum(/** @type {number} */ (hi))}</div>`;
+      + `Диапазон&nbsp;90%: ${compactNum(/** @type {number} */ (lo))} – ${compactNum(/** @type {number} */ (hi))}</div>`;
   }
   return s;
 }
