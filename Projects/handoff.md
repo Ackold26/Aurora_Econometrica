@@ -1,88 +1,55 @@
-# Handoff — сессия 2026-07-16/17 (vault c2 · P-2 · pyarrow-смоук · дизайн Планирования)
+# Handoff — Econometrica 2.4.0: объединение линий + релиз (2026-07-18)
 
-> ✅ Внешний diff-аудит ВЫПОЛНЕН после resume (2026-07-17, аудитор Fable, чистый контекст):
-> вердикт **«ГОТОВ К MERGE»**, 0 Critical/High, 3 Medium в крайних ветках смоук-гейта — все
-> подтверждены триажом и починены fix-коммитами `b8d7d0d` (v230) + `821420f` (kpi-units), позитивный
-> прогон гейта после фиксов PASSED. Зоны неуверенности 1 (ROAS-ключ = GUI) и 4 (TOC не переполняется)
-> закрыты аудитором проверкой. Полный отчёт-находки: `Projects/audit_findings_live.md`.
-> База diff: v230 `62014c3..HEAD`; kpi-units `d9c74a0..HEAD` (base-sha перезаписаны в сессии — база оценочная).
+> ✅ Внешний diff-аудит ВЫПОЛНЕН по ходу операции (2026-07-18, 2×Opus в чистом контексте,
+> дифф `v2.3.1..HEAD` = вся операция 2.4.0, шире base-SHA окна): вердикт **«ГОТОВ К РЕЛИЗУ»**,
+> **0 High / 0 Medium**, 2 Low (мёртвая ветка guard build_sidecar.py:157; предсущ. em-dash
+> PromisesCard.svelte:112) → в бэклог, не чинились (хирургичность). Ключевое утверждение
+> (реверс-патчи обеих родительских сторон чисты, вклады целы) перепроверено лично. 2.4.0
+> опубликован. Прошлый handoff (сессия 2026-07-16/17) → git-история файла.
 
-## 1. Цель блока
+## Цель блока
+Слить разошедшиеся ветки Optimizer MMM — прод `feat/econ-v2.3.0` (2.3.1) и planning/KPI
+`feat/econ-kpi-units` (2.2.0) — в релиз 2.4.0 без потери функциональности ни одной стороны,
+довести доводку Планирования (прежде всего P-2: честные числа в прогноз-разделе PPTX вместо
+ложных нулей, которые были у клиентов в 2.3.1) и опубликовать по всем каналам.
 
-Четыре независимых изменения. (a) P-2: раздел «Прогноз на будущий период» в PPTX/HTML-отчётах должен
-показывать реальные числа сценариев планирования вместо нулей и быть находимым через оглавление.
-(b) Смоук-гейт сборки sidecar: собранный PyInstaller-бандл прогоняется по клиентскому пути до синка
-в Tauri resources (инцидент: сборка 2.1.0 уехала клиентам с битым pyarrow). (c) Дизайн-консистентность
-шага «Планирование» с остальными шагами пайплайна (ширина, токены, hover, структура).
-(d) Публикация vault c2 — только серверные данные (Supabase), в дифф не входит.
+## Ключевые инварианты
+- **Полнота слияния:** обе родительские ветки — предки объединённого HEAD
+  (`git log <ветка> ^HEAD` == пусто для обеих). Достигается merge'ом, не cherry-pick.
+- **P-2 / INV-50:** прогноз читает реальную схему `totals.predicted_kpi`; None → «—», не 0.0;
+  интервал PPTX/HTML = СУММА за горизонт (SSOT с GUI-карточкой), не CI последнего периода.
+- **no-window (Rust):** каждый консольный спавн под Windows несёт `creation_flags(0x08000000)`
+  через `#[cfg(windows)]` (не ломает не-Windows); UAC установщика НЕ подавляется.
+- **Headless-графики:** `matplotlib.use("Agg")` в `charts/__init__.py` до импорта pyplot.
+- **Доставка:** app_versions (id `aurora-econometrica-gui` + short `econometrica`) и fallback
+  `latest.json` — одним батчем; правки промптов доставляет vault_versions bump.
 
-## 2. Ключевые инварианты
+## Осознанные компромиссы
+- **F2 (лейбл «Дата отсечки») НЕ в релизе** — минор, требует живого рендера, конец сессии +
+  экран занят другой сессией. Перенесён с точным кодом и гипотезой (коллизия с rotate:35).
+- **Build Release job отключён `if: false`, не удалён** — собирал exe без sidecar (битый
+  артефакт); канал — локальная сборка + aurora-releases. Логика сохранена для возврата.
+- **2 Low аудита не чинились** (хирургичность) → бэклог.
+- **Cargo.toml оставлен с EOL-шумом** (LF→CRLF, содержимое идентично 2.4.0) — без коммита.
 
-- INV-50 (честность метрик): отсутствующее значение = None = «—» в отчёте; ложный 0 запрещён.
-  `load_saved_forecast` обязан сохранять None, потребители (`s_forecast_plan`, `render_forecast_plan`,
-  `scenarios_comparison_chart`) обязаны переживать None без падения и без строки «None».
-- SSOT чисел: «Прогноз KPI» и интервал на слайде = `totals.predicted_kpi` и
-  `totals.predicted_kpi_ci_low/high` из сценария — те же значения, что в GUI-карточке варианта.
-  Интервал — сумма за горизонт, НЕ CI последнего периода.
-- Легаси-совместимость маппера: старые сценарии с top-level `total_kpi`/`total_spend_money`/`roas_money`
-  продолжают читаться (fallback после `totals.*`).
-- Смоук-гейт сборки: провал = Build FAILED и синк в Tauri resource path не выполняется; гейт обязан
-  уметь падать (доказан негативным прогоном).
-- Дизайн: PlanningStep не вводит собственных цветов — только канонические токены
-  (--accent-primary/--danger/--warning/--success) и идиома color-mix; скролом владеет .pipeline-main
-  (у корня шага нет overflow/height).
-- Все vault-потребители не тронуты: дифф не меняет форматы vault/content-pack.
+## Зоны неуверенности
+1. **Авто-merge `builder.py`/`sections.py`** (P-2 vs отчёты 2.3.1). Верифицировано реверс-
+   патчами обеих сторон + 32 регресс-теста + живой PPTX. НО живой прогон — на ОДНОЙ фикстуре
+   (физметрика); прогноз-раздел с money-KPI/money-каналами (roas_money не None) живьём не наблюдался.
+2. **Клиентская докачка vault c2→c3** (stale-блок): канон в c3 подтверждён артефактом из
+   Storage, но путь докачки на СВЕЖЕЙ установке в этой сессии не прогонялся (только при публикации c3 16.07).
+3. **Доставка 2.4.0 на PC443/PC583** (на 2.1.0): Edge отдаёт 2.4.0, баннер исправен по коду,
+   но живого обновления на этих машинах не наблюдали; ранее баннер там игнорировали.
+4. **F2** — визуально не верифицирован; `position:'insideEndTop'` не доказан как источник/не-источник наложения.
 
-## 3. Осознанные компромиссы
-
-- Интервал суммы берётся готовым из `totals.predicted_kpi_ci_*` (посчитан движком по квантилям суммы);
-  fallback на сумму поэлементных CI в `scenarios_comparison_chart` оставлен как был (сумма квантилей ≠
-  квантиль суммы — шире, но это существующий легаси-путь только для старых сценариев).
-- Колонка называется «90%-интервал» (существующая подпись) — не переименована в «правдоподобный
-  диапазон»: клиентская терминология правится отдельной волной по всем поверхностям.
-- Секционная структура PPTX (5 секций, «01/05») не расширена шестой секцией «Прогноз» — слайд остаётся
-  внутри «Главного», находимость решена подстрокой в TOC (перекройка нумерации всех хедеров дорогая).
-- Смоук-гейт поднимает exe на случайном свободном порту с гонкой на закрытии сокета — допустимо для
-  сборочного гейта, не для прода.
-- 11 предсуществующих ошибок svelte-check (файлы линии KPI-units) и 3 jsdom-флака
-  scenario-export.test.js намеренно не тронуты — чужая волна, зафиксированы в бэклоге.
-- В 2.1.0-инциденте фикс кода не делался (2.3.1 здоров) — доставка обновления на тестовые компы
-  ждёт решения Антона (мягко/форс min_version).
-
-## 4. Зоны неуверенности
-
-1. `roas_money` маппится из `totals.roas_money` (метод incremental) — не сверено с тем, какой именно
-   ROAS показывает GUI-таблица вариантов (может быть roas_money_total); на демо оба null, расхождение
-   проявится только на money-каналах.
-2. Смоук-гейт ждёт /health до 90с — на медленном HDD/антивирусе холодный старт onedir-бандла может
-   превысить лимит и дать ложный Build FAILED; порог не калиброван на медленных машинах.
-3. Удаление внутренней шапки PlanningStep опиралось на то, что заголовок шага даёт степпер и справка
-   «Зачем шаг» — не проверено на fresh-install у пользователя-новичка (может потеряться контекст
-   «оптимизация = прошлое, планирование = будущее»).
-4. TOC-подстрока сдвигает вертикальную сетку оглавления на 0.32" вниз при наличии forecast —
-   переполнение при одновременных вставных слайдах (backtest+gen_compare+forecast) не проверено
-   визуально, только расчётом.
-5. color-mix(in srgb, …) — поддержка в WebView2 с Chromium 111; на очень старых WebView2-рантаймах
-   тонировки могут деградировать (не проверялось на старых машинах).
-
-## 5. Затронутые файлы
-
-Репо `Dev/Aurora_Econometrica` (ветка `feat/econ-kpi-units`, коммиты `85df196`, `553c0e3`, `479ef2c`, `8e0f8cc`, НЕ запушены):
-- `sidecar/econometrica/engines/planning.py` — маппер load_saved_forecast: реальная схема totals.*, None-семантика, total_kpi_ci_*.
-- `sidecar/econometrica/aurora_pptx/builder.py` — слайд s_forecast_plan (интервал суммы), TOC-подстрока.
-- `sidecar/econometrica/aurora_html/sections.py` — render_forecast_plan: интервал суммы.
-- `sidecar/econometrica/charts/generators.py` — scenarios_comparison_chart: фильтр None-KPI, CI-ключи builder-схемы.
-- `sidecar/econometrica/tests/test_planning_manifest.py` — фикстура реальной схемы + тесты None-семантики.
-- `sidecar/econometrica/tests/test_forecast_report.py` — тесты интервала суммы, «—» вместо 0, TOC.
-- `sidecar/econometrica/build_sidecar.py` — порт смоук-гейта (копия из v230).
-- `src/lib/components/pipeline/PlanningStep.svelte` — дизайн-консистентность (контейнер, токены, hover, шапка).
-- `NEXT_SESSION_planning_mode.md` — роутер (доки).
-
-Репо `Dev/Aurora_Econometrica_v230` (ветка `feat/econ-v2.3.0`, коммит `67c2c07`, ЗАПУШЕН):
-- `sidecar/econometrica/build_sidecar.py` — smoke_test_bundle: гейт собранного бандла до синка.
-- `Projects/NEXT_SESSION_PROMPT.md` — роутер (доки).
-
-Гейты на момент handoff: sidecar pytest **696 passed** (1 законный skip) · vitest **1142 passed**
-(3 предсущ. jsdom-флака scenario-export) · svelte-check: PlanningStep чист, 11 предсущ. ошибок линии
-KPI-units · смоук-гейт сборки доказан позитивом и негативом · внешний sonnet-аудит P-2-диффа в сессии:
-2 находки, обе закрыты (график None-KPI, TOC-геометрия).
+## Затронутые файлы (роль)
+- `sidecar/econometrica/aurora_pptx/builder.py`, `aurora_html/sections.py` — P-2 + отчёты 2.3.1 (авто-merge).
+- `sidecar/econometrica/engines/planning.py` — `load_saved_forecast` реальная схема, None-маппинг.
+- `sidecar/econometrica/charts/__init__.py` — NEW: headless Agg.
+- `sidecar/econometrica/build_sidecar.py` — смоук-гейт бандла INV-96 (авто-merge).
+- `src/lib/kpi-aware-formatting.js`, `src/lib/kpi/kpi-display.js`, `src/lib/insights-rules.js` — svelte-check (ручной merge).
+- `src/lib/components/pipeline/PromisesCard.svelte` — P-3 текст; `PlanningStep.svelte` — дизайн/тема.
+- `src/tests/scenario-export.test.js` — jsdom fake-timers.
+- `src-tauri/src/{lib.rs,commands/{updater,claude,diagnostics,pptx_processor}.rs,session/manager.rs}` — no-window + maximized.
+- `New_AI_Agency/econometrist/CLAUDE.md` + `_shared/COPYWRITER_STYLE.md` — стиль-ядро (ручной merge).
+- `src-tauri/{Cargo.toml,tauri.conf.json}`, `package.json`, `Cargo.lock`, `package-lock.json` — bump 2.4.0.
