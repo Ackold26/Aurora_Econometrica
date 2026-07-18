@@ -116,16 +116,20 @@
     const series = [];
 
     // ── Actual (orange solid thick) ──────────────────────────────────────────
+    const actualAligned = alignToTimeline(historical.dates ?? [], historical.actuals ?? []);
     series.push({
       name: 'Факт',
       type: 'line',
-      data: alignToTimeline(historical.dates ?? [], historical.actuals ?? []),
+      data: actualAligned,
       lineStyle: { color: '#f97316', width: 2.5 },
       itemStyle: { color: '#f97316' },
       symbol: 'none',
       connectNulls: false,
       z: 10,
     });
+    // Значение в точке отсечки (последний факт) — точка стыковки прогнозных линий,
+    // чтобы факт и прогноз рисовались единой непрерывной линией без визуального разрыва.
+    const cutoffValue = effectiveCutoff >= 0 ? actualAligned[effectiveCutoff] : null;
 
     // ── Model fit (dark grey medium) ─────────────────────────────────────────
     if (modelFit?.dates?.length) {
@@ -146,6 +150,12 @@
       const color = sc.color ?? SCENARIO_COLORS[i % SCENARIO_COLORS.length];
       const lineType = (sc.style === 'dashed' || (!sc.style && i % 2 === 1)) ? 'dashed' : 'solid';
       const aligned = alignToTimeline(sc.dates ?? [], sc.predictions ?? []);
+      // Стыковка факт→прогноз: если у прогноза нет точки на дате отсечки, посадить
+      // её в последнюю фактическую точку — тогда connectNulls продолжит линию факта
+      // без визуального разрыва между историей и прогнозом.
+      if (cutoffValue != null && aligned[effectiveCutoff] == null) {
+        aligned[effectiveCutoff] = cutoffValue;
+      }
 
       // CI low band (invisible - used only as lower bound for area-between)
       if (sc.ciLow?.length && sc.ciHigh?.length) {
@@ -217,6 +227,7 @@
           label: {
             show: true,
             position: 'insideEndTop',
+            rotate: 0,
             color: 'rgba(255,255,255,0.5)',
             fontSize: 10,
             formatter: 'Дата отсечки',
