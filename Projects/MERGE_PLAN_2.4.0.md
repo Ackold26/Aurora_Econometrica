@@ -122,9 +122,11 @@
 - [ ] **10.** ПУБЛИКАЦИЯ — санкция Антона по результатам: тег `v2.4.0` → GH release →
       rosst-updates latest.json → Supabase app_versions (sha256) → content-pack sync-проверка.
       Здесь же решение Антона по тестовым компам (мягко / форс app_min_version).
-- [ ] **11.** После: предложить `v2.3.0`→`master` (вернуть master правду); ветку kpi-units
-      НЕ удалять; durable-память и роутеры актуализировать; worktree-песочницу убрать
-      (`git worktree remove`) после слияния.
+- [x] **11a.** ✅ MASTER ПОЛУЧИЛ ЛИНИЮ (санкция Антона «2 - да», 2026-07-18): PR #4 MERGED →
+      `origin/master 2b14d42` (merge-коммит), ed7e16a — предок master, верифицировано.
+      master снова правда. Build Release job НЕ стартовал (гейт `refs/tags/v*` — проверено до мержа).
+- [ ] **11b.** После публикации: ветку kpi-units НЕ удалять; durable-память/роутеры актуализировать;
+      worktree-песочницу убрать (`git worktree remove`) по завершении операции.
 
 ## Грабли сессии (наследие)
 
