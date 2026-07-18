@@ -20,7 +20,7 @@
     { id: 'methodology',       title: 'Методология MMM',         group: 'data',     keywords: 'MMM bayesian байес MCMC NUTS hill adstock saturation насыщение trust levels CPP' },
     { id: 'glossary',          title: 'Глоссарий терминов',      group: 'data',     keywords: 'глоссарий термины словарь определения ROAS ROI adstock насыщение MCMC R-hat ESS CPU CPP GRP TRP охват частота эластичность декомпозиция база lift backtest' },
 
-    { id: 'interpretation',    title: 'Интерпретация результатов', group: 'results', keywords: 'интерпретация результаты как читать отчёт MQS ROI CPU вердикт переобучение overfitting доверительный интервал CI R-hat ratio waterfall декомпозиция baseline база spend effect доля бюджета эффект action label scale hold cut' },
+    { id: 'interpretation',    title: 'Интерпретация результатов', group: 'results', keywords: 'интерпретация результаты как читать отчёт MQS ROI CPU вердикт переобучение overfitting правдоподобный диапазон R-hat ratio waterfall декомпозиция baseline база spend effect доля бюджета эффект action label scale hold cut' },
 
     { id: 'econometrica',      title: 'Visual Pipeline (UI)',    group: 'pipeline', keywords: 'pipeline импорт валидация колонки drag drop светофор корреляция матрица KPI медиа adstock обучение модель декомпозиция оптимизация отчёт xlsx' },
   ];

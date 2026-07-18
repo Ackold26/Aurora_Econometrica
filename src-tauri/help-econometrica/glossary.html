@@ -76,7 +76,6 @@ a:hover { text-decoration: underline; }
     <li><a href="#bayesian">Байесовский вывод (Bayesian inference)</a></li>
     <li><a href="#safe_corridor">Безопасный коридор</a></li>
     <li><a href="#decomposition">Декомпозиция (Decomposition)</a></li>
-    <li><a href="#posterior_ci">Доверительный интервал (Posterior CI)</a></li>
     <li><a href="#sales_share">Доля вклада в продажи (sales contribution share)</a></li>
     <li><a href="#sov">Доля голоса (Share of Voice, SOV)</a></li>
     <li><a href="#som">Доля рынка (Share of Market, SOM)</a></li>
@@ -93,6 +92,7 @@ a:hover { text-decoration: underline; }
     <li><a href="#plateau">Плато (Plateau)</a></li>
     <li><a href="#goal_seek">Подбор под цель (обратная оптимизация)</a></li>
     <li><a href="#lift">Подъём (Lift)</a></li>
+    <li><a href="#posterior_ci">Правдоподобный диапазон</a></li>
     <li><a href="#mode_roi">Режим ROI (деньги)</a></li>
     <li><a href="#mode_effectiveness">Режим Эффективность (физика)</a></li>
     <li><a href="#backtest">Ретроспективный тест (Hold-Out Backtest)</a></li>
@@ -176,10 +176,10 @@ a:hover { text-decoration: underline; }
   <p>Что модель «знает» после того, как изучила ваши данные. Это сочетание начальных ожиданий (prior) и реальной информации из данных.</p>
   <div class="ex"><span class="lbl">Пример</span>До анализа ожидали, что эффект ТВ длится 6–10 недель. Ваши данные показали, что он затухает быстрее — за 4–5 недель. Апостериорное распределение сдвинулось: теперь модель «знает», что у вашего бренда ТВ работает быстрее среднего.</div>
   <div class="where"><span class="lbl">Где в Aurora</span>Все результаты (ROI, вклад каналов, прогнозы) — это апостериорные оценки. Aurora показывает не точечное число, а диапазон: «ROI от 1,4× до 2,2×».</div>
-  <div class="rel">Связанные: <a href="#prior">Априорные знания (Prior)</a>, <a href="#posterior_ci">Доверительный интервал (Posterior CI)</a></div>
+  <div class="rel">Связанные: <a href="#prior">Априорные знания (Prior)</a>, <a href="#posterior_ci">Правдоподобный диапазон</a></div>
 </div>
 <div class="term" id="posterior_ci">
-  <h3>Доверительный интервал (Posterior CI) <span class="en">Posterior Credible Interval</span></h3>
+  <h3>Правдоподобный диапазон <span class="en">Posterior Credible Interval</span></h3>
   <p>Диапазон, в котором с заданной вероятностью (обычно 90%) лежит истинное значение параметра.</p>
   <div class="ex"><span class="lbl">Пример</span>Aurora говорит: «ROI онлайн-видео = 2,1× [1,6; 2,7]». Это означает: с вероятностью 90% настоящий ROI находится между 1,6× и 2,7×. Средняя оценка — 2,1×.</div>
   <div class="where"><span class="lbl">Где в Aurora</span>В таблице окупаемости — значения в квадратных скобках рядом с основной цифрой. Узкий интервал — данных много, всё точно. Широкий — данных мало, будьте осторожны с выводами.</div>
@@ -348,7 +348,7 @@ a:hover { text-decoration: underline; }
   <h3>Сценарий «что если» (Scenario / What-If) <span class="en">Scenario / What-If Analysis</span></h3>
   <p>Инструмент для проверки гипотез: «а что изменится, если я увеличу бюджет ТВ на 20% и срежу контекст вдвое?» Не нужно запускать реальную кампанию — Aurora рассчитает прогноз.</p>
   <div class="ex"><span class="lbl">Пример</span>Текущий бюджет 41 млн ₽ → 520 000 упаковок. Сценарий: перераспределить 5 млн из контекста в онлайн-видео. Прогноз: 541 000 упаковок (+21 000). Вероятность достичь → 79%.</div>
-  <div class="where"><span class="lbl">Где в Aurora</span>Вкладка «Сценарии» — два слайдера для каждого канала (можно задать любое значение), справа — прогноз и доверительный интервал.</div>
+  <div class="where"><span class="lbl">Где в Aurora</span>Вкладка «Сценарии» — два слайдера для каждого канала (можно задать любое значение), справа — прогноз и правдоподобный диапазон.</div>
   <div class="rel">Связанные: <a href="#sensitivity">Чувствительность (Sensitivity)</a>, <a href="#safe_corridor">Безопасный коридор</a>, <a href="#mroi">Маржинальный вклад (Marginal Contribution)</a></div>
 </div>
 <div class="term" id="sensitivity">
@@ -356,7 +356,7 @@ a:hover { text-decoration: underline; }
   <p>Как сильно меняется результат при небольшом изменении входных данных. «Если я ошибся в бюджете ТВ на 10% — насколько изменится прогноз?»</p>
   <div class="ex"><span class="lbl">Пример</span>Чувствительность к ТВ = высокая: ошибка 10% в бюджете → ошибка 8% в прогнозе продаж. Чувствительность к аптечной рекламе = низкая: ошибка 10% → только 1% в прогнозе.</div>
   <div class="where"><span class="lbl">Где в Aurora</span>В разделе сценариев — ранжирование каналов по чувствительности. Высокочувствительные каналы требуют более точных входных данных.</div>
-  <div class="rel">Связанные: <a href="#scenario_whatif">Сценарий «что если» (Scenario / What-If)</a>, <a href="#posterior_ci">Доверительный интервал (Posterior CI)</a></div>
+  <div class="rel">Связанные: <a href="#scenario_whatif">Сценарий «что если» (Scenario / What-If)</a>, <a href="#posterior_ci">Правдоподобный диапазон</a></div>
 </div>
 <div class="term" id="lift">
   <h3>Подъём (Lift) <span class="en">Lift</span></h3>
@@ -368,9 +368,9 @@ a:hover { text-decoration: underline; }
 <div class="term" id="safe_corridor">
   <h3>Безопасный коридор <span class="en">Safe Corridor</span></h3>
   <p>Диапазон бюджета, в котором модель даёт надёжные прогнозы. За его пределами — данных для такого бюджета в истории не было, и прогноз становится ненадёжным.</p>
-  <div class="ex"><span class="lbl">Пример</span>ТВ-бюджет в истории: от 15 до 35 млн ₽. Безопасный коридор: 15–35 млн. Если в сценарии поставить 50 млн — Aurora предупредит: «Экстраполяция за пределами данных, доверительный интервал очень широкий».</div>
+  <div class="ex"><span class="lbl">Пример</span>ТВ-бюджет в истории: от 15 до 35 млн ₽. Безопасный коридор: 15–35 млн. Если в сценарии поставить 50 млн — Aurora предупредит: «Экстраполяция за пределами данных, правдоподобный диапазон очень широкий».</div>
   <div class="where"><span class="lbl">Где в Aurora</span>Слайдер бюджета в сценариях — зоны зелёная / жёлтая / красная на шкале. Зелёная = уверенный прогноз.</div>
-  <div class="rel">Связанные: <a href="#scenario_whatif">Сценарий «что если» (Scenario / What-If)</a>, <a href="#posterior_ci">Доверительный интервал (Posterior CI)</a></div>
+  <div class="rel">Связанные: <a href="#scenario_whatif">Сценарий «что если» (Scenario / What-If)</a>, <a href="#posterior_ci">Правдоподобный диапазон</a></div>
 </div>
 <h2>З — Декомпозиция продаж</h2>
 <div class="term" id="backtest">
@@ -425,7 +425,7 @@ a:hover { text-decoration: underline; }
 </div>
 <div class="term" id="goal_seek">
   <h3>Подбор под цель (обратная оптимизация)</h3>
-  <p>Двойственная задача к прямой оптимизации. Aurora ищет минимальный бюджет, при котором прогноз достигает цели (функция отклика монотонна). Доверительный интервал на требуемый бюджет — через границы прогноза. Если цель за пределами безопасного коридора — «недостижимо».</p>
+  <p>Двойственная задача к прямой оптимизации. Aurora ищет минимальный бюджет, при котором прогноз достигает цели (функция отклика монотонна). Правдоподобный диапазон требуемого бюджета — через границы прогноза. Если цель за пределами безопасного коридора — «недостижимо».</p>
   <div class="ex"><span class="lbl">Пример</span>Текущие продажи 100 млн ₽. Цель 110 млн ₽ (+10%). Подбор под цель: требуемый бюджет 95 млн ₽, вероятность достижения 78%.</div>
   <div class="where"><span class="lbl">Где в Aurora</span>Шаг «Оптимизация» → обратный режим.</div>
   <div class="rel">Связанные: <a href="#safe_corridor">Безопасный коридор</a>, <a href="#scenario_whatif">Сценарий «что если» (Scenario / What-If)</a></div>

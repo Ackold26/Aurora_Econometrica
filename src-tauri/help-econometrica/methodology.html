@@ -77,7 +77,7 @@ Hill(x; α, γ) = x^α / (x^α + γ^α)
 </ul>
 
 <h2>Bayesian inference — MCMC / NUTS</h2>
-<p>В отличие от OLS/ridge/lasso, Bayesian MMM даёт не одну точку, а распределение значений для каждого параметра. Это важно: мы не просто знаем «ROI TV = 1.8×», но и «95% CI: 1.2–2.4×».</p>
+<p>В отличие от OLS/ridge/lasso, Bayesian MMM даёт не одну точку, а распределение значений для каждого параметра. Это важно: мы не просто знаем «ROI TV = 1.8×», но и «95%-й правдоподобный диапазон: 1.2–2.4×».</p>
 
 <p>Инференс через <strong>NUTS</strong> (No-U-Turn Sampler) — современный вариант Hamiltonian Monte Carlo. Реализация на <a href="https://num.pyro.ai">NumPyro</a> + JAX.</p>
 
@@ -167,15 +167,15 @@ MQS = 0.4 × R² + 0.3 × MAPE_score + 0.3 × convergence_score
 <tr><td><strong>Под наблюдением</strong> (Watch)</td><td>Нет явного сигнала на действие — мониторить mROAS в следующих периодах</td><td>1.0 ≤ mROAS &lt; 1.1 OR значительный gap без optimizer signal</td></tr>
 <tr><td><strong>Сократить умеренно</strong> (Reduce)</td><td>Канал близок к breakeven или optimizer recommends -5..-50%</td><td>mROAS &lt; 1.0 OR optimizer ratio ≤ 0.95 + mROAS ≥ 1.0 (saturation-bound)</td></tr>
 <tr><td><strong>Сократить</strong> (Cut)</td><td>Канал глубоко убыточен — каждый рубль приносит убыток</td><td>mROAS &lt; 0.8 OR optimizer ratio &lt; 0.5 (severe redistribution)</td></tr>
-<tr><td><strong>Недостаточно данных</strong> (Uncertain)</td><td>CI шире самой mROAS, untrained канал, либо нулевой бюджет — оценка ненадёжна</td><td>CI width &gt; mROAS OR untrained=True OR spend ≤ 0</td></tr>
+<tr><td><strong>Недостаточно данных</strong> (Uncertain)</td><td>Правдоподобный диапазон шире самой mROAS, untrained канал, либо нулевой бюджет — оценка ненадёжна</td><td>ширина диапазона &gt; mROAS OR untrained=True OR spend ≤ 0</td></tr>
 </table></div>
-<p><em>Уверенность (confidence)</em> по каждой метке: <strong>high</strong> когда CI &lt; 50% mROAS, <strong>medium</strong> когда CI &lt; mROAS, иначе <strong>low</strong>.</p>
+<p><em>Уверенность (confidence)</em> по каждой метке: <strong>high</strong> когда правдоподобный диапазон &lt; 50% mROAS, <strong>medium</strong> когда правдоподобный диапазон &lt; mROAS, иначе <strong>low</strong>.</p>
 
 <h2>Позиционирование vs. другие решения</h2>
 <div class="table-wrap"><table>
 <tr><th></th><th>Aurora AI Econometrica</th><th>Robyn (Meta)</th><th>LightweightMMM (Google)</th></tr>
 <tr><td>Модель</td><td>Bayesian (NumPyro/NUTS)</td><td>Frequentist (ridge)</td><td>Bayesian (NumPyro)</td></tr>
-<tr><td>Uncertainty</td><td>Posterior distribution</td><td>Нет CI</td><td>Posterior</td></tr>
+<tr><td>Uncertainty</td><td>Posterior distribution</td><td>Нет интервала</td><td>Posterior</td></tr>
 <tr><td>UI</td><td>Desktop-приложение, русифицирован</td><td>R-script</td><td>Colab notebook</td></tr>
 <tr><td>Smell tests</td><td>Встроены + UX-guardrails</td><td>Частично</td><td>Нет</td></tr>
 <tr><td>Онлайн-оптимизация</td><td>SLSQP + What-if + Forecast</td><td>NSGA-II</td><td>Ручной grid-search</td></tr>
