@@ -110,7 +110,13 @@ jobs:
   release:
     name: Build Release
     needs: [check, python-tests, help-sync]  # Sprint 5: block release на ALL prior jobs green
-    if: startsWith(github.ref, 'refs/tags/v')
+    # ОТКЛЮЧЁН (2026-07-18, санкция Антона): job собирает exe БЕЗ build_sidecar.py
+    # (python-бандл 970MB не собирается в CI) → артефакт с неполным sidecar, без
+    # смоук-гейта INV-96. Канонический релиз-канал — локальная сборка по регламенту
+    # aurora-release-update + публикация в Ackold26/aurora-releases. Прецеденты:
+    # на тегах v2.3.1/v2.4.0 job релиза не оставлял. Вернуть — заменив false на
+    # startsWith(github.ref, 'refs/tags/v') ПОСЛЕ добавления шага сборки sidecar.
+    if: false
     runs-on: windows-latest
     permissions:
       contents: write
