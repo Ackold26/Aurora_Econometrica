@@ -271,7 +271,7 @@ def smoke_test_bundle(exe_path):
         # иначе бандл, поднявшийся на 91-й секунде, проходил validate после
         # напечатанного [FAIL] (порог не enforced, лог противоречив).
         if health_ok:
-            targets = [('CSV', csv_path)] + ([('XLSX', xlsx_path)] if xlsx_path else [])
+            targets = [('CSV', csv_path), ('XLSX', xlsx_path)]
             for label, fpath in targets:
                 res = _post('/compute/validate',
                             {'file_path': str(fpath), 'project_dir': tmp_dir})

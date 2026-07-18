@@ -83,13 +83,13 @@
 
   /** @param {string} iso */
   function fmtDate(iso) {
-    if (!iso) return '—';
+    if (!iso) return '–';
     const d = new Date(iso);
     return Number.isNaN(d.getTime()) ? iso : d.toLocaleDateString('ru-RU');
   }
   /** @param {number | null | undefined} v */
   function fmtNum(v) {
-    return v == null ? '—' : Number(v).toLocaleString('ru-RU', { maximumFractionDigits: 0 });
+    return v == null ? '–' : Number(v).toLocaleString('ru-RU', { maximumFractionDigits: 0 });
   }
 </script>
 
@@ -99,7 +99,7 @@
     <div>
       <h3 class="pr-title">Сбывшиеся рекомендации</h3>
       <p class="pr-subtitle">
-        Каждый зафиксированный прогноз — проверяемое обещание: принесите свежие
+        Каждый зафиксированный прогноз – проверяемое обещание: принесите свежие
         данные, и продукт сам сверит факт с ожиданием.
       </p>
     </div>
@@ -109,7 +109,7 @@
     <p class="pr-quiet" role="status">Загрузка…</p>
   {:else if cardState === 'empty'}
     <p class="pr-quiet">
-      Прогнозов пока не зафиксировано. Кнопка «Зафиксировать прогноз» — выше
+      Прогнозов пока не зафиксировано. Кнопка «Зафиксировать прогноз» – выше
       на этом шаге, у результата планирования.
     </p>
   {:else if cardState === 'error'}
@@ -135,7 +135,7 @@
             {/if}
             за {p.expected?.horizon_periods} пер.
             {#if p.extrapolation_flag}
-              <span class="pr-extra" title="Прогноз в зоне экстраполяции — интервал шире обычного">⚠ экстраполяция</span>
+              <span class="pr-extra" title="Прогноз в зоне экстраполяции – интервал шире обычного">⚠ экстраполяция</span>
             {/if}
             {#if p.actual_kpi_total != null}
               · факт {fmtNum(p.actual_kpi_total)}
