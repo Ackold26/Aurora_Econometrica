@@ -119,9 +119,25 @@
       CLAUDE.md кабинета (+vault если c3); P-3 — grep «выше на этом шаге»; svelte-check 0;
       полнота — `git log feat/econ-kpi-units ^HEAD` ПУСТ (валиден при merge) +
       выборочно 5 прод-фич 2.3.1 (vault-механика, security path-traversal, демо, drill, avrora).
-- [ ] **10.** ПУБЛИКАЦИЯ — санкция Антона по результатам: тег `v2.4.0` → GH release →
-      rosst-updates latest.json → Supabase app_versions (sha256) → content-pack sync-проверка.
-      Здесь же решение Антона по тестовым компам (мягко / форс app_min_version).
+- [x] **10.** ✅ ПУБЛИКАЦИЯ ВЫПОЛНЕНА (санкция Антона «1. Публикация», 2026-07-18, по регламенту
+      aurora-release-update):
+      · GH Release **v2.4.0** в `Ackold26/aurora-releases`, asset `Optimizer_MMM_2.4.0_x64-setup.exe`
+        256 635 203 bytes (байт==локальный), download 200. SHA256 `4f9b1813…2ec521` (244.7 MB).
+      · Supabase app_versions ×2 (`aurora-econometrica-gui` + `econometrica`) → 2.4.0 + URL + checksum
+        + клиентские notes (PATCH через файл — кириллица).
+      · rosst-updates `aurora-econometrica-gui/latest.json` → 2.4.0 (⚠️ fallback дрейфовал на 2.1.0
+        с прошлых релизов — Находка №18 живьём; выровнен одним батчем). min_version НЕ тронут (1.0.0,
+        мягкий путь — решение по тестовым компам за Антоном).
+      · Edge app-update по клиентскому id отдаёт 2.4.0 + верный URL + checksum ✅.
+      · **VAULT c3 УЖЕ БЫЛ ОПУБЛИКОВАН** (2026-07-16 23:58, сессией стиль-ядра): строка current
+        version=c3, vault_versions econometrist=3; контроль-зонд: скачан econometrist.vault из
+        Storage c3 — COPYWRITER_STYLE в CLAUDE.md присутствует. Строить c3 не пришлось — проверка
+        до постройки спасла от дубля (durable-план отставал от сервера).
+      · Content-pack: repo v7 == server v7, дрейфа нет.
+      · Тег `v2.4.0` → на сборочный SHA 1c1c6cf, запушен. Build Release job кода-репо на тег
+        исторически не публикует (прецедент v2.3.1 — job не оставил релиза; клиентский канал
+        отдельный aurora-releases; красный run безвреден). 📌 бэклог-кандидат: чинить/отключить job.
+      · Fallback GH Pages — кэш до ~10 мин, фоновая сверка запущена.
 - [x] **11a.** ✅ MASTER ПОЛУЧИЛ ЛИНИЮ (санкция Антона «2 - да», 2026-07-18): PR #4 MERGED →
       `origin/master 2b14d42` (merge-коммит), ed7e16a — предок master, верифицировано.
       master снова правда. Build Release job НЕ стартовал (гейт `refs/tags/v*` — проверено до мержа).
