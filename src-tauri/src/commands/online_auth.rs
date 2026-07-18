@@ -247,6 +247,17 @@ fn license_expiry_status(expires_at: Option<&str>, now_unix: u64) -> ExpiryStatu
     }
 }
 
+/// SEC-1: true if a cached response's recorded product differs from the CURRENT binary's
+/// product — i.e. `session_cache.json` was carried over from a different Aurora product on
+/// this machine (fingerprint matches, since it's the same machine — only the product differs).
+/// Without this check, `load_cache` rebuilds the signed payload from `cached.product` (not the
+/// running binary's product), so the re-verified signature still passes even though the wrong
+/// product is loading someone else's cached grant. Empty `cached_product` = legacy cache
+/// (written before this field existed) → not a mismatch, accepted for backward compatibility.
+fn cache_product_mismatch(cached_product: &str, current_product: &str) -> bool {
+    !cached_product.is_empty() && cached_product != current_product
+}
+
 fn save_cache(app_config_dir: &Path, response: &AuthResponse, product: &str) -> Result<()> {
     let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
     let cached = CachedAuth {
@@ -263,6 +274,27 @@ fn load_cache(app_config_dir: &Path) -> Option<AuthResponse> {
     let path = cache_path(app_config_dir);
     let data = std::fs::read_to_string(&path).ok()?;
     let cached: CachedAuth = serde_json::from_str(&data).ok()?;
+
+    // SEC-1: reject cache carried over from a DIFFERENT Aurora product on this machine —
+    // fingerprint alone does not catch this (same machine, different product binary).
+    let current_product = detect_product();
+    if cache_product_mismatch(&cached.product, current_product) {
+        match auth_sig::AUTH_SIG_ENFORCEMENT {
+            auth_sig::Enforcement::Soft => {
+                log::warn!(
+                    "SEC-1: cache product mismatch (cached={}, binary={}) — принят (soft)",
+                    cached.product, current_product
+                );
+            }
+            auth_sig::Enforcement::Hard => {
+                log::error!(
+                    "SEC-1: cache product mismatch (cached={}, binary={}) — кэш отклонён (hard), нужен перезапрос онлайн",
+                    cached.product, current_product
+                );
+                return None;
+            }
+        }
+    }
 
     let now = SystemTime::now().duration_since(UNIX_EPOCH).ok()?.as_secs();
     // Future-dated cached_at (часы сдвинуты назад / подделка файла кэша) — аномалия:
@@ -768,6 +800,27 @@ mod tests {
             ExpiryStatus::Expired,
             "истёкший в реальном формате сервера должен быть Expired"
         );
+    }
+
+    // ── SEC-1 (cache-product fix): cache_product_mismatch ────
+
+    /// Different product recorded in cache vs current binary → mismatch.
+    #[test]
+    fn cache_product_mismatch_detected() {
+        assert!(cache_product_mismatch("media", "econometrica"));
+    }
+
+    /// Same product → no mismatch.
+    #[test]
+    fn cache_product_match_no_mismatch() {
+        assert!(!cache_product_mismatch("econometrica", "econometrica"));
+    }
+
+    /// Empty cached product = legacy cache (written before this field existed) → accepted,
+    /// not treated as a mismatch.
+    #[test]
+    fn cache_product_empty_legacy_no_mismatch() {
+        assert!(!cache_product_mismatch("", "econometrica"));
     }
 }
 
