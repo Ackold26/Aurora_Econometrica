@@ -10,6 +10,7 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::crypto::fingerprint;
+use crate::crypto::auth_sig;
 use std::sync::OnceLock;
 
 // ── Configuration ──────────────────────────────────────────
@@ -123,6 +124,10 @@ pub struct AuthResponse {
     pub frontend_url: Option<String>,
     #[serde(default)]
     pub frontend_checksum: Option<String>,
+    // SEC-1: Ed25519 signature of the "ok" response (AUTHSIG-v1 payload). Empty = server
+    // does not sign yet (legacy/rollout). See crypto/auth_sig.rs.
+    #[serde(default)]
+    pub signature: String,
 }
 
 /// Cached auth response stored on disk.
@@ -130,6 +135,11 @@ pub struct AuthResponse {
 struct CachedAuth {
     response: AuthResponse,
     cached_at: u64,  // Unix timestamp
+    /// SEC-1: raw product the client sent when this response was signed by the server —
+    /// needed to rebuild the AUTHSIG-v1 payload for signature re-verification at load time.
+    /// Empty string = legacy cache written before signature re-verification (accepted, soft).
+    #[serde(default)]
+    product: String,
 }
 
 /// Server response from /heartbeat endpoint.
@@ -210,11 +220,39 @@ fn cache_path(app_config_dir: &Path) -> PathBuf {
     app_config_dir.join("session_cache.json")
 }
 
-fn save_cache(app_config_dir: &Path, response: &AuthResponse) -> Result<()> {
+/// SEC-1 (A1): статус срока действия подписанной лицензии.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ExpiryStatus {
+    Valid,
+    Expired,
+    Missing,
+}
+
+/// Разбирает серверный expires_at (RFC3339) и сравнивает с текущим временем.
+/// Missing = пусто/None/непарсимое (для подписанного "ok" это аномалия — нет границы срока).
+fn license_expiry_status(expires_at: Option<&str>, now_unix: u64) -> ExpiryStatus {
+    match expires_at {
+        None => ExpiryStatus::Missing,
+        Some("") => ExpiryStatus::Missing,
+        Some(s) => match chrono::DateTime::parse_from_rfc3339(s) {
+            Ok(dt) => {
+                if dt.timestamp() < now_unix as i64 {
+                    ExpiryStatus::Expired
+                } else {
+                    ExpiryStatus::Valid
+                }
+            }
+            Err(_) => ExpiryStatus::Missing,
+        },
+    }
+}
+
+fn save_cache(app_config_dir: &Path, response: &AuthResponse, product: &str) -> Result<()> {
     let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
     let cached = CachedAuth {
         response: response.clone(),
         cached_at: now,
+        product: product.to_string(),
     };
     let json = serde_json::to_string(&cached)?;
     std::fs::write(cache_path(app_config_dir), json)?;
@@ -237,6 +275,56 @@ fn load_cache(app_config_dir: &Path) -> Option<AuthResponse> {
     if now - cached.cached_at > CACHE_TTL_SECS {
         info!("Auth cache expired (age: {}h)", (now - cached.cached_at) / 3600);
         return None;
+    }
+
+    // SEC-1: re-verify server signature against the CURRENT machine fingerprint — catches a
+    // same-machine forge of session_cache.json (the forged file cannot carry a valid
+    // signature without the server's private key).
+    let current_fp_hash = fingerprint::get_machine_fingerprint()
+        .map(|fp| fingerprint::hash_fingerprint(&fp))
+        .unwrap_or_default();
+    let auth_payload = auth_sig::build_auth_payload(
+        &cached.response.status,
+        &current_fp_hash,
+        &cached.product,
+        &cached.response.cabinets,
+        cached.response.content_version.as_deref(),
+        cached.response.expires_at.as_deref(),
+    );
+    let sig_ok = auth_sig::verify_auth_signature(&auth_payload, &cached.response.signature);
+    match auth_sig::AUTH_SIG_ENFORCEMENT {
+        auth_sig::Enforcement::Soft => {
+            if cached.response.signature.is_empty() {
+                log::info!("SEC-1: кэш без подписи (legacy/rollout) — принят (soft)");
+            } else if !sig_ok {
+                log::error!("SEC-1: кэш содержит подпись, но она НЕ валидна — принят (soft), требует разбора");
+            } else {
+                log::debug!("SEC-1: подпись кэша валидна");
+            }
+        }
+        auth_sig::Enforcement::Hard => {
+            if !sig_ok {
+                log::error!("SEC-1: подпись кэша невалидна/отсутствует — кэш отклонён (hard), нужен перезапрос онлайн");
+                return None;
+            }
+        }
+    }
+
+    // SEC-1 (A1): enforce expires_at against TTL alone not being enough — an online-replayed
+    // signed "ok" could otherwise live in the cache until CACHE_TTL_SECS even after expiry.
+    let expiry = license_expiry_status(cached.response.expires_at.as_deref(), now);
+    match auth_sig::AUTH_SIG_ENFORCEMENT {
+        auth_sig::Enforcement::Soft => match expiry {
+            ExpiryStatus::Valid => log::debug!("SEC-1: кэш expires_at в силе"),
+            ExpiryStatus::Expired => log::error!("SEC-1: кэш с истёкшим expires_at — принят (soft)"),
+            ExpiryStatus::Missing => log::error!("SEC-1: кэш без expires_at — принят (soft)"),
+        },
+        auth_sig::Enforcement::Hard => {
+            if expiry != ExpiryStatus::Valid {
+                log::error!("SEC-1: кэш истёк или без expires_at — кэш отклонён (hard), нужен перезапрос онлайн");
+                return None;
+            }
+        }
     }
 
     info!("Using cached auth response (age: {}m)", (now - cached.cached_at) / 60);
@@ -305,9 +393,60 @@ pub async fn check_auth(
     let auth_response: AuthResponse = serde_json::from_str(&body)
         .map_err(|e| anyhow::anyhow!("Failed to parse auth response: {e}, body: {body}"))?;
 
+    // SEC-1: verify server signature of the "ok" response before trusting it.
+    // fp_hash / req.product were moved into `req` above — read them back from `req` (not
+    // consumed by `.json(&req)`, which only borrows it), matching what the server signed
+    // (server-side product migration must not affect the signed payload).
+    if auth_response.status == "ok" {
+        let auth_payload = auth_sig::build_auth_payload(
+            &auth_response.status,
+            &req.fingerprint_hash,
+            &req.product,
+            &auth_response.cabinets,
+            auth_response.content_version.as_deref(),
+            auth_response.expires_at.as_deref(),
+        );
+        let sig_ok = auth_sig::verify_auth_signature(&auth_payload, &auth_response.signature);
+        match auth_sig::AUTH_SIG_ENFORCEMENT {
+            auth_sig::Enforcement::Soft => {
+                if auth_response.signature.is_empty() {
+                    log::info!("SEC-1: /auth 'ok' без подписи (rollout) — принят (soft)");
+                } else if !sig_ok {
+                    log::error!("SEC-1: /auth подпись присутствует, но НЕ валидна — принят (soft), требует разбора");
+                } else {
+                    log::debug!("SEC-1: /auth подпись валидна");
+                }
+            }
+            auth_sig::Enforcement::Hard => {
+                if !sig_ok {
+                    log::error!("SEC-1: /auth подпись невалидна/отсутствует — ОТКАЗ (hard)");
+                    return Err(anyhow::anyhow!("SEC-1: /auth response signature invalid or missing"));
+                }
+            }
+        }
+
+        // SEC-1 (A1): enforce expires_at — a signed "ok" with an expired/missing bound must
+        // not be trusted forever; TTL alone (load_cache) does not cover a live online replay.
+        let now_unix = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
+        let expiry = license_expiry_status(auth_response.expires_at.as_deref(), now_unix);
+        match auth_sig::AUTH_SIG_ENFORCEMENT {
+            auth_sig::Enforcement::Soft => match expiry {
+                ExpiryStatus::Valid => log::debug!("SEC-1: /auth expires_at в силе"),
+                ExpiryStatus::Expired => log::error!("SEC-1: /auth подписанный 'ok' с истёкшим expires_at — принят (soft)"),
+                ExpiryStatus::Missing => log::error!("SEC-1: /auth подписанный 'ok' без expires_at — принят (soft)"),
+            },
+            auth_sig::Enforcement::Hard => {
+                if expiry != ExpiryStatus::Valid {
+                    log::error!("SEC-1: /auth лицензия истекла или без expires_at — ОТКАЗ (hard)");
+                    return Err(anyhow::anyhow!("SEC-1: license expired or missing expires_at"));
+                }
+            }
+        }
+    }
+
     if auth_response.status == "ok" {
         // Cache successful response
-        if let Err(e) = save_cache(app_config_dir, &auth_response) {
+        if let Err(e) = save_cache(app_config_dir, &auth_response, &req.product) {
             warn!("Failed to cache auth response: {e}");
         }
         info!("Online auth: OK, cabinets: {:?}", auth_response.cabinets);
@@ -475,7 +614,7 @@ mod tests {
     }
 
     fn write_cache_with_age(dir: &Path, cached_at: u64) {
-        let cached = CachedAuth { response: sample_response(), cached_at };
+        let cached = CachedAuth { response: sample_response(), cached_at, product: String::new() };
         std::fs::write(cache_path(dir), serde_json::to_string(&cached).unwrap()).unwrap();
     }
 
@@ -484,7 +623,7 @@ mod tests {
     #[test]
     fn cache_roundtrip_fresh_ok() {
         let dir = tmp_dir();
-        save_cache(&dir, &sample_response()).unwrap();
+        save_cache(&dir, &sample_response(), "econometrica").unwrap();
         let loaded = load_cache(&dir).expect("свежий кэш должен читаться");
         assert_eq!(loaded.status, "ok");
         assert_eq!(loaded.cabinets, vec!["econometrist".to_string()]);
@@ -567,6 +706,68 @@ mod tests {
             assert!(!status.cabinets.is_empty(), "При ok сервер обязан вернуть кабинеты");
         }
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // ── SEC-1 (A1): license_expiry_status ────────────────────
+
+    /// Future expires_at must be Valid.
+    #[test]
+    fn license_expiry_valid_future() {
+        let now_unix = 1_800_000_000u64; // ~2027
+        assert_eq!(
+            license_expiry_status(Some("2099-01-01T00:00:00Z"), now_unix),
+            ExpiryStatus::Valid
+        );
+    }
+
+    /// Past expires_at must be Expired.
+    #[test]
+    fn license_expiry_expired_past() {
+        let now_unix = 1_800_000_000u64;
+        assert_eq!(
+            license_expiry_status(Some("2020-01-01T00:00:00Z"), now_unix),
+            ExpiryStatus::Expired
+        );
+    }
+
+    /// None expires_at must be Missing (no boundary at all).
+    #[test]
+    fn license_expiry_missing_none() {
+        let now_unix = 1_800_000_000u64;
+        assert_eq!(license_expiry_status(None, now_unix), ExpiryStatus::Missing);
+    }
+
+    /// Empty-string expires_at must be Missing.
+    #[test]
+    fn license_expiry_missing_empty() {
+        let now_unix = 1_800_000_000u64;
+        assert_eq!(license_expiry_status(Some(""), now_unix), ExpiryStatus::Missing);
+    }
+
+    /// Unparseable expires_at must be Missing (no valid boundary), not a panic.
+    #[test]
+    fn license_expiry_unparseable() {
+        let now_unix = 1_800_000_000u64;
+        assert_eq!(license_expiry_status(Some("garbage"), now_unix), ExpiryStatus::Missing);
+    }
+
+    /// SEC-1 (A1) regression: the REAL server format is RFC3339 with fractional seconds AND a
+    /// numeric offset (`+00:00`), not `Z` — e.g. license.expires_at = "2029-04-04T23:53:07.549+00:00".
+    /// If parse_from_rfc3339 rejected it, license_expiry_status → Missing → Hard would refuse ALL
+    /// valid licenses. This pins that the real format parses to Valid/Expired, never Missing.
+    #[test]
+    fn license_expiry_real_server_format() {
+        let now_unix = 1_800_000_000u64; // ~2027-01
+        assert_eq!(
+            license_expiry_status(Some("2029-04-04T23:53:07.549+00:00"), now_unix),
+            ExpiryStatus::Valid,
+            "реальный формат сервера (ms + числовой offset) должен парситься как Valid, не Missing"
+        );
+        assert_eq!(
+            license_expiry_status(Some("2021-06-08T12:30:00.123+00:00"), now_unix),
+            ExpiryStatus::Expired,
+            "истёкший в реальном формате сервера должен быть Expired"
+        );
     }
 }
 
