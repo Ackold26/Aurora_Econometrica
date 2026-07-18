@@ -1,5 +1,13 @@
 # MERGE_PLAN 2.4.0 — объединение линий v2.3.0 + kpi-units (durable-якорь)
 
+> 🔴 **ТОЧКА ВХОДА ПОСЛЕ ОБРЫВА (чекпоинт 2026-07-18 ~02:30):** шаги 0-4 ЗАКРЫТЫ
+> (merge `27f11e0` на `origin/feat/econ-2.4.0`, все гейты зелёные, pytest-флак диагностирован).
+> **ПРОДОЛЖАТЬ С:** фикс Agg-бэкенда (см. хвост в шаге 4) → шаг 5 (аудит диффа v2.3.1..HEAD,
+> 2 аудитора фронт+python, акцент — разрешения 3 конфликтов, перечислены в шаге 2) → шаг 6 (PR→CI)
+> → шаги 7-9 → СТОП перед шагом 10 (публикация — отдельная санкция Антона).
+> Песочница-worktree: `D:\Docs\Aurora_Ai\Dev\Aurora_Econometrica_merge` (node_modules стоят).
+> Исходные ветки НЕ тронуты (страховка), обе на origin.
+
 > Санкция Антона 2026-07-18: пуш веток ✅ · версия **2.4.0** ✅ · старт исполнения ✅.
 > Публикация (шаг 10) — ОТДЕЛЬНАЯ санкция по предъявленным результатам.
 > При обрыве сессии: продолжать отсюда, сверив чекбоксы. Ничего не переделывать.
@@ -26,29 +34,62 @@
 
 ## Шаги (чекбоксы вести по факту)
 
-- [ ] **0a.** Пуш `feat/econ-kpi-units` (с `-u`, upstream нет) + `feat/econ-v2.3.0` (ahead) на origin.
-      Сеть флачит (TLS 10054/curl 35) → retry ×3-5; после обрыва — проверка `git status -sb`.
-- [ ] **0b.** Этот план закоммичен в v230 (docs, свой pathspec).
-- [ ] **1.** Песочница: `git worktree add -b feat/econ-2.4.0 D:\Docs\Aurora_Ai\Dev\Aurora_Econometrica_merge feat/econ-v2.3.0`
-      (третье дерево; существующие НЕ трогать — в обоих чужие незакоммиченные файлы).
-- [ ] **2.** В песочнице: `git merge feat/econ-kpi-units` (база fecdb84 3-way).
+- [x] **0a.** ✅ 2026-07-18: kpi-units запушена (-u, new branch) + v230 запушена (e79bab3..983e356→d473880).
+- [x] **0b.** ✅ План закоммичен `d473880` и запушен.
+- [x] **1.** ✅ Песочница создана: worktree `Dev/Aurora_Econometrica_merge`, ветка `feat/econ-2.4.0` от d473880.
+- [x] **2.** ✅ MERGE ЗАВЕРШЁН `27f11e0`. Авторазрешились: builder.py, sections.py, весь Rust,
+      insights-rules.js. Ручных конфликтов 3, все разрешены лично Машей:
+      (а) kpi-aware-formatting.js — обе стороны чинили один дубль cpuPerLabel → HEAD (фикс+комментарий);
+      (б) kpi-display.js — оба добавили typedef → HEAD (KpiDisplay, полнее; KpiDisplayPassport отброшен, ссылок 0);
+      (в) econometrist/CLAUDE.md — v230 переписал структуру (Батч-5), kpi-units нёс канон-блок
+      COPYWRITER_STYLE → новая структура + канон-секция вставлена после нового «Поведения в диалоге»,
+      байт-идентичность с kpi-units подтверждена diff, линтер промптов OK 19/19.
+      ГЕЙТ ПОЛНОТЫ: `git log feat/econ-kpi-units ^HEAD` ПУСТ и `git log feat/econ-v2.3.0 ^HEAD` ПУСТ —
+      обе линии целиком внутри. ⚠️ lefthook в песочнице не установлен (хуки не гонялись) — линтеры в шаге 4/6.
+      Старый вариант шага: `git merge feat/econ-kpi-units` (база fecdb84 3-way).
       Правила разрешения: обе ценности сохраняются; версии — сторона v230 (2.3.1, bump позже);
       идентичные правки (maximized/no-window/смоук) — авторазрешение или любая сторона (идентичны);
       builder.py/sections.py — P-2-маппер (реальная схема totals.*, None→«—», интервал суммы,
       TOC-подстрока) ОБЯЗАН выжить ВМЕСТЕ с правками отчётов 2.3.1; CLAUDE.md econometrist —
       стиль-ядро канон + Батч-5 линтер-правки вместе, сверка с `_shared/` каноном;
       содержательные конфликты решает Маша ЛИЧНО, не субагент.
-- [ ] **3.** Vault-развилка: вошло ли стиль-ядро (d9c74a0) в опубликованный vault c2?
-      (распаковать/сравнить CLAUDE.md кабинета). НЕТ → vault c3 в объём релиза по регламенту
-      (lint_prompt_commands 0 FAIL → cabinet_eval --dry → sign_content_pack --bump →
-      check_content_pack_sync OK). ДА → конфликт в пользу раскатанного текста.
-- [ ] **4.** Гейты на песочнице (node_modules: npm ci; python — окружением v230):
-      pytest `-m "not requires_real_data"` · vitest · svelte-check 0 · cargo test ·
-      `npm run build` (прод-сборка!) · линтеры промптов/контента/help-consistency.
-- [ ] **5.** Аудит: handoff по диффу `v2.3.1..HEAD(песочницы)` → 2 независимых аудитора
-      (фронт + python, subagent sonnet/opus) с явным заданием: сверить КАЖДОЕ разрешение
-      конфликта против обеих родительских версий → триаж → фикс-коммит.
-- [ ] **6.** CI начисто: пуш `feat/econ-2.4.0` → PR draft → Test&Lint зелёные.
+- [x] **3.** ✅ РЕШЕНО архео-следом: сообщение коммита d9c74a0 прямо говорит «Доставка клиентам –
+      публикацией vault (отдельный гейт)» ⇒ vault c2 канона НЕ содержит ⇒ **vault c3 В ОБЪЁМЕ РЕЛИЗА**
+      по регламенту (lint_prompt_commands ✅ уже OK 19/19 → cabinet_eval --dry → vault-pack c3 →
+      строка c3 current в content_versions + vault_versions ЗАПОЛНИТЬ (без него stale-блок не доставит!)).
+      Двойная проверка при упаковке: в pack-каталоге канон-блок присутствует.
+- [x] **4.** ✅ ГЕЙТЫ ПРОЙДЕНЫ 2026-07-18 (субагент + личная сверка Маши; песочница ЗАПУШЕНА
+      `origin/feat/econ-2.4.0` = 27f11e0):
+      npm ci чисто (lock не изменился) · svelte-check **0 ERRORS**/177 warn (предсущ.) ·
+      vitest **1279/1279 passed (79 файлов)** · npm run build ✅ (2 чанка >500kB — предсущ. warn) ·
+      cargo test **197 passed/0 failed** · pytest: у агента 698+2 FAIL (test_forecast_report
+      scenarios_comparison_chart ×2, TclError TkAgg), у Маши лично **700 passed/0 fail**, изолированный
+      прогон 2 тестов = **passed** ⇒ ФЛАК от распределения xdist, НЕ регрессия слияния.
+      **Корень (проверен grep):** НИКТО в sidecar не задаёт headless-backend matplotlib
+      (`matplotlib.use('Agg')` отсутствует, conftest пуст, MPLBACKEND не задан; generators.py:6
+      импортирует pyplot голым) — на dev-машине сломанный Tcl/Tk → TkAgg иногда взрывается.
+      📌 **ОТКРЫТЫЙ ХВОСТ → фикс до сборки:** форсировать Agg — в `charts/generators.py` (и
+      соседних chart-модулях, grep pyplot) `import matplotlib; matplotlib.use("Agg")` ДО pyplot
+      + в tests/conftest.py `MPLBACKEND=Agg` страховкой; заодно защищает клиентский бандл
+      (PyInstaller excludes tkinter НЕ найден в build_sidecar.py — бандл может нести Tk!).
+      Затем pytest ×2-3 прогона стабильно зелёный.
+- [~] **4b.** ✅ Agg-фикс СДЕЛАН (`ab27ed9`, запушен): `charts/__init__.py` форсирует Agg до pyplot;
+      негатив-проба MPLBACKEND=TkAgg проходит (переопределение доказано), pytest ×3 = 700 стабильно.
+- [x] **5.** ✅ АУДИТ ЗАКРЫТ (2026-07-18): 2 opus-аудитора, **0 High / 0 Medium / 2 Low**.
+      Фронт+Rust: потерь merge нет (kpi-файлы байт==v2.3.1, отброшенная сторона — только JSDoc);
+      14 creation_flags и импорты сходятся; maximized корректен; INV-50 чисто. Python: реверс-патчи
+      ОБЕИХ родительских сторон (85df196 P-2 + dc01a9c count-KPI) применяются чисто к HEAD —
+      вклады целы, дублей нет (Маша перепроверила лично); P-2 сверен с писателем scenario.py;
+      TOC-формула сверена с build(); Agg-зонд жив. Low-находки → в бэклог, НЕ чинились
+      (хирургия): (1) предсущ. em-dash PromisesCard:112 (задача чистки файла уже в бэклоге);
+      (2) мёртвая ветка guard build_sidecar.py:157. Поправка к аргументу фронт-аудитора:
+      «Linux-CI» не существует (windows-latest) — вердикт не меняет, cfg проверены прямо.
+- [x] **7a.** ✅ BUMP 2.4.0 (`65e6e3c`, запушен): package.json+lock (npm version), Cargo.toml+lock
+      (cargo check), tauri.conf.json; tauri.local.conf.json версии НЕ содержит (наследует).
+- [~] **6.** CI ФИНАЛЬНЫЙ ПРОГОН на bump-SHA `65e6e3c`: **PR #4 (draft, base=master** — ci.yml
+      слушает только master; ретаргет не триггерит (edited), сработал reopen; заодно PR = заготовка
+      шага 11**)**. Прошлый прогон на ab27ed9: Python Tests ✅ 1m22s · Help Docs Sync ✅ · Test&Lint
+      не дождались (перезапуск). Монитор активен. После зелёного → 7b: ff-merge в feat/econ-v2.3.0.
 - [ ] **7.** ff-слияние песочницы → `feat/econ-v2.3.0` + bump **2.4.0**
       (Cargo.toml, tauri.conf.json, package.json; tauri.local.conf.json — version там НЕТ,
       наследуется; сверить по факту + Cargo.lock/package-lock).
