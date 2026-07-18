@@ -250,6 +250,10 @@ describe('downloadBlob - DOM interaction', () => {
     appendedElements = [];
     clickedElements = [];
 
+    // downloadBlob() schedules a real setTimeout(150ms) cleanup (revokeObjectURL +
+    // removeChild). Fake timers let us flush that pending callback synchronously
+    // in afterEach, while the DOM mocks below are still active.
+    vi.useFakeTimers();
     vi.spyOn(URL, 'createObjectURL').mockImplementation((blob) => {
       const url = 'blob:mock-url-' + createdUrls.length;
       createdUrls.push(url);
@@ -266,6 +270,11 @@ describe('downloadBlob - DOM interaction', () => {
   });
 
   afterEach(() => {
+    // Flush downloadBlob's pending cleanup timer BEFORE restoring the real DOM
+    // methods, otherwise it fires later against the real removeChild on a node
+    // that was never actually appended (mocked) → NotFoundError.
+    vi.runOnlyPendingTimers();
+    vi.useRealTimers();
     vi.restoreAllMocks();
   });
 
@@ -291,14 +300,12 @@ describe('downloadBlob - DOM interaction', () => {
     expect(anchor.href).toMatch(/blob:mock-url/);
   });
 
-  it('URL.revokeObjectURL called after timeout (async cleanup)', async () => {
-    vi.useFakeTimers();
+  it('URL.revokeObjectURL called after timeout (async cleanup)', () => {
     const blob = new Blob(['data']);
     downloadBlob(blob, 'file.csv');
     expect(revokedUrls.length).toBe(0);
     vi.advanceTimersByTime(200);
     expect(revokedUrls.length).toBe(1);
-    vi.useRealTimers();
   });
 
 });

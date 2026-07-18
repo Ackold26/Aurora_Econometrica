@@ -36,7 +36,10 @@ import { DEFAULT_TRAINING_ESTIMATE } from './training-estimate.js';
 
 /**
  * Resolve KPI view с default legacy fallback.
- * @param {import('./kpi-aware-formatting.js').KpiViewInput|null|undefined} kpi
+ * Принимает либо «сырой» ctx (KpiViewInput), либо уже готовый KpiView
+ * (детектируется по 'isLegacy' - см. ниже) - вызывающий код (InsightsPanel)
+ * строит KpiView один раз и переиспользует между шагами.
+ * @param {import('./kpi-aware-formatting.js').KpiViewInput|import('./kpi-aware-formatting.js').KpiView|null|undefined} kpi
  * @returns {import('./kpi-aware-formatting.js').KpiView}
  */
 function resolveKpi(kpi) {
@@ -1461,7 +1464,7 @@ export function modelInsights(data, ratioOverride = undefined) {
 
 /**
  * @param {{ base_pct?: number, baseline_pct?: number, channels: Array<{ name: string, contribution_pct: number, contribution?: number, spend: number, roi: number, verdict?: string, unit_smell?: boolean }>, signed_factor_contributions?: Record<string, { value?: number, pct?: number, type?: string }> }} data
- * @param {import('./kpi-aware-formatting.js').KpiViewInput|null} [kpiInput] - KPI/mode context (v1.3.2). null → legacy monetary roi.
+ * @param {import('./kpi-aware-formatting.js').KpiViewInput|import('./kpi-aware-formatting.js').KpiView|null} [kpiInput] - KPI/mode context (v1.3.2). null → legacy monetary roi. Принимает и готовый KpiView (см. resolveKpi).
  * @returns {Insight[]}
  */
 export function decomposeInsights(data, kpiInput = null) {
@@ -1748,7 +1751,7 @@ export function decomposeInsights(data, kpiInput = null) {
  * С `data` - post-state с lift, главные сдвиги, особый случай +0%, влияние custom-лимитов.
  *
  * @param {any} data - optimizeData (опционально)
- * @param {OptimizeContext & {kpi?: import('./kpi-aware-formatting.js').KpiViewInput|null}} [ctx]
+ * @param {OptimizeContext & {kpi?: import('./kpi-aware-formatting.js').KpiViewInput|import('./kpi-aware-formatting.js').KpiView|null}} [ctx]
  * @returns {Insight[]}
  */
 export function optimizeInsights(data, ctx = {}) {
@@ -2191,7 +2194,7 @@ export function optimizeInsights(data, ctx = {}) {
  * Каждый этап пайплайна получает свой key insight с recко, чтобы пользователь
  * увидел итоговую картину одним взглядом.
  *
- * @param {{ mod?: any, dec?: any, opt?: any, scenarioCount?: number, kpi?: import('./kpi-aware-formatting.js').KpiViewInput|null, ssotRatio?: number|null }} ctx
+ * @param {{ mod?: any, dec?: any, opt?: any, scenarioCount?: number, kpi?: import('./kpi-aware-formatting.js').KpiViewInput|import('./kpi-aware-formatting.js').KpiView|null, ssotRatio?: number|null }} ctx
  * @returns {Insight[]}
  */
 export function reportInsights(ctx = {}) {

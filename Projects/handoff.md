@@ -1,59 +1,88 @@
-# Handoff — честный масштаб вклада для count-KPI (2.3.1, аудит-фиксы)
+# Handoff — сессия 2026-07-16/17 (vault c2 · P-2 · pyarrow-смоук · дизайн Планирования)
 
-База diff: `aa32040` (docs-коммит до правок сессии; base-sha файл указывает на HEAD → база
-взята явно по последнему коммиту до блока). HEAD: `1255db4`. Блок = `dc01a9c` + `1255db4`.
+> ✅ Внешний diff-аудит ВЫПОЛНЕН после resume (2026-07-17, аудитор Fable, чистый контекст):
+> вердикт **«ГОТОВ К MERGE»**, 0 Critical/High, 3 Medium в крайних ветках смоук-гейта — все
+> подтверждены триажом и починены fix-коммитами `b8d7d0d` (v230) + `821420f` (kpi-units), позитивный
+> прогон гейта после фиксов PASSED. Зоны неуверенности 1 (ROAS-ключ = GUI) и 4 (TOC не переполняется)
+> закрыты аудитором проверкой. Полный отчёт-находки: `Projects/audit_findings_live.md`.
+> База diff: v230 `62014c3..HEAD`; kpi-units `d9c74a0..HEAD` (base-sha перезаписаны в сессии — база оценочная).
 
-## Цель блока
-Устранить занижение «вклада канала» в 1e6 раз для count-KPI (лиды/упаковки/регистрации)
-в отчётах Econometrica (HTML + PPTX + JS-инсайты). Корень: вклад делился на 1e6
-безусловно («₽ млн»-логика), а единица count-KPI подписывалась без «млн» → клиент видел
-«1.3 лид.» вместо «1.3 млн лид.» (занижение в миллион раз). Нарушение INV-50 (честность
-метрик). Фикс — согласованный выбор масштаба+единицы через `_contrib_scale`/`_fmt_contrib`.
+## 1. Цель блока
 
-## Ключевые инварианты
-- **monetary/effectiveness поведение НЕ меняется:** масштаб 1e6, единица «₽ млн», формат
-  как раньше. Регрессия здесь недопустима (основной сценарий клиентов).
-- **count:** масштаб адаптивный по макс |вклад| (≥1e6→млн, ≥1e4→тыс, иначе полное число),
-  единица результата из паспорта (`target_unit`), масштаб-маркер («млн»/«тыс.») в единице.
-- **`display × scale ≈ raw`** — значение не занижено (анти-регресс тест на это).
-- **HTML ↔ PPTX mirror:** `aurora_html.sections._contrib_scale/_fmt_contrib` и
-  `aurora_pptx.kpi_helpers.contrib_scale/fmt_contrib` ОБЯЗАНЫ давать идентичный результат
-  (тест `test_html_pptx_contrib_parity`). Разделитель тысяч — `chr(0xA0)` в обоих.
-- **Итог столбца в ТОМ ЖЕ масштабе, что ячейки** (contrib_scale согласован шапка↔ячейка↔итог).
+Четыре независимых изменения. (a) P-2: раздел «Прогноз на будущий период» в PPTX/HTML-отчётах должен
+показывать реальные числа сценариев планирования вместо нулей и быть находимым через оглавление.
+(b) Смоук-гейт сборки sidecar: собранный PyInstaller-бандл прогоняется по клиентскому пути до синка
+в Tauri resources (инцидент: сборка 2.1.0 уехала клиентам с битым pyarrow). (c) Дизайн-консистентность
+шага «Планирование» с остальными шагами пайплайна (ширина, токены, hover, структура).
+(d) Публикация vault c2 — только серверные данные (Supabase), в дифф не входит.
 
-## Осознанные компромиссы
-- **Дублирование хелперов** в HTML + PPTX модулях (не общий util): kpi_helpers импортируется
-  без aurora_tokens-зависимости (для тестов), общий модуль её потянул бы. Паритет держит тест.
-- **`total_contrib_mln` в narrative_adapter оставлен** (= raw/1e6) для обратной совместимости;
-  consumer'ы домножают обратно `tc_raw = total_contrib_mln * 1e6` — upstream не рефакторил,
-  чтобы не задеть других читателей поля.
-- **Масштаб по visible каналам** (channels[:10]) — один масштаб на столбец; при сильно
-  разнородных вкладах в топ-10 мелкие теряют точность (by-design, компактность таблицы).
+## 2. Ключевые инварианты
 
-## Зоны неуверенности
-1. **Обратное домножение `tc_raw = total_contrib_mln * 1e6`** (sections.py итог + PPTX итог):
-   float деление→умножение. Проверить, что итог не расходится с суммой ячеек на граничных
-   значениях и что для count итог в согласованном масштабе (не «₽ млн»-формате).
-2. **insights-rules.js:1566** выводит `contribution.toLocaleString` = ПОЛНОЕ число + единица
-   («вклад 1 300 000 лид.»), тогда как таблица — масштабированное («1.3 млн лид.»). Обе честны,
-   но масштаб РАЗНЫЙ между инсайтом и таблицей — возможная UX-несогласованность.
-3. **Drill-панель** (interactive.py + builder.py:mroas_details) считает масштаб per-channel
-   (по одному значению `[contribution]`), а таблица — по всем visible. Один канал в drill может
-   получить масштаб, отличный от табличного (напр. канал 5000 лидов: drill «5 000 лид.», а в
-   таблице при max 2млн столбец в «млн» → «0.0»). Проверить согласованность drill ↔ таблица.
-4. **effectiveness-режим:** `_contrib_scale` для non-count возвращает (1e6, money_unit). Убедиться,
-   что для effectiveness (доли/проценты) вклад-столбец не сломан (units["contrib"] корректен).
+- INV-50 (честность метрик): отсутствующее значение = None = «—» в отчёте; ложный 0 запрещён.
+  `load_saved_forecast` обязан сохранять None, потребители (`s_forecast_plan`, `render_forecast_plan`,
+  `scenarios_comparison_chart`) обязаны переживать None без падения и без строки «None».
+- SSOT чисел: «Прогноз KPI» и интервал на слайде = `totals.predicted_kpi` и
+  `totals.predicted_kpi_ci_low/high` из сценария — те же значения, что в GUI-карточке варианта.
+  Интервал — сумма за горизонт, НЕ CI последнего периода.
+- Легаси-совместимость маппера: старые сценарии с top-level `total_kpi`/`total_spend_money`/`roas_money`
+  продолжают читаться (fallback после `totals.*`).
+- Смоук-гейт сборки: провал = Build FAILED и синк в Tauri resource path не выполняется; гейт обязан
+  уметь падать (доказан негативным прогоном).
+- Дизайн: PlanningStep не вводит собственных цветов — только канонические токены
+  (--accent-primary/--danger/--warning/--success) и идиома color-mix; скролом владеет .pipeline-main
+  (у корня шага нет overflow/height).
+- Все vault-потребители не тронуты: дифф не меняет форматы vault/content-pack.
 
-## Затронутые файлы
-- `sidecar/econometrica/aurora_html/sections.py` — хелперы `_contrib_scale`/`_fmt_contrib` +
-  применение в шапке/ячейке/итоге/CPU-единице/заголовке графика mROAS.
-- `sidecar/econometrica/aurora_html/builder.py` — drill CHART_DATA count-aware (`contrib_display`/`label`).
-- `sidecar/econometrica/aurora_html/interactive.py` — drill JS-подпись из `contrib_label`/`display`.
-- `sidecar/econometrica/aurora_pptx/kpi_helpers.py` — mirror `contrib_scale`/`fmt_contrib`.
-- `sidecar/econometrica/aurora_pptx/builder.py` — PPTX ячейка/шапка/итог count-aware.
-- `sidecar/econometrica/engines/narrative_adapter.py` — комментарий-первопричина исправлен (логика не менялась).
-- `src/lib/insights-rules.js` — единица к вкладу в инсайте «Топ-3 драйверов».
-- `sidecar/econometrica/tests/test_report_text_kpi_aware.py` — анти-регресс тесты (значение + паритет).
-- `src-tauri/{Cargo.toml,tauri.conf.json}` — bump 2.3.1 (не логика).
-- `src-tauri/installer_hooks.nsh` — U+2014→«–» в комментариях + MessageBox (productName revert).
-- `src/lib/components/pipeline/DecomposeStep.svelte` — tooltip «Вклад» KPI-нейтральный.
+## 3. Осознанные компромиссы
+
+- Интервал суммы берётся готовым из `totals.predicted_kpi_ci_*` (посчитан движком по квантилям суммы);
+  fallback на сумму поэлементных CI в `scenarios_comparison_chart` оставлен как был (сумма квантилей ≠
+  квантиль суммы — шире, но это существующий легаси-путь только для старых сценариев).
+- Колонка называется «90%-интервал» (существующая подпись) — не переименована в «правдоподобный
+  диапазон»: клиентская терминология правится отдельной волной по всем поверхностям.
+- Секционная структура PPTX (5 секций, «01/05») не расширена шестой секцией «Прогноз» — слайд остаётся
+  внутри «Главного», находимость решена подстрокой в TOC (перекройка нумерации всех хедеров дорогая).
+- Смоук-гейт поднимает exe на случайном свободном порту с гонкой на закрытии сокета — допустимо для
+  сборочного гейта, не для прода.
+- 11 предсуществующих ошибок svelte-check (файлы линии KPI-units) и 3 jsdom-флака
+  scenario-export.test.js намеренно не тронуты — чужая волна, зафиксированы в бэклоге.
+- В 2.1.0-инциденте фикс кода не делался (2.3.1 здоров) — доставка обновления на тестовые компы
+  ждёт решения Антона (мягко/форс min_version).
+
+## 4. Зоны неуверенности
+
+1. `roas_money` маппится из `totals.roas_money` (метод incremental) — не сверено с тем, какой именно
+   ROAS показывает GUI-таблица вариантов (может быть roas_money_total); на демо оба null, расхождение
+   проявится только на money-каналах.
+2. Смоук-гейт ждёт /health до 90с — на медленном HDD/антивирусе холодный старт onedir-бандла может
+   превысить лимит и дать ложный Build FAILED; порог не калиброван на медленных машинах.
+3. Удаление внутренней шапки PlanningStep опиралось на то, что заголовок шага даёт степпер и справка
+   «Зачем шаг» — не проверено на fresh-install у пользователя-новичка (может потеряться контекст
+   «оптимизация = прошлое, планирование = будущее»).
+4. TOC-подстрока сдвигает вертикальную сетку оглавления на 0.32" вниз при наличии forecast —
+   переполнение при одновременных вставных слайдах (backtest+gen_compare+forecast) не проверено
+   визуально, только расчётом.
+5. color-mix(in srgb, …) — поддержка в WebView2 с Chromium 111; на очень старых WebView2-рантаймах
+   тонировки могут деградировать (не проверялось на старых машинах).
+
+## 5. Затронутые файлы
+
+Репо `Dev/Aurora_Econometrica` (ветка `feat/econ-kpi-units`, коммиты `85df196`, `553c0e3`, `479ef2c`, `8e0f8cc`, НЕ запушены):
+- `sidecar/econometrica/engines/planning.py` — маппер load_saved_forecast: реальная схема totals.*, None-семантика, total_kpi_ci_*.
+- `sidecar/econometrica/aurora_pptx/builder.py` — слайд s_forecast_plan (интервал суммы), TOC-подстрока.
+- `sidecar/econometrica/aurora_html/sections.py` — render_forecast_plan: интервал суммы.
+- `sidecar/econometrica/charts/generators.py` — scenarios_comparison_chart: фильтр None-KPI, CI-ключи builder-схемы.
+- `sidecar/econometrica/tests/test_planning_manifest.py` — фикстура реальной схемы + тесты None-семантики.
+- `sidecar/econometrica/tests/test_forecast_report.py` — тесты интервала суммы, «—» вместо 0, TOC.
+- `sidecar/econometrica/build_sidecar.py` — порт смоук-гейта (копия из v230).
+- `src/lib/components/pipeline/PlanningStep.svelte` — дизайн-консистентность (контейнер, токены, hover, шапка).
+- `NEXT_SESSION_planning_mode.md` — роутер (доки).
+
+Репо `Dev/Aurora_Econometrica_v230` (ветка `feat/econ-v2.3.0`, коммит `67c2c07`, ЗАПУШЕН):
+- `sidecar/econometrica/build_sidecar.py` — smoke_test_bundle: гейт собранного бандла до синка.
+- `Projects/NEXT_SESSION_PROMPT.md` — роутер (доки).
+
+Гейты на момент handoff: sidecar pytest **696 passed** (1 законный skip) · vitest **1142 passed**
+(3 предсущ. jsdom-флака scenario-export) · svelte-check: PlanningStep чист, 11 предсущ. ошибок линии
+KPI-units · смоук-гейт сборки доказан позитивом и негативом · внешний sonnet-аудит P-2-диффа в сессии:
+2 находки, обе закрыты (график None-KPI, TOC-геометрия).

@@ -186,6 +186,117 @@ def regenerate_tokens():
         print(f'  [OK] {t.name} ({t.stat().st_size} bytes)')
 
 
+def smoke_test_bundle(exe_path):
+    """Runtime-смоук собранного exe ДО синка в Tauri resource path.
+
+    Прод-инцидент (скрин 2026-07-16, сборка 2.1.0): sidecar уехал клиентам с
+    битым pyarrow (папка в _internal без python-модуля → namespace-package →
+    `pyarrow.__version__` AttributeError, pandas ловит только ImportError) —
+    любая загрузка файла с данными падала 500. PyInstaller-сборка компилируется
+    «успешно» при целом классе таких увечий: ловится ТОЛЬКО прогоном собранного
+    артефакта по клиентскому пути. Гейт: старт exe → /health → /compute/validate
+    на CSV и XLSX (pandas + pyarrow-compat + openpyxl). Провал = сборка FAILED.
+    """
+    import json
+    import socket
+    import tempfile
+    import time
+    import urllib.request
+
+    # Свободный порт (гонка на закрытии допустима для сборочного гейта)
+    with socket.socket() as s:
+        s.bind(('127.0.0.1', 0))
+        port = s.getsockname()[1]
+
+    print(f'\nSmoke-testing bundle on 127.0.0.1:{port}...')
+    tmp_dir = tempfile.mkdtemp(prefix='sidecar_smoke_')
+    csv_path = Path(tmp_dir) / 'smoke.csv'
+    xlsx_path = Path(tmp_dir) / 'smoke.xlsx'
+    header = 'Дата,Продажи,ТВ бюджет,Диджитал бюджет\n'
+    rows = ''.join(
+        f'2024-{m:02d}-01,{1_000_000 + m * 10_000},{200_000 + m * 5_000},{100_000 + m * 3_000}\n'
+        for m in range(1, 13)
+    ) + ''.join(
+        f'2025-{m:02d}-01,{1_120_000 + m * 10_000},{260_000 + m * 5_000},{136_000 + m * 3_000}\n'
+        for m in range(1, 13)
+    )
+    csv_path.write_text(header + rows, encoding='utf-8-sig')
+    try:
+        import openpyxl  # noqa: F401
+        import pandas as _pd
+        _pd.read_csv(csv_path).to_excel(xlsx_path, index=False)
+    except Exception as e:
+        # Аудит 2026-07-17 (Medium): отсутствие openpyxl в билд-окружении =
+        # отсутствие его и в бандле (PyInstaller собирает из того же venv) —
+        # деградация до CSV-only молчала бы ровно тогда, когда клиентский
+        # xlsx-путь битый. Коррелированный отказ → жёсткий FAIL.
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+        print(f'\nBuild FAILED: xlsx-фикстура смоука не создана ({e}) - '
+              'openpyxl/pandas обязаны быть в билд-окружении (они же уезжают в бандл).',
+              file=sys.stderr)
+        sys.exit(1)
+
+    proc = subprocess.Popen(
+        [str(exe_path), str(port)],
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+    )
+
+    def _post(path, payload, timeout=120):
+        req = urllib.request.Request(
+            f'http://127.0.0.1:{port}{path}',
+            data=json.dumps(payload).encode('utf-8'),
+            headers={'Content-Type': 'application/json'}, method='POST',
+        )
+        with urllib.request.urlopen(req, timeout=timeout) as r:
+            return json.loads(r.read())
+
+    ok = False
+    health_ok = False
+    try:
+        # /health: холодный старт onedir-бандла на HDD бывает долгим
+        for _ in range(90):
+            if proc.poll() is not None:
+                print(f'  [FAIL] sidecar exited early (code {proc.returncode})')
+                break
+            try:
+                urllib.request.urlopen(f'http://127.0.0.1:{port}/health', timeout=2)
+                health_ok = True
+                break
+            except Exception:
+                time.sleep(1)
+        else:
+            print('  [FAIL] /health not ready in 90s')
+
+        # Аудит 2026-07-17 (Medium): гейт по health_ok, не по proc.poll() —
+        # иначе бандл, поднявшийся на 91-й секунде, проходил validate после
+        # напечатанного [FAIL] (порог не enforced, лог противоречив).
+        if health_ok:
+            targets = [('CSV', csv_path)] + ([('XLSX', xlsx_path)] if xlsx_path else [])
+            for label, fpath in targets:
+                res = _post('/compute/validate',
+                            {'file_path': str(fpath), 'project_dir': tmp_dir})
+                status = res.get('status')
+                if status not in ('ok', 'warning'):
+                    print(f'  [FAIL] validate {label}: status={status} '
+                          f'message={str(res.get("message"))[:160]}')
+                    break
+                print(f'  [OK] validate {label}: status={status}')
+            else:
+                ok = True
+    except Exception as e:
+        print(f'  [FAIL] smoke exception: {type(e).__name__}: {str(e)[:200]}')
+    finally:
+        proc.kill()
+        proc.wait(timeout=15)
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+
+    if not ok:
+        print('\nBuild FAILED: bundle smoke test не прошёл - артефакт битый, '
+              'синк в Tauri resource path отменён.', file=sys.stderr)
+        sys.exit(1)
+    print('  [OK] Bundle smoke test passed')
+
+
 def main():
     # ── Prerequisite: regenerate aurora_tokens.py from Standards/tokens/ ──
     # Without this, sidecar import econometrica.aurora_tokens fails at runtime.
@@ -206,14 +317,21 @@ def main():
 
     exe_path = DIST / OUTPUT_NAME / f'{OUTPUT_NAME}.exe'
     if not exe_path.exists():
-        print(f'\nWARNING: Expected exe not found at {exe_path}')
-        return
+        # Аудит 2026-07-17 (Medium): раньше здесь был WARNING + return с exit 0 —
+        # CI считал сборку успешной, а npm run tauri build паковал ПРЕЖНИЙ
+        # синкнутый бандл. Нет артефакта = сборка провалена.
+        print(f'\nBuild FAILED: exe не создан PyInstaller\'ом при rc=0: {exe_path}',
+              file=sys.stderr)
+        sys.exit(1)
 
     size_mb = sum(
         f.stat().st_size for f in (DIST / OUTPUT_NAME).rglob('*') if f.is_file()
     ) / 1e6
     print(f'\nBuild SUCCESS: {exe_path}')
     print(f'Bundle size: {size_mb:.0f} MB')
+
+    # ── Runtime smoke собранного exe (гейт ДО синка — инцидент pyarrow 2.1.0) ──
+    smoke_test_bundle(exe_path)
 
     # ── Auto-sync в sidecar/econometrica/ (где Tauri бандлит через resources) ──
     # Tauri.conf.json: "resources": ["../sidecar/econometrica/**/*"]

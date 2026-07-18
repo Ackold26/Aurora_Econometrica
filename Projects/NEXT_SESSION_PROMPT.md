@@ -1,105 +1,157 @@
-# Econometrica — роутер следующей сессии (2.3.1: аудит+сборка ГОТОВЫ, осталась ПУБЛИКАЦИЯ)
+# Econometrica — роутер следующей сессии (после сессии 2026-07-16/17)
 
-> Скопируй в начало новой сессии. cwd = `D:\Docs\Aurora_Ai\Dev\Aurora_Econometrica_v230`
-> (worktree релизной ветки `feat/econ-v2.3.0`). Обновлён 2026-07-14 (wrap-up после сборки installer 2.3.1).
+> 🔴 **АКТИВНАЯ ОПЕРАЦИЯ (2026-07-18): объединение линий → релиз 2.4.0.**
+> **Точка входа = `Projects/MERGE_PLAN_2.4.0.md`** (шаги 0-4 из 11 закрыты, merge `27f11e0`
+> на `origin/feat/econ-2.4.0`, гейты зелёные; продолжать с фикса Agg-бэкенда → аудит → CI →
+> сборка; публикация — отдельная санкция Антона). Этот роутер ниже — фон/контекст.
 
-## Контекст — что сделано (НЕ переделывать)
+> Скопируй в начало новой сессии. Два worktree: `D:\Docs\Aurora_Ai\Dev\Aurora_Econometrica_v230`
+> (ветка `feat/econ-v2.3.0`, прод-линия 2.3.1) и `D:\Docs\Aurora_Ai\Dev\Aurora_Econometrica`
+> (ветка `feat/econ-kpi-units`, planning+KPI линия, НЕ запушена — пуш по слову Антона).
+> Полный durable-бэклог → память `project_econometrica_backlog` (грузится по слову «Econometrica»).
+> Обновлён 2026-07-17 (wrap-up).
 
-**Адверсариальный аудит перед сборкой + count-KPI фикс + installer 2.3.1 СОБРАН и СМОУКНУТ.**
-Коммиты на `feat/econ-v2.3.0`: `dc01a9c` (count-фикс + bump) + `1255db4` (revert productName).
-HEAD = `1255db4`. Дерево чистое, всё локально (НЕ запушено — push в следующей сессии перед мержем).
+## ✅ Сделано в сессии 2026-07-16/17 (НЕ переделывать)
 
-**Что закрыто этой сессией:**
-1. **CI PR #3 зелёный** (Test&Lint + Python Tests + Help Sync на `e63176b`/`c637c06`/`aa32040`).
-2. **Живой прогон D1** (dev-мост): 4 проводки доказаны (страж INV-50 ловит выдуманное число ·
-   доставка Батч 0 = send_heartbeat→content_version · next-quarter в 8 командах · PIPELINE_STEPS[6]=report,
-   completeStep(6)). Онбординг чистый, Отчёт рендерится. Смоук установленного .exe — Антон подтвердил
-   «установилась, запустилась, без ошибок».
-3. **Адверсариальный аудит (2 независимых аудитора + верификация):** внешний аудит e270353..HEAD (0 находок,
-   2 реальных багфикса y_actual/resolver подтверждены) · release-consistency (2 HIGH: нейминг+грязное дерево) ·
-   hidden-defects (**1 HIGH: занижение вклада count-KPI в 1e6, 6 мест одного корня, INV-50**).
-4. **HIGH count-KPI УСТРАНЁН** (`dc01a9c`): честный форматтер `_contrib_scale`/`_fmt_contrib` (адаптивный
-   масштаб млн/тыс/полное + единица из паспорта) в 6 местах (HTML таблица/итог/drill/график, PPTX таблица/итог,
-   JS-инсайт). Анти-регресс тест на ЗНАЧЕНИЕ + паритет HTML↔PPTX (поймал mirror-drift разделителя). 27/27 тестов.
-5. **HIGH нейминг → решение Антона: productName ОСТАВЛЕН «Optimizer MMM»** (V52 upgrade-continuity — 2.1.0
-   выдана клиентам с этим именем; смена ломала бы обновление). Заголовок окна/firewall — «Aurora AI Econometrica».
-6. **LOW почищены:** tooltip «Вклад» KPI-нейтрально · U+2014 в комментариях installer → «–».
-7. **Гейты все зелёные:** svelte-check 0 · vitest 1279 · cargo 191 · sidecar pytest 694 · V29 sidecar collect ✅.
-8. **installer 2.3.1 СОБРАН:** `Optimizer MMM_2.3.1_x64-setup.exe` = **244.7 MiB**, SHA256
-   `6299e82e597b52e4e94591ae5ea72db20d987c0969233a2d429d8764e6d77315`, путь
-   `D:\cargo-targets\ai-agency\release\bundle\nsis\`. Sidecar 970MB (freshness ✅ count-фиксы внутри).
-9. **VAULT собран локально:** `econometrist.vault` (plain gzip-tar, 33.7KB, 19 файлов) в scratchpad — греп
-   next-quarter строки прошёл. НЕ загружен на прод.
+1. **VAULT c2 В ПРОДЕ** — промпты econometrist доехали клиентам (4→17 команд). Ключевая механика:
+   правки промптов доставляет ТОЛЬКО заполненный `content_versions.vault_versions` (stale-блок клиента);
+   bump content_version сам по себе не доставляет. Схема → память `reference_econometrica_ota_vault_content_schema`.
+2. **P-2 РЕШЁН** (`85df196` на kpi-units) — слайд «Прогноз на будущий период» всегда был в PPTX, но
+   с ложными нулями (маппер `load_saved_forecast` читал вымышленную схему) и невидим в TOC. Исправлены
+   маппер (реальная `totals.*`, None→«—» INV-50), интервал = сумма за горизонт (SSOT с GUI-карточкой),
+   TOC-подстрока, график сравнения. Доказано на реальной демо-фикстуре; 696 pytest.
+3. **Pyarrow-инцидент разобран** — скрин «module 'pyarrow' has no attribute '__version__'» был со сборки
+   **2.1.0** (тестовые компы PC443/PC583 фактически на 2.1.0, не на «актуальной»); в 2.3.1 не
+   воспроизводится. Профилактика: смоук-гейт собранного бандла `build_sidecar.py::smoke_test_bundle`
+   (v230 `67c2c07` запушен + порт `479ef2c` в kpi-units), канон **INV-96** (aurora-meta `5e273c2`).
+4. **Дизайн-консистентность «Планирования»** (`8e0f8cc` на kpi-units) — full-width как соседи (было
+   960px-колонка), канонические токены вместо несуществующих --color-* (тема подхватывается), color-mix
+   идиома, hover opacity, шапка-дубль удалена. Живая верификация DOM-замером + скриншоты.
 
-**⚠️ Грабля сборки (записана в память):** worktree v230 не содержал generated-токены (`aurora_tokens.py` +
-`aurora_html/templates/*.css/js`) — gitignored, остались в родителе `Aurora_Econometrica/`. Первая сборка
-sidecar FAILED. Скопировала из родителя → пересборка ОК. [[feedback_worktree_missing_generated_tokens_sidecar_build]]
+## 🔴 ОТКРЫТЫЕ ЗАДАЧИ (перенесены из сессии; приоритет выбрать с Антоном)
 
-## Файлы для контекста (порядок чтения)
-1. Этот файл + `Projects/handoff.md` (детали count-фикса + зоны неуверенности).
-2. `Projects/audit_findings_live.md` + отчёт аудитора wrap-up (если завершился — проверить триаж).
-3. Память: [[INDEX_econometrica]] · [[feedback_worktree_missing_generated_tokens_sidecar_build]] ·
-   [[feedback_count_kpi_unit_scale_together]] (если создан).
-4. Регламенты: `aurora-release-update` скилл (публикация) + `aurora-fix` скилл (V52/P8/P9).
+### Ждёт решения Антона (первым делом спросить/получить)
+- **Доставка 2.3.1 на тестовые компы (PC443, PC583 — сидят на 2.1.0).** Механика исправна (Edge отдаёт
+  2.3.1, is_newer в 2.1.0 корректен), но баннер необязательного обновления на главной отклоняют/не видят.
+  Варианты: (а) мягко — сказать тестировщикам нажать «Обновить» в баннере или скачать GH-установщик
+  v2.3.1 (рекомендация Маши); (б) форс — поднять `app_min_version` → блокирующий оверлей (риск: если
+  GitHub недоступен из их сети, клиент заблокирован). После доставки — перепроверить скрин-ошибку pyarrow.
+- **Пуш ветки `feat/econ-kpi-units`** (4 коммита Маши: P-2 `85df196` + роутер `553c0e3` + смоук-порт
+  `479ef2c` + дизайн `8e0f8cc`; плюс чужой `d9c74a0` копирайтерского стиль-ядра) — пуш по слову.
 
-## Задачи продолжения (приоритет)
+### 🆕 Задачи Антона от 2026-07-17 (статус на 2026-07-17, сессия Fable+Opus)
+- ✅ **Запуск на полный экран СДЕЛАНО** (`5edf9ad` v230 + порт `47c57f0` kpi-units):
+  `.maximized(true)` у билдера главного окна в `lib.rs::build_app` (конфиг `windows[]` пуст —
+  окно создаётся программно, `tauri.conf.json` не при чём; обе редакции облачная/локальная
+  наследуют автоматически). Верифицировано живьём в dev v230 через MCP-мост:
+  `isMaximized()==true`, окно 1936×1048 (полный рабочий стол). Собранный exe — не гонялся
+  (по коду наследует; при желании перепроверить на инсталляторе).
+- ✅ **Аудит no-window СДЕЛАНО** (тот же коммит, субагент Sonnet + личная верификация диффа
+  + cargo test 197 passed): прошли весь `src-tauri/src` (40 .rs). 14 незащищённых консольных
+  спавнов получили `creation_flags(0x08000000)` под `#[cfg(windows)]`: taskkill (cancel_claude
+  + claude-таймаут), icacls (session/manager — при КАЖДОМ старте!), powershell установщика
+  (UAC-диалог отдельный процесс consent.exe на secure desktop — НЕ затронут), pandoc ×2,
+  `where` (поиск Claude CLI), RAG-сервер, parser exe+python fallback, diagnostics `cmd_output`
+  (4 вызова через хелпер), pptx python/pip ×3. Уже были защищены: claude.rs run_claude,
+  econ_sidecar ×5, sidecar_runtime, pptx pipeline+taskkill. explorer.exe (открыть папку) —
+  GUI-подсистема, консоль не создаёт, не трогали. fingerprint — через crate `wmi` (COM),
+  процессов не спавнит. ⚠️ единственное место для живой проверки: `updater.rs::apply_update` —
+  убедиться, что UAC-запрос при обновлении по-прежнему появляется (сам установщик глушится `/S`).
+- **Справка: актуализация + загружаемый PDF** — НЕ начато (крупная, отдельная сессия): сверить
+  help-econometrica с текущей функциональностью (7 шагов, Планирование, термины INV-50) →
+  собрать PDF для офлайн-изучения/печати + кнопка «Скачать справку (PDF)» в справочной системе →
+  включить элементы из официальных PDF реестра ПО (`D:\Документы\ООО Платформа Аврора - документы\
+  Реестр ПО — техдокументация\01 Econometrica MMM Optimizer\Материалы для подачи заявления\PDF для
+  сайта`: «Инструкция по установке и запуску» · «Общее описание и функциональные характеристики» ·
+  «Руководство пользователя») — без излишних тех.подробностей, но с полным общим/функциональным
+  описанием, установкой/удалением, поведением при ошибках (что присылать в поддержку: описание,
+  скриншоты, логи из `%LOCALAPPDATA%\aurora-econometrica-gui\logs`). Состав элементов из PDF —
+  определить с Антоном до вёрстки.
 
-### 0. 🔴🔴 ПЕРЕСОБРАТЬ installer (drill-fix после сборки) — ПЕРЕД публикацией
-⚠️ Installer `Optimizer MMM_2.3.1_x64-setup.exe` (244.7 MiB) собран ДО fix-коммита drill-масштаба
-(HIGH из wrap-up аудита). Sidecar в текущем .exe НЕ содержит drill-fix. **Пересобрать перед публикацией:**
-скопировать generated-токены из родителя (см. грабля выше) → `python build_sidecar.py` → `npm run tauri build`
-→ НОВЫЙ SHA256 (старый `6299e82e...` устарел). Смоук заново (или доверять — fix локализован в drill CHART_DATA).
+### Быстрые хвосты — статус на 2026-07-17 (сессия Fable+Opus, все правки на kpi-units, НЕ запушены)
+- ✅ **F1 был закрыт ранее** коммитом `36857cd` (Anton, 11 июля) — форматтер оси X в
+  `ContinuationChart.svelte` уже нормализует даты к ММ.ГГГГ (`slice(0,10).match(...)`).
+  Бриф из этого файла устарел; проверено blame. Работа не требовалась.
+- 🟡 **F2 ОСТАЁТСЯ** (минор, «читаемость средняя» по первоисточнику) — лейбл markLine
+  «Дата отсечки» в `ContinuationChart.svelte` (строки ~217-223). `position: 'insideEndTop'`
+  стоит с 23 мая, не менялся. ⚠️ Чинить ТОЛЬКО с живым рендером (метод «форма→скриншот»,
+  вслепую нельзя — риск сделать хуже): поднять kpi-units dev, открыть график Планирования
+  на демо-проекте, глянуть наложение, подобрать position/distance/rotate под живой вид.
+  Дёшево совместить с уже запланированным живым прогоном Планирования (П2-1 drill).
+  Наводка: сама `position` может быть НЕ корнем — вероятна коллизия лейбла с повёрнутыми
+  подписями оси (`axisLabel.rotate: 35` при >24 точках); смотреть offset/distance от оси
+  и взаимное перекрытие, а не только position лейбла. Подтверждено: F2 значится в списке
+  «Открыто → след. сессия» в описании самого коммита 36857cd (11 июля) — не решалась.
+- ✅ **P-3 СДЕЛАНО** (`cc42940` kpi-units) — текст в `PromisesCard.svelte` заменён на
+  «Кнопка «Зафиксировать прогноз» — выше на этом шаге, у результата планирования».
+  (⚠️ тире «—» — консистентно всему файлу PromisesCard; правило «–» массово нарушено
+  во всём файле, это отдельная задача чистки клиентских текстов, не P-3.)
+- ✅ **svelte-check → 0 ошибок** (`cc42940`) — реальные ошибки оказались НЕ в предполагавшихся
+  файлах: JSDoc-типы в `insights-rules.js` (resolveKpi/decompose/optimize/report принимают
+  KpiViewInput|KpiView), typedef `KpiDisplayPassport` в `kpi/kpi-display.js`, устранён дубликат
+  ключа `cpuPerLabel` в `kpi-aware-formatting.js` (это и была lint-ошибка «specified more than
+  once»). 177 warnings — предсуществующие (unused CSS, a11y), вне области.
+- ✅ **jsdom-флаки СДЕЛАНО** (`cc42940`) — `scenario-export.test.js`: fake timers flush в
+  afterEach убирает NotFoundError (removeChild на не-appended mock-узле). 30 passed, 1142 всего.
 
-### 1. 🔴 ПУБЛИКАЦИЯ 2.3.1 (ВМЕСТЕ с Антоном, НЕОБРАТИМО) — главная задача
-Installer пересобрать (шаг 0!) → публикация по `aurora-release-update` (Econometrica = fat-client, GH Releases):
-- **P3/5b:** залить `.exe` на **GitHub Releases `Ackold26/aurora-releases`** (>50MB → не Storage). `cp` в /tmp
-  с точным именем, `gh release create`, потом `gh release view --json assets` + `curl -sI` 200.
-- **P5:** `app_versions` UPDATE (product `aurora-econometrica-gui`): version=2.3.1 + download_url(GH) +
-  checksum `sha256:6299e82e597b52e4e94591ae5ea72db20d987c0969233a2d429d8764e6d77315` + release_notes. 4 поля вместе.
-- **P4:** `rosst-updates/aurora-econometrica-gui/latest.json` — та же версия/url/checksum (оба канала одним батчем).
-- **P8 VAULT:** залить `econometrist.vault` в Storage `vaults/econometrica/c2/econometrist.vault` (plain tar.gz,
-  из scratchpad или пересобрать `tar czf econometrist.vault -C New_AI_Agency/econometrist .`) + SHA-256 +
-  content_versions: INSERT c2 is_current=true (checksums {econometrist.vault: sha}) + прежний c1 is_current=false.
-  Текущий серверный content_version = **c1**. B2 «серверная vault_versions отложена» — глобальный content_version путь.
-- **P9 smoke:** после публикации — fresh install (снести %APPDATA%\com.aurora.econometrica) → auth → открыть
-  кабинет econometrist (vault докачается) → нет VT-*.
-- **P2/9b verify:** Edge `app-update {product:"aurora-econometrica-gui"}` = 2.3.1 + fallback latest.json совпадает.
-- ⚠️ Supabase MCP в этой сессии был **Unauthorized** — публиковать через `aurora-secrets.env` + curl/PowerShell
-  (SUPABASE_SERVICE_ROLE_KEY), НЕ через MCP. Сеть github → `dangerouslyDisableSandbox: true`.
-- Без code-signing (сертификата нет → SmartScreen предупредит, пометка в release notes).
+### Средние / тяжёлые (следующие волны)
+- **Пересборка sidecar + выкат planning-линии.** P-2-фикс доедет до клиентов только с пересборкой
+  (`build_sidecar.py`, V39 — npm tauri build sidecar НЕ пересобирает; теперь в сборке смоук-гейт).
+  Путь: закрыть хвосты выше → аудит → мерж KPI+Planning → пересборка → installer по aurora-fix →
+  публикация по слову Антона.
+- **Аудит после `a188986`** — вся работа новее не аудирована внешним аудитором (wrap-up шаги 4-7,
+  2 opus-аудитора по диффу, фронт+python) — прогнать перед мержем.
+- **Мерж KPI+Planning** (сцеплены, master −220 коммитов) — после P-2 ✅ и аудита.
+- **GUI fresh-install smoke vault c2** — остаточный риск доставки: на чистой установке открыть
+  econometrist → 17 команд, нет «Unknown skill» (программный путь доказан, живой клик — нет).
+- **Волна 2 бэклога: пилот прогноз→факт** на СВОИХ данных Aurora — ⚠️ открытый вопрос Антону: есть ли
+  история продаж + медиасплит ≥12 мес? Если нет — фокус на E1 backtest-витрину (волна 3).
 
-### 2. Тег + мерж (после публикации)
-`git push origin feat/econ-v2.3.0` → тег `v2.3.1` → мерж PR #3 в master (master `7fbfd96` +247 позади).
+## Инварианты/правила сессии (свежие грабли)
+- **INV-96:** собранный бандл смоучится ПРОГОНОМ артефакта (build_sidecar теперь делает сам); при
+  прод-скрине ошибки ПЕРВЫМ ходом сверять фактическую версию клиента с `activations.app_version`.
+- Сеть к Supabase/GitHub эпизодически сбрасывает TLS (WinError 10054 / curl 35) → все сетевые шаги
+  с retry; после обрыва POST — GET-проверка «не прошла ли вставка» (дубль-защита).
+- Supabase MCP Unauthorized → REST/Edge через `~/.claude/aurora-secrets.env` + curl/python;
+  Management API токен в `~/.secrets` истёк. Edge-исходников на диске НЕТ (только облако;
+  спецификация в `5_Документация\ARCHITECTURE_v2_ONLINE.md` §Edge Functions) — поведение зондировать живьём.
+- Shared-репо: в kpi-units живут чужие незакоммиченные (`installer_hooks.nsh`, `tokens.generated.css`,
+  `.claude/`) — НЕ трогать, коммитить своим pathspec. Зонд HEAD/origin до коммита.
+- JSON с кириллицей — только `json.dumps` в файл + `--data-binary @file`.
 
-### 3. Демо-данные (замечание Антона 2026-07-14) — очевидный прирост при оптимизации
-Демо-фикстура «демо_медиаплан_с_хвостом» даёт ПРИРОСТ ОТ ОПТИМИЗАЦИИ **+0.0%** (R² 0.396, слабые данные) —
-нулевой прирост подрывает доверие к продукту. Пересобрать демо-данные так, чтобы прогон через оптимизацию
-давал заметный, очевидно-положительный прирост (демонстрация реальной эффективности). Пост-релизная.
+## 🔴 Руководство по стилю действий (прочитать ПЕРВЫМ; уроки живой сессии 2026-07-16/17)
 
-### 4. Отложенное (эскалация/после выката)
-- G9 geo-иерархия (продуктовое, эскалация) · G7 SBC (движковое) · справка econometrist (8 команд+бандл, к сборке) ·
-  2d frontend BUNDLED_FRONTEND_VERSION (build-time) · 2c серверная vault_versions.
-- Триаж находок wrap-up аудита (если аудитор что-то нашёл — см. audit_findings_live.md).
+1. ✅ Внешний diff-аудит блока ВЫПОЛНЕН (2026-07-17, Fable): вердикт «ГОТОВ К MERGE», 3 Medium
+   починены (`b8d7d0d` v230 + `821420f` kpi-units). Отчёт: `Projects/audit_findings_live.md`.
+2. **Живой код и живая БД > записанный план.** В этой сессии план роутера дважды опровергался зондом:
+   vault-механика (bump недостаточен — нужен vault_versions) и P-2 («раздела нет» — слайд был, но
+   с нулями). Перед реализацией шага из плана — 10-минутный зонд на опровержение постановки.
+3. **При прод-скрине ошибки — сперва `activations.app_version`** (INV-96 companion): «актуальная
+   версия» на словах оказалась 2.1.0 по факту. Диагноз до этой сверки — гадание.
+4. **Инспектируй артефакт программно, не глазами.** «Раздела нет в PPTX» три недели считалось фактом,
+   а python-pptx показал слайд за минуту. Логи sidecar (`%LOCALAPPDATA%\aurora-econometrica-gui\logs`)
+   — решающий дешёвый артефакт: строка `PPTX inputs: ... forecast=yes` разрезала цепочку пополам.
+5. **Маппер/фикстуры — от реального артефакта с диска** ([[feedback_mapper_schema_from_real_artifact]]):
+   схема из docstring без сверки = зелёные тесты + нули в проде.
+6. **Сеть флачит TLS-сбросами** (Supabase, GitHub; WinError 10054 / curl 35): каждый сетевой шаг с
+   retry ×3-5; после обрыва POST — GET-проверка «не прошла ли вставка». Не диагностировать «сервер
+   лёг» по первому сбросу.
+7. **Субагенты**: механику (поиск, инвентаризация стилей, правка памяти по брифу) — Sonnet/Haiku
+   в фоне; их находки верифицировать лично (стилевой аудит дал 2 реальные правки после проверки);
+   Explore-агенты не шлют отчёт сами — запросить SendMessage.
+8. **🔑 Главный приём сессии: АРХЕО-СЛЕДЫ прежде новых стендов.** Все 4 расследования решились
+   УЖЕ СУЩЕСТВУЮЩИМИ следами, ни одно — новым зондом: P-2 разрезал пополам лог sidecar
+   3-дневной давности (`%LOCALAPPDATA%\aurora-econometrica-gui\logs\sidecar.log`, строка
+   `PPTX inputs: … forecast=yes`), «раздел не найден» опроверг готовый PPTX в
+   `…\projects\<проект>\exports\`, реальную версию клиентов вскрыла таблица `activations`
+   (Supabase REST), repro дал установленный прод `C:\Program Files\Optimizer MMM\` (байт-идентичен
+   dist). Перед постройкой repro-стенда / запуском приложения / написанием зонда — 5 минут
+   инвентаризации готовых следов: логи sidecar и Tauri, exports и results/ демо-проектов,
+   activations/audit_log в БД, установленный прод на этой машине, TEST_FINDINGS_* прошлых прогонов.
+   Прошлые сессии оставили богатый durable-след — задача чаще решается его чтением, чем новым прогоном.
 
-## Инварианты/правила
-- INV-50 честность метрик (count-KPI: единица ↔ масштаб ВМЕСТЕ; `insights-grounding.js` НЕ трогать).
-- JS+JSDoc не TS. Клиентский текст: короткое тире «–», без англицизмов, без slash-команд.
-- Релиз по СВОЕМУ каналу; vault=plain gzip-tar (НЕ vault-packer AES); Econometrica hosting=GH Releases.
-- productName «Optimizer MMM» — НЕ менять (upgrade-контракт клиентов 2.1.0).
-- Shared-репо: зонд HEAD/origin ДО коммита/push; узкий pathspec. Сеть → `dangerouslyDisableSandbox`.
-
-## 🔴 Руководство по стилю действий (прочитать ПЕРВЫМ)
-1. **Публикацию через `aurora-secrets.env` + curl/PowerShell, НЕ Supabase MCP** — MCP в этой сессии вернул
-   Unauthorized (нет access token). Секреты: `C:\Users\ackol\.claude\aurora-secrets.env`.
-2. **Сборка из worktree: сначала проверить generated-артефакты.** Grep `aurora_tokens.py`/`*.generated.*` — нет
-   генератора (`Standards/tokens/build.py`) в worktree → скопировать готовые из родителя (`git worktree list`).
-   НЕ гонять build_sidecar вслепую (первая сборка этой сессии FAILED на отсутствии aurora_tokens.py).
-3. **Фоновая команда: exit 0 от `| tail` МАСКИРУЕТ провал.** build_sidecar FAILED, но фон вернул exit 0 (от tail).
-   Читать реальный итог в output-файле («Build SUCCESS/FAILED»), не доверять exit-коду фоновой pipe.
-4. **Аудит перед сборкой окупился — HIGH дефект (count-KPI) прошёл 3 прошлых аудита** (тест проверял ШАПКУ, не
-   ЗНАЧЕНИЕ ячейки — «тест проверяет что заявил агент»). Перед выкатом гонять адверсариальный аудит + верифицировать
-   находки лично. Новый тест ДОЛЖЕН проверять значение/поведение, не только присутствие метки.
-5. **Смоук установленного .exe — БЕЗ моста** (`#[cfg(debug_assertions)]` — только dev). Программная проверка на
-   проде — через ВЫХОДНОЙ артефакт (греп HTML/PPTX отчёта на честный масштаб), не webview. Визуальное — Антон.
-6. **Публикация — ВМЕСТЕ, необратимо.** Не заливать на прод в одиночку. Сверить checksum во ВСЕХ читателях
-   (app_versions + latest.json) синхронно с заливкой .exe (иначе verify_checksum у клиента падает).
+## Историческое (прошлые заходы — сжатая справка)
+- Релиз 2.3.1 в проде (тег `v2.3.1`, PR#3 merged): идеальные демо FMCG/OTC + drill-fix + SEC-03/04;
+  публикация верифицирована по всем каналам (GH Release, app_versions ×2, Edge, content-pack v7).
+- Vault c2: Storage `vaults/econometrica/c2/*.vault`, строка c2 current (id `75605d6b…`), хеши 4 vault
+  различны; верификация клиентским путём + живой /auth SMOKE PASS.

@@ -3,6 +3,8 @@ use log::{debug, error, info, warn};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
 
 use crate::crypto;
 
@@ -43,13 +45,16 @@ impl SessionManager {
             } else {
                 format!("{domain}\\{username}")
             };
-            match std::process::Command::new("icacls")
-                .args([
-                    sessions_root.to_str().unwrap_or_default(),
-                    "/inheritance:r",
-                    "/grant:r",
-                    &format!("{qualified}:(OI)(CI)F"),
-                ])
+            let mut icacls_cmd = std::process::Command::new("icacls");
+            icacls_cmd.args([
+                sessions_root.to_str().unwrap_or_default(),
+                "/inheritance:r",
+                "/grant:r",
+                &format!("{qualified}:(OI)(CI)F"),
+            ]);
+            #[cfg(windows)]
+            icacls_cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+            match icacls_cmd
                 .output()
             {
                 Ok(output) if !output.status.success() => {

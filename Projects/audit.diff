@@ -1,526 +1,846 @@
-diff --git a/sidecar/econometrica/aurora_html/builder.py b/sidecar/econometrica/aurora_html/builder.py
-index 61400a9..f5577a5 100644
---- a/sidecar/econometrica/aurora_html/builder.py
-+++ b/sidecar/econometrica/aurora_html/builder.py
-@@ -23,7 +23,7 @@ from typing import Any
- from . import TEMPLATES_DIR
- from . import themes as themes_mod
- from . import security
--from .sections import SECTION_RENDERERS
-+from .sections import SECTION_RENDERERS, _kpi_view, _contrib_scale, _fmt_contrib
- from .interactive import bootstrap_js
- try:
-     from econometrica.engines.narrative_adapter import compute_report_id, _normalize_channel_name
-@@ -266,6 +266,28 @@ class AuroraHTMLBuilder:
-             reverse=True,
-         )
+diff --git a/src/lib/components/pipeline/ImportStep.svelte b/src/lib/components/pipeline/ImportStep.svelte
+index cc38278..e4663ac 100644
+--- a/src/lib/components/pipeline/ImportStep.svelte
++++ b/src/lib/components/pipeline/ImportStep.svelte
+@@ -76,14 +76,14 @@
+   let savedSamplePath = $state('');
+   let savingSample = $state(false);
  
-+        # Drill-down вклад: count-aware масштаб+единица per channel (fix
-+        # 2026-07-13, INV-50) — раньше жёстко «Вклад, млн ₽» + /1e6, что для
-+        # count-KPI занижало значение в 1e6. Строка форматируется здесь (Python),
-+        # JS её только показывает.
-+        kpi = _kpi_view(self.data)
-+        mroas_details = {}
-+        for c in self.channels:
-+            if not c.get("name"):
-+                continue
-+            contrib_raw = float(c.get("contribution") or 0)
-+            c_scale, c_unit = _contrib_scale(kpi, [contrib_raw])
-+            mroas_details[c.get("name")] = {
-+                "spend_mln":    round(float(c.get("spend") or 0) / 1e6, 2),
-+                "contrib_mln":  round(contrib_raw / 1e6, 2),
-+                "contrib_display": _fmt_contrib(contrib_raw, c_scale),
-+                "contrib_label": "Вклад, " + c_unit,
-+                "mroas":        float(c.get("mroas") or 0),
-+                "verdict":      c.get("verdict") or "Watch",
-+                "current_spend_mln": round(float(c.get("current_spend") or 0) / 1e6, 2),
-+                "optimal_spend_mln": round(float(c.get("optimal_spend") or 0) / 1e6, 2),
-+            }
+-  /** @param {string} filename @param {string} label */
+-  async function downloadSample(filename, label) {
++  /** @param {string} filename @param {string} label @param {string} [subdir] подкаталог sample-data (напр. 'planning/') */
++  async function downloadSample(filename, label, subdir = '') {
+     if (savingSample) return;
+     savingSample = true;
+     sampleMsg = '';
+     savedSamplePath = '';
+     try {
+-      const resp = await fetch(`/sample-data/${filename}`);
++      const resp = await fetch(`/sample-data/${subdir}${filename}`);
+       if (!resp.ok) throw new Error('файл не найден в сборке');
+       const bytes = Array.from(new Uint8Array(await resp.arrayBuffer()));
+       const outputPath = await save({
+@@ -461,6 +461,38 @@
+         {/if}
+       </div>
+ 
++      <!-- 3b. Карточка «Попробовать планирование на примере» — файлы с
++           хвостом-медиапланом: показывают весь функционал (планирование →
++           прогноз → оптимизация бюджета), а не только базовый анализ. -->
++      <div class="intro-card">
++        <div class="intro-card-header">
++          <div class="intro-card-icon">🗓</div>
++          <div class="intro-card-title">Попробовать планирование на примере</div>
++        </div>
++        <div class="intro-card-body">
++          Готовый файл с <strong>историей + медиапланом на будущее</strong> —
++          пройдите весь путь до <strong>оптимизации бюджета</strong>: модель на
++          истории, прогноз по вашему плану и рекомендация, как перераспределить
++          бюджет для роста результата.
++          <br><span class="planning-hint">Совет: на шаге «Валидация» для этих
++          категорий учёт праздников можно отключить — модель станет проще и надёжнее.</span>
++        </div>
++        <div class="sample-grid">
++          <button class="sample-btn" type="button" disabled={savingSample}
++            onclick={() => downloadSample('synth_fmcg_brand.xlsx', 'FMCG — планирование', 'planning/')}>
++            <span class="sample-icon">🛒</span>
++            <span class="sample-label">FMCG бренд · план</span>
++            <span class="sample-hint">Выручка ₽ · 2 года по неделям + медиаплан · оптимизация бюджета</span>
++          </button>
++          <button class="sample-btn" type="button" disabled={savingSample}
++            onclick={() => downloadSample('synth_otc_pharma.xlsx', 'OTC фарма — планирование', 'planning/')}>
++            <span class="sample-icon">💊</span>
++            <span class="sample-label">OTC фарма · план</span>
++            <span class="sample-hint">Упаковки · 5 лет по месяцам + медиаплан · оптимизация бюджета</span>
++          </button>
++        </div>
++      </div>
 +
-         # ─── Waterfall (decomposition) ─────────────────────────────────
-         waterfall = self.raw_decompose.get("waterfall") or {}
-         if isinstance(waterfall, dict):
-@@ -373,17 +395,7 @@ class AuroraHTMLBuilder:
-                 "values": [float(c.get("mroas") or 0) for c in channels_sorted_m],
-                 "hero":   channels_sorted_m[0].get("name") if channels_sorted_m else None,
-                 # Drill-down details per channel (for side-panel)
--                "details": {
--                    c.get("name"): {
--                        "spend_mln":    round(float(c.get("spend") or 0) / 1e6, 2),
--                        "contrib_mln":  round(float(c.get("contribution") or 0) / 1e6, 2),
--                        "mroas":        float(c.get("mroas") or 0),
--                        "verdict":      c.get("verdict") or "Watch",
--                        "current_spend_mln": round(float(c.get("current_spend") or 0) / 1e6, 2),
--                        "optimal_spend_mln": round(float(c.get("optimal_spend") or 0) / 1e6, 2),
--                    }
--                    for c in self.channels if c.get("name")
--                },
-+                "details": mroas_details,
-             },
-             "share": {
-                 "names":      [c.get("name") for c in self.channels],
-diff --git a/sidecar/econometrica/aurora_html/interactive.py b/sidecar/econometrica/aurora_html/interactive.py
-index e1d0f5c..1fb11b9 100644
---- a/sidecar/econometrica/aurora_html/interactive.py
-+++ b/sidecar/econometrica/aurora_html/interactive.py
-@@ -551,7 +551,7 @@ def bootstrap_js(
-       '<div><span class="verdict-badge verdict-' + escapeAttr(safeVerdict) + '">' + escapeHtml(verdictText) + '</span></div>' +
-       '<div style="margin-top:20px;">' +
-         row('Бюджет, млн ₽',       d.spend_mln.toFixed(1)) +
--        row('Вклад, млн ₽',         d.contrib_mln.toFixed(1)) +
-+        row(d.contrib_label || 'Вклад, млн ₽', (d.contrib_display != null ? d.contrib_display : d.contrib_mln.toFixed(1))) +
-         row('mROAS',                formatMroas(d.mroas)) +
-         (d.current_spend_mln ? row('Текущий spend, млн',   d.current_spend_mln.toFixed(1)) : '') +
-         (d.optimal_spend_mln ? row('Оптимальный spend, млн', d.optimal_spend_mln.toFixed(1)) : '') +
-diff --git a/sidecar/econometrica/aurora_html/sections.py b/sidecar/econometrica/aurora_html/sections.py
-index fdf14d2..122dd5d 100644
---- a/sidecar/econometrica/aurora_html/sections.py
-+++ b/sidecar/econometrica/aurora_html/sections.py
-@@ -47,6 +47,41 @@ def _fmt_mln(v: Any, fallback: str = "-") -> str:
-         return fallback
+       <!-- 4. Карточка «Загрузить сохранённый проект» -->
+       <div class="intro-card">
+         <div class="intro-card-header">
+@@ -1281,6 +1313,13 @@
+     font-size: 11px;
+     color: var(--text-muted);
+   }
++  .planning-hint {
++    display: inline-block;
++    margin-top: 6px;
++    font-size: 12px;
++    font-style: italic;
++    color: var(--text-muted);
++  }
+   .archive-msg {
+     margin: 14px 0 0 0;
+     padding: 10px 14px;
+diff --git a/tools/generate_demo_samples.py b/tools/generate_demo_samples.py
+index 7b4cfb9..f55c525 100644
+--- a/tools/generate_demo_samples.py
++++ b/tools/generate_demo_samples.py
+@@ -1,31 +1,38 @@
+-"""
+-Эталонные ДЕМО-файлы для Aurora Econometrica MMM-оптимайзера (режим планирования).
+-
+-Отличие от tools/synthetic_pilot_data.py (SSOT-примеры «Попробовать на примере»):
+-    • synthetic_pilot_data.py → static/sample-data/*.xlsx — SSOT-контракт
+-      (латинские имена, 48 строк, гейт tools/test_sample_data_ssot.py + канарейка
+-      tools/test_priors_calibration.py). ЭТИ файлы НЕ трогаем.
+-    • этот модуль → отдельные ДЕМО-файлы с РАСШИРЕНИЯМИ под ручной прогон
+-      планирования: КИРИЛЛИЧЕСКИЕ имена бюджетов + хвост-МЕДИАПЛАН 12 будущих
+-      месяцев (KPI/контроли пусты, инвестиции заполнены). Кладутся в
+-      static/sample-data/planning/ (SSOT-гейт смотрит только КОРЕНЬ sample-data,
+-      этот подкаталог им не подхватывается) и на рабочий стол Антона.
+-
+-Planted truth сохранён: физические ряды — носители истины, spend = physical×CPP_t,
+-беты решаются АНАЛИТИЧЕСКИ из целевых ROI (_solve_betas_roi / _solve_count_...),
+-сезонность — гладкой годовой волной (авто-Фурье её выносит). Переиспользуем
+-утилиты synthetic_pilot_data (никакого дублирования математики).
+-
+-Отличия датасетов от SSOT-примеров:
+-    • 5 медиаканалов (SSOT — 4), пары «бюджет ₽ + натуральная метрика»;
+-    • ROI-лестница с ВЫРАЖЕННЫМ перекосом (сильный канал недокормлен, слабый
+-      перекормлен) → оптимизатор даёт lift ≥5% с дельтами РАЗНЫХ знаков;
+-    • разные Hill gamma (0.5–0.9) и adstock decay (0.3–0.8) по каналам;
+-    • контроли: category / price / competitor (FMCG) · category / weather /
+-      competitor (OTC);
+-    • медиаплан-хвост 12 мес — осмысленный план (не копия последних месяцев):
+-      тот же суммарный бюджет ±, лёгкий сдвиг в сильные каналы, сезонная
+-      модуляция; KPI и контроли пусты (NaN).
++"""Идеальные ДЕМО-файлы для режима ПЛАНИРОВАНИЯ Aurora Econometrica (MMM Optimizer).
++
++Отдельны от SSOT-примеров tools/synthetic_pilot_data.py (корень static/sample-data/,
++без хвоста, базовый анализ, под SSOT-гейтом). ЭТИ файлы — с хвостом-медиапланом,
++для сквозного показа «планирование → прогноз → оптимизация» ("Попробовать
++планирование на примере"). Кладутся в static/sample-data/planning/ (SSOT-гейт
++смотрит только КОРЕНЬ sample-data, подкаталог не подхватывает).
++
++Дизайн (переработка 2026-07-14 под «очевидную эффективность» + надёжную модель):
++    • Кириллические имена бюджетов + пары «бюджет ₽ + натуральная метрика».
++    • ПЕРЕКОС НАСЫЩЕНИЯ (sat_frac): доминирующий по бюджету канал сидит ЗА точкой
++      полунасыщения Hill (плоско → низкий маржинальный ROAS), недокормленный
++      сильный — ДО (круто → высокий маржинальный). Оптимизатор перекладывает
++      донор→приёмник → заметный прирост при фиксированном бюджете.
++    • Хвост-медиаплан ≥20% истории (иначе optimizer INFEASIBLE на коридоре 20/200:
++      границы считаются на полной истории, а money_target — на хвосте).
++
++Два кейса (по решению Антона: меньше файлов, но идеальные, полный функционал):
++    • FMCG (synth_fmcg_brand) — НЕДЕЛЬНАЯ гранулярность, 104 нед + 26 хвост, KPI
++      «Выручка» ₽. Прод-байес: прирост +11.8%, R² 0.94, ratio 6.7, backtest
++      directional (gap 17.9пп).
++    • OTC противопростудные (synth_otc_pharma) — МЕСЯЧНАЯ, 60 мес + 12 хвост,
++      count-KPI «Продажи, упаковки». Прод-байес: прирост +3.3% итог / +13.6% медиа
++      (count-KPI структурно скромнее), R² 0.88, ratio 5.1, backtest reliable.
++
++🔴 OTC обучать с use_holidays=False (противопростудные нечувствительны к РФ-
++праздникам; 12 авто-праздников иначе роняют ratio и топят модель в overfit).
++FMCG аналогично выигрывает от use_holidays=False (Фурье ловит декабрь годовой
++гармоникой). Флаг задаётся в UI на шаге «Валидация», не в данных.
++
++Math model (identical to Aurora MMM):
++    y[t] = base·(1+season[t]) + Σ_i beta_i·hill(adstock(x_i[t])) + Σ_j coef_j·z_j[t]·y_std + ε
++    adstock(x[t]) = x[t] + decay·adstock(x[t-1])
++    hill(s, alpha, sat_ref) = s^alpha / (s^alpha + sat_ref^alpha)   # sat_ref ФИКСИРОВАН
++    beta_i = ROI_i·Σspend_i / Σhill_i   # аналитически из целевого ROI
+ 
+ Usage:
+     python tools/generate_demo_samples.py
+@@ -34,443 +41,267 @@ Usage:
+ """
+ from __future__ import annotations
+ 
+-import sys
+ from pathlib import Path
+ 
+ import numpy as np
+ import pandas as pd
+ 
+-_TOOLS = Path(__file__).resolve().parent
+-if str(_TOOLS) not in sys.path:
+-    sys.path.insert(0, str(_TOOLS))
+-
+-# Переиспользуем математику planted truth из SSOT-генератора (не дублируем).
+-from synthetic_pilot_data import (  # noqa: E402
+-    _cpp_series,
+-    _indep_channel,
+-    _media_hills,
+-    _normalize,
+-    _season_wave,
+-    _solve_betas_roi,
+-    _solve_count_base_and_betas,
+-    _solve_money_base,
+-)
+-
+-# ─── Ground truth демо (5 каналов, ВЫРАЖЕННЫЙ перекос) ────────────────────────
+-# ROI-лестница: сильный канал недокормлен, слабый перекормлен. Оптимизатор
+-# сдвинет бюджет из слабого в сильный → lift ≥5%, дельты разных знаков.
+-
+-DEMO_GT_FMCG = {
+-    # ТВ 1.2× · Онлайн-видео 2.8× · Наружная 0.8× · Performance 4.2× · Радио 1.0×
+-    # (Performance-ROI усилен для чёткого сигнала недокорма → устойчивый lift ≥5%).
+-    'roi_targets': {'tv': 1.2, 'olv': 2.8, 'ooh': 0.8, 'performance': 4.2, 'radio': 1.0},
+-    # Разные adstock decay 0.3–0.8 и Hill gamma 0.5–0.9 по каналам.
+-    'decay': {'tv': 0.70, 'olv': 0.45, 'ooh': 0.55, 'performance': 0.30, 'radio': 0.60},
+-    'alpha': {'tv': 1.9, 'olv': 1.7, 'ooh': 1.6, 'performance': 1.8, 'radio': 1.5},
+-    'gamma': {'tv': 0.90, 'olv': 0.70, 'ooh': 0.80, 'performance': 0.50, 'radio': 0.75},
+-    'competitor_coef': -0.16,
+-    'price_coef': -0.05,
+-    'category_coef': 0.10,
+-    'season_amp': 0.25,          # ±25% — летний пик + новогодний всплеск (ТЗ FMCG)
+-    'season_peak_month': 7,      # летний пик (июль); декабрь — вторичный всплеск
+-    'media_share_target': 0.33,  # медиа-вклад ~33% продаж (в полосе 25–40%)
+-    'y_std_frac': 0.18,
+-    'noise_frac': 0.04,
+-}
+ 
+-DEMO_GT_OTC = {
+-    # ТВ 1.4× · Онлайн-видео 3.2× · Аптечные материалы 0.7× · Детейлинг 4.6× · Диджитал 1.1×
+-    # Увеличенный ROI-разрыв сильный↔слабый (visits 4.6× vs apteka 0.7×) →
+-    # оптимизатору выгоднее перекладывать бюджет → устойчивый lift ≥5%.
+-    'roi_targets': {'tv': 1.4, 'olv': 3.2, 'apteka': 0.7, 'visits': 4.6, 'digital': 1.1},
+-    'decay': {'tv': 0.65, 'olv': 0.40, 'apteka': 0.50, 'visits': 0.35, 'digital': 0.30},
+-    'alpha': {'tv': 1.9, 'olv': 1.6, 'apteka': 1.7, 'visits': 1.8, 'digital': 1.6},
+-    'gamma': {'tv': 0.90, 'olv': 0.65, 'apteka': 0.80, 'visits': 0.55, 'digital': 0.50},
+-    'competitor_coef': -0.18,
+-    'weather_coef': 0.06,
+-    'category_coef': 0.12,
+-    'season_amp': 0.30,          # ±30% — зимний простудный пик, ноябрь–февраль (ТЗ Pharma)
+-    'season_peak_month': 1,      # пик январь
+-    'media_share_target': 0.32,
+-    # ₽/упаковка (премиальный OTC, напр. противовирусное) — задаёт масштаб count-KPI
+-    # (KPI = вклад/value_per_unit) в полосу 50–200K упаковок/мес, физуровни не трогая.
+-    'value_per_unit': 2600.0,
+-    'y_std_frac': 0.24,
+-    'noise_frac': 0.05,
+-}
++# ─── Утилиты (форма модели программы; sat_ref фиксирован) ─────────────────────
++
++def _geo_adstock(x: np.ndarray, decay: float) -> np.ndarray:
++    s = np.zeros(len(x))
++    for t in range(len(x)):
++        s[t] = x[t] + (decay * s[t - 1] if t > 0 else 0.0)
++    return s
++
++
++def _hill_abs(adstock: np.ndarray, alpha: float, sat_ref_abs: float) -> np.ndarray:
++    """Hill с АБСОЛЮТНОЙ (фиксированной) точкой полунасыщения. Фикс sat_ref
++    обязателен: иначе при масштабировании бюджета среднее «едет» за spend →
++    отклик инвариантен к бюджету → маржинальный ROAS = 0 (оптимизатору нечего
++    перекладывать). В реальной модели half-saturation gamma тоже фиксирован."""
++    xp = np.power(np.maximum(adstock, 0.0) + 1e-12, alpha)
++    return xp / (xp + sat_ref_abs ** alpha)
++
++
++def _sat_ref_from_frac(adstock: np.ndarray, sat_frac: float) -> float:
++    """Абсолютный sat_ref = sat_frac·mean(исходного adstock). sat_frac<1 → канал
++    ЗА насыщением (перекормлен); >1 → ДО (недокормлен)."""
++    return sat_frac * max(float(np.mean(adstock)), 1e-9)
++
++
++def _normalize(x: np.ndarray) -> np.ndarray:
++    s = x.std()
++    return (x - x.mean()) / s if s > 1e-10 else x - x.mean()
++
++
++def _indep_channel(rng, period_idx, lo, hi, peaks=(), peak_amp=0.0, vol=0.30,
++                   floor=None, dark_frac=0.0, period_len=52):
++    """Независимый ряд давления: уровень + сезонный пик (по индексу периода года)
++    + флайтинг (паузы). Идиосинкразия разделяет каналы (anti-collinearity)."""
++    n = len(period_idx)
++    level = rng.uniform(lo, hi, n)
++    if peaks and peak_amp:
++        level = level * (1.0 + peak_amp * np.isin(period_idx, peaks).astype(float))
++    s = level * (1.0 + vol * rng.standard_normal(n))
++    s = s.clip(min=(floor if floor is not None else lo * 0.15))
++    if dark_frac > 0:
++        s = np.where(rng.uniform(0, 1, n) < dark_frac, s * 0.02, s)
++    return s
++
++
++def _cpp_series(rng, n, cpp_base, infl_per_year=0.05, periods_per_year=52, noise=0.03):
++    """CPP_t: медиаинфляция + переговорный шум. Пара spend=physical×CPP_t сильно
++    коррелирована, но НЕ функционально-зависима."""
++    trend = 1.0 + infl_per_year * (np.arange(n) / periods_per_year)
++    jitter = 1.0 + noise * rng.standard_normal(n)
++    return (cpp_base * trend * jitter).clip(min=cpp_base * 0.7)
++
++
++def _season_wave(period_idx, amp, peak_period, period_len):
++    return amp * np.cos(2.0 * np.pi * (period_idx - peak_period) / period_len)
++
++
++def _betas_money(roi, hills, spends):
++    return {c: roi[c] * float(spends[c].sum()) / max(float(hills[c].sum()), 1e-9) for c in roi}
++
++
++def _money_base(roi, spends, media_share, n):
++    total = sum(roi[c] * float(spends[c].sum()) for c in roi)
++    return total * (1.0 / media_share - 1.0) / n
++
+ 
+-# Число месяцев: история + хвост-медиаплан.
+-N_HISTORY = 48
+-N_FUTURE = 12
+-
+-
+-# ─── Hill в форме модели с per-channel gamma ────────────────────────────────
+-# _media_hills SSOT использует фикс gamma=0.9. Для «разного насыщения» (треб. г)
+-# нужен per-channel gamma → локальная версия (форма идентична, gamma из GT).
+-
+-def _media_hills_gamma(raw: dict, decay: dict, alpha: dict, gamma: dict) -> dict:
+-    from synthetic_pilot_data import _geometric_adstock, _hill
+-    out = {}
+-    for ch, x in raw.items():
+-        s_ads = _geometric_adstock(x, decay[ch])
+-        out[ch] = _hill(s_ads / max(s_ads.mean(), 1e-9), alpha[ch], gamma[ch])
+-    return out
+-
+-
+-def _future_plan(
+-    rng: np.random.Generator,
+-    hist_physical: dict[str, np.ndarray],
+-    months_future: np.ndarray,
+-    strong_channels: tuple[str, ...],
+-    weak_channels: tuple[str, ...],
+-    peak_months: tuple[int, ...],
+-) -> dict[str, np.ndarray]:
+-    """Осмысленный медиаплан-хвост (НЕ копия последних месяцев).
+-
+-    Логика: базовый уровень канала = средний исторический (не последний месяц);
+-    лёгкий сдвиг бюджета к сильным каналам (+12%) от слабых (−10%); сезонная
+-    модуляция ±15% по peak_months; малый идиосинкразический шум. Реалистично:
+-    планировщик перекладывает часть бюджета в эффективные каналы и учитывает
+-    сезон, но не копирует прошлое дословно.
+-    """
+-    plan: dict[str, np.ndarray] = {}
+-    for ch, hist in hist_physical.items():
+-        base_level = float(np.mean(hist))          # средний, не последний
+-        shift = 1.12 if ch in strong_channels else (0.90 if ch in weak_channels else 1.0)
+-        seasonal = 1.0 + 0.15 * np.isin(months_future, peak_months).astype(float)
+-        jitter = 1.0 + 0.06 * rng.standard_normal(len(months_future))
+-        series = base_level * shift * seasonal * jitter
+-        plan[ch] = series.clip(min=base_level * 0.25)
+-    return plan
+-
+-
+-# ─── FMCG демо (5 каналов, кириллица, хвост) ─────────────────────────────────
+-
+-def generate_demo_fmcg(seed: int = 142) -> pd.DataFrame:
+-    """FMCG бренд массмаркет — 48 истории + 12 медиаплан-хвост, кириллица.
+-
+-    Каналы (пары physical-носитель + spend): ТВ+TRP, Онлайн-видео+показы,
+-    Наружная реклама+контакты, Performance+клики, Радио+GRP.
+-    Перекос: Наружная ~33% бюджета (ROI 0.8×), Performance недокормлен (ROI 4.2×).
+-    KPI «Выручка» (₽). Контроли: Продажи категории, Индекс цен, Активность
+-    конкурентов. Сезонность ±25% (летний пик, июль).
+-    """
+-    rng = np.random.default_rng(seed)
+-    gt = DEMO_GT_FMCG
+-    n = N_HISTORY
+-    dates_hist = pd.date_range('2021-01-01', periods=n, freq='ME')
+-    months = dates_hist.month.to_numpy()
+-
+-    # ── Физические ряды истории (носители истины) — перекос в объёмах ─────────
+-    # Наружная: крупнейший бюджет × высокий CPT → ~33% бюджета (ROI 0.8×, перекормлен).
+-    # Performance: умеренный объём кликов → ~10% бюджета (ROI 4.2×, НЕДОкормлен) — но
+-    # достаточно объёма/вариации, чтобы OLS на 48 obs уверенно поймал высокий ROI
+-    # (иначе beta тонет в шуме → отрицательная → оптимизатор режет сильный канал).
+-    # Флайтинг (dark_frac) даёт контраст пауза→флайт для опознаваемости вклада.
+-    # Физуровни каналов — «здоровый» диапазон Hill-насыщения (даёт оптимизатору
+-    # запас движения → lift). Денежный масштаб KPI регулируется CPP (ниже), НЕ
+-    # объёмами: оптимизатор чувствителен к абсолютным физуровням (Hill), а
+-    # денежный KPI ∝ медиабюджету = физряд × CPP — рычаги разведены.
+-    tv_trp = _indep_channel(rng, months, 40, 110, peak_months=(6, 7, 8, 12), peak_amp=0.35, vol=0.30, floor=10, dark_frac=0.18)
+-    olv_impressions = _indep_channel(rng, months, 14e6, 46e6, peak_months=(6, 7, 8), peak_amp=0.32, vol=0.42, floor=3e6, dark_frac=0.10)
+-    ooh_contacts = _indep_channel(rng, months, 90e6, 240e6, peak_months=(5, 6, 7, 8), peak_amp=0.35, vol=0.30, floor=18e6, dark_frac=0.15)
+-    performance_clicks = _indep_channel(rng, months, 40_000, 130_000, peak_months=(3, 9, 11), peak_amp=0.30, vol=0.42, floor=9_000, dark_frac=0.10)
+-    # Радио — слабый вспомогательный канал (ROI 1.0×): малая доля бюджета. В OLS-
+-    # режиме без Фурье его beta может уходить в лёгкий минус (ловит сезонный
+-    # остаток) — в боевом байесе с авто-Фурье очищается (проверено зондом).
+-    radio_grp = _indep_channel(rng, months, 20, 62, peak_months=(6, 7), peak_amp=0.25, vol=0.32, floor=5, dark_frac=0.20)
+-
+-    hist_physical = {
+-        'tv': tv_trp, 'olv': olv_impressions, 'ooh': ooh_contacts,
+-        'performance': performance_clicks, 'radio': radio_grp,
+-    }
+-
+-    # ── Пары: spend = physical × CPP_t ───────────────────────────────────────
+-    # CPP-базы (реалистичные РФ, нижняя часть рынка) — задают денежный масштаб
+-    # KPI (∝ медиабюджету) в полосу ~50–200 млн ₽/мес, физуровни (Hill) не трогая.
+-    # TV 170k₽/TRP, OLV CPM 170₽, OOH CPT 60₽, Performance CPC 32₽, Радио 28k₽/GRP.
+-    tv_spend = tv_trp * _cpp_series(rng, months, 170_000)
+-    olv_spend = olv_impressions / 1000.0 * _cpp_series(rng, months, 170.0)
+-    ooh_spend = ooh_contacts / 1000.0 * _cpp_series(rng, months, 60.0)
+-    performance_spend = performance_clicks * _cpp_series(rng, months, 32.0)
+-    radio_spend = radio_grp * _cpp_series(rng, months, 28_000)
+-
+-    spends = {
+-        'tv': tv_spend, 'olv': olv_spend, 'ooh': ooh_spend,
+-        'performance': performance_spend, 'radio': radio_spend,
+-    }
+-
+-    # ── Controls ─────────────────────────────────────────────────────────────
+-    competitor_trp = _indep_channel(rng, months, 30, 200, peak_months=(2, 3, 8), peak_amp=0.25, vol=0.28, floor=0.0)
+-    price_index = (1.0 + 0.02 * np.arange(n) / n + 0.03 * rng.standard_normal(n)).clip(0.85, 1.25)
+-
+-    season = _season_wave(months, gt['season_amp'], gt['season_peak_month'])
+-    # Новогодний всплеск (декабрь) поверх летней волны — вторичный пик.
+-    season = season + 0.12 * (months == 12).astype(float)
+-
+-    hills = _media_hills_gamma(hist_physical, gt['decay'], gt['alpha'], gt['gamma'])
+-
+-    base = _solve_money_base(gt['roi_targets'], spends, gt['media_share_target'], n)
++def _count_base_betas(roi, hills, spends, value_per_unit, media_share, n, y_std_frac):
++    contribs = {c: roi[c] * float(spends[c].sum()) / value_per_unit for c in roi}
++    base = sum(contribs.values()) * (1.0 / media_share - 1.0) / n
++    y_std = base * y_std_frac
++    betas = {c: contribs[c] / max(float(hills[c].sum()), 1e-9) for c in contribs}
++    return base, y_std, betas
++
++
++def _future_tail(dates, phys, spends, n_future, freq):
++    """Хвост-медиаплан: базовый уровень = средний исторический physical канала,
++    spend = physical × средний ист. CPP (+3% медиаинфляция). Сохраняет текущий
++    (неоптимальный) сплит → оптимизатор на хвосте показывает прирост."""
++    if freq == 'W-MON':
++        fut_dates = pd.date_range(dates[-1] + pd.Timedelta(weeks=1), periods=n_future, freq='W-MON')
++    else:
++        fut_dates = pd.date_range(dates[-1] + pd.DateOffset(months=1), periods=n_future, freq='ME')
++    fut_spend, fut_phys = {}, {}
++    for ch in phys:
++        cpp = float(np.mean(spends[ch] / np.maximum(phys[ch], 1e-9))) * 1.03
++        lvl = float(np.mean(phys[ch]))
++        fut_phys[ch] = np.full(n_future, lvl)
++        fut_spend[ch] = np.full(n_future, lvl) * cpp
++    return fut_dates, fut_spend, fut_phys
++
++
++# ─── FMCG (недельный, денежный KPI) ──────────────────────────────────────────
++
++FMCG_GT = {
++    # ТВ+Наружная доминируют бюджетом и перекормлены (sat_frac<1); Онлайн+Performance
++    # недокормлены (sat_frac>1, высокий ROI) → оптимизатор перекладывает донор→приёмник.
++    'roi':      {'tv': 1.7, 'olv': 3.6, 'ooh': 1.2, 'perf': 6.0},
++    'decay':    {'tv': 0.85, 'olv': 0.55, 'ooh': 0.75, 'perf': 0.45},
++    'alpha':    {'tv': 1.7, 'olv': 1.7, 'ooh': 1.6, 'perf': 1.8},
++    'sat_frac': {'tv': 0.38, 'olv': 2.0, 'ooh': 0.34, 'perf': 3.2},
++    'season_amp': 0.15, 'season_peak_wk': 50,
++    'media_share': 0.45, 'y_std_frac': 0.10, 'noise_frac': 0.025,
++    'competitor_coef': -0.10, 'price_coef': -0.03, 'category_coef': 0.05,
++}
++FMCG_HIST, FMCG_FUT, FMCG_PPY, FMCG_SEED = 104, 26, 52, 140  # seed 140: backtest directional/reliable
++
++
++def generate_fmcg() -> pd.DataFrame:
++    """FMCG бренд массмаркет, НЕДЕЛЬНЫЙ (104 нед + 26 хвост). KPI «Выручка» ₽.
++    Каналы: ТВ+TRP, Онлайн-видео+показы, Наружная+контакты, Performance+клики.
++    Контроли: Активность конкурентов, Индекс цен, Продажи категории.
++    Прод-байес (use_holidays=False): прирост +11.8%, R² 0.94, backtest directional."""
++    gt, n = FMCG_GT, FMCG_HIST
++    rng = np.random.default_rng(FMCG_SEED)
++    dates = pd.date_range('2023-01-01', periods=n, freq='W-MON')
++    wk = dates.isocalendar().week.to_numpy()
++
++    tv   = _indep_channel(rng, wk, 20, 65, peaks=(48, 49, 50, 51, 52), peak_amp=0.35, vol=0.22, floor=5, dark_frac=0.10, period_len=FMCG_PPY)
++    olv  = _indep_channel(rng, wk, 11e6, 34e6, peaks=(22, 23, 24), peak_amp=0.28, vol=0.28, floor=2e6, dark_frac=0.05, period_len=FMCG_PPY)
++    ooh  = _indep_channel(rng, wk, 50e6, 140e6, peaks=(20, 21, 22, 23), peak_amp=0.30, vol=0.22, floor=10e6, dark_frac=0.08, period_len=FMCG_PPY)
++    perf = _indep_channel(rng, wk, 20_000, 55_000, peaks=(10, 38, 39), peak_amp=0.25, vol=0.30, floor=4_000, dark_frac=0.06, period_len=FMCG_PPY)
++    phys = {'tv': tv, 'olv': olv, 'ooh': ooh, 'perf': perf}
++
++    tv_s   = tv * _cpp_series(rng, n, 250_000, periods_per_year=FMCG_PPY)
++    olv_s  = olv / 1000.0 * _cpp_series(rng, n, 200.0, periods_per_year=FMCG_PPY)
++    ooh_s  = ooh / 1000.0 * _cpp_series(rng, n, 80.0, periods_per_year=FMCG_PPY)
++    perf_s = perf * _cpp_series(rng, n, 45.0, periods_per_year=FMCG_PPY)
++    spends = {'tv': tv_s, 'olv': olv_s, 'ooh': ooh_s, 'perf': perf_s}
++
++    comp = _indep_channel(rng, wk, 25, 180, peaks=(8, 9, 34), peak_amp=0.22, vol=0.28, floor=0.0, period_len=FMCG_PPY)
++    price = (1.0 + 0.02 * np.arange(n) / n + 0.03 * rng.standard_normal(n)).clip(0.85, 1.25)
++    season = _season_wave(wk, gt['season_amp'], gt['season_peak_wk'], FMCG_PPY)
++
++    ads = {c: _geo_adstock(phys[c], gt['decay'][c]) for c in phys}
++    sat_ref = {c: _sat_ref_from_frac(ads[c], gt['sat_frac'][c]) for c in phys}
++    hills = {c: _hill_abs(ads[c], gt['alpha'][c], sat_ref[c]) for c in phys}
++
++    base = _money_base(gt['roi'], spends, gt['media_share'], n)
+     y_std = base * gt['y_std_frac']
+-    betas = _solve_betas_roi(gt['roi_targets'], hills, spends)
+-
+-    category_sales = (
+-        8.0 * base
+-        * (1.0 + 0.8 * season)
+-        * (1.0 + 0.03 * np.arange(n) / 12.0)
+-        * (1.0 + 0.04 * rng.standard_normal(n))
+-    ).clip(min=1e6)
+-
+-    media_effect = sum(betas[ch] * hills[ch] for ch in betas)
+-    control_effect = (
+-        gt['competitor_coef'] * _normalize(competitor_trp)
+-        + gt['price_coef'] * _normalize(price_index)
+-        + gt['category_coef'] * _normalize(category_sales)
+-    )
+-
+-    sales_rub = (
+-        base * (1.0 + season)
+-        + media_effect
+-        + control_effect * y_std
+-        + rng.normal(0, y_std * gt['noise_frac'], n)
+-    ).clip(min=5e6)
+-
+-    _print_summary('FMCG-демо', sales_rub, spends, betas, hills, monetary=True)
+-
+-    # ── История DataFrame (кириллица) ────────────────────────────────────────
+-    hist = pd.DataFrame({
+-        'Дата': dates_hist,
+-        'Выручка': np.round(sales_rub, 0).astype('int64'),
+-        'ТВ бюджет': np.round(tv_spend, 0).astype('int64'),
+-        'ТВ TRP': np.round(tv_trp, 1),
+-        'Онлайн-видео бюджет': np.round(olv_spend, 0).astype('int64'),
+-        'Онлайн-видео показы': np.round(olv_impressions, 0).astype('int64'),
+-        'Наружная реклама бюджет': np.round(ooh_spend, 0).astype('int64'),
+-        'Наружная реклама контакты': np.round(ooh_contacts, 0).astype('int64'),
+-        'Performance бюджет': np.round(performance_spend, 0).astype('int64'),
+-        'Performance клики': np.round(performance_clicks, 0).astype('int64'),
+-        'Радио бюджет': np.round(radio_spend, 0).astype('int64'),
+-        'Радио GRP': np.round(radio_grp, 1),
+-        'Активность конкурентов': np.round(competitor_trp, 1),
+-        'Индекс цен': np.round(price_index, 4),
+-        'Продажи категории': np.round(category_sales, 0).astype('int64'),
+-    })
++    betas = _betas_money(gt['roi'], hills, spends)
++    category = (8.0 * base * (1.0 + 0.8 * season) * (1.0 + 0.03 * np.arange(n) / FMCG_PPY) * (1.0 + 0.04 * rng.standard_normal(n))).clip(min=1e6)
+ 
+-    # ── Медиаплан-хвост 12 мес ───────────────────────────────────────────────
+-    dates_future = pd.date_range(dates_hist[-1] + pd.DateOffset(months=1), periods=N_FUTURE, freq='ME')
+-    months_future = dates_future.month.to_numpy()
+-    plan_phys = _future_plan(
+-        rng, hist_physical, months_future,
+-        strong_channels=('olv', 'performance'),   # сильные (ROI 2.8×, 4.2×) — сдвиг вверх
+-        weak_channels=('ooh',),                   # слабый (ROI 0.8×) — сдвиг вниз
+-        peak_months=(6, 7, 8, 12),
+-    )
+-    # CPP хвоста = средний исторический spend/physical канала (авто-синхронно с
+-    # историей, устойчиво к смене CPP-баз) + лёгкая медиаинфляция +3%.
+-    def _cpp_hist(spend, phys):
+-        return float(np.mean(spend / np.maximum(phys, 1e-9))) * 1.03
+-    fut_tv_spend = plan_phys['tv'] * _cpp_hist(tv_spend, tv_trp)
+-    fut_olv_spend = plan_phys['olv'] * _cpp_hist(olv_spend, olv_impressions)
+-    fut_ooh_spend = plan_phys['ooh'] * _cpp_hist(ooh_spend, ooh_contacts)
+-    fut_perf_spend = plan_phys['performance'] * _cpp_hist(performance_spend, performance_clicks)
+-    fut_radio_spend = plan_phys['radio'] * _cpp_hist(radio_spend, radio_grp)
++    media_effect = sum(betas[c] * hills[c] for c in betas)
++    control_effect = (gt['competitor_coef'] * _normalize(comp) + gt['price_coef'] * _normalize(price) + gt['category_coef'] * _normalize(category))
++    sales = (base * (1.0 + season) + media_effect + control_effect * y_std + rng.normal(0, y_std * gt['noise_frac'], n)).clip(min=5e6)
+ 
++    hist = pd.DataFrame({
++        'Дата': dates,
++        'Выручка': np.round(sales, 0).astype('int64'),
++        'ТВ бюджет': np.round(tv_s, 0).astype('int64'),
++        'ТВ TRP': np.round(tv, 1),
++        'Онлайн-видео бюджет': np.round(olv_s, 0).astype('int64'),
++        'Онлайн-видео показы': np.round(olv, 0).astype('int64'),
++        'Наружная реклама бюджет': np.round(ooh_s, 0).astype('int64'),
++        'Наружная реклама контакты': np.round(ooh, 0).astype('int64'),
++        'Performance бюджет': np.round(perf_s, 0).astype('int64'),
++        'Performance клики': np.round(perf, 0).astype('int64'),
++        'Активность конкурентов': np.round(comp, 1),
++        'Индекс цен': np.round(price, 4),
++        'Продажи категории': np.round(category, 0).astype('int64'),
++    })
++    fut_dates, fs, fp = _future_tail(dates, phys, spends, FMCG_FUT, 'W-MON')
+     future = pd.DataFrame({
+-        'Дата': dates_future,
+-        'Выручка': [np.nan] * N_FUTURE,
+-        'ТВ бюджет': np.round(fut_tv_spend, 0),
+-        'ТВ TRP': np.round(plan_phys['tv'], 1),
+-        'Онлайн-видео бюджет': np.round(fut_olv_spend, 0),
+-        'Онлайн-видео показы': np.round(plan_phys['olv'], 0),
+-        'Наружная реклама бюджет': np.round(fut_ooh_spend, 0),
+-        'Наружная реклама контакты': np.round(plan_phys['ooh'], 0),
+-        'Performance бюджет': np.round(fut_perf_spend, 0),
+-        'Performance клики': np.round(plan_phys['performance'], 0),
+-        'Радио бюджет': np.round(fut_radio_spend, 0),
+-        'Радио GRP': np.round(plan_phys['radio'], 1),
+-        'Активность конкурентов': [np.nan] * N_FUTURE,
+-        'Индекс цен': [np.nan] * N_FUTURE,
+-        'Продажи категории': [np.nan] * N_FUTURE,
++        'Дата': fut_dates, 'Выручка': [np.nan] * FMCG_FUT,
++        'ТВ бюджет': np.round(fs['tv'], 0), 'ТВ TRP': np.round(fp['tv'], 1),
++        'Онлайн-видео бюджет': np.round(fs['olv'], 0), 'Онлайн-видео показы': np.round(fp['olv'], 0),
++        'Наружная реклама бюджет': np.round(fs['ooh'], 0), 'Наружная реклама контакты': np.round(fp['ooh'], 0),
++        'Performance бюджет': np.round(fs['perf'], 0), 'Performance клики': np.round(fp['perf'], 0),
++        'Активность конкурентов': [np.nan] * FMCG_FUT, 'Индекс цен': [np.nan] * FMCG_FUT, 'Продажи категории': [np.nan] * FMCG_FUT,
+     })
+-
+     return pd.concat([hist, future], ignore_index=True)
  
  
-+def _contrib_scale(kpi: dict, raw_values: Any, money_unit: str = "₽ млн") -> tuple:
-+    """Масштаб и единица столбца «Вклад» (fix 2026-07-13: единица ↔ масштаб).
+-# ─── OTC pharma демо (5 каналов, кириллица, хвост) ───────────────────────────
+-
+-def generate_demo_otc(seed: int = 143) -> pd.DataFrame:
+-    """OTC pharma — 48 истории + 12 медиаплан-хвост, count-KPI (упаковки), кириллица.
+-
+-    Каналы: ТВ+TRP, Онлайн-видео+показы, Аптечные материалы+контакты,
+-    Детейлинг+контакты, Диджитал+клики.
+-    Перекос: Аптечные материалы ~44% (ROI 0.7×), Детейлинг недокормлен
+-    (ROI 4.6×). «Детейлинг» — визиты медпредставителей (отраслевой термин). KPI «Продажи, упаковки». Контроли: Продажи категории,
+-    Температура, Активность конкурентов. Сезонность ±30% (зимний пик, январь).
+-    """
+-    rng = np.random.default_rng(seed)
+-    gt = DEMO_GT_OTC
+-    n = N_HISTORY
+-    dates_hist = pd.date_range('2021-01-01', periods=n, freq='ME')
+-    months = dates_hist.month.to_numpy()
+-
+-    # Аптечные материалы: крупнейший бюджет (~44%, ROI 0.7×, перекормлен).
+-    # Детейлинг: НЕДОкормлен (~15%, ROI 4.6×), но достаточный объём/вариация
+-    # для уверенной OLS-оценки высокого ROI → оптимизатор наращивает его, давая lift.
+-    # OLV/Диджитал — умеренные вспомогательные.
+-    # Масштаб — средний OTC-бренд (KPI ~50–200K упаковок/мес): объёмы физрядов
+-    # подобраны так, чтобы медиабюджет+value_per_unit вывели базу в этой полосе.
+-    # Доли/ROI/lift инвариантны к масштабу (оптимизатор работает на долях).
+-    # Физуровни — «здоровый» Hill-диапазон (даёт оптимизатору запас → lift).
+-    # Масштаб count-KPI (упаковки) регулируется value_per_unit (ниже), НЕ объёмами.
+-    tv_trp = _indep_channel(rng, months, 55, 170, peak_months=(10, 11, 12), peak_amp=0.35, vol=0.32, floor=12, dark_frac=0.18)
+-    # OLV / Диджитал — слабые вспомогательные (малая доля): в OLS-режиме без Фурье
+-    # их beta может уходить в лёгкий минус (сезонный остаток) — в боевом байесе с
+-    # авто-Фурье очищается (проверено зондом: Радио −0.48 → −0.04 с Фурье-контролем).
+-    olv_impressions = _indep_channel(rng, months, 6e6, 22e6, peak_months=(11, 12, 1), peak_amp=0.32, vol=0.42, floor=1.2e6, dark_frac=0.10)
+-    apteka_contacts = _indep_channel(rng, months, 55e6, 150e6, peak_months=(1, 2, 12), peak_amp=0.30, vol=0.30, floor=12e6, dark_frac=0.15)
+-    visits = _indep_channel(rng, months, 2_400, 7_600, peak_months=(9, 10, 11), peak_amp=0.28, vol=0.40, floor=650, dark_frac=0.10)
+-    digital_clicks = _indep_channel(rng, months, 30_000, 110_000, peak_months=(1, 10), peak_amp=0.28, vol=0.40, floor=6_000, dark_frac=0.08)
+-
+-    hist_physical = {
+-        'tv': tv_trp, 'olv': olv_impressions, 'apteka': apteka_contacts,
+-        'visits': visits, 'digital': digital_clicks,
+-    }
+-
+-    # CPP-базы: TV 180k₽/TRP (W18-44), OLV CPM 250₽, Аптечный CPT 400₽,
+-    # Детейлинг 3500₽/визит, Диджитал CPC 35₽.
+-    tv_spend = tv_trp * _cpp_series(rng, months, 180_000)
+-    olv_spend = olv_impressions / 1000.0 * _cpp_series(rng, months, 250.0)
+-    apteka_spend = apteka_contacts / 1000.0 * _cpp_series(rng, months, 400.0)
+-    visits_spend = visits * _cpp_series(rng, months, 3_500.0)
+-    digital_spend = digital_clicks * _cpp_series(rng, months, 35.0)
+-
+-    spends = {
+-        'tv': tv_spend, 'olv': olv_spend, 'apteka': apteka_spend,
+-        'visits': visits_spend, 'digital': digital_spend,
+-    }
+-
+-    competitor_trp = _indep_channel(rng, months, 40, 300, peak_months=(4, 5, 9), peak_amp=0.25, vol=0.30, floor=0.0)
+-    temp_base = -8 * np.cos(2 * np.pi * (months - 1) / 12)
+-    weather_temp_low = np.maximum(0, -(temp_base + rng.normal(0, 3, n)))
+-
+-    season = _season_wave(months, gt['season_amp'], gt['season_peak_month'])
+-
+-    hills = _media_hills_gamma(hist_physical, gt['decay'], gt['alpha'], gt['gamma'])
+-
+-    base, y_std, betas = _solve_count_base_and_betas(
+-        gt['roi_targets'], hills, spends, gt['value_per_unit'],
+-        gt['media_share_target'], n, gt['y_std_frac'])
+-
+-    category_sales = (
+-        6.0 * base
+-        * (1.0 + 0.85 * season)
+-        * (1.0 + 0.02 * np.arange(n) / 12.0)
+-        * (1.0 + 0.04 * rng.standard_normal(n))
+-    ).clip(min=5e4)
+-
+-    media_effect = sum(betas[ch] * hills[ch] for ch in betas)
+-    control_effect = (
+-        gt['competitor_coef'] * _normalize(competitor_trp)
+-        + gt['weather_coef'] * _normalize(weather_temp_low)
+-        + gt['category_coef'] * _normalize(category_sales)
+-    )
+-
+-    sales_packs = (
+-        base * (1.0 + season)
+-        + media_effect
+-        + control_effect * y_std
+-        + rng.normal(0, y_std * gt['noise_frac'], n)
+-    ).clip(min=10_000)
+-
+-    _print_summary('OTC-демо', sales_packs, spends, betas, hills, monetary=False,
+-                   value_per_unit=gt['value_per_unit'])
++# ─── OTC противопростудные (месячный, count-KPI) ─────────────────────────────
 +
-+    Корень бага: вклад канала делился на 1e6 безусловно («₽ млн»), а для count-KPI
-+    единица подписывалась без «млн» → клиент видел «1.3 лид.» вместо «1.3 млн лид.»
-+    (занижение в 1e6, нарушение INV-50). Здесь масштаб и единица выбираются вместе.
-+
-+    monetary/effectiveness → (1e6, money_unit) «₽ млн».
-+    count → адаптивный масштаб по макс |вклад|, единица результата из паспорта.
-+    """
-+    if kpi.get("kpi_kind") != "count":
-+        return 1_000_000.0, money_unit
-+    unit = kpi.get("target_unit") or "ед."
-+    try:
-+        mx = max((abs(float(v or 0)) for v in raw_values), default=0.0)
-+    except (TypeError, ValueError):
-+        mx = 0.0
-+    if mx >= 1_000_000:
-+        return 1_000_000.0, f"млн {unit}"
-+    if mx >= 10_000:
-+        return 1_000.0, f"тыс. {unit}"
-+    return 1.0, unit
++OTC_GT = {
++    # ТВ+Аптека доминируют+перекормлены; Онлайн+Детейлинг недокормлены (высокий ROI).
++    'roi':      {'tv': 1.8, 'olv': 4.4, 'apteka': 1.3, 'visits': 4.6},
++    'decay':    {'tv': 0.60, 'olv': 0.35, 'apteka': 0.45, 'visits': 0.25},
++    'alpha':    {'tv': 1.7, 'olv': 1.7, 'apteka': 1.6, 'visits': 1.8},
++    'sat_frac': {'tv': 0.30, 'olv': 2.6, 'apteka': 0.28, 'visits': 2.6},
++    'season_amp': 0.22, 'season_peak_m': 1,   # простудный пик январь
++    'media_share': 0.52, 'y_std_frac': 0.11, 'noise_frac': 0.025,
++    'competitor_coef': -0.10, 'weather_coef': 0.05,
++}
++OTC_HIST, OTC_FUT, OTC_PPY, OTC_SEED = 60, 12, 12, 245  # seed 245: backtest reliable
++OTC_VALUE_PER_UNIT = 400.0  # ₽/упаковка противопростудного OTC
 +
 +
-+def _fmt_contrib(value: Any, scale: float, fallback: str = "-") -> str:
-+    """Значение вклада в масштабе из _contrib_scale (единый форматтер для ₽ и count)."""
-+    try:
-+        x = float(value) / scale
-+    except (TypeError, ValueError, ZeroDivisionError):
-+        return fallback
-+    if scale == 1.0:
-+        return f"{x:,.0f}".replace(",", chr(0xA0))
-+    return f"{x:.1f}" if abs(x) < 10 else f"{x:.0f}"
++def generate_otc() -> pd.DataFrame:
++    """OTC противопростудные, МЕСЯЧНЫЙ (60 мес + 12 хвост). count-KPI «Продажи,
++    упаковки». Каналы: ТВ+TRP, Онлайн-видео+показы, Аптечные материалы+контакты,
++    Детейлинг+контакты. Контроли: Активность конкурентов, Температура.
++    Обучать с use_holidays=False. Прод-байес: +3.3% итог / +13.6% медиа, backtest reliable."""
++    gt, n = OTC_GT, OTC_HIST
++    rng = np.random.default_rng(OTC_SEED)
++    dates = pd.date_range('2021-01-01', periods=n, freq='ME')
++    m = dates.month.to_numpy()
 +
++    tv   = _indep_channel(rng, m, 55, 170, peaks=(10, 11, 12), peak_amp=0.35, vol=0.22, floor=12, dark_frac=0.10, period_len=OTC_PPY)
++    olv  = _indep_channel(rng, m, 18e6, 48e6, peaks=(11, 12, 1), peak_amp=0.30, vol=0.28, floor=3.5e6, dark_frac=0.05, period_len=OTC_PPY)
++    apteka = _indep_channel(rng, m, 45e6, 130e6, peaks=(1, 2, 12), peak_amp=0.28, vol=0.20, floor=9e6, dark_frac=0.08, period_len=OTC_PPY)
++    visits = _indep_channel(rng, m, 2_200, 6_000, peaks=(9, 10, 11), peak_amp=0.25, vol=0.30, floor=500, dark_frac=0.06, period_len=OTC_PPY)
++    phys = {'tv': tv, 'olv': olv, 'apteka': apteka, 'visits': visits}
 +
- def _fmt_x(v: Any, fallback: str = "-") -> str:
-     try:
-         return f"{float(v):.2f}×"
-@@ -1005,7 +1040,8 @@ def render_mroas(ctx: dict) -> str:
-         chart_title_text = "Доля каналов в эффекте · %"
-         chart_subtitle_text = "Bar chart по share of effect (доли в продажах)"
-     elif kpi["kpi_kind"] == "count":
--        chart_title_text = "CPU по каналам · ₽ за единицу"
-+        cpu_unit = kpi.get("cpu_per_label") or "₽ за единицу"
-+        chart_title_text = f"CPU по каналам · {cpu_unit}"
-         chart_subtitle_text = "Стоимость следующей единицы (incremental cost-per-unit)"
-     else:
-         chart_title_text = "mROAS по каналам · мультипликатор"
-@@ -1128,12 +1164,9 @@ def render_action_table(ctx: dict) -> str:
-     # v1.3.2: KPI-aware main metric column (mROAS / CPU / Доля %).
-     metric_col_header, metric_col_unit = _table_metric_header(kpi)
++    tv_s     = tv * _cpp_series(rng, n, 180_000, periods_per_year=OTC_PPY)
++    olv_s    = olv / 1000.0 * _cpp_series(rng, n, 250.0, periods_per_year=OTC_PPY)
++    apteka_s = apteka / 1000.0 * _cpp_series(rng, n, 400.0, periods_per_year=OTC_PPY)
++    visits_s = visits * _cpp_series(rng, n, 3_500.0, periods_per_year=OTC_PPY)
++    spends = {'tv': tv_s, 'olv': olv_s, 'apteka': apteka_s, 'visits': visits_s}
++
++    comp = _indep_channel(rng, m, 40, 300, peaks=(4, 5, 9), peak_amp=0.25, vol=0.30, floor=0.0, period_len=OTC_PPY)
++    temp_base = -8 * np.cos(2 * np.pi * (m - 1) / 12)
++    weather = np.maximum(0, -(temp_base + rng.normal(0, 3, n)))
++    season = _season_wave(m, gt['season_amp'], gt['season_peak_m'], OTC_PPY)
++
++    ads = {c: _geo_adstock(phys[c], gt['decay'][c]) for c in phys}
++    sat_ref = {c: _sat_ref_from_frac(ads[c], gt['sat_frac'][c]) for c in phys}
++    hills = {c: _hill_abs(ads[c], gt['alpha'][c], sat_ref[c]) for c in phys}
++
++    base, y_std, betas = _count_base_betas(gt['roi'], hills, spends, OTC_VALUE_PER_UNIT, gt['media_share'], n, gt['y_std_frac'])
++    media_effect = sum(betas[c] * hills[c] for c in betas)
++    control_effect = gt['competitor_coef'] * _normalize(comp) + gt['weather_coef'] * _normalize(weather)
++    packs = (base * (1.0 + season) + media_effect + control_effect * y_std + rng.normal(0, y_std * gt['noise_frac'], n)).clip(min=10_000)
  
--    # Пласт 2 (2026-07-11): contrib column unit — для count вклад НЕ в рублях.
--    # budget всегда «₽ млн» (затраты — деньги для любого KPI).
--    if kpi["kpi_kind"] == "count":
--        contrib_unit = kpi.get("target_unit") or "ед."
--    else:
--        contrib_unit = units["contrib"]  # «₽ млн» для monetary/effectiveness
-+    # contrib column масштаб+единица вычисляются ниже (после visible) через
-+    # _contrib_scale: единица и масштаб выбираются согласованно (fix 2026-07-13,
-+    # INV-50). budget всегда «₽ млн» (затраты — деньги для любого KPI).
- 
-     # Title branching (mirrors PPTX S7 post-audit logic)
-     if channels:
-@@ -1169,11 +1202,17 @@ def render_action_table(ctx: dict) -> str:
- 
-     total_contrib = sum(float(c.get("contribution") or 0) for c in visible) or 1.0
- 
-+    # Масштаб+единица столбца «Вклад» — согласованно (fix 2026-07-13, INV-50):
-+    # для count адаптивный масштаб (млн/тыс/ед) с единицей результата из паспорта,
-+    # для monetary — «₽ млн» как раньше.
-+    contrib_scale, contrib_unit = _contrib_scale(
-+        kpi, [c.get("contribution") for c in visible], units["contrib"]
-+    )
-+
-     rows_html = []
-     for c in visible:
-         name = c.get("name") or "-"
-         spend_mln = float(c.get("spend") or 0) / 1_000_000.0
--        contrib_mln = float(c.get("contribution") or 0) / 1_000_000.0
-         mroas = c.get("mroas")
-         verdict = c.get("verdict") or "Watch"
-         share_pct = int(round(float(c.get("contribution") or 0) / total_contrib * 100))
-@@ -1193,7 +1232,7 @@ def render_action_table(ctx: dict) -> str:
-             f'<tr data-channel="{escape(name)}">'
-             f'<td>{escape(name)}</td>'
-             f'<td class="num" data-sort="{spend_mln:.2f}">{_fmt_mln(spend_mln)}</td>'
--            f'<td class="num" data-sort="{contrib_mln:.2f}">{_fmt_mln(contrib_mln)}</td>'
-+            f'<td class="num" data-sort="{float(c.get("contribution") or 0):.2f}">{_fmt_contrib(c.get("contribution"), contrib_scale)}</td>'
-             f'<td class="num" data-sort="{float(mroas or 0):.3f}">{mroas_html}{fn_html}</td>'
-             f'<td class="num" data-sort="{share_pct}">{share_pct}</td>'
-             f'<td><span class="verdict-badge verdict-{escape(verdict)}">{escape(verdict)}</span></td>'
-@@ -1203,7 +1242,8 @@ def render_action_table(ctx: dict) -> str:
-     # Totals
-     if facts:
-         tb = facts.get("total_budget_mln") or 0
--        tc = facts.get("total_contrib_mln") or 0
-+        # raw total contrib для согласованного _fmt_contrib (total_contrib_mln = /1e6).
-+        tc_raw = (facts.get("total_contrib_mln") or 0) * 1_000_000.0
-         wr = facts.get("weighted_roi")
-         # v1.3.2: aggregate cell - adapt unit per KPI/mode.
-         if not wr:
-@@ -1215,7 +1255,8 @@ def render_action_table(ctx: dict) -> str:
-         elif kpi["kpi_kind"] == "count":
-             try:
-                 cpu = 1.0 / float(wr) if float(wr) > 0 else None
--                wr_cell = f"{cpu:.0f} ₽/ед." if cpu else "-"
-+                cpu_unit = kpi.get("cpu_per_label") or "₽/ед."
-+                wr_cell = f"{cpu:.0f} {cpu_unit}" if cpu else "-"
-             except (TypeError, ValueError, ZeroDivisionError):
-                 wr_cell = "-"
-         else:
-@@ -1224,7 +1265,7 @@ def render_action_table(ctx: dict) -> str:
-             f'<tr class="totals-row">'
-             f'<td>{escape(headers["totals"])}</td>'
-             f'<td class="num">{_fmt_mln(tb)}</td>'
--            f'<td class="num">{_fmt_mln(tc)}</td>'
-+            f'<td class="num">{_fmt_contrib(tc_raw, contrib_scale)}</td>'
-             f'<td class="num">{wr_cell}</td>'
-             f'<td class="num">100</td>'
-             f'<td></td>'
-diff --git a/sidecar/econometrica/aurora_pptx/builder.py b/sidecar/econometrica/aurora_pptx/builder.py
-index 7cbb186..0cf1009 100644
---- a/sidecar/econometrica/aurora_pptx/builder.py
-+++ b/sidecar/econometrica/aurora_pptx/builder.py
-@@ -136,6 +136,8 @@ from .kpi_helpers import (
-     table_metric_header as _table_metric_header_pptx,
-     lift_phrase as _lift_phrase_pptx,
-     hero_vs_leader_quote as _hero_vs_leader_quote_pptx,
-+    contrib_scale as _contrib_scale_pptx,
-+    fmt_contrib as _fmt_contrib_pptx,
- )
- 
- 
-@@ -1001,6 +1003,11 @@ class AuroraPPTXBuilder:
-         # (Pre-fix bug: flagged could include channel 15+ which has no rendered
-         # row, leaving the bottom-block footnote orphaned.)
-         visible = channels[:10]
-+        # Масштаб+единица столбца «Вклад» — согласованно с шапкой в s07 (fix
-+        # 2026-07-13, INV-50). Та же логика по тем же данным = детерминированно.
-+        contrib_scale, _ = _contrib_scale_pptx(
-+            self.kpi, [c.get("contribution") for c in visible]
-+        )
-         flagged = [c for c in visible if c.get("verdict") in ("Reduce", "Cut")][:3]
-         fn_by_name = {c["name"]: str(i + 1) for i, c in enumerate(flagged) if c.get("name")}
- 
-@@ -1013,7 +1020,7 @@ class AuroraPPTXBuilder:
-             verdict = c.get("verdict", "Watch")
- 
-             budget_str = f"{spend / 1_000_000:.0f}" if spend else "0"
--            contrib_str = f"{contrib / 1_000_000:.0f}" if contrib else "0"
-+            contrib_str = _fmt_contrib_pptx(contrib, contrib_scale) if contrib else "0"
-             # v1.3.2 audit fix (B4): KPI-aware metric cell - backend convention
-             # c.mroas = mathematical units/₽; для count display invert к CPU.
-             # legacy = '1.5'× / count = '80' (CPU; unit в header «₽/ед.») /
-@@ -1969,10 +1976,10 @@ class AuroraPPTXBuilder:
-         # Header - v1.3.2: main metric column adapts per KPI (mROAS/CPU/Доля).
-         # Пласт 2 (2026-07-11): contrib column unit — для count вклад НЕ в рублях.
-         metric_col_hdr, metric_col_unit = _table_metric_header_pptx(self.kpi)
--        contrib_unit_pptx = (
--            self.kpi.get("target_unit") or "ед."
--            if self.kpi["kpi_kind"] == "count"
--            else "₽ млн"
-+        # Единица столбца «Вклад» — согласованно с масштабом ячеек в
-+        # _build_action_table_rows (fix 2026-07-13, INV-50).
-+        contrib_scale_s07, contrib_unit_pptx = _contrib_scale_pptx(
-+            self.kpi, [c.get("contribution") for c in (self.channels or [])[:10]]
-         )
-         headers = ["Канал", "Бюджет", "Вклад", metric_col_hdr, "Доля эффекта", "Вердикт"]
-         units =   ["",      "₽ млн",  contrib_unit_pptx,  metric_col_unit, "%",  ""]
-@@ -2115,7 +2122,7 @@ class AuroraPPTXBuilder:
-         )
-         if self.facts:
-             tb = self.facts.get("total_budget_mln") or 0
--            tc = self.facts.get("total_contrib_mln") or 0
-+            tc_raw = (self.facts.get("total_contrib_mln") or 0) * 1_000_000.0
-             wr = self.facts.get("weighted_roi")
-             # v1.3.2: aggregate cell adapts per KPI (× / ₽/ед. inverse / 100%).
-             if wr is None:
-@@ -2134,7 +2141,7 @@ class AuroraPPTXBuilder:
-                 wr_cell = f"{wr:.2f}"
-             totals = [
-                 f"{tb:.0f}",
--                f"{tc:.0f}",
-+                _fmt_contrib_pptx(tc_raw, contrib_scale_s07),
-                 wr_cell,
-                 "100",
-             ]
-diff --git a/sidecar/econometrica/aurora_pptx/kpi_helpers.py b/sidecar/econometrica/aurora_pptx/kpi_helpers.py
-index c128ff4..c1710c0 100644
---- a/sidecar/econometrica/aurora_pptx/kpi_helpers.py
-+++ b/sidecar/econometrica/aurora_pptx/kpi_helpers.py
-@@ -146,6 +146,39 @@ def fmt_metric_with_ci_text(mean, ci_low, ci_high, kpi):
-         return base
- 
- 
-+def contrib_scale(kpi, raw_values, money_unit="₽ млн"):
-+    """Масштаб+единица столбца «Вклад» (mirror aurora_html.sections._contrib_scale).
-+
-+    Фикс 2026-07-13 (INV-50): вклад делился на 1e6 безусловно, а единица count-KPI
-+    подписывалась без «млн» → клиент видел «1.3 лид.» вместо «1.3 млн лид.»
-+    (занижение в 1e6). Масштаб и единица теперь выбираются согласованно.
-+    monetary/effectiveness → (1e6, money_unit); count → адаптивно по макс |вклад|.
-+    """
-+    if kpi.get("kpi_kind") != "count":
-+        return 1_000_000.0, money_unit
-+    unit = kpi.get("target_unit") or "ед."
-+    try:
-+        mx = max((abs(float(v or 0)) for v in raw_values), default=0.0)
-+    except (TypeError, ValueError):
-+        mx = 0.0
-+    if mx >= 1_000_000:
-+        return 1_000_000.0, f"млн {unit}"
-+    if mx >= 10_000:
-+        return 1_000.0, f"тыс. {unit}"
-+    return 1.0, unit
-+
-+
-+def fmt_contrib(value, scale, fallback="-"):
-+    """Значение вклада в масштабе contrib_scale (mirror aurora_html.sections)."""
-+    try:
-+        x = float(value) / scale
-+    except (TypeError, ValueError, ZeroDivisionError):
-+        return fallback
-+    if scale == 1.0:
-+        return f"{x:,.0f}".replace(",", chr(0xA0))
-+    return f"{x:.1f}" if abs(x) < 10 else f"{x:.0f}"
-+
-+
- def weighted_summary_phrase(weighted_value, kpi):
-     """Aggregate portfolio metric phrase per kpi/mode.
- 
-diff --git a/sidecar/econometrica/engines/narrative_adapter.py b/sidecar/econometrica/engines/narrative_adapter.py
-index f599cc2..12bcdfa 100644
---- a/sidecar/econometrica/engines/narrative_adapter.py
-+++ b/sidecar/econometrica/engines/narrative_adapter.py
-@@ -709,10 +709,14 @@ def _derive_narrative_facts(
-         "hero_channel": hero.get("name"),
-         "n_active_channels": n_active,
-         "total_budget_mln": total_spend / 1_000_000.0 if total_spend else 0.0,
--        # Пласт 2 (2026-07-11): масштаб «млн» units-neutral — одинаков для ₽ и счётных единиц.
--        # Единица отображения (₽ млн vs ед.) выбирается на стороне consumer (table header)
--        # через kpi_kind. При count kpi таблица подписывает столбец единицами результата,
--        # а не «₽ млн». Само деление на 1e6 корректно для любой метрики.
-+        # Fix 2026-07-13 (INV-50): «млн» НЕ units-neutral. Прежний комментарий
-+        # утверждал, что деление на 1e6 корректно для любой метрики, а единицу
-+        # выбирает consumer — неверно: для count consumer подписывал «лид.» (без
-+        # «млн»), а значение делилось на 1e6 → «1.3 лид.» вместо «1.3 млн лид.»
-+        # (занижение в 1e6). Consumer'ы теперь берут raw вклад и масштабируют через
-+        # _contrib_scale (единица ↔ масштаб вместе). total_contrib_mln оставлен
-+        # (= raw/1e6) для обратной совместимости; для count consumer домножает
-+        # обратно на 1e6 и форматирует через _fmt_contrib.
-         "total_contrib_mln": total_contrib / 1_000_000.0 if total_contrib else 0.0,
-         "weighted_roi": weighted_roi,
-         "leader_share_spend_pct": (leader_spend / total_spend * 100) if total_spend > 0 else None,
-diff --git a/sidecar/econometrica/tests/test_report_text_kpi_aware.py b/sidecar/econometrica/tests/test_report_text_kpi_aware.py
-index bbe4b7b..2a97a18 100644
---- a/sidecar/econometrica/tests/test_report_text_kpi_aware.py
-+++ b/sidecar/econometrica/tests/test_report_text_kpi_aware.py
-@@ -290,6 +290,64 @@ class TestHtmlActionTableCountKpi:
-             assert th_text.strip() != "", "contrib th для count пустой"
+     hist = pd.DataFrame({
+-        'Дата': dates_hist,
+-        'Продажи, упаковки': np.round(sales_packs, 0).astype('int64'),
+-        'ТВ бюджет': np.round(tv_spend, 0).astype('int64'),
+-        'ТВ TRP': np.round(tv_trp, 1),
+-        'Онлайн-видео бюджет': np.round(olv_spend, 0).astype('int64'),
+-        'Онлайн-видео показы': np.round(olv_impressions, 0).astype('int64'),
+-        'Аптечные материалы бюджет': np.round(apteka_spend, 0).astype('int64'),
+-        'Аптечные материалы контакты': np.round(apteka_contacts, 0).astype('int64'),
+-        'Детейлинг бюджет': np.round(visits_spend, 0).astype('int64'),
++        'Дата': dates,
++        'Продажи, упаковки': np.round(packs, 0).astype('int64'),
++        'ТВ бюджет': np.round(tv_s, 0).astype('int64'),
++        'ТВ TRP': np.round(tv, 1),
++        'Онлайн-видео бюджет': np.round(olv_s, 0).astype('int64'),
++        'Онлайн-видео показы': np.round(olv, 0).astype('int64'),
++        'Аптечные материалы бюджет': np.round(apteka_s, 0).astype('int64'),
++        'Аптечные материалы контакты': np.round(apteka, 0).astype('int64'),
++        'Детейлинг бюджет': np.round(visits_s, 0).astype('int64'),
+         'Детейлинг контакты': np.round(visits, 0).astype('int64'),
+-        'Диджитал бюджет': np.round(digital_spend, 0).astype('int64'),
+-        'Диджитал клики': np.round(digital_clicks, 0).astype('int64'),
+-        'Активность конкурентов': np.round(competitor_trp, 1),
+-        'Температура': np.round(weather_temp_low, 2),
+-        'Продажи категории': np.round(category_sales, 0).astype('int64'),
++        'Активность конкурентов': np.round(comp, 1),
++        'Температура': np.round(weather, 2),
+     })
+-
+-    dates_future = pd.date_range(dates_hist[-1] + pd.DateOffset(months=1), periods=N_FUTURE, freq='ME')
+-    months_future = dates_future.month.to_numpy()
+-    plan_phys = _future_plan(
+-        rng, hist_physical, months_future,
+-        strong_channels=('olv', 'visits'),        # сильные (ROI 3.2×, 4.6×) — сдвиг вверх
+-        weak_channels=('apteka',),                # слабый (ROI 0.7×) — сдвиг вниз
+-        peak_months=(11, 12, 1, 2),
+-    )
+-    # CPP хвоста = средний исторический spend/physical (+3% медиаинфляция).
+-    def _cpp_hist(spend, phys):
+-        return float(np.mean(spend / np.maximum(phys, 1e-9))) * 1.03
+-    fut_tv_spend = plan_phys['tv'] * _cpp_hist(tv_spend, tv_trp)
+-    fut_olv_spend = plan_phys['olv'] * _cpp_hist(olv_spend, olv_impressions)
+-    fut_apteka_spend = plan_phys['apteka'] * _cpp_hist(apteka_spend, apteka_contacts)
+-    fut_visits_spend = plan_phys['visits'] * _cpp_hist(visits_spend, visits)
+-    fut_digital_spend = plan_phys['digital'] * _cpp_hist(digital_spend, digital_clicks)
+-
++    fut_dates, fs, fp = _future_tail(dates, phys, spends, OTC_FUT, 'ME')
+     future = pd.DataFrame({
+-        'Дата': dates_future,
+-        'Продажи, упаковки': [np.nan] * N_FUTURE,
+-        'ТВ бюджет': np.round(fut_tv_spend, 0),
+-        'ТВ TRP': np.round(plan_phys['tv'], 1),
+-        'Онлайн-видео бюджет': np.round(fut_olv_spend, 0),
+-        'Онлайн-видео показы': np.round(plan_phys['olv'], 0),
+-        'Аптечные материалы бюджет': np.round(fut_apteka_spend, 0),
+-        'Аптечные материалы контакты': np.round(plan_phys['apteka'], 0),
+-        'Детейлинг бюджет': np.round(fut_visits_spend, 0),
+-        'Детейлинг контакты': np.round(plan_phys['visits'], 0),
+-        'Диджитал бюджет': np.round(fut_digital_spend, 0),
+-        'Диджитал клики': np.round(plan_phys['digital'], 0),
+-        'Активность конкурентов': [np.nan] * N_FUTURE,
+-        'Температура': [np.nan] * N_FUTURE,
+-        'Продажи категории': [np.nan] * N_FUTURE,
++        'Дата': fut_dates, 'Продажи, упаковки': [np.nan] * OTC_FUT,
++        'ТВ бюджет': np.round(fs['tv'], 0), 'ТВ TRP': np.round(fp['tv'], 1),
++        'Онлайн-видео бюджет': np.round(fs['olv'], 0), 'Онлайн-видео показы': np.round(fp['olv'], 0),
++        'Аптечные материалы бюджет': np.round(fs['apteka'], 0), 'Аптечные материалы контакты': np.round(fp['apteka'], 0),
++        'Детейлинг бюджет': np.round(fs['visits'], 0), 'Детейлинг контакты': np.round(fp['visits'], 0),
++        'Активность конкурентов': [np.nan] * OTC_FUT, 'Температура': [np.nan] * OTC_FUT,
+     })
+-
+     return pd.concat([hist, future], ignore_index=True)
  
  
-+class TestContribScaleCountKpi:
-+    """fix 2026-07-13 (INV-50): вклад count-KPI НЕ занижается в 1e6.
-+
-+    Регресс-гейт: старый тест 261 проверял только ЗАГОЛОВОК столбца; значение
-+    ячейки делилось на 1e6 при единице без «млн» → «1.3 лид.» вместо «1.3 млн
-+    лид.» (занижение в миллион раз). Здесь проверяется само ЗНАЧЕНИЕ, границы
-+    масштаба и паритет HTML↔PPTX форматтеров.
-+    """
-+
-+    def test_count_contrib_not_underscaled(self):
-+        from aurora_html.sections import _contrib_scale, _fmt_contrib
-+        kpi = _kpi_count()
-+        scale, unit = _contrib_scale(kpi, [1_300_000])
-+        shown = _fmt_contrib(1_300_000, scale)
-+        shown_num = float(shown.replace(" ", "").replace(" ", ""))
-+        # display × scale ≈ raw (не занижено в 1e6)
-+        assert abs(shown_num * scale - 1_300_000) <= 1_300_000 * 0.05, \
-+            f"вклад занижен: «{shown} {unit}» (scale {scale}) → {shown_num * scale}"
-+        # старый баг: маленькое число с голой единицей результата
-+        assert not (shown_num < 100 and unit == "лид"), \
-+            f"баг занижения: «{shown}» с единицей «{unit}»"
-+        # масштаб отражён в единице
-+        assert scale == 1.0 or "млн" in unit or "тыс" in unit
-+
-+    def test_count_contrib_small_value_full(self):
-+        """Малый count (5 000 лидов) — полное число, не «0.0 млн»."""
-+        from aurora_html.sections import _contrib_scale, _fmt_contrib
-+        kpi = _kpi_count()
-+        scale, unit = _contrib_scale(kpi, [5000])
-+        assert scale == 1.0 and unit == "лид"
-+        assert _fmt_contrib(5000, scale) == "5" + chr(0xA0) + "000"
-+
-+    def test_monetary_contrib_unchanged(self):
-+        """monetary вклад — прежнее поведение «₽ млн» (нет регрессии)."""
-+        from aurora_html.sections import _contrib_scale, _fmt_contrib
-+        kpi = _kpi_monetary()
-+        scale, unit = _contrib_scale(kpi, [1_300_000], "₽ млн")
-+        assert scale == 1_000_000.0 and unit == "₽ млн"
-+        assert _fmt_contrib(1_300_000, scale) == "1.3"
-+
-+    def test_html_pptx_contrib_parity(self):
-+        """HTML и PPTX форматтеры вклада идентичны (mirror — не разъезжаются)."""
-+        from aurora_html.sections import (
-+            _contrib_scale as html_scale, _fmt_contrib as html_fmt,
-+        )
-+        from aurora_pptx.kpi_helpers import (
-+            contrib_scale as pptx_scale, fmt_contrib as pptx_fmt,
-+        )
-+        kpi = _kpi_count()
-+        for val in (12_186_000, 1_300_000, 50_000, 5000, 0):
-+            hs, hu = html_scale(kpi, [val])
-+            ps, pu = pptx_scale(kpi, [val])
-+            assert (hs, hu) == (ps, pu), \
-+                f"scale drift @ {val}: html {(hs, hu)} vs pptx {(ps, pu)}"
-+            assert html_fmt(val, hs) == pptx_fmt(val, ps), \
-+                f"fmt drift @ {val}"
-+
-+
- class TestHtmlAtAGlanceCountKpi:
-     """render_at_a_glance с count kpi: f3_realloc_support НЕ «ROAS»."""
+-# ─── Self-check заложенной истины ────────────────────────────────────────────
+-
+-def _print_summary(name, y, spends, betas, hills, *, monetary, value_per_unit=None):
+-    total_y = float(y.sum())
+-    n = len(y)
+-    total_spend = sum(float(s.sum()) for s in spends.values())
+-    media_total = 0.0
+-    print(f'  [{name}] Σy={total_y:,.0f}{"₽" if monetary else " ед"} · '
+-          f'Σspend={total_spend:,.0f}₽ · base≈{total_y / n:,.0f}/мес')
+-    for ch, beta in betas.items():
+-        contrib = beta * float(hills[ch].sum())
+-        media_total += contrib
+-        spend = float(spends[ch].sum())
+-        share = contrib / total_y * 100.0
+-        spend_share = spend / total_spend * 100.0
+-        if monetary:
+-            roi = contrib / spend
+-        elif value_per_unit:
+-            roi = contrib * value_per_unit / spend
+-        else:
+-            roi = float('nan')
+-        print(f'    {ch:12} бюджет {spend_share:5.1f}% · вклад {share:5.2f}% · ROI {roi:4.2f}×')
+-    print(f'    MEDIA TOTAL   {media_total / total_y * 100:5.2f}%')
+-
+-
+ # ─── Main ────────────────────────────────────────────────────────────────────
  
-diff --git a/src-tauri/Cargo.toml b/src-tauri/Cargo.toml
-index 02e61b6..2e3cef4 100644
---- a/src-tauri/Cargo.toml
-+++ b/src-tauri/Cargo.toml
-@@ -1,6 +1,6 @@
- [package]
- name = "aurora-econometrica-gui"
--version = "2.3.0"
-+version = "2.3.1"
- description = "Aurora AI Econometrica - Marketing Mix Modeling with Claude AI"
- authors = ["Ackold"]
- edition = "2021"
-diff --git a/src-tauri/installer_hooks.nsh b/src-tauri/installer_hooks.nsh
-index a7273a1..1b114c7 100644
---- a/src-tauri/installer_hooks.nsh
-+++ b/src-tauri/installer_hooks.nsh
-@@ -1,10 +1,10 @@
--﻿; Aurora AI Econometrica — NSIS installer hooks (v1.0.9+)
-+﻿; Aurora AI Econometrica – NSIS installer hooks (v1.0.9+)
- ;
- ; Цель: предотвратить Windows Defender Firewall prompt при первом запуске
- ; sidecar'а на ephemeral port. На корпоративных RDP-серверах нет interactive
--; admin для разрешения диалога — без правил sidecar блокируется.
-+; admin для разрешения диалога – без правил sidecar блокируется.
- ;
--; Оба правила scoped на localip=127.0.0.1 — только loopback, никакого
-+; Оба правила scoped на localip=127.0.0.1 – только loopback, никакого
- ; внешнего экспозиш.
- ;
- ; Phase 3.1 (2026-05-23): PREINSTALL hook убивает running sidecar + GUI
-@@ -14,7 +14,7 @@
- ; пропускает локнутые файлы → frontend новый + sidecar старый = silent gaps.
- ;
- ; rc10 (2026-06-07) + фикс кодировки (2026-07-07): ВСЕ внешние команды через
--; nsExec::Exec — НЕ ExecWait и НЕ ExecToLog. ExecWait для консольных программ
-+; nsExec::Exec – НЕ ExecWait и НЕ ExecToLog. ExecWait для консольных программ
- ; (taskkill/netsh) открывает видимое чёрное окно cmd. ExecToLog запускает скрыто,
- ; но ТАЩИТ локализованный вывод утилит (OEM/CP866) в installer-лог → кракозябры
- ; на русской Windows (репорт Антона со скрином 2026-07-07). nsExec::Exec запускает
-@@ -23,9 +23,9 @@
+-DEMO_GENERATORS = [
+-    ('synth_fmcg_brand', generate_demo_fmcg),
+-    ('synth_otc_pharma', generate_demo_otc),
++GENERATORS = [
++    ('synth_fmcg_brand', generate_fmcg),
++    ('synth_otc_pharma', generate_otc),
+ ]
  
- !macro NSIS_HOOK_PREINSTALL
-   ; P3.1 install-lock fix: освобождаем .pyd / .dll перед extract.
--  ; taskkill /IM matches by image name (idempotent — no-op если процесс уже мёртв).
-+  ; taskkill /IM matches by image name (idempotent – no-op если процесс уже мёртв).
-   ; /T убивает дерево, /F форсирует. Игнорируем exit code: 128 = "process not
--  ; found" — это OK, цель достигнута.
-+  ; found" – это OK, цель достигнута.
-   ;
-   ; ASCII-only DetailPrint (audit 2026-05-23): Cyrillic в Tauri 2 NSIS template
-   ; не verified в production-tested Aurora products. Safer fallback на English.
-@@ -33,7 +33,7 @@
-   ; USERNAME filter (audit 2026-05-23): на multi-user RDP server taskkill /IM
-   ; без USERNAME filter может убить процесс другого пользователя с похожим
-   ; именем. /FI "USERNAME eq %USERNAME%" scope kill только к current installer
--  ; user context (даже если elevated — installer runs as invoking user).
-+  ; user context (даже если elevated – installer runs as invoking user).
-   DetailPrint "Preparing for update: stopping background processes..."
-   nsExec::Exec 'taskkill /IM "econometrica-sidecar.exe" /FI "USERNAME eq %USERNAME%" /T /F'
-   Pop $0
-@@ -63,7 +63,7 @@ dir=in action=allow protocol=TCP localip=127.0.0.1 \
- program="$INSTDIR\sidecar\econometrica\econometrica-sidecar.exe"'
-   Pop $0
-   ; Явное окно успеха установки (распоряжение Антона 2026-07-02). В silent/passive
--  ; режиме подавляется (IfSilent) — там app сам перезапустится по /R (onInstSuccess).
-+  ; режиме подавляется (IfSilent) – там app сам перезапустится по /R (onInstSuccess).
-   IfSilent +2
-   MessageBox MB_ICONINFORMATION|MB_OK "Optimizer MMM успешно установлена."
- !macroend
-@@ -73,7 +73,7 @@ program="$INSTDIR\sidecar\econometrica\econometrica-sidecar.exe"'
-   ; econometrica-sidecar.exe (или его python-воркеры) держит локи → uninstall
-   ; зависает / оставляет файлы → «танцы с бубном» при установке новой версии.
-   ; Тот же kill-блок, что в PREINSTALL (idempotent: exit 128 = "not found" = OK).
--  ; USERNAME filter — RDP multi-user safety (не убить чужой процесс).
-+  ; USERNAME filter – RDP multi-user safety (не убить чужой процесс).
-   DetailPrint "Stopping background processes before uninstall..."
-   nsExec::Exec 'taskkill /IM "econometrica-sidecar.exe" /FI "USERNAME eq %USERNAME%" /T /F'
-   Pop $0
-diff --git a/src-tauri/tauri.conf.json b/src-tauri/tauri.conf.json
-index 4dc0d0e..da7870e 100644
---- a/src-tauri/tauri.conf.json
-+++ b/src-tauri/tauri.conf.json
-@@ -1,7 +1,7 @@
- {
-     "$schema": "https://schema.tauri.app/config/2",
-     "productName": "Optimizer MMM",
--    "version": "2.3.0",
-+    "version": "2.3.1",
-     "identifier": "com.aurora.econometrica",
-     "build": {
-         "beforeDevCommand": "npm run dev",
-diff --git a/src/lib/components/pipeline/DecomposeStep.svelte b/src/lib/components/pipeline/DecomposeStep.svelte
-index 8686e6f..9bc5688 100644
---- a/src/lib/components/pipeline/DecomposeStep.svelte
-+++ b/src/lib/components/pipeline/DecomposeStep.svelte
-@@ -253,7 +253,7 @@
-   // Help-tooltips для основной таблицы «Детализация по каналам».
-   const CH_HELP = {
-     spend:   'Расходы - суммарный бюджет канала за весь период анализа.\n\nПочему важно: основа для ROI и доли бюджета. Если канал не в рублях (TRP, показы) - ROI будет искажён.',
--    contrib: 'Вклад - оценка дополнительных продаж от канала (в денежной валюте KPI).\n\nПочему важно: вклад ÷ расход = ROI. Это и есть «деньги, которые принесла реклама поверх базовых продаж».',
-+    contrib: 'Вклад - оценка дополнительного результата от канала в единицах вашего KPI (продажи в рублях, лиды, упаковки и т.п.).\n\nПочему важно: вклад ÷ расход = отдача канала. Это результат, который принесла реклама поверх базового уровня.',
-     roi:     'ROI = вклад ÷ расход. Сколько рублей продаж приносит каждый вложенный рубль.\n\nROI ≥ 2× - отлично. 1-2× - окупается. < 1× - убыточен.\n\nВнимание: ROI > 50× обычно означает, что данные канала не в рублях (TRP, показы, клики) - нужна нормализация.',
-     gap:     'Gap = % эффекта − % бюджета. Разрыв между долей вклада и долей бюджета.\n\n+10% и выше: канал работает сильно эффективнее своей доли бюджета - кандидат на докрутку.\n0 ± 5%: сбалансирован.\n−10% и ниже: канал перенасыщен - каждый дополнительный рубль даёт меньше отдачи.',
-     verdict: 'Вердикт - комбинированная оценка по ROI и Gap.\n\n«Высокоэффективен / Эффективен» - приносит больше своей доли бюджета.\n«Сбалансирован» - окупается, доли совпадают.\n«Слабее своей доли / Перенасыщен» - приносит меньше, чем потребляет бюджета.\n«На грани окупаемости / Убыточный» - ROI ≤ 1×.\n«ROI завышен (не рубли?)» - данные канала не в денежных единицах.\n\n«(широкий ROI-интервал)» - для канала Bayesian-CI шире точечного ROI: читать как диапазон, не точное число. Качество модели в целом оценивается отдельно через R² / MAPE / R-hat. Типичные причины: мало наблюдений, низкая частота канала, корреляции с другими каналами.',
-diff --git a/src/lib/insights-rules.js b/src/lib/insights-rules.js
-index 0e71834..5dc7d8d 100644
---- a/src/lib/insights-rules.js
-+++ b/src/lib/insights-rules.js
-@@ -1563,7 +1563,10 @@ export function decomposeInsights(data, kpiInput = null) {
-       const roi = c.roi != null ? c.roi.toFixed(2) + '×' : '-';
-       const spend = c.spend?.toLocaleString('ru-RU') ?? '-';
-       const contrib = c.contribution?.toLocaleString('ru-RU') ?? '-';
--      return `${rank} ${c.name}: ${c.contribution_pct?.toFixed(0)}% от медиа-вклада, ROI ${roi}, бюджет ${spend} → вклад ${contrib}`;
-+      // fix 2026-07-13 (INV-50): вклад без единицы («вклад 1 300 000») не давал
-+      // понять — лиды это или рубли. Единица результата из паспорта.
-+      const contribUnit = kpi?.targetUnit || '₽';
-+      return `${rank} ${c.name}: ${c.contribution_pct?.toFixed(0)}% от медиа-вклада, ROI ${roi}, бюджет ${spend} → вклад ${contrib} ${contribUnit}`;
-     }).join('\n');
-     out.push({
-       severity: 'info',
+ 
+@@ -478,17 +309,13 @@ def main() -> None:
+     repo_root = Path(__file__).resolve().parent.parent
+     served_dir = repo_root / 'static' / 'sample-data' / 'planning'
+     served_dir.mkdir(parents=True, exist_ok=True)
+-
+-    for name, gen in DEMO_GENERATORS:
++    for name, gen in GENERATORS:
+         df = gen()
+         out = served_dir / f'{name}.xlsx'
+         df.to_excel(out, index=False, sheet_name='Данные')
+         n_hist = int(df.iloc[:, 1].notna().sum())
+-        n_future = len(df) - n_hist
+-        print(f'  → {out.name}: {len(df)} строк ({n_hist} история + {n_future} медиаплан) '
+-              f'× {len(df.columns)} колонок')
+-
+-    print(f'\nГотово. Демо с медиапланом-хвостом: {served_dir}')
++        print(f'  → {out.name}: {len(df)} строк ({n_hist} история + {len(df) - n_hist} медиаплан) × {len(df.columns)} колонок')
++    print(f'\nГотово. Демо планирования: {served_dir}')
+ 
+ 
+ if __name__ == '__main__':

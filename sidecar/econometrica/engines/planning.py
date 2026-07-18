@@ -344,23 +344,33 @@ def load_saved_forecast(project_dir: str) -> dict[str, Any] | None:
           "disclaimers": [...]
         }
 
-    Для каждого variant_id читается results/scenarios/<variant_id>.json:
+    Для каждого variant_id читается results/scenarios/<variant_id>.json —
+    РЕАЛЬНАЯ схема сценария, которую пишет scenario-движок (P-2 fix 2026-07-16:
+    прежняя версия читала top-level ключи total_kpi/total_spend_money/roas_money,
+    которых в файле нет — движок кладёт суммы в totals.* — и подменяла их 0.0,
+    поэтому слайд/HTML показывали ложные нули):
         {
-          "name": str,
+          "scenario_name": str,
           "predictions": [...],
-          "predictions_ci_low": [...],
+          "predictions_ci_low": [...],           # per-period серии
           "predictions_ci_high": [...],
-          "total_kpi": float,
-          "total_spend_money": float,
-          "roas_money": float,
+          "totals": {
+            "predicted_kpi": float,              # сумма KPI за горизонт
+            "predicted_kpi_ci_low": float,       # интервал СУММЫ за горизонт
+            "predicted_kpi_ci_high": float,
+            "total_spend_money": float | null,   # null для физметрик (TRP/показы)
+            "roas_money": float | null,
+            ...
+          },
           "disclaimers": [...],
-          "future_dates": [...],
-          "period_labels": [...]
+          "future_dates": [...]
         }
+    Легаси top-level ключи (name/total_kpi/...) читаются как fallback.
 
     Возвращает None если planning.json отсутствует или не загружается.
     Возвращает None если ни один сценарий не загрузился.
-    INV-50: никаких wireframe-суррогатов — только живые данные.
+    INV-50: никаких wireframe-суррогатов — только живые данные; отсутствующее
+    значение остаётся None (в отчёте «—»), НЕ подменяется нулём.
     """
     base = Path(project_dir)
     planning_path = base / 'results' / 'planning.json'
@@ -387,6 +397,13 @@ def load_saved_forecast(project_dir: str) -> dict[str, Any] | None:
     scenarios: list[dict] = []
     all_disclaimers: list[str] = list(plan_disclaimers)
 
+    def _first_float(*vals) -> float | None:
+        """Первое не-None значение как float; иначе None (не 0 — INV-50)."""
+        for v in vals:
+            if v is not None:
+                return float(v)
+        return None
+
     for vid in variant_ids:
         sc_path = scenarios_dir / f'{vid}.json'
         if not sc_path.exists():
@@ -404,15 +421,21 @@ def load_saved_forecast(project_dir: str) -> dict[str, Any] | None:
             if d not in all_disclaimers:
                 all_disclaimers.append(d)
 
+        totals = sc.get('totals') or {}
+
         scenarios.append({
-            'name': str(sc.get('name') or vid),
+            'name': str(sc.get('scenario_name') or sc.get('name') or vid),
             'variant_id': vid,
             'predictions': list(sc.get('predictions') or []),
             'ci_low': list(sc.get('predictions_ci_low') or []),
             'ci_high': list(sc.get('predictions_ci_high') or []),
-            'total_kpi': float(sc['total_kpi']) if sc.get('total_kpi') is not None else 0.0,
-            'total_spend_money': float(sc['total_spend_money']) if sc.get('total_spend_money') is not None else 0.0,
-            'roas_money': float(sc['roas_money']) if sc.get('roas_money') is not None else 0.0,
+            'total_kpi': _first_float(totals.get('predicted_kpi'), sc.get('total_kpi')),
+            'total_spend_money': _first_float(totals.get('total_spend_money'), sc.get('total_spend_money')),
+            'roas_money': _first_float(totals.get('roas_money'), sc.get('roas_money')),
+            # Интервал СУММЫ за горизонт (тот же, что в GUI-карточке варианта —
+            # SSOT чисел клиенту; per-period серии выше — для графиков).
+            'total_kpi_ci_low': _first_float(totals.get('predicted_kpi_ci_low')),
+            'total_kpi_ci_high': _first_float(totals.get('predicted_kpi_ci_high')),
             'period_labels': list(sc.get('period_labels') or sc.get('future_dates') or []),
             'disclaimers': sc_disclaimers,
         })
