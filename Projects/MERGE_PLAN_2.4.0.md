@@ -73,10 +73,14 @@
       + в tests/conftest.py `MPLBACKEND=Agg` страховкой; заодно защищает клиентский бандл
       (PyInstaller excludes tkinter НЕ найден в build_sidecar.py — бандл может нести Tk!).
       Затем pytest ×2-3 прогона стабильно зелёный.
-- [ ] **5.** Аудит: handoff по диффу `v2.3.1..HEAD(песочницы)` → 2 независимых аудитора
-      (фронт + python, subagent sonnet/opus) с явным заданием: сверить КАЖДОЕ разрешение
-      конфликта против обеих родительских версий → триаж → фикс-коммит.
-- [ ] **6.** CI начисто: пуш `feat/econ-2.4.0` → PR draft → Test&Lint зелёные.
+- [~] **4b.** ✅ Agg-фикс СДЕЛАН (`ab27ed9`, запушен): `charts/__init__.py` форсирует Agg до pyplot;
+      негатив-проба MPLBACKEND=TkAgg проходит (переопределение доказано), pytest ×3 = 700 стабильно.
+- [~] **5.** АУДИТ ИДЁТ (2026-07-18): 2 opus-аудитора запущены по готовым диффам
+      `Projects/audit_240_front.diff` (756 строк, src/+src-tauri/) и `audit_240_python.diff`
+      (574, sidecar/), акцент — сверка разрешений merge с ОБЕИМИ родительскими версиями
+      (builder.py/sections.py/build_sidecar.py — авто-слияние = зона риска). Ждём отчёты → триаж.
+- [~] **6.** CI ИДЁТ: **PR #4 (draft)** feat/econ-2.4.0 → feat/econ-v2.3.0 создан, Test&Lint
+      запущен, фоновый монитор `gh pr checks 4 --watch` активен.
 - [ ] **7.** ff-слияние песочницы → `feat/econ-v2.3.0` + bump **2.4.0**
       (Cargo.toml, tauri.conf.json, package.json; tauri.local.conf.json — version там НЕТ,
       наследуется; сверить по факту + Cargo.lock/package-lock).
