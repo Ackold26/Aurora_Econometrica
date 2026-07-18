@@ -75,12 +75,21 @@
       Затем pytest ×2-3 прогона стабильно зелёный.
 - [~] **4b.** ✅ Agg-фикс СДЕЛАН (`ab27ed9`, запушен): `charts/__init__.py` форсирует Agg до pyplot;
       негатив-проба MPLBACKEND=TkAgg проходит (переопределение доказано), pytest ×3 = 700 стабильно.
-- [~] **5.** АУДИТ ИДЁТ (2026-07-18): 2 opus-аудитора запущены по готовым диффам
-      `Projects/audit_240_front.diff` (756 строк, src/+src-tauri/) и `audit_240_python.diff`
-      (574, sidecar/), акцент — сверка разрешений merge с ОБЕИМИ родительскими версиями
-      (builder.py/sections.py/build_sidecar.py — авто-слияние = зона риска). Ждём отчёты → триаж.
-- [~] **6.** CI ИДЁТ: **PR #4 (draft)** feat/econ-2.4.0 → feat/econ-v2.3.0 создан, Test&Lint
-      запущен, фоновый монитор `gh pr checks 4 --watch` активен.
+- [x] **5.** ✅ АУДИТ ЗАКРЫТ (2026-07-18): 2 opus-аудитора, **0 High / 0 Medium / 2 Low**.
+      Фронт+Rust: потерь merge нет (kpi-файлы байт==v2.3.1, отброшенная сторона — только JSDoc);
+      14 creation_flags и импорты сходятся; maximized корректен; INV-50 чисто. Python: реверс-патчи
+      ОБЕИХ родительских сторон (85df196 P-2 + dc01a9c count-KPI) применяются чисто к HEAD —
+      вклады целы, дублей нет (Маша перепроверила лично); P-2 сверен с писателем scenario.py;
+      TOC-формула сверена с build(); Agg-зонд жив. Low-находки → в бэклог, НЕ чинились
+      (хирургия): (1) предсущ. em-dash PromisesCard:112 (задача чистки файла уже в бэклоге);
+      (2) мёртвая ветка guard build_sidecar.py:157. Поправка к аргументу фронт-аудитора:
+      «Linux-CI» не существует (windows-latest) — вердикт не меняет, cfg проверены прямо.
+- [x] **7a.** ✅ BUMP 2.4.0 (`65e6e3c`, запушен): package.json+lock (npm version), Cargo.toml+lock
+      (cargo check), tauri.conf.json; tauri.local.conf.json версии НЕ содержит (наследует).
+- [~] **6.** CI ФИНАЛЬНЫЙ ПРОГОН на bump-SHA `65e6e3c`: **PR #4 (draft, base=master** — ci.yml
+      слушает только master; ретаргет не триггерит (edited), сработал reopen; заодно PR = заготовка
+      шага 11**)**. Прошлый прогон на ab27ed9: Python Tests ✅ 1m22s · Help Docs Sync ✅ · Test&Lint
+      не дождались (перезапуск). Монитор активен. После зелёного → 7b: ff-merge в feat/econ-v2.3.0.
 - [ ] **7.** ff-слияние песочницы → `feat/econ-v2.3.0` + bump **2.4.0**
       (Cargo.toml, tauri.conf.json, package.json; tauri.local.conf.json — version там НЕТ,
       наследуется; сверить по факту + Cargo.lock/package-lock).
