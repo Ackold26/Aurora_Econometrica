@@ -9,14 +9,15 @@
     { id: 'index',             title: 'Быстрый старт',          group: 'start',    keywords: 'начало старт обзор лицензия запуск' },
     { id: 'about',             title: 'О продукте',              group: 'start',    keywords: 'продукт автор эконометрика MMM' },
     { id: 'features',          title: 'Каталог функций',         group: 'start',    keywords: 'функции возможности каталог фичи список что умеет пайплайн режимы оптимизация экспорт' },
-    { id: 'whats-new',         title: 'Что нового в 2.1',        group: 'start',    keywords: 'новое изменения changelog версия 2.1 что нового релиз обновление' },
+    { id: 'whats-new',         title: 'Что нового в 2.4',        group: 'start',    keywords: 'новое изменения changelog версия 2.4 что нового релиз обновление' },
     { id: 'user-guide',        title: 'Руководство пользователя', group: 'start',   keywords: 'руководство гайд инструкция шаги' },
     { id: 'system-requirements', title: 'Системные требования',  group: 'start',    keywords: 'требования компьютер оборудование ОС windows RAM CPU диск python jax numpyro зависимости' },
     { id: 'faq',               title: 'FAQ и troubleshooting',   group: 'start',    keywords: 'вопросы проблемы troubleshooting python mcmc' },
     { id: 'error-codes',       title: 'Коды ошибок',             group: 'start',    keywords: 'ошибка код диагностика проблема' },
+    { id: 'install',           title: 'Установка и удаление',    group: 'start',    keywords: 'установка удаление деинсталляция инструкция WebView2 брандмауэр firewall loopback perMachine активация лицензия uninstall-cleanup' },
 
     { id: 'data-preparation',  title: 'Подготовка данных',       group: 'data',     keywords: 'данные подготовка структура столбцы kpi media control date формат недельные помесячные FMCG pharma фарма объём ratio csv xlsx' },
-    { id: 'pipeline',          title: 'Pipeline: 6 шагов',       group: 'data',     keywords: 'pipeline import validate train decompose optimize report импорт валидация шаги процесс' },
+    { id: 'pipeline',          title: 'Pipeline: 7 шагов',       group: 'data',     keywords: 'pipeline import validate train decompose optimize planning report импорт валидация шаги процесс планирование горизонт инфляция backtest сценарии' },
     { id: 'methodology',       title: 'Методология MMM',         group: 'data',     keywords: 'MMM bayesian байес MCMC NUTS hill adstock saturation насыщение trust levels CPP' },
     { id: 'glossary',          title: 'Глоссарий терминов',      group: 'data',     keywords: 'глоссарий термины словарь определения ROAS ROI adstock насыщение MCMC R-hat ESS CPU CPP GRP TRP охват частота эластичность декомпозиция база lift backtest' },
 

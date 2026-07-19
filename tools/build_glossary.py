@@ -426,7 +426,7 @@ a:hover {{ text-decoration: underline; }}
 </div>
 
 <div class="footer">
-  <p>Aurora AI Econometrica · © 2026 А. Сипович · глоссарий генерируется из единого источника</p>
+  <p>Aurora AI Econometrica · © 2026 ООО «Платформа Аврора» · auroraai.pro · глоссарий генерируется из единого источника</p>
 </div>
 
 <script>

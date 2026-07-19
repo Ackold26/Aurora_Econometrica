@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Методология — Aurora AI Econometrica</title>
+<title>Методология – Aurora AI Econometrica</title>
 <script src="econ-nav.js" defer></script>
 <style>
 :root { --bg: #0d1117; --bg2: #161b22; --bg3: #1c2128; --text: #e6edf3; --text2: #8b949e; --text3: #6e7681; --accent: #58a6ff; --border: #30363d; --green: #3fb950; --amber: #d29922; --red: #f85149; --purple: #bc8cff; --teal: #39d0d8; }
@@ -39,7 +39,7 @@ td:first-child { color: var(--text); }
 
 <div class="container">
 <h1>Методология MMM</h1>
-<p class="sub">Bayesian Marketing Mix Modeling — как именно модель находит вклад каналов и почему это надёжнее regression-подходов.</p>
+<p class="sub">Bayesian Marketing Mix Modeling – как именно модель находит вклад каналов и почему это надёжнее regression-подходов.</p>
 
 <h2>Общая идея</h2>
 <p>MMM разлагает продажи на базу (всё, что было бы без медиа) и вклад каждого канала, учитывая перенос эффекта во времени (adstock) и насыщение (saturation).</p>
@@ -56,60 +56,60 @@ channel_effect[c, t] = β[c] × Hill( Adstock( spend[c, t] ) )
 <div class="formula">
 adstock[t] = spend[t] + λ × adstock[t-1],  λ ∈ (0, 1)
 </div>
-<p>Экспоненциальное затухание. Чем выше λ — тем дольше эффект. Для digital-каналов обычно <code>λ ≈ 0.2–0.5</code> (половина эффекта уходит за 1–2 периода).</p>
+<p>Экспоненциальное затухание. Чем выше λ – тем дольше эффект. Для digital-каналов обычно <code>λ ≈ 0.2–0.5</code> (половина эффекта уходит за 1–2 периода).</p>
 
-<h3>Weibull adstock (для TV / ATL — длинная с задержкой)</h3>
+<h3>Weibull adstock (для TV / ATL – длинная с задержкой)</h3>
 <div class="formula">
 adstock[t] = Σ spend[t-i] × weibull_weight(i; shape, scale)
 </div>
 <p>Более гибкая форма: пик эффекта может быть через 1–2 недели после flight'а (классический TV-эффект), потом постепенное затухание. Используется по умолчанию для TV, Radio, OOH, Press.</p>
 
 <h2>Saturation (Hill function)</h2>
-<p>Удваивание бюджета не даёт удваивания эффекта. После некоторой точки каждая следующая «порция денег» приносит всё меньше — канал насыщается.</p>
+<p>Удваивание бюджета не даёт удваивания эффекта. После некоторой точки каждая следующая «порция денег» приносит всё меньше – канал насыщается.</p>
 
 <div class="formula">
 Hill(x; α, γ) = x^α / (x^α + γ^α)
 </div>
 
 <ul>
-  <li><strong>α (shape)</strong> — крутизна кривой. Низкое α = медленный рост + долгое плато. Высокое α = резкий скачок + быстрое насыщение.</li>
-  <li><strong>γ (half-saturation)</strong> — точка, в которой эффект достигает 50% от максимума. Ключевой параметр для оптимизации: выше γ — больше пространства для роста.</li>
+  <li><strong>α (shape)</strong> – крутизна кривой. Низкое α = медленный рост + долгое плато. Высокое α = резкий скачок + быстрое насыщение.</li>
+  <li><strong>γ (half-saturation)</strong> – точка, в которой эффект достигает 50% от максимума. Ключевой параметр для оптимизации: выше γ – больше пространства для роста.</li>
 </ul>
 
-<h2>Bayesian inference — MCMC / NUTS</h2>
+<h2>Bayesian inference – MCMC / NUTS</h2>
 <p>В отличие от OLS/ridge/lasso, Bayesian MMM даёт не одну точку, а распределение значений для каждого параметра. Это важно: мы не просто знаем «ROI TV = 1.8×», но и «95%-й правдоподобный диапазон: 1.2–2.4×».</p>
 
-<p>Инференс через <strong>NUTS</strong> (No-U-Turn Sampler) — современный вариант Hamiltonian Monte Carlo. Реализация на <a href="https://num.pyro.ai">NumPyro</a> + JAX.</p>
+<p>Инференс через <strong>NUTS</strong> (No-U-Turn Sampler) – современный вариант Hamiltonian Monte Carlo. Реализация на <a href="https://num.pyro.ai">NumPyro</a> + JAX.</p>
 
 <div class="callout">
   <div class="c-title">MCMC ≠ Markov Chain</div>
-  <p>MCMC расшифровывается как <strong>Markov Chain Monte Carlo</strong>. Это семейство алгоритмов, где Markov Chain — математическая основа (каждый следующий сэмпл зависит только от текущего), Monte Carlo — способ получения (случайное сэмплирование). Часто путают: в интерфейсе мы пишем «MCMC» вместо «Markov Chain», потому что Markov Chain сам по себе — это не алгоритм, а математическая конструкция.</p>
+  <p>MCMC расшифровывается как <strong>Markov Chain Monte Carlo</strong>. Это семейство алгоритмов, где Markov Chain – математическая основа (каждый следующий сэмпл зависит только от текущего), Monte Carlo – способ получения (случайное сэмплирование). Часто путают: в интерфейсе мы пишем «MCMC» вместо «Markov Chain», потому что Markov Chain сам по себе – это не алгоритм, а математическая конструкция.</p>
 </div>
 
 <h3>Параметры по умолчанию</h3>
 <div class="table-wrap"><table>
 <tr><th>Параметр</th><th>Default</th><th>Что означает</th></tr>
-<tr><td>chains</td><td>4</td><td>Параллельных цепей — для проверки конвергенции через R-hat</td></tr>
-<tr><td>warmup</td><td>2000</td><td>«Прогрев» перед сэмплированием — цепь стабилизируется</td></tr>
-<tr><td>samples</td><td>2000</td><td>Сэмплов после warmup — из них строятся posterior-распределения</td></tr>
-<tr><td>target_accept</td><td>0.8</td><td>Целевой acceptance rate NUTS — 0.8 баланс скорости и точности</td></tr>
+<tr><td>chains</td><td>4</td><td>Параллельных цепей – для проверки конвергенции через R-hat</td></tr>
+<tr><td>warmup</td><td>2000</td><td>«Прогрев» перед сэмплированием – цепь стабилизируется</td></tr>
+<tr><td>samples</td><td>2000</td><td>Сэмплов после warmup – из них строятся posterior-распределения</td></tr>
+<tr><td>target_accept</td><td>0.8</td><td>Целевой acceptance rate NUTS – 0.8 баланс скорости и точности</td></tr>
 </table></div>
 
 <h3>Диагностика конвергенции</h3>
 <ul>
-  <li><strong>R-hat</strong> — отношение межцепной и внутрицепной дисперсии. <code>&lt; 1.05</code> — отлично; <code>&lt; 1.1</code> — приемлемо; <code>&gt; 1.1</code> — <strong>модели нельзя доверять</strong>.</li>
-  <li><strong>Divergences</strong> — NUTS обнаружил проблемные области posterior. 0 — идеально; до 10 — приемлемо; больше — увеличить <code>target_accept</code> или упростить модель. <strong>Быстрый рычаг упрощения:</strong> отключить учёт праздников РФ на шаге «Валидация» (мастер-выключатель убирает ~12 контролей-параметров и в большинстве случаев устраняет дивергенции без смещения ROI каналов). Альтернатива — вручную исключить неинформативные регрессоры.</li>
-  <li><strong>ESS (Effective Sample Size)</strong> — сколько «независимых» сэмплов в цепи. Если ESS &lt; 400 на параметр — результат шумный.</li>
+  <li><strong>R-hat</strong> – отношение межцепной и внутрицепной дисперсии. <code>&lt; 1.05</code> – отлично; <code>&lt; 1.1</code> – приемлемо; <code>&gt; 1.1</code> – <strong>модели нельзя доверять</strong>.</li>
+  <li><strong>Divergences</strong> – NUTS обнаружил проблемные области posterior. 0 – идеально; до 10 – приемлемо; больше – увеличить <code>target_accept</code> или упростить модель. <strong>Быстрый рычаг упрощения:</strong> отключить учёт праздников РФ на шаге «Валидация» (мастер-выключатель убирает ~12 контролей-параметров и в большинстве случаев устраняет дивергенции без смещения ROI каналов). Альтернатива – вручную исключить неинформативные регрессоры.</li>
+  <li><strong>ESS (Effective Sample Size)</strong> – сколько «независимых» сэмплов в цепи. Если ESS &lt; 400 на параметр – результат шумный.</li>
 </ul>
 
-<h2>MQS — Model Quality Score</h2>
+<h2>MQS – Model Quality Score</h2>
 <p>Агрегированный score 0–100, составленный из:</p>
 <div class="formula">
 MQS = 0.4 × R² + 0.3 × MAPE_score + 0.3 × convergence_score
 </div>
 <ul>
-  <li><strong>R²</strong> — доля объяснённой вариации продаж</li>
-  <li><strong>MAPE_score</strong> = max(0, 100 − 2×MAPE%) — точность прогноза</li>
+  <li><strong>R²</strong> – доля объяснённой вариации продаж</li>
+  <li><strong>MAPE_score</strong> = max(0, 100 − 2×MAPE%) – точность прогноза</li>
   <li><strong>convergence_score</strong> = 100 если R-hat&lt;1.05 и 0 divergences; иначе 70 или 30</li>
 </ul>
 
@@ -119,30 +119,30 @@ MQS = 0.4 × R² + 0.3 × MAPE_score + 0.3 × convergence_score
 </div>
 
 <h3>Thin-data cap</h3>
-<p>При малом количестве данных модель может получить R²=0.99 просто потому что «запомнила» ряд — переобучение. Aurora ограничивает MQS на тонких данных:</p>
+<p>При малом количестве данных модель может получить R²=0.99 просто потому что «запомнила» ряд – переобучение. Aurora ограничивает MQS на тонких данных:</p>
 <div class="table-wrap"><table>
 <tr><th>Ratio</th><th>Cap</th><th>Смысл</th></tr>
-<tr><td>&lt; 2</td><td>50 / 100</td><td>Критически мало — даже идеально сошедшаяся модель не может получить больше «Слабое»</td></tr>
-<tr><td>&lt; 4</td><td>70 / 100</td><td>Пограничная зона — не выше «Хорошо»</td></tr>
+<tr><td>&lt; 2</td><td>50 / 100</td><td>Критически мало – даже идеально сошедшаяся модель не может получить больше «Слабое»</td></tr>
+<tr><td>&lt; 4</td><td>70 / 100</td><td>Пограничная зона – не выше «Хорошо»</td></tr>
 <tr><td>≥ 4</td><td>без cap</td><td>Достаточно данных, score отражает реальное качество</td></tr>
 </table></div>
 
-<h2>Trust Levels — защита от ложного доверия</h2>
+<h2>Trust Levels – защита от ложного доверия</h2>
 
-<h3>Level 1 — Smell tests (реализовано)</h3>
+<h3>Level 1 – Smell tests (реализовано)</h3>
 <p>Автоматические проверки после каждого train/decompose. Банеры в UI при:</p>
 <ul>
-  <li>ROI &gt; 50× — признак переобучения или unit-mixing</li>
-  <li>Суммарный вклад media &gt; 80% KPI — baseline съеден (нет controls?)</li>
-  <li>Канал в TRP без unit_cost — его ROI бессмысленно сопоставлять с рублёвыми каналами</li>
-  <li>Ratio &lt; 4 — thin data warning на все выводы</li>
+  <li>ROI &gt; 50× – признак переобучения или unit-mixing</li>
+  <li>Суммарный вклад media &gt; 80% KPI – baseline съеден (нет controls?)</li>
+  <li>Канал в TRP без unit_cost – его ROI бессмысленно сопоставлять с рублёвыми каналами</li>
+  <li>Ratio &lt; 4 – thin data warning на все выводы</li>
 </ul>
 
-<h3>Level 2 — CPP-нормализация (реализовано)</h3>
-<p>Конвертация TRP в рубли через <strong>Cost Per Point</strong>. Дефолт для TV brand W25-54 — <strong>250 000 ₽/TRP</strong> (рыночный ориентир 2026). Пользователь корректирует на шаге «Проверка».</p>
+<h3>Level 2 – CPP-нормализация (реализовано)</h3>
+<p>Конвертация TRP в рубли через <strong>Cost Per Point</strong>. Дефолт для TV brand W25-54 – <strong>250 000 ₽/TRP</strong> (рыночный ориентир 2026). Пользователь корректирует на шаге «Проверка».</p>
 
-<!-- AUTO_TRUST_LEVEL_3_START — auto-generated by tools/sync_help_lists.py — do not edit manually -->
-<h3>Level 3 — Brand vs Performance split (v1.1.0)</h3>
+<!-- AUTO_TRUST_LEVEL_3_START – auto-generated by tools/sync_help_lists.py – do not edit manually -->
+<h3>Level 3 – Brand vs Performance split (v1.1.0)</h3>
 <p>Hierarchical Bayesian модель с разделением каналов на brand-building (длинный adstock, ROI через mental availability) и performance (короткий adstock, прямой ROI). Group-conditional priors: brand <code>μ_logit ~ Normal(0.7, 0.3)</code> (decay ≈ 0.67, half-life ~12 нед для месячных данных), performance <code>μ_logit ~ Normal(-1.4, 0.7)</code> (decay ≈ 0.20, half-life ~1.3 нед). Non-centered z-reparametrization избегает funnel geometry на small N.</p>
 <p><strong>Auto-categorization heuristic.</strong> При импорте данных Aurora автоматически предлагает категорию для каждого канала по ключевым словам в названии:</p>
 <ul>
@@ -150,7 +150,7 @@ MQS = 0.4 × R² + 0.3 × MAPE_score + 0.3 × convergence_score
 <li><strong>Performance-каналы</strong> (auto-suggest): <!-- AUTO_PERF_HINTS --><code>DIGITAL</code>, <code>SEARCH</code>, <code>ПОИСК</code>, <code>CONTEXT</code>, <code>КОНТЕКСТ</code>, <code>SOCIAL</code>, <code>СОЦ</code>, <code>CTR</code>, <code>CPC</code>, <code>CPA</code>, <code>PERFORMANCE</code>, <code>ПЕРФ</code>, <code>ЯНДЕКС</code>, <code>GOOGLE</code>, <code>VK</code>, <code>ВК</code>, <code>TELEGRAM</code>, <code>ТЕЛЕГРАМ</code>, <code>МЕТА</code>, <code>META</code>, <code>КЛИК</code>, <code>ПРОСМОТР</code>, <code>ВИЗИТ</code>, <code>PROGRAMMATIC</code>, <code>ПРОГРАММАТИК</code>, <code>DSP</code><!-- /AUTO_PERF_HINTS --></li>
 <li><strong>Strong-perf override</strong> (overrid'ит brand-tag когда оба совпадают): <!-- AUTO_STRONG_PERF_HINTS --><code>PROGRAMMATIC</code>, <code>ПРОГРАММАТИК</code>, <code>DSP</code>, <code>CPC</code>, <code>CPA</code>, <code>CTR</code>, <code>PERFORMANCE</code>, <code>ПЕРФ</code><!-- /AUTO_STRONG_PERF_HINTS --></li>
 </ul>
-<p>Пользователь может вручную переназначить категорию на шаге «Проверка». Если категория содержит &lt;2 каналов — модель автоматически демотирует их к Mixed (single-prior fallback) для identifiability.</p>
+<p>Пользователь может вручную переназначить категорию на шаге «Проверка». Если категория содержит &lt;2 каналов – модель автоматически демотирует их к Mixed (single-prior fallback) для identifiability.</p>
 
 <div class="callout">
   <div class="c-title">Иерархический путь: подсказки по очистке контролей недоступны</div>
@@ -162,12 +162,12 @@ MQS = 0.4 × R² + 0.3 × MAPE_score + 0.3 × convergence_score
 <p>Каждому каналу при декомпозиции и оптимизации присваивается одна из шести меток-рекомендаций (prescriptive action). Метки рассчитываются единым алгоритмом <code>compute_channel_action()</code>, поэтому совпадают между интерфейсом «Декомпозиция», «Оптимизация» и финальным отчётом (HTML/PPTX).</p>
 <div class="table-wrap"><table>
 <tr><th>Метка</th><th>Смысл</th><th>Триггер</th></tr>
-<tr><td><strong>Масштабировать</strong> (Scale)</td><td>Канал недо-инвестирован — каждый дополнительный рубль работает выше среднего</td><td>mROAS ≥ 1.0 + optimizer recommends ≥ +5% OR mROAS ≥ 1.5 + efficiency_gap ≥ +5пп</td></tr>
-<tr><td><strong>Удерживать</strong> (Hold)</td><td>Канал в стабильной зоне — не трогать без специальной причины</td><td>mROAS ≥ 1.1 + |gap| &lt; 5пп</td></tr>
-<tr><td><strong>Под наблюдением</strong> (Watch)</td><td>Нет явного сигнала на действие — мониторить mROAS в следующих периодах</td><td>1.0 ≤ mROAS &lt; 1.1 OR значительный gap без optimizer signal</td></tr>
+<tr><td><strong>Масштабировать</strong> (Scale)</td><td>Канал недо-инвестирован – каждый дополнительный рубль работает выше среднего</td><td>mROAS ≥ 1.0 + optimizer recommends ≥ +5% OR mROAS ≥ 1.5 + efficiency_gap ≥ +5пп</td></tr>
+<tr><td><strong>Удерживать</strong> (Hold)</td><td>Канал в стабильной зоне – не трогать без специальной причины</td><td>mROAS ≥ 1.1 + |gap| &lt; 5пп</td></tr>
+<tr><td><strong>Под наблюдением</strong> (Watch)</td><td>Нет явного сигнала на действие – мониторить mROAS в следующих периодах</td><td>1.0 ≤ mROAS &lt; 1.1 OR значительный gap без optimizer signal</td></tr>
 <tr><td><strong>Сократить умеренно</strong> (Reduce)</td><td>Канал близок к breakeven или optimizer recommends -5..-50%</td><td>mROAS &lt; 1.0 OR optimizer ratio ≤ 0.95 + mROAS ≥ 1.0 (saturation-bound)</td></tr>
-<tr><td><strong>Сократить</strong> (Cut)</td><td>Канал глубоко убыточен — каждый рубль приносит убыток</td><td>mROAS &lt; 0.8 OR optimizer ratio &lt; 0.5 (severe redistribution)</td></tr>
-<tr><td><strong>Недостаточно данных</strong> (Uncertain)</td><td>Правдоподобный диапазон шире самой mROAS, untrained канал, либо нулевой бюджет — оценка ненадёжна</td><td>ширина диапазона &gt; mROAS OR untrained=True OR spend ≤ 0</td></tr>
+<tr><td><strong>Сократить</strong> (Cut)</td><td>Канал глубоко убыточен – каждый рубль приносит убыток</td><td>mROAS &lt; 0.8 OR optimizer ratio &lt; 0.5 (severe redistribution)</td></tr>
+<tr><td><strong>Недостаточно данных</strong> (Uncertain)</td><td>Правдоподобный диапазон шире самой mROAS, untrained канал, либо нулевой бюджет – оценка ненадёжна</td><td>ширина диапазона &gt; mROAS OR untrained=True OR spend ≤ 0</td></tr>
 </table></div>
 <p><em>Уверенность (confidence)</em> по каждой метке: <strong>high</strong> когда правдоподобный диапазон &lt; 50% mROAS, <strong>medium</strong> когда правдоподобный диапазон &lt; mROAS, иначе <strong>low</strong>.</p>
 
@@ -183,6 +183,6 @@ MQS = 0.4 × R² + 0.3 × MAPE_score + 0.3 × convergence_score
 
 </div>
 
-<div class="footer"><p>Aurora AI Econometrica · © 2026 А. Сипович</p></div>
+<div class="footer"><p>Aurora AI Econometrica · © 2026 ООО «Платформа Аврора» · auroraai.pro</p></div>
 </body>
 </html>

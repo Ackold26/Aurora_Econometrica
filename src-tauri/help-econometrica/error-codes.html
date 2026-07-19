@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Коды ошибок — Aurora AI Econometrica</title>
+<title>Коды ошибок – Aurora AI Econometrica</title>
 <script src="econ-nav.js" defer></script>
 <style>
   body { font-family: 'Segoe UI', system-ui, sans-serif; background: #0d1117; color: #e6edf3; padding: 24px 32px; max-width: 900px; margin: 0 auto; line-height: 1.6; }
@@ -30,7 +30,7 @@
 
 <input type="text" class="search" id="search" placeholder="Поиск по коду или описанию..." oninput="filterTable()">
 
-<h2>LI — Лицензия</h2>
+<h2>LI – Лицензия</h2>
 <table class="error-table">
 <tr><th>Код</th><th>Описание</th><th>Решение</th></tr>
 <tr><td><code>LI-001</code></td><td>Файл лицензии не найден</td><td>Настройки → Импортировать лицензию</td></tr>
@@ -43,20 +43,20 @@
 <tr><td><code>LI-010</code></td><td>Ошибка валидации при импорте</td><td>См. подробности в сообщении</td></tr>
 </table>
 
-<h2>EC — Вычислительный модуль</h2>
+<h2>EC – Вычислительный модуль</h2>
 <p class="subtitle">Ошибки Python-движка (JAX / NumPyro / NUTS).</p>
 <table class="error-table">
 <tr><th>Код</th><th>Описание</th><th>Решение</th></tr>
-<tr><td><code>EC-001</code></td><td>Вычислительный модуль не отвечает</td><td>Нажмите «Перезапустить модуль» в настройках. Если не помогает — перезапустите приложение.</td></tr>
+<tr><td><code>EC-001</code></td><td>Вычислительный модуль не отвечает</td><td>Нажмите «Перезапустить модуль» в настройках. Если не помогает – перезапустите приложение.</td></tr>
 <tr><td><code>EC-002</code></td><td>Вычислительный модуль не запустился</td><td>Проверьте, что у процесса достаточно памяти. Перезапустите приложение.</td></tr>
 <tr><td><code>EC-003</code></td><td>Модуль временно заблокирован (5 неудачных попыток подряд)</td><td>Ручной перезапуск через настройки. Проверьте логи в профиле приложения.</td></tr>
 <tr><td><code>EC-004</code></td><td>MCMC не сошёлся (R-hat &gt; 1.1)</td><td>Увеличьте warmup или упростите модель (меньше каналов / controls). См. <a href="faq.html">FAQ</a>.</td></tr>
 <tr><td><code>EC-005</code></td><td>Слишком много дивергенций</td><td>В «Экспертном» режиме повысьте target_accept до 0.9, либо упростите priors.</td></tr>
 <tr><td><code>EC-006</code></td><td>Нехватка памяти при обучении</td><td>Сократите количество каналов или уменьшите samples в «Экспертном» режиме.</td></tr>
-<tr><td><code>EC-007</code></td><td>Таймаут обучения (15 минут)</td><td>Большая модель — уменьшите samples / chains или сократите предикторы.</td></tr>
+<tr><td><code>EC-007</code></td><td>Таймаут обучения (15 минут)</td><td>Большая модель – уменьшите samples / chains или сократите предикторы.</td></tr>
 </table>
 
-<h2>DP — Данные и валидация</h2>
+<h2>DP – Данные и валидация</h2>
 <table class="error-table">
 <tr><th>Код</th><th>Описание</th><th>Решение</th></tr>
 <tr><td><code>DP-001</code></td><td>Формат файла не поддерживается</td><td>Нужен <code>.xlsx</code>, <code>.xls</code> или <code>.csv</code>.</td></tr>
@@ -64,11 +64,11 @@
 <tr><td><code>DP-003</code></td><td>Не найден столбец с датами</td><td>Переименуйте в <code>date</code> / <code>week</code> / <code>month</code> или укажите роль вручную.</td></tr>
 <tr><td><code>DP-004</code></td><td>Не найден KPI-столбец</td><td>Столбец с продажами / упаковками / SOM. Укажите роль вручную.</td></tr>
 <tr><td><code>DP-005</code></td><td>Не найдены медиа-столбцы</td><td>Минимум 2 канала. Переименуйте или укажите роли.</td></tr>
-<tr><td><code>DP-006</code></td><td>Ratio &lt; 2:1 — критически мало данных</td><td>Объедините мелкие каналы либо добавьте периоды.</td></tr>
+<tr><td><code>DP-006</code></td><td>Ratio &lt; 2:1 – критически мало данных</td><td>Объедините мелкие каналы либо добавьте периоды.</td></tr>
 <tr><td><code>DP-007</code></td><td>Формат дат не распознан</td><td>Используйте <code>YYYY-MM-DD</code> или Excel-date.</td></tr>
 </table>
 
-<h2>FP — Идентификация машины</h2>
+<h2>FP – Идентификация машины</h2>
 <table class="error-table">
 <tr><th>Код</th><th>Описание</th><th>Решение</th></tr>
 <tr><td><code>FP-001</code></td><td>Не удалось получить ID оборудования</td><td>Проверьте WMI-службу Windows</td></tr>
@@ -76,7 +76,7 @@
 <tr><td><code>FP-003</code></td><td>ОС не поддерживается</td><td>Нужна Windows 10/11 (64-bit)</td></tr>
 </table>
 
-<h2>UP — Обновление</h2>
+<h2>UP – Обновление</h2>
 <table class="error-table">
 <tr><th>Код</th><th>Описание</th><th>Решение</th></tr>
 <tr><td><code>UP-001</code></td><td>Сервер обновлений недоступен</td><td>Повторите позже</td></tr>
@@ -85,12 +85,32 @@
 <tr><td><code>UP-004</code></td><td>Ошибка установки</td><td>Закройте приложение и запустите установщик вручную</td></tr>
 </table>
 
-<h2>FB — Обратная связь</h2>
+<h2>FB – Обратная связь</h2>
 <table class="error-table">
 <tr><th>Код</th><th>Описание</th><th>Решение</th></tr>
 <tr><td><code>FB-001</code></td><td>Не удалось отправить отзыв</td><td>Проверьте интернет и попробуйте позже</td></tr>
 <tr><td><code>FB-002</code></td><td>Превышен лимит отправки</td><td>Подождите минуту перед повторной отправкой</td></tr>
 </table>
+
+<h2>Обращение в поддержку</h2>
+<p class="subtitle">Если код ошибки не помог решить проблему – напишите в поддержку с диагностикой ниже, это ускорит ответ.</p>
+
+<div class="support-box" style="background:#161b22;border:1px solid #30363d;border-radius:8px;padding:16px 18px;margin-bottom:20px;">
+  <p style="margin:0 0 8px;color:#e6edf3;"><strong>Email поддержки:</strong> <a href="mailto:support@auroraai.pro" style="color:#58a6ff;">support@auroraai.pro</a></p>
+  <p style="margin:0;color:#8b949e;font-size:13px;">Поддержка на русском языке, по рабочим дням, регистрация обращений по email.</p>
+</div>
+
+<h3>Что приложить к обращению</h3>
+<ul style="font-size:14px;color:#8b949e;padding-left:22px;line-height:1.7;">
+  <li><strong style="color:#e6edf3;">Версию программы</strong> – «О программе» в настройках.</li>
+  <li><strong style="color:#e6edf3;">Код ошибки</strong>, если он показывался (формат <code>XX-NNN</code>).</li>
+  <li><strong style="color:#e6edf3;">Файл журнала</strong> – самый свежий <code>.log</code> из папки
+    <code>%LOCALAPPDATA%\com.aurora.econometrica\logs\</code>
+    (для локальной редакции – <code>com.aurora.econometrica.local</code>).
+    Быстрый способ открыть папку: <code>Win+R</code> → вставить путь → Enter.</li>
+  <li><strong style="color:#e6edf3;">Шаги воспроизведения</strong> – что делали перед ошибкой, по возможности с номером шага пайплайна.</li>
+  <li><strong style="color:#e6edf3;">Скриншот</strong> экрана с ошибкой, если это визуальная проблема (не рендерится график, съехала вёрстка).</li>
+</ul>
 
 <script>
 function filterTable() {
@@ -103,6 +123,6 @@ function filterTable() {
 }
 </script>
 
-<div class="footer"><p>Aurora AI Econometrica · © 2026 А. Сипович</p></div>
+<div class="footer"><p>Aurora AI Econometrica · © 2026 ООО «Платформа Аврора» · auroraai.pro</p></div>
 </body>
 </html>

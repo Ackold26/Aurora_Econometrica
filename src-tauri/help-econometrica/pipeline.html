@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Pipeline — Aurora AI Econometrica</title>
+<title>Pipeline – Aurora AI Econometrica</title>
 <script src="econ-nav.js" defer></script>
 <style>
 :root { --bg: #0d1117; --bg2: #161b22; --bg3: #1c2128; --text: #e6edf3; --text2: #8b949e; --text3: #6e7681; --accent: #58a6ff; --accent2: #3fb950; --border: #30363d; --green: #3fb950; --amber: #d29922; --red: #f85149; --purple: #bc8cff; --teal: #39d0d8; }
@@ -39,7 +39,7 @@ code { background: var(--bg3); padding: 1px 6px; border-radius: 4px; font-size: 
 <body>
 
 <div class="container">
-<h1>Pipeline — 6 шагов</h1>
+<h1>Pipeline – 7 шагов</h1>
 <p class="sub">Путь от XLSX-файла к готовому PPTX/XLSX-отчёту. Каждый шаг можно переделать без потери предыдущих.</p>
 
 <div class="step-card">
@@ -56,22 +56,22 @@ code { background: var(--bg3); padding: 1px 6px; border-radius: 4px; font-size: 
   <h3><span class="step-num">2</span> Валидация <span class="time-tag">~20 сек</span></h3>
   <p>Проверка готовности данных к MMM. Светофор (красный/жёлтый/зелёный), Ratio (точек на параметр), поиск подозрительно коррелированных столбцов, выбор режима анализа (ROI / Эффективность) и типа KPI.</p>
   <div class="io-grid">
-    <div class="io-box"><div class="lbl">Input</div><div class="val">импортированный датасет, при необходимости — стоимость юнита в ₽ для TRP/impressions</div></div>
+    <div class="io-box"><div class="lbl">Input</div><div class="val">импортированный датасет, при необходимости – стоимость юнита в ₽ для TRP/impressions</div></div>
     <div class="io-box"><div class="lbl">Output</div><div class="val">Статус «готов / требует доработки», уточнённые роли, matrix корреляций, гистограммы</div></div>
   </div>
   <div class="ui-ref">UI: шаг «Валидация». Добавь стоимость юнита в ₽ если есть физические метрики (TRP/impressions) и нужен ROI.</div>
-  <div class="ui-ref" style="margin-top: 8px;">Если у тебя 3+ слабых каналов — появится рекомендация <em>«Объединить слабые каналы в Малые медиа»</em>. Применение materializes merge в 4 слоях модели (modeler/decomposer/optimizer/awareness) без изменения исходных данных. См. <a href="user-guide.html#merge-channels">Объединение слабых каналов</a>.</div>
-  <div class="ui-ref" style="margin-top: 8px;"><strong style="color: var(--text);">Панель «Авто-праздники РФ»</strong> — мастер-переключатель <em>«Учитывать праздники РФ как факторы»</em> (<strong>ВКЛ по умолчанию</strong>). При включении ~12 государственных праздников добавляются как контрольные переменные в модель (отображаются ниже Ratio). Это снижает риск OVB — если праздники реально влияют на продажи, их эффект не будет ошибочно приписан медиаканалам. При <strong>ВЫКЛ</strong>: меньше параметров → Ratio растёт → ниже риск переобучения. Отключай, если данных мало (Ratio &lt; 4) или категория не зависит от праздников. <span title="OVB (Omitted Variable Bias): если убрать значимый фактор, его реальный эффект ошибочно перейдёт на другие переменные и исказит их ROI" style="display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;background:rgba(88,166,255,0.15);color:var(--accent);font-size:11px;font-weight:700;border-radius:50%;cursor:help;vertical-align:middle;margin-left:4px;">?</span></div>
+  <div class="ui-ref" style="margin-top: 8px;">Если у тебя 3+ слабых каналов – появится рекомендация <em>«Объединить слабые каналы в Малые медиа»</em>. Применение materializes merge в 4 слоях модели (modeler/decomposer/optimizer/awareness) без изменения исходных данных. См. <a href="user-guide.html#merge-channels">Объединение слабых каналов</a>.</div>
+  <div class="ui-ref" style="margin-top: 8px;"><strong style="color: var(--text);">Панель «Авто-праздники РФ»</strong> – мастер-переключатель <em>«Учитывать праздники РФ как факторы»</em> (<strong>ВКЛ по умолчанию</strong>). При включении ~12 государственных праздников добавляются как контрольные переменные в модель (отображаются ниже Ratio). Это снижает риск OVB – если праздники реально влияют на продажи, их эффект не будет ошибочно приписан медиаканалам. При <strong>ВЫКЛ</strong>: меньше параметров → Ratio растёт → ниже риск переобучения. Отключай, если данных мало (Ratio &lt; 4) или категория не зависит от праздников. <span title="OVB (Omitted Variable Bias): если убрать значимый фактор, его реальный эффект ошибочно перейдёт на другие переменные и исказит их ROI" style="display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;background:rgba(88,166,255,0.15);color:var(--accent);font-size:11px;font-weight:700;border-radius:50%;cursor:help;vertical-align:middle;margin-left:4px;">?</span></div>
 </div>
 
 <div class="step-card">
-  <h3><span class="step-num">3</span> Модель — обучение (MCMC) <span class="time-tag">3–15 мин</span></h3>
+  <h3><span class="step-num">3</span> Модель – обучение (MCMC) <span class="time-tag">3–15 мин</span></h3>
   <p>Bayesian MMM через NumPyro / NUTS. По умолчанию 4 цепи × 2000 warmup + 2000 sampling. Каждый канал трансформируется Adstock → Hill (насыщение) → линейная регрессия.</p>
   <div class="io-grid">
     <div class="io-box"><div class="lbl">Input</div><div class="val">валидированный датасет, adstock-тип per канал, опциональные экспертные priors</div></div>
     <div class="io-box"><div class="lbl">Output</div><div class="val">MQS (0–100), R², MAPE, R-hat, декомпозиция продаж base + channels</div></div>
   </div>
-  <div class="ui-ref">UI: шаг «Модель». Экспертные priors — кнопка «Экспертный режим» раскрывает настройки adstock/saturation/seasonality.</div>
+  <div class="ui-ref">UI: шаг «Модель». Экспертные priors – кнопка «Экспертный режим» раскрывает настройки adstock/saturation/seasonality.</div>
 </div>
 
 <div class="step-card">
@@ -81,7 +81,7 @@ code { background: var(--bg3); padding: 1px 6px; border-radius: 4px; font-size: 
     <div class="io-box"><div class="lbl">Input</div><div class="val">обученная модель + unit_costs из проекта</div></div>
     <div class="io-box"><div class="lbl">Output</div><div class="val">baseline_pct, channel_contributions, ROI per channel, traffic-light smell flags</div></div>
   </div>
-  <div class="ui-ref">UI: шаг «Декомпозиция». Заметил unit_smell badge? Проверь unit_costs — скорее всего пропустил канал.</div>
+  <div class="ui-ref">UI: шаг «Декомпозиция». Заметил unit_smell badge? Проверь unit_costs – скорее всего пропустил канал.</div>
 </div>
 
 <div class="step-card">
@@ -92,28 +92,38 @@ code { background: var(--bg3); padding: 1px 6px; border-radius: 4px; font-size: 
     <div class="io-box"><div class="lbl">Output</div><div class="val">оптимальное распределение, lift%, miROAS per channel, saturation map</div></div>
   </div>
   <div class="ui-ref">UI: шаг «Оптимизация». При первом визите запустится короткий тур по блокам A→E.</div>
-  <div class="ui-ref" style="margin-top: 8px; background: rgba(210,153,34,0.08); border: 1px solid rgba(210,153,34,0.3); border-radius: 6px; padding: 8px 12px; color: var(--text2);">⚠ <strong style="color: var(--amber);">При тонких данных (Ratio &lt; 4):</strong> рекомендации ориентировочные — опирайтесь на правдоподобные диапазоны, а не на точечные оценки lift%.</div>
-  <div class="ui-ref" style="margin-top: 6px; background: rgba(248,81,73,0.08); border: 1px solid rgba(248,81,73,0.3); border-radius: 6px; padding: 8px 12px; color: var(--text2);">✕ <strong style="color: var(--red);">При несошедшейся модели (плохая сходимость R-hat / дивергенции):</strong> переброска бюджета не применяется автоматически — модели нельзя доверять, результаты требуют проверки.</div>
+  <div class="ui-ref" style="margin-top: 8px; background: rgba(210,153,34,0.08); border: 1px solid rgba(210,153,34,0.3); border-radius: 6px; padding: 8px 12px; color: var(--text2);">⚠ <strong style="color: var(--amber);">При тонких данных (Ratio &lt; 4):</strong> рекомендации ориентировочные – опирайтесь на правдоподобные диапазоны, а не на точечные оценки lift%.</div>
+  <div class="ui-ref" style="margin-top: 6px; background: rgba(248,81,73,0.08); border: 1px solid rgba(248,81,73,0.3); border-radius: 6px; padding: 8px 12px; color: var(--text2);">✕ <strong style="color: var(--red);">При несошедшейся модели (плохая сходимость R-hat / дивергенции):</strong> переброска бюджета не применяется автоматически – модели нельзя доверять, результаты требуют проверки.</div>
 </div>
 
 <div class="step-card">
-  <h3><span class="step-num">6</span> Отчёт <span class="time-tag">~20 сек</span></h3>
+  <h3><span class="step-num">6</span> Планирование <span class="time-tag">~15 сек</span></h3>
+  <p>Квартальный медиаплан на основе обученной модели: распределение бюджета по периодам с учётом сезонности и целей, опционально поверх результата оптимизации. Горизонт 3 / 6 / 12 месяцев, поканальный рост стоимости медиа (инфляция), витрина доверия к модели на исторических данных (backtest).</p>
+  <div class="io-grid">
+    <div class="io-box"><div class="lbl">Input</div><div class="val">модель + декомпозиция, опционально – результат шага «Оптимизация»</div></div>
+    <div class="io-box"><div class="lbl">Output</div><div class="val">прогноз с правдоподобным диапазоном по периодам, сохранённые сценарии плана, зафиксированный медиаплан</div></div>
+  </div>
+  <div class="ui-ref">UI: шаг «Планирование». Сравнивайте несколько вариантов плана рядом и фиксируйте выбранный прогноз – он попадёт в итоговый отчёт.</div>
+</div>
+
+<div class="step-card">
+  <h3><span class="step-num">7</span> Отчёт <span class="time-tag">~20 сек</span></h3>
   <p>Генерация PPTX (презентация руководству: executive summary, методология, результаты, рекомендации), XLSX (сырые данные + графики + лист «Данные» для своих диаграмм) и HTML (самодостаточный отчёт для отправки клиентам).</p>
   <div class="io-grid">
     <div class="io-box"><div class="lbl">Input</div><div class="val">все предыдущие шаги</div></div>
     <div class="io-box"><div class="lbl">Output</div><div class="val">PPTX + XLSX + HTML в папке <code>exports</code> активного проекта. «Открыть папку» в UI открывает её в проводнике.</div></div>
   </div>
-  <div class="ui-ref">UI: шаг «Отчёт». Email-текст на карточках — динамический, берётся из твоих реальных результатов. HTML — самодостаточный файл (графики ECharts встроены прямо в файл, ~0,7 МБ) — открывается в любом браузере без установки Aurora и <strong>работает полностью офлайн, без интернета</strong>.</div>
+  <div class="ui-ref">UI: шаг «Отчёт». Email-текст на карточках – динамический, берётся из твоих реальных результатов. HTML – самодостаточный файл (графики ECharts встроены прямо в файл, ~0,7 МБ) – открывается в любом браузере без установки Aurora и <strong>работает полностью офлайн, без интернета</strong>.</div>
 </div>
 
 <h2>Повторные запуски</h2>
-<p>Изменил unit_costs или adstock? Pipeline <strong>не</strong> обнуляет всё — можно переобучить модель и декомпозиция/оптимизация пересчитаются автоматически. Но сценарии старых моделей имеют смысл только для той же модели.</p>
+<p>Изменил unit_costs или adstock? Pipeline <strong>не</strong> обнуляет всё – можно переобучить модель и декомпозиция/оптимизация пересчитаются автоматически. Но сценарии старых моделей имеют смысл только для той же модели.</p>
 
 <h2>Что происходит при сбое вычислительного модуля</h2>
-<p>Приложение автоматически следит за состоянием вычислительного модуля и перезапускает его при зависаниях или сбоях. Если модуль не восстанавливается — в настройках есть кнопка «Перезапустить модуль» для ручного запуска. При повторных сбоях имеет смысл проверить установку приложения и обратиться в поддержку.</p>
+<p>Приложение автоматически следит за состоянием вычислительного модуля и перезапускает его при зависаниях или сбоях. Если модуль не восстанавливается – в настройках есть кнопка «Перезапустить модуль» для ручного запуска. При повторных сбоях имеет смысл проверить установку приложения и обратиться в поддержку.</p>
 
 </div>
 
-<div class="footer"><p>Aurora AI Econometrica · © 2026 А. Сипович</p></div>
+<div class="footer"><p>Aurora AI Econometrica · © 2026 ООО «Платформа Аврора» · auroraai.pro</p></div>
 </body>
 </html>

@@ -95,8 +95,8 @@ export const PROGRAM_OVERVIEW = [
   '- NRMSE > 15% (красный) – упущен важный фактор (промо, цена, конкурент);',
   '  добавить его отдельной колонкой (сезонность учитывается автоматически).',
   '',
-  'Поддержка: support@auroraai.pro; логи – папка «Документы\\Aurora MMM',
-  'Optimizer\\Logs\\»; версия – меню «О программе».',
+  'Поддержка: support@auroraai.pro; логи – папка %LOCALAPPDATA%\\com.aurora.econometrica\\',
+  'logs\\; версия – меню «О программе».',
 ].join('\n');
 
 /**
