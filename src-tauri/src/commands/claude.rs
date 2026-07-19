@@ -140,8 +140,24 @@ pub async fn run_claude(
     {
         ensure_not_local_only(&app_handle)?;
         ensure_cloud_consent(&app_handle)?;
-        let (sid, response_text) = run_claude_inner(work_dir, prompt, app_handle, cabinet_id, resume_session_id, active_pids, false, suppress_export, model).await?;
-        Ok((sid, response_text))
+
+        #[cfg(feature = "thin")]
+        {
+            // Тонкая версия: исполнение кабинета — SSH-gateway на узле Б, не локальный
+            // Claude CLI. Гейты выше (local-only/consent) сохранены — данные всё равно
+            // уходят на сервер. active_pids/model — часть локального CLI-мира, gateway
+            // не спавнит процесс и не выбирает модель клиентской командой.
+            let _ = (active_pids, model);
+            let (sid, response_text) = crate::commands::gateway_executor::run_claude_gateway(
+                work_dir, prompt, app_handle, cabinet_id, resume_session_id, suppress_export,
+            ).await?;
+            Ok((sid, response_text))
+        }
+        #[cfg(not(feature = "thin"))]
+        {
+            let (sid, response_text) = run_claude_inner(work_dir, prompt, app_handle, cabinet_id, resume_session_id, active_pids, false, suppress_export, model).await?;
+            Ok((sid, response_text))
+        }
     }
 }
 
@@ -163,9 +179,23 @@ pub async fn run_claude_pipeline(
     {
         ensure_not_local_only(&app_handle)?;
         ensure_cloud_consent(&app_handle)?;
-        // Pipeline phases always suppress export - final output is built by post-processor
-        let (sid, response_text) = run_claude_inner(work_dir, prompt, app_handle, cabinet_id, resume_session_id, active_pids, true, true, None).await?;
-        Ok((sid, response_text))
+
+        #[cfg(feature = "thin")]
+        {
+            // Pipeline phases always suppress export/done - final output is built by
+            // post-processor. Зеркалит suppress_done=true, suppress_export=true CLI-пути.
+            let _ = active_pids;
+            let (sid, response_text) = crate::commands::gateway_executor::run_claude_pipeline_gateway(
+                work_dir, prompt, app_handle, cabinet_id, resume_session_id,
+            ).await?;
+            Ok((sid, response_text))
+        }
+        #[cfg(not(feature = "thin"))]
+        {
+            // Pipeline phases always suppress export - final output is built by post-processor
+            let (sid, response_text) = run_claude_inner(work_dir, prompt, app_handle, cabinet_id, resume_session_id, active_pids, true, true, None).await?;
+            Ok((sid, response_text))
+        }
     }
 }
 
@@ -173,6 +203,9 @@ pub async fn run_claude_pipeline(
 /// Перенаправляет user-level слой claude CLI (settings/hooks/skills/plugins/MCP/sessions/credentials)
 /// в отдельную папку → операторские/клиентские hooks/skills/MCP НЕ протекают в кабинет.
 /// Project-уровень кабинета (work_dir/CLAUDE.md барьер+scope) СОХРАНЯЕТСЯ (грузится из cwd, CONFIG_DIR его не трогает).
+/// Используется только из `run_claude_inner`, которая при feature `thin` недостижима
+/// (gateway_executor заменяет её) — глушим dead_code точечно для этой конфигурации.
+#[cfg_attr(feature = "thin", allow(dead_code))]
 fn isolated_claude_config_dir(app_handle: &tauri::AppHandle) -> Option<std::path::PathBuf> {
     let iso = app_handle.path().app_local_data_dir().ok()?.join("claude-runtime");
     if let Err(e) = std::fs::create_dir_all(&iso) {
@@ -218,6 +251,10 @@ fn isolated_claude_config_dir(app_handle: &tauri::AppHandle) -> Option<std::path
     Some(iso)
 }
 
+// При feature `thin` вызовы run_claude_inner заменены веткой gateway_executor
+// (см. run_claude/run_claude_pipeline выше) — функция становится недостижимой
+// в этой конфигурации; глушим dead_code точечно, не трогая остальной модуль.
+#[cfg_attr(feature = "thin", allow(dead_code))]
 #[allow(clippy::too_many_arguments)]
 async fn run_claude_inner(
     work_dir: &Path,
@@ -484,34 +521,53 @@ async fn run_claude_inner(
     // Auto-save response to exports/ (including partial results on timeout)
     // Skip saving for auto-continue intermediate responses (suppress_export=true)
     let final_text = result_text.unwrap_or(delta_text);
-    if !suppress_export && !final_text.trim().is_empty() {
-        let slug = extract_command_slug(prompt);
-        let timestamp = chrono::Local::now().format("%Y%m%d-%H%M%S");
-        let suffix = if timed_out { "-partial" } else { "" };
-        let filename = format!("{}-{}{}.md", slug, timestamp, suffix);
-        let exports_dir = work_dir.join("exports");
-        let _ = std::fs::create_dir_all(&exports_dir);
-        let export_path = exports_dir.join(&filename);
-
-        match std::fs::write(&export_path, &final_text) {
-            Ok(_) => {
-                info!("Auto-saved response: {}", export_path.display());
-                let _ = crate::metrics::collector::record_export();
-                convert_to_docx(&export_path);
-                convert_to_pdf(&export_path);
-                convert_to_xlsx(&export_path);
-                let _ = app_handle.emit(
-                    &format!("exports-updated-{cabinet_id}"),
-                    serde_json::json!({}),
-                );
-            }
-            Err(e) => warn!("Failed to auto-save response: {e}"),
-        }
-    } else if suppress_export {
+    if !suppress_export {
+        auto_save_response(&app_handle, work_dir, &cabinet_id, prompt, &final_text, timed_out);
+    } else {
         debug!("Skipped auto-save for auto-continue response [{cabinet_id}]");
     }
 
     Ok((captured_session_id, final_text))
+}
+
+/// Сохранить финальный текст ответа в exports/ (+ конвертации docx/pdf/xlsx + событие
+/// exports-updated). Общий хелпер: вызывается из `run_claude_inner` (локальный Claude CLI)
+/// и из `gateway_executor` (feature `thin`, SSH-транспорт) — поведение автосохранения
+/// идентично независимо от того, ЧЕМ исполнен кабинет. Ничего не делает при пустом тексте
+/// (зеркалит прежнюю проверку `!final_text.trim().is_empty()`).
+pub(crate) fn auto_save_response(
+    app_handle: &tauri::AppHandle,
+    work_dir: &Path,
+    cabinet_id: &str,
+    prompt: &str,
+    final_text: &str,
+    partial_suffix: bool,
+) {
+    if final_text.trim().is_empty() {
+        return;
+    }
+    let slug = extract_command_slug(prompt);
+    let timestamp = chrono::Local::now().format("%Y%m%d-%H%M%S");
+    let suffix = if partial_suffix { "-partial" } else { "" };
+    let filename = format!("{}-{}{}.md", slug, timestamp, suffix);
+    let exports_dir = work_dir.join("exports");
+    let _ = std::fs::create_dir_all(&exports_dir);
+    let export_path = exports_dir.join(&filename);
+
+    match std::fs::write(&export_path, final_text) {
+        Ok(_) => {
+            info!("Auto-saved response: {}", export_path.display());
+            let _ = crate::metrics::collector::record_export();
+            convert_to_docx(&export_path);
+            convert_to_pdf(&export_path);
+            convert_to_xlsx(&export_path);
+            let _ = app_handle.emit(
+                &format!("exports-updated-{cabinet_id}"),
+                serde_json::json!({}),
+            );
+        }
+        Err(e) => warn!("Failed to auto-save response: {e}"),
+    }
 }
 
 /// Extract a short slug from the user prompt for use in the filename.
@@ -834,6 +890,8 @@ mod tests {
 }
 
 /// Find the Claude CLI binary and validate it's in a trusted location.
+/// Используется только из `run_claude_inner` — недостижима при feature `thin`, см. там.
+#[cfg_attr(feature = "thin", allow(dead_code))]
 fn find_claude_binary() -> Result<String> {
     let candidates = ["claude", "claude.cmd", "claude.exe"];
 

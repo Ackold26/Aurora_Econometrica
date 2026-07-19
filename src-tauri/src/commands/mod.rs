@@ -8,6 +8,8 @@ pub mod data_migration;
 pub mod content_updater;
 pub mod econometrica;
 pub mod feedback;
+#[cfg(feature = "thin")]
+pub mod gateway_executor;
 pub mod license;
 pub mod online_auth;
 pub mod parser;
