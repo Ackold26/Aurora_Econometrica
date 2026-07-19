@@ -1,93 +1,42 @@
-# Econometrica — роутер следующей сессии (после сессии 2026-07-19: INV-50 + стандарт справки+PDF)
+# Econometrica — роутер следующей сессии (после сессии 2026-07-19 вечер: #6 глоссарий + CPD-15 + сборка/аудит)
 
 > Скопируй в начало новой сессии. cwd = `D:\Docs\Aurora_Ai\Dev\Aurora_Econometrica_v230`
 > (worktree ветки `feat/econ-v2.3.0` = прод-линия 2.4.0). Бэклог → память `project_econometrica_backlog`.
 
-## ✅ Сделано в сессии 2026-07-19 (ЗАПУШЕНО, НЕ переделывать)
-Все 5 коммитов на `origin/feat/econ-v2.3.0`:
-- **INV-50 полный sweep** (весь клиентский текст → «правдоподобный диапазон», не «доверительный интервал/CI»):
-  `44ca49d` orphaned ROSST-ps1 → корректный для Econometrica · `708363c` справка 10 файлов ·
-  `fe909ea` рантайм 40 файлов ~108 правок (тултипы/инсайты/вердикты/генераторы отчётов HTML+PPTX+MD+XLSX/CSV).
-  Разведка+карта: `Projects/RUNTIME_INV50_RECON.md`. Сохранены IPC-ключи `*_ci_*`, «90% HDI», CSS/переменные.
-- **Стандарт справки+PDF** (эталон Oracle): `42025e7` контент (версии→2.4.0, шаг Планирование 6→7,
-  новый `install.html`, коды ошибок+поддержка `support@auroraai.pro`, копирайт CPD-09 14 футеров →
-  «© 2026 ООО «Платформа Аврора» · auroraai.pro», U+2014 свип 744→0, баг `program-help.js:98`) ·
-  `324d2ba` PDF (`econometrica-help.pdf` 117 стр, обложка «Optimizer MMM», `tools/build_help_pdf.py` +
-  `tools/check_help_pdf_consistency.py` + manifest + доставка: кнопка PDF `econ-nav.js`/Rust
-  `save_help_pdf`/settings + `tauri.conf` publisher «Aurora Platform LLC»). Планы: `Projects/HELP_2.4.0_PLAN.md`.
+## ✅ Сделано в этой сессии (ЗАПУШЕНО origin/feat/econ-v2.3.0 + aurora-meta, НЕ переделывать)
+6 коммитов econ (`6e2e60c..e9eacc9`):
+- **#6 SSOT глоссарий ЗАКРЫТ:** `9144488` реконсиляция источника (`docs/GLOSSARY_v2_1_0.md` + `LEGACY_ONLY` в `build_glossary.py`: INV-50, термин OVB, текст 10 терминов, тире + нормализация `_norm_dash` в генераторе, MMM «6→7 шагов») · `eb440c6` CI-линтер синхронности `tools/check_glossary_sync.py` (temp-перегенерация + сверка autocrlf-устойчиво + гейт 0×U+2014 в выходах → `ci.yml` + `lefthook.yml`). Канон: **INV-97** в aurora-meta (`f3abae4`).
+- **CPD-15 (изоляция кабинетного claude CLI) ЗАКРЫТ:** `244fccd` helper `isolated_claude_config_dir` вербатим-эталон SA 1.3.10 + `env_remove(CLAUDE_CONFIG_DIR)` + `cmd.env` перед spawn (`claude.rs`). Живой аудит в собранном .exe 2.4.0: scope-отказ + инъекция «ВЗЛОМАНО/license.json»→данные — **оба PASS, приёмка Антона**. Реестр CPD-15 EC ✅ (`a9bd90d` aurora-meta). INV-92 уже корректен (SA закрыл).
+- **Мелочи:** `c69b4b2` program-help.js 11×U+2014→«–» · `5d89ce6` линтер INV-50 в help-HTML (`check_help_pdf_consistency.py`).
+- **#8 orphans удалены:** `e9eacc9` (`src/lib/help-econometrica/` analysis-mode + signed-factors — сироты 0 ссылок, темы покрыты актуальной справкой).
+- **Сборка .exe 2.4.0 для аудита (БЕЗ публикации — решение Антона):** `Optimizer MMM_2.4.0_x64-setup.exe` 246.5МБ, SHA256 `65d9ce62ea1028f74a4d245ada04c02e8ed61b2babfcd0dfc5f26fcdbf06e101`, в `D:\cargo-targets\ai-agency\release\bundle\nsis\`. sidecar переиспользован (Python MMM не менялся).
+- Аудит diff блока: `Projects/handoff.md` (этот блок) + findings/триаж в итоге wrap-up.
 
-## 🔴 ГЛАВНОЕ СЛЕДУЮЩЕЙ СЕССИИ — ВЫКАТ (необратимое, санкция Антона)
-Справка+PDF едут **БАНДЛОМ** (не content-pack) → нужна **пересборка .exe** + публикация:
-1. `aurora-fix` pre-build чеклист (vault/content-pack/bundle/версии).
-2. `build_sidecar.py` + `npm run tauri build` (CARGO_TARGET_DIR="D:/cargo-targets/ai-agency").
-   ⚠️ worktree без generated-токенов → sidecar build FAILED (грабля [[feedback_worktree_missing_generated_tokens_sidecar_build]]).
-3. Смоук: установить .exe → открыть справку (кнопка «PDF» в шапке справки скачивает файл) + кнопка
-   «Скачать PDF-справку» в Настройках вызывает `save_help_pdf` → PDF в download_dir.
-4. Публикация по `aurora-release-update`: GH `aurora-releases` (fat exe >50MB) + app_versions ×2 + latest.json.
-   **content-pack re-sign НЕ нужен** (справка/PDF не в паке).
+## 📋 Задачи продолжения (приоритет — определить с Антоном)
+1. **ВЫКАТ 2.4.x клиентам** (если Антон санкционирует — необратимо): справка+PDF (прошлая сессия) + глоссарий (#6) + CPD-15 едут ОДНОЙ пересборкой. Аудит-сборка 2.4.0 уже есть. Для публикации: `aurora-fix` полный pre-build (content-pack/vault/**version bump — см. п.2**) → build_sidecar? (нет, sidecar не менялся — переиспользовать) → `npm run tauri build` → смоук → `aurora-release-update` (GH `aurora-releases` fat >50MB + app_versions ×2 `aurora-econometrica-gui`+`econometrica` + latest.json). content-pack re-sign НЕ нужен (справка/PDF/глоссарий не в паке).
+2. **🔴 Баг установщика «unableToUninstall»** (диагностирован, НЕ исправлен): при установке 2.4.0 поверх 2.4.0 (same-version) режим «удалить предыдущую» падал (`installer.nsi:355`); реестр Optimizer чист, приложение НЕ было запущено, причина НЕ подтверждена. **При bump-релизе (2.4.1, НЕ same-version) проверить воспроизведение**; если да — снять NSIS-лог `"...setup.exe" /L=log.txt`. Bump версии сам по себе снимает same-version краевой случай. НЕ править NSIS-хук вслепую (проверено: хуки корректны, `installer_hooks.nsh` не менялся).
+3. **#9 блок «Какой режим выбрать»** в актуальную справку: компактный decision-guide ROI/Эффективность/Смешанный единым блоком в `src-tauri/help-econometrica/` (pipeline.html или data-preparation.html), navy-стандарт 2.4.0. Идею взять из git-истории удалённого `analysis-mode.html` (до `e9eacc9`) — НЕ воскрешать orphan, свежий раздел.
+4. **Тестовые компы PC443/PC583** — баннер 2.4.0 (ждёт решения Антона: мягко/форс min_version).
+5. Прочий бэклог → [[project_econometrica_backlog]] (пилот прогноз→факт · юр · code-signing · Аврора Tier2+RAG · петля доверия E1→E4).
 
-## 📋 Долги (приоритет с Антоном)
-- **#6 SSOT-реконсиляция глоссария** (крупная, отдельная аккуратная сессия): источник
-  `docs/GLOSSARY_v2_1_0.md` + `build_glossary.py` LEGACY_ONLY ОТСТАЛ от выходов — прошлые коммиты
-  `101c999`/`f1ed7c5`/`2996dd6` правили `glossary.html`/`glossary.js` НАПРЯМУЮ (OVB-термин + текст 9
-  терминов). В этой сессии INV-50/tire/копирайт тоже внесены в ВЫХОДЫ вручную. Перегенерация
-  `build_glossary.py` СЕЙЧАС = тихий регресс (снесёт OVB + откатит 9 терминов + вернёт «доверительный»/«—»).
-  Задача: внести OVB + обновлённый текст 9 терминов + INV-50 (`posterior_ci`/`goal_seek`) + U+2014
-  (md 152, build_glossary.py 27) в ИСТОЧНИК → одна перегенерация → доказать выход==текущее → INV
-  «правки глоссария только через источник» + CI-линтер синхронности.
-- **#8 судьба `src/lib/help-econometrica/`** (развилка Антону): 2 страницы `analysis-mode.html`
-  («Какой режим выбрать: ROI/Эффективность/Смешанный» — полезно!) + `signed-factors-and-holidays.html`
-  (v2.0.0) — НЕ дубль, ценный НЕподключённый контент, вне бандла. Решить: актуализировать под 2.4.0 +
-  подключить в справку/PDF vs удалить (темы распределены по актуальной справке).
-- **program-help.js 11×U+2014** (рантайм-тире, мелочь) — привести к «–».
-- **[Medium, аудит 2026-07-19] Усилить `check_help_pdf_consistency.py` проверкой INV-50 в HTML** —
-  линтер НЕ ловит «доверительный интервал»/«CI» в `src-tauri/help-econometrica/*.html` (только
-  U+2014/копирайт/версии). Gap защиты центрального инварианта; усиливается долгом #6 (перегенерация
-  вернёт «доверительный» мимо гейта). Добавить grep-проверку html на запрещённые термины (фильтр
-  комментариев + en-бейджей «Credible Interval») + «внести-поймать-откатить».
-- Тестовые компы PC443/PC583 — баннер 2.4.0 (ждёт Антона).
-- Аудит diff этой сессии — см. `Projects/audit_findings_session.md` (если аудитор дописал) + триаж (в handoff/итоге).
-
-## Файлы для контекста (порядок чтения)
-1. Память `INDEX_econometrica` (📍 Состояние сверху) + `project_help_pdf_rollout_all_products` (стандарт+грабли).
-2. `Projects/handoff.md` (что аудировалось) + `Projects/HELP_2.4.0_PLAN.md` + `Projects/RUNTIME_INV50_RECON.md`.
-3. Стандарт-эталон: `Dev/Aurora_Oracle/tools/build_help_pdf.py` + Econometrica `tools/build_help_pdf.py`/`check_help_pdf_consistency.py`.
-4. Долг #6: `docs/GLOSSARY_v2_1_0.md` + `tools/build_glossary.py` (ID_MAP/LEGACY_ONLY/guard).
+## 🌐 Тонкий клиент — ОТДЕЛЬНЫЙ проект (не этот роутер)
+Зонд этой сессии: движок `nodeB_engine_async.py` УЖЕ диалоговый (не one-shot), узел Б в бою. Точка входа реализации — `D:\Docs\Aurora_Ai\thin-client\NEXT_SESSION_phase2_carryover.md`, память [[project_thin_clients_2026_07_01]] (🆕 UPDATE 2026-07-19). Остаток: дожать Tauri-клиент `thin-client/app/` + узел А (РФ/ПДн, host-серт ждёт passphrase Антона).
 
 ## Инварианты/правила
-- Shared-репо: зонд `git rev-parse --abbrev-ref HEAD` + fetch/behind ДО работы; коммит своим pathspec;
-  в дереве живут чужие незакоммиченные (`Projects/audit.diff`, `audit_findings_live.md`, `Cargo.toml`) — НЕ трогать.
-- INV-50: клиентский текст «правдоподобный диапазон»; IPC-ключи `*_ci_*` и «90% HDI» НЕ трогать.
-- Копирайт: HTML «© 2026 ООО «Платформа Аврора» · auroraai.pro»; NSIS «Aurora Platform LLC»; sipovich=0; U+2014=0.
-- Линтеры справки в CI/lefthook — держать зелёными; новый линтер проверять «внести-поймать-откатить».
+- Shared-репо: зонд `git rev-parse --abbrev-ref HEAD` + fetch/behind ДО работы; коммит своим pathspec; чужие незакоммиченные в дереве (`Projects/audit.diff`, `audit_findings_live.md`, `Cargo.toml`, `audit_kpiunits.diff`, `audit_session.diff`) — НЕ трогать.
+- Глоссарий SSOT: правки ТОЛЬКО в источник (`docs/GLOSSARY_v2_1_0.md` / `LEGACY_ONLY`) + перегенерация `build_glossary.py`; выходы `glossary.json/html/js` — производные (CI-линтер `check_glossary_sync.py` стережёт). INV-97.
+- INV-50: клиентский текст «правдоподобный диапазон»; тире «–» (U+2013), не «—». CPD-15: safe-mode НЕ применять; helper вербатим.
+- Линтеры справки в CI/lefthook — держать зелёными; новый линтер — «внести-поймать-откатить».
 
 ## С чего начать
-1. Прочитать `INDEX_econometrica` 📍 + `project_help_pdf_rollout_all_products`.
-2. Зонд ветки (behind=0?) + `git log --oneline -6` (5 коммитов сессии на месте).
-3. Согласовать с Антоном: ВЫКАТ сейчас (пересборка+публикация) vs долг #6/#8 первым. Рекомендация: выкат
-   (справка+PDF готовы, ценность у клиента) при санкции Антона; #6 — отдельной аккуратной сессией.
+1. Прочитать `INDEX_econometrica` 📍 (свежая 🆕 сессия сверху) + `project_econometrica_backlog`.
+2. Зонд ветки (`git rev-parse --abbrev-ref HEAD` + fetch/behind=0?) + `git log --oneline -8` (6 коммитов сессии на месте).
+3. Согласовать с Антоном приоритет: ВЫКАТ 2.4.x (при санкции) vs #9 vs тестовые компы.
 
-## 🔴 Руководство по стилю действий (прочитать ПЕРВЫМ — уроки сессии 2026-07-19)
-1. **Проверь ПРИНЯТЫЙ СТАНДАРТ до планирования «от себя».** В этой сессии разведка построила `install.html`
-   и структуру справки с нуля — а есть кросс-продуктовый стандарт справки+PDF (память
-   `project_help_pdf_rollout_all_products`, эталон Oracle). Антон поправил на ходу. Для ЛЮБОЙ справки/PDF/
-   доставки — сперва открыть память стандарта + эталон Oracle, портировать, а не изобретать.
-2. **Финальный греп-гейт ШИРЕ паттерна разведки.** Разведка ищет по узкому паттерну («доверительн|CI») и
-   пропускает синонимы (bootstrap-интервал, «ДИ» кириллица) + файлы вне пакетов (objective-engine.js).
-   После sweep — широкий греп по ВСЕМУ периметру, разобрать КАЖДОЕ совпадение, не верить «0».
-   [[feedback_final_sweep_gate_wider_than_recon_pattern]].
-3. **Классификацию агента-разведчика верифицируй перед необратимым.** rtrecon назвал `src/lib/help-econometrica`
-   «дублем» — оказалось уникальный контент (проверила имена файлов + содержимое перед удалением, не удалила).
-   Ярлык агента ≠ факт; для удаления/перезаписи — глянуть НАТУРУ.
-4. **glossary.html/js — ГЕНЕРИРУЕМЫЕ.** Любая правка в них временна (перегенерация `build_glossary.py`
-   откатит). Сейчас источник рассинхронен (долг #6). НЕ запускать `build_glossary.py` до реконсиляции #6 —
-   снесёт OVB + 9 терминов. Контроль дрейфа: откатить выход к HEAD → перегенерить на неизменном источнике →
-   diff (пусто = синхронно) ДО любой правки источника.
-5. **lefthook `sync-help-lists` при коммите делает `git add src-tauri/help-econometrica/` (ВСЯ папка).**
-   Значит коммит любого HTML подтянет ВСЕ modified в папке. Чтобы разделить (напр. ps1 отдельно) — коммить
-   изолированный файл ПЕРВЫМ (когда он ещё единственный modified вне .html-периметра хука).
-6. **Приёмка PDF = визуальная (рендер глазами).** `Read` PDF требует poppler (нет) → рендерь PyMuPDF→PNG в
-   scratchpad и смотри Read PNG. Обложки/нумерацию/вёрстку текстовым грепом не проверить.
-7. **Делегирование щадит контекст** (7 durable-субагентов, приёмка грепом/гейтами компактна) — но каждую
-   находку/diff верифицируй ЛИЧНО; координируй субагентов по именам (econpdf путал доработку с повтором
-   задачи из task-notification — переформулируй явно «это НЕ повтор задачи #N»).
+## 🔴 Руководство по стилю действий (прочитать ПЕРВЫМ — уроки этой сессии)
+1. **Зонд > память, всегда.** Память 16 дней назвала движок thin-client «one-shot» — зонд кода опроверг (диалоговый). Память назвала долг MANUFACTURER-mismatch — оказался ЧУЖОЙ installer.nsi. Первый ход любого блока — 10-сек зонд решающего артефакта НА ОПРОВЕРЖЕНИЕ, не конструкция.
+2. **Реконсиляция SSOT: сверяй КАЖДЫЙ выход с прежним, не sample по одному.** Регресс MMM «6→7 шагов» жил ТОЛЬКО в `glossary.html`; сверка перегенерации против `glossary.js` (0 расхождений) его не увидела — поймала личная проверка `git diff` ВСЕХ выходов. Диагностику дрейфа веди безопасным прогоном генератора в песочницу (подмена OUT_* путей), не мутируя рабочее дерево.
+3. **Общий `CARGO_TARGET_DIR` — `installer.nsi`/`release/*.exe` НЕ персистентны per-product.** Последняя сборка ЛЮБОГО продукта перезаписывает их. Диагностируя installer.nsi — ПЕРВЫМ делом сверь `!define PRODUCTNAME`/mtime с целевым продуктом. Надёжны: итоговый `*-setup.exe` (per-product по имени) + реестр машины. [[feedback_shared_cargo_target_artifacts_not_per_product]].
+4. **Не фабрикуй причину и не чини вслепую.** Баг установщика: несколько технических гипотез опровергнуты фактами (реестр чист, publisher совпадает, ключ не пуст) — честный тупик лучше выдуманного диагноза. Предложенная правка хука (kill node.exe) оказалась опасной (снесёт чужие node) + бесполезной (claude CLI не держит файлы установки) — red-team своей же идеи ДО реализации.
+5. **Приёмка субагентов — метрику/находку верифицируй ЛИЧНО** (~40% FP), но диагностику/сборку/аудит выноси в durable-субагентов (щадит контекст). Живой аудит security-фикса в СОБРАННОМ .exe (не dev — там нет MCP-моста в release), тестируй САМ барьер (scope+инъекция), не «как меня зовут».
+6. **Собранный релиз .exe: sidecar переиспользуй, если Python не менялся** — только `npm run tauri build` (Rust+фронт+бандлинг готового sidecar), не `build_sidecar.py`. Токены `aurora_tokens.py` в worktree уже сгенерированы (дизайн-систему не трогали) → worktree-грабля не срабатывает.

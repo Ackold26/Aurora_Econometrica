@@ -97,3 +97,15 @@ pre-commit:
         - "src/lib/glossary.js"
         - "tools/check_glossary_sync.py"
       run: python tools/check_glossary_sync.py
+
+    help-pdf-consistency:
+      # PDF-справка (117 стр) собирается из HTML tools/build_help_pdf.py — правка HTML
+      # без перегенерации PDF доставляет клиенту устаревший контент (глоссарий/методология)
+      # молча: манифест help_pdf_manifest.json несёт старый sha256 (кейс 2026-07-19:
+      # реконсиляция глоссария/OVB/INV-50 не попала в PDF до подключения этого линтера).
+      glob:
+        - "src-tauri/help-econometrica/*.html"
+        - "tools/help_pdf_manifest.json"
+        - "src-tauri/help-econometrica/econometrica-help.pdf"
+        - "tools/check_help_pdf_consistency.py"
+      run: python tools/check_help_pdf_consistency.py

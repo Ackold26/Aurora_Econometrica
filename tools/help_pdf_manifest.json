@@ -1,6 +1,6 @@
 {
   "version": "2.4.0",
-  "generated": "2026-07-19T01:19:17Z",
+  "generated": "2026-07-19T14:31:24Z",
   "sources": {
     "about.html": "5af6b45a5d9dea7ccc014bc1cbbc1b5d754182f6c69e5be868ea2e9b17f7d04f",
     "data-preparation.html": "8876f092648e54df2c4bfa4824407bdac23fac7cc69f8801f0283036cdfcad7f",
@@ -8,7 +8,7 @@
     "error-codes.html": "5fc6cfa6d9c9f2695c90f027740cab51c5419daf608be8e01d229e61acc7da97",
     "faq.html": "13e8bfb974cefafccc4e961fd54e697d1fc95ecb6184e93e0a29714448c1ee2d",
     "features.html": "985a3481c7ef8ea2863bd0fe13fc1a518d0028dc182a3eba436f3ed0b8cf3d86",
-    "glossary.html": "58367c001b1da0d6bb122b36d4df9164d23ba8b54fcec37f90c1783e7ce6cc89",
+    "glossary.html": "150193aa1ae222ec1be7a8ebe6251192b43ed08c63bdf89a6e93dd90741ce909",
     "index.html": "c5f97dc0b557680a56e930cfed83d76e389804b3e1b5f7ebc1a271130bc16871",
     "install.html": "ced65d40d04b07ef77dc3395abec50eb9c4d2dc5fe2fe9aafa3b8c1805aeca71",
     "interpretation.html": "b8105277972a00ff2af8a5304766ee06721da6347a121637b7208d851bddf956",
