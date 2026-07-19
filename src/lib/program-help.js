@@ -96,7 +96,7 @@ export const PROGRAM_OVERVIEW = [
   '  добавить его отдельной колонкой (сезонность учитывается автоматически).',
   '',
   'Поддержка: support@auroraai.pro; логи – папка %LOCALAPPDATA%\\com.aurora.econometrica\\',
-  'logs\\; версия – меню «О программе».',
+  'logs\\ (для локальной редакции – com.aurora.econometrica.local); версия – меню «О программе».',
 ].join('\n');
 
 /**
