@@ -36,12 +36,14 @@ jobs:
         # Вечная оборона по находкам аудита промптов (2026-07-13, Батч 5):
         # структура/тире/термины/шапка/блокировка команд econometrist ·
         # четверное совпадение cabinet.rs<->cabinets.json<->файлы<->command-meta-data.json ·
-        # синхронность content-pack manifest (Ed25519 + sha256). Способны падать (внести-поймать-откатить).
+        # синхронность content-pack manifest (Ed25519 + sha256) ·
+        # синхронность глоссария (SSOT источник -> 3 выхода). Способны падать (внести-поймать-откатить).
         run: |
           python -m pip install --quiet cryptography
           python tools/lint_prompt_commands.py
           python tools/check_help_consistency.py
           python tools/check_content_pack_sync.py
+          python tools/check_glossary_sync.py
         shell: bash
 
       - name: Build frontend

@@ -83,3 +83,17 @@ pre-commit:
         - "tools/check_content_pack_sync.py"
         - "tools/sign_content_pack.py"
       run: python tools/check_content_pack_sync.py
+
+    glossary-sync:
+      # Реконсиляция SSOT глоссария (долг #6): источник (docs/GLOSSARY_v2_1_0.md
+      # + LEGACY_ONLY в build_glossary.py) -> 3 выхода (glossary.json/html/js).
+      # Правка выхода мимо источника молча дрейфует до следующей перегенерации.
+      # Сам линтер в glob (урок v40-xss): порча проверки триггерит её же прогон.
+      glob:
+        - "docs/GLOSSARY_v2_1_0.md"
+        - "tools/build_glossary.py"
+        - "docs/glossary.json"
+        - "src-tauri/help-econometrica/glossary.html"
+        - "src/lib/glossary.js"
+        - "tools/check_glossary_sync.py"
+      run: python tools/check_glossary_sync.py
