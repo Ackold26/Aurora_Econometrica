@@ -169,6 +169,55 @@ pub async fn run_claude_pipeline(
     }
 }
 
+/// Изолированный CLAUDE_CONFIG_DIR для кабинетных сессий (V66/INV-92, вариант A).
+/// Перенаправляет user-level слой claude CLI (settings/hooks/skills/plugins/MCP/sessions/credentials)
+/// в отдельную папку → операторские/клиентские hooks/skills/MCP НЕ протекают в кабинет.
+/// Project-уровень кабинета (work_dir/CLAUDE.md барьер+scope) СОХРАНЯЕТСЯ (грузится из cwd, CONFIG_DIR его не трогает).
+fn isolated_claude_config_dir(app_handle: &tauri::AppHandle) -> Option<std::path::PathBuf> {
+    let iso = app_handle.path().app_local_data_dir().ok()?.join("claude-runtime");
+    if let Err(e) = std::fs::create_dir_all(&iso) {
+        warn!("V66: не удалось создать изолированный CLAUDE_CONFIG_DIR ({}): {e}", iso.display());
+        return None;
+    }
+    let home = match app_handle.path().home_dir() {
+        Ok(h) => h,
+        Err(e) => {
+            warn!("V66: home_dir недоступен, изоляция отменена (откат к дефолту ~/.claude): {e}");
+            return None;
+        }
+    };
+    {
+        let src = home.join(".claude").join(".credentials.json");
+        if src.exists() {
+            let dst = iso.join(".credentials.json");
+            let src_newer = match (
+                src.metadata().and_then(|m| m.modified()),
+                dst.metadata().and_then(|m| m.modified()),
+            ) {
+                (Ok(s), Ok(d)) => s > d,
+                _ => !dst.exists(),
+            };
+            if !dst.exists() || src_newer {
+                // Атомарная замена: temp + rename (rename атомарен на одном томе).
+                let tmp = iso.join(".credentials.json.tmp");
+                match std::fs::copy(&src, &tmp) {
+                    Ok(_) => {
+                        if let Err(e) = std::fs::rename(&tmp, &dst) {
+                            warn!("V66: не удалось атомарно заменить OAuth credentials: {e}");
+                            let _ = std::fs::remove_file(&tmp);
+                        }
+                    }
+                    Err(e) => {
+                        warn!("V66: не удалось перенести OAuth credentials в изоляцию: {e}");
+                        let _ = std::fs::remove_file(&tmp);
+                    }
+                }
+            }
+        }
+    }
+    Some(iso)
+}
+
 #[allow(clippy::too_many_arguments)]
 async fn run_claude_inner(
     work_dir: &Path,
@@ -257,12 +306,18 @@ async fn run_claude_inner(
         .stderr(Stdio::piped())
         .stdin(Stdio::piped()) // pipe prompt from file via stdin
         .env_remove("CLAUDECODE")
-        .env_remove("ANTHROPIC_API_KEY"); // Force OAuth (subscription) instead of API credits
+        .env_remove("ANTHROPIC_API_KEY") // Force OAuth (subscription) instead of API credits
+        .env_remove("CLAUDE_CONFIG_DIR");
 
     // Hide console window on Windows
     #[cfg(windows)]
     {
         cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+    }
+
+    // CPD-15 / V66: изолировать user-слой оператора (~/.claude) от кабинета клиента.
+    if let Some(iso) = isolated_claude_config_dir(&app_handle) {
+        cmd.env("CLAUDE_CONFIG_DIR", &iso);
     }
 
     let mut child = cmd.spawn()
