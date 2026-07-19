@@ -1731,6 +1731,53 @@ fn open_user_guide(app_handle: tauri::AppHandle) -> Result<(), String> {
     tauri_plugin_opener::open_path(&path_str, None::<&str>).map_err(|e| e.to_string())
 }
 
+/// Сохранить PDF-справку (tools/build_help_pdf.py) в папку загрузок
+/// пользователя. Econometrica доставляет справку БАНДЛОМ, не content-pack-
+/// каналом (в отличие от Oracle/Legal - content-packs/help/ у продукта не
+/// существует, content_pack::help_file_path всегда вернёт None), поэтому
+/// здесь без приоритетной проверки content-pack - сразу resource_dir с dev-
+/// фолбэком (тот же приём, что и open_user_guide() выше).
+#[tauri::command]
+fn save_help_pdf(app_handle: tauri::AppHandle) -> Result<String, String> {
+    const PDF_NAME: &str = "econometrica-help.pdf";
+
+    let resource_path = app_handle
+        .path()
+        .resource_dir()
+        .map_err(|e| e.to_string())?
+        .join("help-econometrica")
+        .join(PDF_NAME);
+
+    // In dev mode resource_dir points to target/debug, so fall back to src-tauri/help-econometrica/
+    let source_path = if resource_path.exists() {
+        resource_path
+    } else {
+        let dev_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("help-econometrica")
+            .join(PDF_NAME);
+        if dev_path.exists() {
+            dev_path
+        } else {
+            return Err(format!("PDF-справка не найдена: {}", resource_path.display()));
+        }
+    };
+
+    let downloads_dir = app_handle.path().download_dir().map_err(|e| e.to_string())?;
+    std::fs::create_dir_all(&downloads_dir).map_err(|e| e.to_string())?;
+    // Не перезатирать существующий файл (клиент мог аннотировать сохранённую
+    // копию): при коллизии - суффикс (2), (3), …
+    let base = "Aurora-AI-Econometrica-Справка";
+    let mut dest_path = downloads_dir.join(format!("{base}.pdf"));
+    let mut n = 2;
+    while dest_path.exists() {
+        dest_path = downloads_dir.join(format!("{base} ({n}).pdf"));
+        n += 1;
+    }
+    std::fs::copy(&source_path, &dest_path).map_err(|e| e.to_string())?;
+
+    Ok(dest_path.to_string_lossy().to_string())
+}
+
 // ============== Content Pack IPC ==============
 
 #[tauri::command]
@@ -3284,6 +3331,7 @@ fn build_app() -> Result<(), String> {
             delete_export_file,
             open_help,
             open_user_guide,
+            save_help_pdf,
             get_content_pack,
             check_pptx_dependencies,
             install_pptx_dependencies,

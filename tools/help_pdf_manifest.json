@@ -1,0 +1,22 @@
+{
+  "version": "2.4.0",
+  "generated": "2026-07-19T01:19:17Z",
+  "sources": {
+    "about.html": "5af6b45a5d9dea7ccc014bc1cbbc1b5d754182f6c69e5be868ea2e9b17f7d04f",
+    "data-preparation.html": "8876f092648e54df2c4bfa4824407bdac23fac7cc69f8801f0283036cdfcad7f",
+    "econometrica.html": "1bf6f77105e601ba16fcf74fd8856904b82ce87e30242c26d3d1bc0ca432e916",
+    "error-codes.html": "5fc6cfa6d9c9f2695c90f027740cab51c5419daf608be8e01d229e61acc7da97",
+    "faq.html": "13e8bfb974cefafccc4e961fd54e697d1fc95ecb6184e93e0a29714448c1ee2d",
+    "features.html": "985a3481c7ef8ea2863bd0fe13fc1a518d0028dc182a3eba436f3ed0b8cf3d86",
+    "glossary.html": "58367c001b1da0d6bb122b36d4df9164d23ba8b54fcec37f90c1783e7ce6cc89",
+    "index.html": "c5f97dc0b557680a56e930cfed83d76e389804b3e1b5f7ebc1a271130bc16871",
+    "install.html": "ced65d40d04b07ef77dc3395abec50eb9c4d2dc5fe2fe9aafa3b8c1805aeca71",
+    "interpretation.html": "b8105277972a00ff2af8a5304766ee06721da6347a121637b7208d851bddf956",
+    "methodology.html": "1a32d1056d48d6b814fb8afaf9277be41614efe19c84c97ff95628f7af670532",
+    "pipeline.html": "4bc7179843cec626a4e29e3b915491029cab7bf969d9cc36b95cca0c38bf0cfb",
+    "system-requirements.html": "9da857b37a0913a770e9379d3aa68148f384e186057674f59de839273d9eb3f8",
+    "user-guide.html": "2f7fed339ec2c09d759dbcd57900b5a4698ca2370a8d54dd8c918fc945721998",
+    "whats-new.html": "0ccb2c208efb0680fe4e3e2b50a828a4379af8a803c87900e9ec0cb356cd9557",
+    "econ-nav.js": "c5d018620648af031594547ebb48891a0807c92beaec5fe35e6d0eb74a087461"
+  }
+}

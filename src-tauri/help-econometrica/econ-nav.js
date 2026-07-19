@@ -62,6 +62,7 @@
           <input type="text" class="anav-search" placeholder="Поиск по справке..." />
           <div class="anav-results"></div>
         </div>
+        <a href="econometrica-help.pdf" download="Aurora-AI-Econometrica-Справка.pdf" class="anav-pdf" title="Скачать справку одним PDF-файлом">PDF</a>
       </div>
     `;
     return nav;
@@ -141,6 +142,14 @@
       .anav-results .r-title { font-weight: 600; color: #e6edf3; }
       .anav-results .r-group { font-size: 11px; color: #484f58; }
       .anav-results .r-empty { padding: 12px; text-align: center; color: #484f58; font-size: 12.5px; }
+      .anav-pdf {
+        display: inline-flex; align-items: center; justify-content: center;
+        margin-left: 10px; padding: 6px 12px; border-radius: 6px;
+        background: rgba(88,166,255,0.1); border: 1px solid rgba(88,166,255,0.3);
+        color: #58a6ff; font-size: 11.5px; font-weight: 700; letter-spacing: 0.04em;
+        text-decoration: none; white-space: nowrap; transition: all 0.15s;
+      }
+      .anav-pdf:hover { background: rgba(88,166,255,0.18); border-color: rgba(88,166,255,0.5); }
     `;
     document.head.appendChild(style);
   }

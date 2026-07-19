@@ -21,8 +21,8 @@
         "targets": [
             "nsis"
         ],
-        "publisher": "A. Sipovich",
-        "copyright": "© 2026 A. Sipovich",
+        "publisher": "Aurora Platform LLC",
+        "copyright": "© 2026 Aurora Platform LLC",
         "icon": [
             "icons/32x32.png",
             "icons/128x128.png",

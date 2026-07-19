@@ -211,6 +211,7 @@
   }
 
   let guideError = $state('');
+  let pdfSaveStatus = $state('');
 
   // Feedback form
   let fbCategory = $state('problem');
@@ -608,8 +609,14 @@
       <button class="btn-logs" onclick={async () => { try { await invoke('open_help', { cabinetId: 'index' }); } catch(e) { guideError = String(e); console.error(e); } }}>
         Открыть справочный центр
       </button>
+      <button class="btn-logs" onclick={async () => { pdfSaveStatus = ''; try { const path = await invoke('save_help_pdf'); pdfSaveStatus = `Сохранено: ${path}`; } catch(e) { pdfSaveStatus = `Ошибка: ${e}`; console.error(e); } }}>
+        Скачать PDF-справку
+      </button>
       {#if guideError}
         <p class="import-status" style="color: var(--danger)">{guideError}</p>
+      {/if}
+      {#if pdfSaveStatus}
+        <p class="import-status" style="color: {pdfSaveStatus.startsWith('Ошибка') ? 'var(--danger)' : 'var(--success)'}">{pdfSaveStatus}</p>
       {/if}
     </section>
 
