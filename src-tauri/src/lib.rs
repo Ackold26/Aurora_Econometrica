@@ -1163,7 +1163,15 @@ async fn send_message(
                 );
                 tokio::time::sleep(std::time::Duration::from_secs(backoff)).await;
             }
-            Err(e) if use_resume.is_some() && attempt == 0 => {
+            // Gateway-ошибки (feature `thin`, префикс [TC-GW-) — транспорт/сервер, НЕ отказ
+            // resume: сброс контекста здесь ложно сообщал бы «Начинаю новую сессию», терял
+            // живой серверный label при транзиентном сбое и делал лишний повторный вызов
+            // (аудит 2026-07-20). Пусть падают в честную ошибку ниже — label сохраняется,
+            // пользователь повторит отправку в тот же диалог. CLI-путь не задет (его ошибки
+            // такого префикса не имеют).
+            Err(e) if use_resume.is_some() && attempt == 0
+                && !e.to_string().starts_with("[TC-GW-") =>
+            {
                 // --resume failed, try fresh session as fallback
                 warn!("Resume failed for {cabinet_id}, retrying without resume: {e}");
                 // Clear partial response from failed resume attempt

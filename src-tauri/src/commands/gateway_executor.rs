@@ -44,7 +44,11 @@ fn generate_session_label(cabinet_id: &str) -> String {
         .map(|d| d.as_nanos())
         .unwrap_or(0);
     let counter = COUNTER.fetch_add(1, Ordering::Relaxed);
-    let mixed = (nanos as u64) ^ ((counter as u64) << 32) ^ (std::process::id() as u64);
+    // Счётчик замешивается и в МЛАДШИЕ биты (аудит 2026-07-20): только `<< 32` делал его
+    // вклад мёртвым — маска ниже берёт биты [0,31], и уникальность держалась бы лишь на
+    // тике наносекунд (два «новых диалога» подряд могли получить одну метку → сервер
+    // продолжил бы старую sticky-сессию вместо новой).
+    let mixed = (nanos as u64) ^ ((counter as u64) << 32) ^ (counter as u64) ^ (std::process::id() as u64);
     format!("tc-{cabinet_id}-{:08x}", (mixed & 0xFFFF_FFFF) as u32)
 }
 
@@ -123,11 +127,28 @@ async fn execute(
     let cabinet_owned = cabinet_id.clone();
     let prompt_owned = prompt.to_string();
     let label_owned = label.clone();
-    let response = tokio::task::spawn_blocking(move || {
-        aurora_gateway::send_to_gateway(&node, &client_dir, &cabinet_owned, &prompt_owned, &label_owned)
-    })
-    .await
-    .map_err(|e| anyhow::anyhow!("[TC-GW-JOIN] Поток gateway-вызова прерван: {e}"))?;
+    // Клиентский потолок ожидания (аудит 2026-07-20): SSH ServerAlive держит канал, пока
+    // жив sshd, а НЕ forced-command — зависший движок оставил бы вызов без границы при уже
+    // снятом safety-таймере UI (init выше). Паритет CLI-пути (30-мин timeout, claude.rs) +
+    // запас над серверным poll-окном gateway (~30 мин), чтобы штатно первым приходил
+    // серверный статус "timeout". Осиротевший blocking-поток при истечении не убивается
+    // (ssh завершится сам по ServerAlive/серверному пределу); жёсткий kill — фаза 2.
+    const GATEWAY_CALL_TIMEOUT_SECS: u64 = 1830;
+    let joined = tokio::time::timeout(
+        std::time::Duration::from_secs(GATEWAY_CALL_TIMEOUT_SECS),
+        tokio::task::spawn_blocking(move || {
+            aurora_gateway::send_to_gateway(&node, &client_dir, &cabinet_owned, &prompt_owned, &label_owned)
+        }),
+    )
+    .await;
+    let response = match joined {
+        Err(_elapsed) => anyhow::bail!(
+            "[TC-GW-TIMEOUT] Превышено время ожидания ответа сервера – повторите позже."
+        ),
+        Ok(join) => {
+            join.map_err(|e| anyhow::anyhow!("[TC-GW-JOIN] Поток gateway-вызова прерван: {e}"))?
+        }
+    };
 
     let text = match response {
         Ok(resp) => map_response(resp)?,
