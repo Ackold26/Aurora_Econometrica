@@ -321,6 +321,15 @@ fn get_local_content_version(app_handle: tauri::AppHandle) -> Result<Option<Stri
     Ok(content_updater::get_local_version(&config_dir))
 }
 
+/// Отображаемая версия приложения. Суффикс «C» помечает тонкую редакцию (feature
+/// `thin`, кабинет исполняется через SSH-gateway) — отличает её от полной в UI
+/// (Настройки → О программе) без отдельного продукта в семантике версии.
+#[tauri::command]
+fn display_version() -> String {
+    let suffix = if cfg!(feature = "thin") { "C" } else { "" };
+    env!("CARGO_PKG_VERSION").to_string() + suffix
+}
+
 #[tauri::command]
 fn get_machine_id() -> Result<String, String> {
     let fp = crypto::fingerprint::get_machine_fingerprint().map_err(|e| e.to_string())?;
@@ -3309,6 +3318,7 @@ fn build_app() -> Result<(), String> {
             check_content_update,
             update_content,
             get_local_content_version,
+            display_version,
             get_machine_id,
             get_full_machine_hash,
             get_raw_fingerprint,

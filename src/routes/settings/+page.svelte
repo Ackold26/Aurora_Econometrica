@@ -4,10 +4,11 @@
   import { theme, toggleTheme, cloudConsent, cloudConsentPromptOpen } from '$lib/store.js';
   import { productType } from '$lib/creative-store.js';
   import { getProductName, filterCabinetsByProduct } from '$lib/command-meta.js';
-  import { getVersion } from '@tauri-apps/api/app';
 
   let APP_VERSION = $state('...');
-  getVersion().then(v => { APP_VERSION = v; }).catch(() => { APP_VERSION = '?'; });
+  // display_version (не getVersion из @tauri-apps/api/app): тонкая редакция (feature
+  // `thin`) добавляет суффикс «C» к версии сборки — Rust-команда знает про cfg, JS нет.
+  invoke('display_version').then(v => { APP_VERSION = v; }).catch(() => { APP_VERSION = '?'; });
   import { isAudioEnabled, setAudioEnabled } from '$lib/audio.js';
   import { onboardingEnabled } from '$lib/onboarding-state.js';
   import { hideEducationalHints, showGlossaryPanel, showIntroTutorial } from '$lib/project-state.js';
