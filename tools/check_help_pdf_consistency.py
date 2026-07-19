@@ -42,6 +42,15 @@ Dev/Aurora_Oracle/tools/check_help_consistency.py (волна 2 стандарт
    help/ у Econometrica не существует - поэтому здесь только ОДИН канал,
    паритет bundle<->content-pack (как у Oracle/Legal) НЕ проверяется - у
    Econometrica такого второго канала нет).
+6. INV-50 (частотный vs байесовский интервал, см. tools/lint_prompt_commands.py
+   для той же логики в промптах): «доверительный интервал», отдельно стоящая
+   кириллическая аббревиатура «ДИ» и отдельно стоящая латинская «CI» запрещены
+   в клиентском тексте *.html - байесовский интервал называется «правдоподобный
+   диапазон». Исключения: содержимое HTML-комментариев <!-- ... --> не
+   проверяется; строки с разрешённым en-термином «Credible Interval»
+   (глоссарий, en-бейдж) пропускаются целиком; IPC-идентификаторы вида
+   posterior_ci/#posterior_ci не задеты - паттерн требует границ слова и точного
+   регистра «CI», строчное «ci» внутри id/anchor не матчится.
 
 Пустой результат извлечения (0 id в econ-nav.js) - громкий FAIL «парсер
 сломан», а не тихий OK.
@@ -77,6 +86,18 @@ EM_DASH_ENTITY_RE = re.compile(r"&mdash;|&#8212;|&#x2014;", re.IGNORECASE)
 VERSION_RE = re.compile(r"\bv(\d+\.\d+\.\d+)\b")
 COPYRIGHT_RE = re.compile(r"©\s*2026\s*ООО\s*«Платформа Аврора»")
 SIPOVICH_RE = re.compile(r"[СS]ипович|sipovich", re.IGNORECASE)
+
+# INV-50: частотный «доверительный интервал»/«ДИ»/«CI» запрещены в клиентском
+# тексте - байесовский интервал называется «правдоподобный диапазон» (см.
+# tools/lint_prompt_commands.py - тот же запрет для промптов кабинета).
+# «ДИ»/«CI» - строго заглавными и с границами слова (не Cyrillic/Latin буква
+# по краям), чтобы не ловить «ДИапазон», «видит» или lowercase id/anchor вида
+# posterior_ci.
+HTML_COMMENT_RE = re.compile(r"<!--.*?-->", re.DOTALL)
+DOVERIT_RE = re.compile(r"(?i:доверительн\w*)")
+DI_ABBR_RE = re.compile(r"(?<![A-Za-zА-Яа-яЁё])ДИ(?![A-Za-zА-Яа-яЁё])")
+CI_ABBR_RE = re.compile(r"(?<![A-Za-zА-Яа-яЁё])CI(?![A-Za-zА-Яа-яЁё])")
+CREDIBLE_INTERVAL_MARK = "Credible Interval"
 
 
 def relpath(path: Path) -> str:
@@ -140,6 +161,41 @@ def check_em_dash(all_html_files) -> list:
             counts = Counter(m.lower() for m in entity_matches)
             detail = ", ".join(f"{form}×{n}" for form, n in counts.items())
             fails.append(f"{relpath(path)}: найдена HTML-сущность длинного тире ({detail}) — использовать короткое тире «-»")
+    return fails
+
+
+# ── INV-50 (доверительный интервал / ДИ / CI в клиентском тексте) ──────
+
+def _strip_html_comments_keep_lines(text: str) -> str:
+    """Вырезает <!-- ... --> целиком, сохраняя число строк (переносы внутри
+    комментария заменяются тем же числом переносов) - иначе номера строк
+    после многострочного комментария разъедутся с оригиналом файла."""
+    return HTML_COMMENT_RE.sub(lambda m: "\n" * m.group(0).count("\n"), text)
+
+
+def check_inv50_terms(all_html_files) -> list:
+    fails = []
+    for path in all_html_files:
+        text = _strip_html_comments_keep_lines(read_text(path))
+        for line_no, line in enumerate(text.splitlines(), start=1):
+            if CREDIBLE_INTERVAL_MARK in line:
+                continue
+            for m in DOVERIT_RE.finditer(line):
+                fails.append(
+                    f"{relpath(path)}:{line_no}: найден запрещённый термин «{m.group(0)}» — "
+                    f"байесовский интервал называется «правдоподобный диапазон» (INV-50): {line.strip()}"
+                )
+            for _ in DI_ABBR_RE.finditer(line):
+                fails.append(
+                    f"{relpath(path)}:{line_no}: найдена запрещённая аббревиатура «ДИ» — "
+                    f"байесовский интервал называется «правдоподобный диапазон» (INV-50): {line.strip()}"
+                )
+            for _ in CI_ABBR_RE.finditer(line):
+                fails.append(
+                    f"{relpath(path)}:{line_no}: найдена запрещённая аббревиатура «CI» — "
+                    "байесовский интервал называется «правдоподобный диапазон» (INV-50); "
+                    f"en-термин «Credible Interval» разрешён: {line.strip()}"
+                )
     return fails
 
 
@@ -283,6 +339,7 @@ def main() -> int:
 
     all_fails.extend(check_nav_js(all_html_files))
     all_fails.extend(check_em_dash(all_html_files))
+    all_fails.extend(check_inv50_terms(all_html_files))
     all_fails.extend(check_copyright(all_html_files))
 
     version_fails, version_warns = check_version_consistency(all_html_files)
@@ -307,7 +364,8 @@ def main() -> int:
             print(f"  - {f}")
         return 1
 
-    print("OK: econ-nav.js <-> файлы согласованы, U+2014 не найден, копирайт «Платформа Аврора» на месте, "
+    print("OK: econ-nav.js <-> файлы согласованы, U+2014 не найден, «доверительный интервал»/«ДИ»/«CI» "
+          "в клиентском тексте не найдены (INV-50), копирайт «Платформа Аврора» на месте, "
           "версия tauri.conf.json = package.json, PDF свежий.")
     return 0
 
