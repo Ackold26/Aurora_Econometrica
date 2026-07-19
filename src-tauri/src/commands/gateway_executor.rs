@@ -48,6 +48,14 @@ fn generate_session_label(cabinet_id: &str) -> String {
     format!("tc-{cabinet_id}-{:08x}", (mixed & 0xFFFF_FFFF) as u32)
 }
 
+/// Строка-событие `result` для канала `claude-stream-<cabinet>` — минимальный паритет
+/// с финальной строкой stream-json локального CLI: ChatPanel добавляет assistant-пузырь
+/// из `data.result` при `data.type === "result"` (ChatPanel.svelte, ветка result).
+/// В gateway-режиме дельт нет — ответ приходит одной такой строкой.
+fn build_result_event(text: &str) -> String {
+    serde_json::json!({ "type": "result", "result": text }).to_string()
+}
+
 /// Замэппить ответ gateway в текст ответа или классифицированную ошибку. Чистая
 /// функция без побочных эффектов (не трогает app_handle/ФС) — тестируется без сети.
 fn map_response(resp: aurora_gateway::GatewayResponse) -> Result<String> {
@@ -101,6 +109,17 @@ async fn execute(
 
     info!("Gateway-запрос [{cabinet_id}]: node={node}, label={label}");
 
+    if !suppress_done {
+        // Паритет CLI (system/init — первая строка stream-json локального пути): снимает
+        // safety-таймер ChatPanel до долгого ответа сервера. Gateway промежуточных строк
+        // не шлёт — без init таймер отменил бы длинную задачу и породил гонку UI
+        // с поздним result (в CLI init приходит от запустившегося процесса).
+        let _ = app_handle.emit(
+            &format!("claude-stream-{cabinet_id}"),
+            r#"{"type":"system","subtype":"init"}"#.to_string(),
+        );
+    }
+
     let cabinet_owned = cabinet_id.clone();
     let prompt_owned = prompt.to_string();
     let label_owned = label.clone();
@@ -118,6 +137,13 @@ async fn execute(
     info!("Gateway-ответ получен [{cabinet_id}]: {} байт, label={label}", text.len());
 
     if !suppress_done {
+        // Финальный текст в чат ДО done (порядок CLI-пути: result-строка из stdout,
+        // затем claude-done). Без этого события send_message вернул бы Ok(()), а
+        // ChatPanel не получил бы текст вовсе — ответ существовал бы только в exports.
+        let _ = app_handle.emit(
+            &format!("claude-stream-{cabinet_id}"),
+            build_result_event(&text),
+        );
         let _ = app_handle.emit(
             &format!("claude-done-{cabinet_id}"),
             serde_json::json!({ "exit_code": 0 }),
@@ -181,6 +207,24 @@ mod tests {
         let a = generate_session_label("econometrist");
         let b = generate_session_label("econometrist");
         assert_ne!(a, b, "две подряд сгенерированные метки не должны совпадать");
+    }
+
+    // ── Строка-событие result для ChatPanel ─────────────────────────────────
+
+    #[test]
+    fn result_event_parses_back_with_type_and_text() {
+        let raw = build_result_event("Ответ советника.");
+        let v: serde_json::Value = serde_json::from_str(&raw).expect("строка должна быть валидным JSON");
+        assert_eq!(v["type"], "result");
+        assert_eq!(v["result"], "Ответ советника.");
+    }
+
+    #[test]
+    fn result_event_escapes_quotes_and_newlines() {
+        // Текст с кавычками/переносами не должен ломать JSON (ChatPanel делает JSON.parse).
+        let raw = build_result_event("Строка с «кавычками», \"двойными\"\nи переносом");
+        let v: serde_json::Value = serde_json::from_str(&raw).expect("экранирование сломано");
+        assert_eq!(v["result"], "Строка с «кавычками», \"двойными\"\nи переносом");
     }
 
     // ── Маппинг ответа сервера ───────────────────────────────────────────────
