@@ -22,6 +22,12 @@ cloud_advisors = []
 # продукт. В 9 форках feature отсутствует → legacy %APPDATA%\AIAgency\license.json
 # fallback компилируется в zero-LOC. См. memory/project_per_user_port_isolation.md.
 legacy_aiagency_fallback = []
+# thin — тонкая версия: кабинет-советник исполняется через SSH-gateway (aurora_gateway,
+# узел Б), а не локальным Claude CLI на клиентском ПК. Собирается ПОВЕРХ default (thin не
+# отключает cloud_advisors — согласие/local-only гейты остаются, меняется только транспорт
+# исполнения claude.rs::run_claude*):
+#   cargo build --features thin  (или tauri build -- --features thin)
+thin = ["dep:aurora_gateway"]
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
@@ -85,6 +91,10 @@ wait-timeout = "0.2"
 
 # SID hashing для deterministic per-user port allocation (RDP multi-user isolation)
 xxhash-rust = { version = "0.8", features = ["xxh3"] }
+
+# Тонкая версия (feature `thin`): общий SSH-транспорт для gateway-исполнения кабинета —
+# aurora-platform-core Core SSOT, не app-to-app копия. optional — грузится только с thin.
+aurora_gateway = { path = "../../../aurora-platform-core/aurora_gateway", optional = true }
 
 # Windows system info + API для process owner detection
 [target.'cfg(windows)'.dependencies]
