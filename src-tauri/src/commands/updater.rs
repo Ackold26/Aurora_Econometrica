@@ -104,8 +104,17 @@ async fn check_github_pages(product: &str) -> Result<VersionInfo> {
 ///   облачная:  aurora-econometrica-gui/latest.json
 ///   локальная: aurora-econometrica-gui-local/latest.json
 /// Публикация локального манифеста — регламент aurora-release-update.
+///
+/// Тонкая версия (feature `thin`, добавлено при внедрении gateway-транспорта):
+/// собирается ПОВЕРХ default (`cloud_advisors` остаётся включённой) — поэтому
+/// проверяем `thin` ПЕРВЫМ в цепочке приоритетов, иначе она попала бы в облачную
+/// ветку и получала бы обновления полного клиента (с локальным Claude CLI внутри).
+/// thin и локальная не сочетаются (thin не собирается с --no-default-features).
+///   тонкая:    aurora-econometrica-gui-thin/latest.json
 pub fn update_product_key() -> String {
-    if cfg!(feature = "cloud_advisors") {
+    if cfg!(feature = "thin") {
+        format!("{}-thin", env!("CARGO_PKG_NAME"))
+    } else if cfg!(feature = "cloud_advisors") {
         env!("CARGO_PKG_NAME").to_string()
     } else {
         format!("{}-local", env!("CARGO_PKG_NAME"))
@@ -478,15 +487,20 @@ mod tests {
         assert!(!is_newer("v0.0.1", "0.0.1"));
     }
 
-    /// D2: канал обновлений согласован с редакцией сборки — облачная идёт
-    /// по базовому ключу, локальная по «-local» (иначе локальным клиентам
-    /// приедет облачный exe с Claude-каналом — нарушение «0 egress»).
+    /// D2 + thin: канал обновлений согласован с редакцией сборки — тонкая идёт
+    /// по «-thin» (высший приоритет: thin собирается ПОВЕРХ cloud_advisors, см.
+    /// update_product_key), облачная (без thin) — по базовому ключу, локальная
+    /// (без cloud_advisors) — по «-local». Редакции не делят канал, иначе клиенту
+    /// одной редакции приедет exe другой — нарушение egress-контракта редакции.
     #[test]
     fn update_channel_matches_edition() {
         let key = update_product_key();
-        if cfg!(feature = "cloud_advisors") {
+        if cfg!(feature = "thin") {
+            assert_eq!(key, format!("{}-thin", env!("CARGO_PKG_NAME")));
+        } else if cfg!(feature = "cloud_advisors") {
             assert_eq!(key, env!("CARGO_PKG_NAME"));
             assert!(!key.ends_with("-local"));
+            assert!(!key.ends_with("-thin"));
         } else {
             assert_eq!(key, format!("{}-local", env!("CARGO_PKG_NAME")));
         }
