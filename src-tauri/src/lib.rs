@@ -776,8 +776,13 @@ fn resolve_slash_command(message: &str, work_dir: &std::path::Path) -> String {
     }
 }
 
-// Auto-save (.md → .docx/.pdf/.xlsx) suppressed for all slash-commands.
-// Slash-commands produce their own exports; .md auto-save just duplicates chat content.
+// Авто-сохранение отчёта (.md → .docx/.pdf/.xlsx) подавляется ТОЛЬКО по явному
+// suppress_export=true (промежуточные шаги auto-continue из ChatPanel). Часть команд
+// econometrist отвечает в чат без self-export — им нужен именно этот авто-.md для
+// карточки «Оформить отчёт»; команды с явным self-export (Write в exports/) получат
+// дополнительный сырой .md-дубль — минорный побочный эффект, не потеря данных.
+// Рудимент `|| starts_with('/')` снят 2026-07-24 (CPD-17, пришёл sync-коммитом 43d0a8f,
+// глушил авто-.md для всех slash-команд).
 
 #[tauri::command]
 async fn send_message(
@@ -1121,7 +1126,7 @@ async fn send_message(
             cabinet_id.clone(),
             resume_for_attempt,
             state.active_pids.clone(),
-            suppress_export.unwrap_or(false) || message.trim().starts_with('/'),
+            suppress_export.unwrap_or(false),
             user_model.clone(),
         ).await;
 
