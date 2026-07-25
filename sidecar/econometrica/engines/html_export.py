@@ -82,7 +82,7 @@ def build_html(
 ) -> dict[str, Any]:
     """Build a tier-1 interactive HTML deliverable from MMM pipeline data.
 
-    Delegates to aurora_html.build_html which renders the 14-section report
+    Delegates to aurora_html.build_html which renders the 17-section report
     per Standards/CLIENT_READY_ANATOMY_HTML.md.
 
     Args:
