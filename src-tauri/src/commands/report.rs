@@ -127,7 +127,7 @@ fn model_spec_value(model: &Value) -> Value {
     }
     serde_json::json!({
         "title": "Спецификация модели",
-        "subtitle": "Байесовская Media Mix Model с Adstock и Hill saturation",
+        "subtitle": "Байесовская Media Mix Model с отложенным эффектом (adstock) и Hill-насыщением",
         "engine": "PyMC + NumPyro (JAX) NUTS",
         "formula": "Sales_t = β₀ + Σᵢ βᵢ · Hill(Adstock(Media_i,t), αᵢ, γᵢ) + Σⱼ γⱼ · Control_j,t + ε_t",
         "transformations": [
@@ -147,7 +147,7 @@ fn model_spec_value(model: &Value) -> Value {
             "method": "NUTS (No-U-Turn Sampler) через NumPyro/JAX",
             "default_chains": 2, "default_draws": 500, "default_tune": 500,
         },
-        "normalization": "Media нормализованы Robyn-style (spend / mean(spend) после adstock); control z-нормализованы; y нормализован к std=1.",
+        "normalization": "Media нормализованы Robyn-style (spend / mean(spend) после отложенного эффекта (adstock)); control z-нормализованы; y нормализован к std=1.",
     })
 }
 
@@ -658,7 +658,7 @@ fn decomposition_timeline_columns(decompose: &Value) -> (Vec<String>, Vec<(Strin
         series.iter().filter_map(|s| {
             let role = s.get("role").and_then(|r| r.as_str()).unwrap_or("");
             let header = if role == "baseline" {
-                "Baseline".to_string()
+                "Базовый спрос".to_string()
             } else {
                 s.get("name").and_then(|n| n.as_str())?.to_string()
             };
@@ -671,7 +671,7 @@ fn decomposition_timeline_columns(decompose: &Value) -> (Vec<String>, Vec<(Strin
         // Legacy: baseline + media channels (старое поведение).
         let mut cols: Vec<(String, Vec<f64>)> = Vec::new();
         if let Some(bl) = ts.get("baseline").and_then(|b| b.as_array()) {
-            cols.push(("Baseline".to_string(),
+            cols.push(("Базовый спрос".to_string(),
                 bl.iter().map(|x| x.as_f64().unwrap_or(0.0)).collect()));
         }
         let channel_order: Vec<String> = decompose["channels"].as_array()
@@ -1718,7 +1718,7 @@ fn build_xlsx(
 
         // Header row at row 2
         ws.write_with_format(2, 0, "Период", &header_fmt).map_err(|e| format!("{e}"))?;
-        ws.write_with_format(2, 1, "Baseline", &header_fmt).map_err(|e| format!("{e}"))?;
+        ws.write_with_format(2, 1, "Базовый спрос", &header_fmt).map_err(|e| format!("{e}"))?;
         for (i, name) in channel_names.iter().enumerate() {
             ws.write_with_format(2, (i + 2) as u16, name.as_str(), &header_fmt).map_err(|e| format!("{e}"))?;
         }
@@ -1753,8 +1753,8 @@ fn build_xlsx(
         let explainer_row = (n_periods + 5) as u32;
         ws.write_with_format(explainer_row, 0, "Как использовать лист:", &bold).map_err(|e| format!("{e}"))?;
         ws.write(explainer_row + 1, 0, "• Выделите колонки «Период» + нужные → Вставка → Диаграмма → получите график вклада канала по времени.").map_err(|e| format!("{e}"))?;
-        ws.write(explainer_row + 2, 0, "• Baseline - часть KPI без медиа (органический спрос, сезонность, бренд).").map_err(|e| format!("{e}"))?;
-        ws.write(explainer_row + 3, 0, "• Медиа-вклад = сумма по каналам. KPI = Baseline + Медиа-вклад (то что модель объясняет).").map_err(|e| format!("{e}"))?;
+        ws.write(explainer_row + 2, 0, "• Базовый спрос - часть KPI без медиа (органический спрос, сезонность, бренд).").map_err(|e| format!("{e}"))?;
+        ws.write(explainer_row + 3, 0, "• Медиа-вклад = сумма по каналам. KPI = Базовый спрос + Медиа-вклад (то что модель объясняет).").map_err(|e| format!("{e}"))?;
 
         // Widths - Данные (A = 1 cm ≈ 5.4 char; D = 2.2 cm ≈ 11.88 char, per Антон)
         ws.set_column_width(0, 5.4).map_err(|e| format!("{e}"))?;   // Период - 1 см
@@ -1941,8 +1941,10 @@ mod tests {
         let (dates, cols) = decomposition_timeline_columns(&decompose);
         assert_eq!(dates, vec!["w1", "w2"]);
         let headers: Vec<&str> = cols.iter().map(|(h, _)| h.as_str()).collect();
-        // baseline переименован в "Baseline", факторы присутствуют как колонки.
-        assert_eq!(headers[0], "Baseline");
+        // baseline переименован в "Базовый спрос" (Фаза 3 покрытия, 2026-07-25:
+        // "Baseline" был голым англицизмом в клиентском XLSX — П8-2), факторы
+        // присутствуют как колонки.
+        assert_eq!(headers[0], "Базовый спрос");
         assert!(headers.contains(&"TV") && headers.contains(&"Digital"));
         assert!(headers.contains(&"Продажи в уп. конкуренты"));
         assert!(headers.contains(&"holiday_valentine"));
@@ -1963,6 +1965,6 @@ mod tests {
         let (dates, cols) = decomposition_timeline_columns(&decompose);
         assert_eq!(dates.len(), 2);
         let headers: Vec<&str> = cols.iter().map(|(h, _)| h.as_str()).collect();
-        assert_eq!(headers, vec!["Baseline", "TV"]);
+        assert_eq!(headers, vec!["Базовый спрос", "TV"]);
     }
 }
