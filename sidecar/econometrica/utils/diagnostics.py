@@ -95,6 +95,34 @@ def per_control_contraction(control_betas_post_sd, prior_control_sd, control_col
     return out
 
 
+# SSOT тиры MQS (score, tier, tier_label, color) — единственный источник порогов
+# 85/70/55/40. Рассинхрон копии этих чисел в слое представления (aurora_html)
+# уже ловили в бою (L16, 2026-04-29: MQS=70 показывал «Хорошее» в одном месте
+# и «приемлемо» в другом при разных порогах). Presentation-слой обязан читать
+# тир через `mqs_tier_info()`, а не держать свою копию порогов.
+_MQS_TIERS = (
+    (85, 'excellent', 'Отличное', '#22c55e'),
+    (70, 'good', 'Хорошее', '#3b82f6'),
+    (55, 'acceptable', 'Приемлемое', '#f59e0b'),
+    (40, 'weak', 'Слабое', '#f97316'),
+    (0, 'poor', 'Ненадёжное', '#ef4444'),
+)
+
+
+def mqs_tier_info(mqs: float) -> dict:
+    """SSOT-классификация посчитанного MQS в {tier, tier_label, color}.
+
+    Единственный владелец порогов 85/70/55/40 — presentation-слой (aurora_html/
+    aurora_pptx) обязан звать эту функцию вместо локальной копии диапазонов.
+    Вызывать только когда mqs реально посчитан (не None) — отсутствие метрики
+    обрабатывается на уровне вызывающего кода, не здесь.
+    """
+    for threshold, tier, label, color in _MQS_TIERS:
+        if mqs >= threshold:
+            return {'tier': tier, 'tier_label': label, 'color': color}
+    return {'tier': 'poor', 'tier_label': 'Ненадёжное', 'color': '#ef4444'}
+
+
 def model_quality_score(r_squared: float, mape: float, r_hat_max: float,
                         divergences: int = 0, ratio: float | None = None) -> dict:
     """Compute Model Quality Score (MQS) with tier classification.
@@ -128,17 +156,9 @@ def model_quality_score(r_squared: float, mape: float, r_hat_max: float,
             thinness_cap = 70
     mqs = min(raw_mqs, thinness_cap) if thinness_cap is not None else raw_mqs
 
-    # Tier classification
-    if mqs >= 85:
-        tier, label, color = 'excellent', 'Отличное', '#22c55e'
-    elif mqs >= 70:
-        tier, label, color = 'good', 'Хорошее', '#3b82f6'
-    elif mqs >= 55:
-        tier, label, color = 'acceptable', 'Приемлемое', '#f59e0b'
-    elif mqs >= 40:
-        tier, label, color = 'weak', 'Слабое', '#f97316'
-    else:
-        tier, label, color = 'poor', 'Ненадёжное', '#ef4444'
+    # Tier classification (SSOT lookup — см. mqs_tier_info выше).
+    _tier_info = mqs_tier_info(mqs)
+    tier, label, color = _tier_info['tier'], _tier_info['tier_label'], _tier_info['color']
 
     return {
         'score': round(mqs, 1),

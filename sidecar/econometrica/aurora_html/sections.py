@@ -553,7 +553,11 @@ def render_executive_summary(ctx: dict) -> str:
         budget = facts.get("total_budget_mln") or 0
         n_ch = facts.get("n_active_channels") or len(ctx["channels"])
         wr = facts.get("weighted_roi") or 1.0
-        mqs = ctx.get("diagnostics", {}).get("mqs_score") or 0
+        # Нет числа - нет подписи: метрика может быть не посчитана для этого
+        # прогона (ctx["diagnostics"]["mqs_score"] отсутствует) - честный
+        # прочерк вместо фиктивного 0, тот же формат что в карточке источников
+        # (render_sources) и по всему отчёту (_fmt_num SSOT-фолбэк "-").
+        mqs_fmt = _fmt_num(ctx.get("diagnostics", {}).get("mqs_score"))
         leader = facts.get("leader_channel") or "-"
         hero = facts.get("hero_channel") or leader
         leader_pct = facts.get("leader_share_spend_pct") or 0
@@ -575,14 +579,14 @@ def render_executive_summary(ctx: dict) -> str:
         if kpi["is_legacy"]:
             situation = scqar["situation"]["template"].format(
                 client=client, budget_mln=budget, n_channels=n_ch,
-                weighted_roi=wr, mqs=mqs
+                weighted_roi=wr, mqs=mqs_fmt
             )
         else:
             # v1.3.2: KPI-aware situation - заменяем «Weighted ROI X×» на CPU/доля.
             situation = (
                 f"{client} размещает {budget:.0f} млн ₽ в квартал через "
                 f"{n_ch} активных каналов. {_weighted_summary_phrase(wr, kpi)}, "
-                f"MQS модели {mqs:.0f}/100."
+                f"MQS модели {mqs_fmt}/100."
             )
         # L14: complication uses budget_dominator (not leader). Fallback when
         # all channels balanced (no clear dominator OR balanced contribution).
@@ -854,45 +858,53 @@ def render_at_a_glance(ctx: dict) -> str:
         f4_sup = strings["findings_templates"]["f4_verdicts_support"].format(n_channels=len(channels))
         findings.append((f4, f4_sup))
 
-        try:
-            mqs_val = float(mqs) if mqs is not None else 0
-        except (TypeError, ValueError):
-            mqs_val = 0
-        # L16 (math-fix v1.4 Section C, 2026-04-29): align frontend tier labels
-        # с backend (utils/diagnostics.py:62-72) - single 5-tier source of truth.
-        # Pre-fix: frontend had 3 tiers (good/fair/poor at 80/60/<60), backend
-        # had 5 tiers (excellent/good/acceptable/weak/poor at 85/70/55/40/<40)
-        # → MQS=70 showed «Хорошее» (sources block) vs «приемлемо» (findings).
-        diag_tier = (ctx.get("diagnostics") or {}).get("mqs_tier_label")
-        # Audit fix (2026-04-29): explicit `is not None` check distinguishes
-        # «backend not provided» vs «backend provided non-empty string».
-        # Pre-fix: `if diag_tier:` falsy для empty string '' → silent fallback
-        # к local computation, masking backend issues. Post-fix: trust backend
-        # value when present (even if empty), only fallback when truly absent.
-        if diag_tier is not None and diag_tier != "":
-            tier_label_text = diag_tier
-        elif mqs_val >= 85:
-            tier_label_text = 'Отличное'
-        elif mqs_val >= 70:
-            tier_label_text = 'Хорошее'
-        elif mqs_val >= 55:
-            tier_label_text = 'Приемлемое'
-        elif mqs_val >= 40:
-            tier_label_text = 'Слабое'
+        # Нет числа - нет подписи (2026-07-25): mqs_score может отсутствовать
+        # (метрика не была рассчитана для этого прогона) - раньше это тихо
+        # превращалось в mqs_val=0 и показывало клиенту правдоподобное
+        # «Качество модели: 0/100 - Ненадёжное», как будто это результат
+        # расчёта, а не факт отсутствия оценки. Честное отсутствие вместо
+        # фиктивного нуля - см. тот же принцип в render_sources (mqs_display).
+        mqs_val: float | None = None
+        if mqs is not None:
+            try:
+                mqs_val = float(mqs)
+            except (TypeError, ValueError):
+                mqs_val = None
+        if mqs_val is None:
+            f5 = strings["findings_templates"]["f5_mqs_unavailable"]
+            f5_sup = strings["findings_templates"]["f5_mqs_support_unavailable"]
         else:
-            tier_label_text = 'Ненадёжное'
-        # Support text per tier
-        support_key = {
-            'Отличное': 'f5_mqs_support_excellent',
-            'Хорошее': 'f5_mqs_support_good',
-            'Приемлемое': 'f5_mqs_support_acceptable',
-            'Слабое': 'f5_mqs_support_weak',
-            'Ненадёжное': 'f5_mqs_support_poor',
-        }.get(tier_label_text, 'f5_mqs_support_acceptable')
-        f5 = strings["findings_templates"]["f5_mqs"].format(
-            mqs=mqs_val, tier_label=tier_label_text
-        )
-        f5_sup = strings["findings_templates"][support_key]
+            # L16 (math-fix v1.4 Section C, 2026-04-29): align frontend tier labels
+            # с backend (utils/diagnostics.py) - single 5-tier source of truth.
+            # Pre-fix: frontend had 3 tiers (good/fair/poor at 80/60/<60), backend
+            # had 5 tiers (excellent/good/acceptable/weak/poor at 85/70/55/40/<40)
+            # → MQS=70 showed «Хорошее» (sources block) vs «приемлемо» (findings).
+            # 2026-07-25: локальная копия порогов 85/70/55/40 убрана - тиры читаются
+            # из единого SSOT (utils.diagnostics.mqs_tier_info), а не дублируются
+            # здесь; дубль этих чисел уже ловили в бою (см. комментарий выше).
+            diag_tier = (ctx.get("diagnostics") or {}).get("mqs_tier_label")
+            # Audit fix (2026-04-29): explicit `is not None` check distinguishes
+            # «backend not provided» vs «backend provided non-empty string».
+            # Pre-fix: `if diag_tier:` falsy для empty string '' → silent fallback
+            # к local computation, masking backend issues. Post-fix: trust backend
+            # value when present (even if empty), only fallback when truly absent.
+            if diag_tier is not None and diag_tier != "":
+                tier_label_text = diag_tier
+            else:
+                from utils.diagnostics import mqs_tier_info
+                tier_label_text = mqs_tier_info(mqs_val)['tier_label']
+            # Support text per tier
+            support_key = {
+                'Отличное': 'f5_mqs_support_excellent',
+                'Хорошее': 'f5_mqs_support_good',
+                'Приемлемое': 'f5_mqs_support_acceptable',
+                'Слабое': 'f5_mqs_support_weak',
+                'Ненадёжное': 'f5_mqs_support_poor',
+            }.get(tier_label_text, 'f5_mqs_support_acceptable')
+            f5 = strings["findings_templates"]["f5_mqs"].format(
+                mqs=mqs_val, tier_label=tier_label_text
+            )
+            f5_sup = strings["findings_templates"][support_key]
         findings.append((f5, f5_sup))
     else:
         # Preview mode
