@@ -419,9 +419,9 @@
         <div class="intro-card-body">
           Скачайте готовый файл для одной из четырёх отраслей. Он работает
           <strong>двояко</strong>:
-          <br>• <strong>как пример</strong> — перетащите в зону загрузки выше и
+          <br>• <strong>как пример</strong> – перетащите в зону загрузки выше и
           пройдите весь pipeline без правок (данные синтетические, но реалистичные);
-          <br>• <strong>как образец-шаблон</strong> — откройте в Excel, замените
+          <br>• <strong>как образец-шаблон</strong> – откройте в Excel, замените
           значения своими реальными данными, сохранив структуру (те же колонки,
           роли и единицы измерения, что нужны модели).
         </div>
@@ -470,22 +470,22 @@
           <div class="intro-card-title">Попробовать планирование на примере</div>
         </div>
         <div class="intro-card-body">
-          Готовый файл с <strong>историей + медиапланом на будущее</strong> —
+          Готовый файл с <strong>историей + медиапланом на будущее</strong> –
           пройдите весь путь до <strong>оптимизации бюджета</strong>: модель на
           истории, прогноз по вашему плану и рекомендация, как перераспределить
           бюджет для роста результата.
           <br><span class="planning-hint">Совет: на шаге «Валидация» для этих
-          категорий учёт праздников можно отключить — модель станет проще и надёжнее.</span>
+          категорий учёт праздников можно отключить – модель станет проще и надёжнее.</span>
         </div>
         <div class="sample-grid">
           <button class="sample-btn" type="button" disabled={savingSample}
-            onclick={() => downloadSample('synth_fmcg_brand.xlsx', 'FMCG — планирование', 'planning/')}>
+            onclick={() => downloadSample('synth_fmcg_brand.xlsx', 'FMCG – планирование', 'planning/')}>
             <span class="sample-icon">🛒</span>
             <span class="sample-label">FMCG бренд · план</span>
             <span class="sample-hint">Выручка ₽ · 2 года по неделям + медиаплан · оптимизация бюджета</span>
           </button>
           <button class="sample-btn" type="button" disabled={savingSample}
-            onclick={() => downloadSample('synth_otc_pharma.xlsx', 'OTC фарма — планирование', 'planning/')}>
+            onclick={() => downloadSample('synth_otc_pharma.xlsx', 'OTC фарма – планирование', 'planning/')}>
             <span class="sample-icon">💊</span>
             <span class="sample-label">OTC фарма · план</span>
             <span class="sample-hint">Упаковки · 5 лет по месяцам + медиаплан · оптимизация бюджета</span>

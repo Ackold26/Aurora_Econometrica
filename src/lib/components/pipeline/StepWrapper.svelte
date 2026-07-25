@@ -46,7 +46,7 @@
           <span class="metric-label">VIF max</span>
           <span class="metric-value">{validationMetrics.maxVif == null ? 'н/д' : validationMetrics.maxVif.toFixed(1)}</span>
         </span>
-        <span class="metric-chip light-{validationMetrics.periodStatus}" title="Период наблюдений. ≥24 захват 2+ сезонов, 12–24 один сезон, <12 недостаточно для baseline сезонности.">
+        <span class="metric-chip light-{validationMetrics.periodStatus}" title="Период наблюдений. ≥24 захват 2+ сезонов, 12–24 один сезон, <12 недостаточно для оценки сезонности.">
           <span class="metric-label">Период</span>
           <span class="metric-value">{validationMetrics.nObs}</span>
         </span>
