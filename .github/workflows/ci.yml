@@ -223,6 +223,7 @@ jobs:
           if ($existingSha) { $body.sha = $existingSha }
 
           gh api -X PUT "repos/ackold26/rosst-updates/contents/$path" --input - <<< ($body | ConvertTo-Json)
+          if ($LASTEXITCODE -ne 0) { exit 1 }
           Write-Host "Manifest updated: $product v$version"
         shell: pwsh
 
