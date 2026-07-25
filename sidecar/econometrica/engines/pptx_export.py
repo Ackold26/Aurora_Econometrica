@@ -17,7 +17,8 @@ compatibility with Rust callers and server.py.
 Responsibilities:
   1. Map Econometrica pipeline data structures (model_data / decompose_data /
      optimize_data / scenarios) → aurora_pptx builder data schema.
-  2. Invoke aurora_pptx.build_pptx(data) to render the 13-slide PPTX.
+  2. Invoke aurora_pptx.build_pptx(data) to render the 12-slide PPTX (plus
+     up to 3 conditional insert slides).
   3. Save to output_path, return status dict in the shape server.py expects.
 
 Narrative content (at-a-glance findings, SCQAR body, channel leader story)
