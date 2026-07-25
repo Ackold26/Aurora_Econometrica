@@ -967,12 +967,20 @@ class AuroraPPTXBuilder:
             f4 = f"Портфель: {_ru_channels(scale_n)} к росту, {_ru_channels(cut_n)} к сокращению"
             s4 = f"Из {len(self.channels)} активных каналов - чёткая рекомендация по каждому"
 
-        # Finding 5 - MQS quality signal (guards None / non-numeric mqs_score)
+        # Finding 5 - MQS quality signal.
+        # 2026-07-25: нет числа - нет подписи. self.mqs_score=None (метрика не
+        # рассчитана для этого прогона) раньше тихо превращался в mqs=0.0 и
+        # рендерился как «MQS 0/100 - требует доработки» - правдоподобный
+        # приговор модели, хотя её просто не оценивали. Честное отсутствие
+        # оценки вместо фиктивного нуля - зеркалит aurora_html render_at_a_glance.
         try:
-            mqs = float(self.mqs_score) if self.mqs_score is not None else 0.0
+            mqs = float(self.mqs_score) if self.mqs_score is not None else None
         except (TypeError, ValueError):
-            mqs = 0.0
-        if mqs >= 80:
+            mqs = None
+        if mqs is None:
+            f5 = "Оценка качества модели (MQS) не выполнялась для этого расчёта"
+            s5 = "Итоговый балл недоступен - диагностические метрики см. на слайде «Данные и качество»"
+        elif mqs >= 80:
             f5 = f"Качество модели: MQS {mqs:.0f}/100 - готовность к использованию"
             s5 = "Можно опираться на рекомендации в планировании"
         elif mqs >= 60:
