@@ -81,7 +81,7 @@
     },
     "complication": {
       "label": "COMPLICATION",
-      "template": "{budget_dominator} занимает {budget_dom_spend_pct_fmt} бюджета, но даёт {budget_dom_contrib_pct_fmt} эффекта. По mROAS {hero} опережает ({hero_mroas:.1f}×). Underperformers тянут портфель вниз."
+      "template": "{budget_dominator} занимает {budget_dom_spend_pct_fmt} бюджета, но даёт {budget_dom_contrib_pct_fmt} эффекта. По mROAS {hero} опережает ({hero_mroas:.1f}×). Слабые каналы тянут портфель вниз."
     },
     "complication_fallback": {
       "label": "COMPLICATION",
@@ -97,7 +97,7 @@
     },
     "answer_no_cut": {
       "label": "ANSWER",
-      "template": "Нарастить {scale_destination} на ~{realloc:.0f} млн ₽ за счёт roll-over бюджета или дополнительных средств."
+      "template": "Нарастить {scale_destination} на ~{realloc:.0f} млн ₽ за счёт переноса бюджета или дополнительных средств."
     },
     "answer_no_scale": {
       "label": "ANSWER",
@@ -121,14 +121,14 @@
     "f1_leader_support": "ROI {weighted_roi:.1f}× средневзвешенный по каналам",
     "f2_hero": "{hero} - самый эффективный канал с mROAS {hero_mroas:.1f}×",
     "f2_hero_support": "Текущий бюджет на нём {hero_spend_pct_fmt}",
-    "f3_realloc": "Recommendation: reallocate {realloc:.0f} млн ₽ из {leader} в {hero}",
+    "f3_realloc": "Рекомендация: перераспределить {realloc:.0f} млн ₽ из {leader} в {hero}",
     "f3_realloc_support": "Ожидаемый прирост ROAS: +{lift:.1f} пп",
-    "f3_keep": "Recommendation: сохранить текущую аллокацию по лидеру портфеля",
+    "f3_keep": "Рекомендация: сохранить текущую аллокацию по лидеру портфеля",
     "f3_keep_support": "Портфель близок к оптимуму по текущим данным",
     "f4_verdicts": "Портфель: {scale_n} канал(ов) к росту, {cut_n} к сокращению",
-    "f4_verdicts_support": "Из {n_channels} активных каналов - чёткий verdict по каждому",
+    "f4_verdicts_support": "Из {n_channels} активных каналов - чёткий вердикт по каждому",
     "f5_mqs": "Качество модели: MQS {mqs:.0f}/100 - {tier_label}",
-    "f5_mqs_support_excellent": "Готовность к production - можно опираться на рекомендации в планировании",
+    "f5_mqs_support_excellent": "Готовность к внедрению - можно опираться на рекомендации в планировании",
     "f5_mqs_support_good": "Хорошее качество - можно опираться на рекомендации с учётом диагностики",
     "f5_mqs_support_acceptable": "Приемлемо - рекомендации валидны с учётом диагностических метрик",
     "f5_mqs_support_weak": "Требует доработки - расширьте период данных или упростите модель",
@@ -178,23 +178,23 @@
     "limits": [
       {
         "lead": "Долгосрочные бренд-эффекты (>26 недель).",
-        "body": "Модель captures short-to-medium term, но не long-term brand building."
+        "body": "Модель описывает краткосрочный и среднесрочный эффект, но не долгосрочное построение бренда."
       },
       {
-        "lead": "Cross-category cannibalization.",
+        "lead": "Каннибализация между категориями.",
         "body": "Если клиент имеет несколько SKU - модель считает их единым KPI."
       },
       {
-        "lead": "Creative quality variation.",
-        "body": "Влияние качества роликов на ROI не моделируется - предполагается constant."
+        "lead": "Различия в качестве креативов.",
+        "body": "Влияние качества роликов на отдачу не моделируется – предполагается постоянным."
       },
       {
-        "lead": "Competitor media pressure.",
-        "body": "Share of Voice competitors в модели отсутствует - оценка для стабильной категории."
+        "lead": "Медиа-давление конкурентов.",
+        "body": "Share of Voice конкурентов в модели отсутствует – оценка для стабильной категории."
       },
       {
-        "lead": "Macroeconomic shocks.",
-        "body": "Экстремальные события (валютные скачки, регуляторные) вне scope."
+        "lead": "Макроэкономические шоки.",
+        "body": "Экстремальные события (валютные скачки, регуляторные) не входят в охват модели."
       }
     ],
     "prior_note": "Приоры: слабоинформативные, на основе индустриальных бенчмарков Bayesian MMM."
@@ -325,8 +325,8 @@
     "Cut": "Cut"
   },
   "verdict_reasons": {
-    "Cut": "ниже breakeven по mROAS; рекомендовано остановить или перевести в другие каналы.",
-    "Reduce": "saturation-bound; маржинальный возврат от дополнительного рубля ниже среднего по портфелю."
+    "Cut": "ниже точки окупаемости по mROAS; рекомендовано остановить или перевести в другие каналы.",
+    "Reduce": "у порога насыщения; маржинальный возврат от дополнительного рубля ниже среднего по портфелю."
   },
   "table_headers": {
     "channel": "Канал",

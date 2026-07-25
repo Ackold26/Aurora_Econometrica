@@ -1,5 +1,5 @@
 """
-aurora_html.sections - 14 section renderers.
+aurora_html.sections - 17 section renderers.
 
 Each function emits an HTML fragment wrapped in `<section id="{id}">...`,
 aligned with PPTX S7 slides:
