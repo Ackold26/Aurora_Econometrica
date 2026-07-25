@@ -132,7 +132,7 @@
         <div class="note-body">
           <strong>Модель близка к насыщению</strong>
           <p>
-            Бюджет найден, но каждый следующий рубль почти не увеличивает результат —
+            Бюджет найден, но каждый следующий рубль почти не увеличивает результат –
             отдача вышла на плато. Поэтому интервал требуемого бюджета широкий,
             а точное значение менее надёжно.
           </p>
@@ -207,7 +207,7 @@
               <tr>
                 <td>{channel}</td>
                 <td class="num">{formatRub(budget)}</td>
-                <td class="num">{_totalDist > 0 ? `${((Number(budget) / _totalDist) * 100).toFixed(1)}%` : '—'}</td>
+                <td class="num">{_totalDist > 0 ? `${((Number(budget) / _totalDist) * 100).toFixed(1)}%` : '–'}</td>
               </tr>
             {/each}
           </tbody>

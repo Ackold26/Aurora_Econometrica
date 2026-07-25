@@ -444,9 +444,9 @@ def _reliability_disclaimer_html(ctx: dict) -> str:
     if verdict_str not in ("unreliable", "uncertain"):
         return ""
     if verdict_str == "unreliable":
-        note = "Модель имеет высокий R-hat или много расходящихся цепей — результаты ниже ориентировочные."
+        note = "Модель имеет высокий R-hat или много расходящихся цепей – результаты ниже ориентировочные."
     else:
-        note = "Узкий объём данных или слабый prior-coverage — результаты ниже трактуйте осторожно."
+        note = "Узкий объём данных или слабый prior-coverage – результаты ниже трактуйте осторожно."
     return (
         '<div class="reliability-disclaimer" role="alert" style="'
         "margin:16px 0;padding:14px 18px;background:rgba(201,164,73,0.12);"
@@ -1380,14 +1380,16 @@ def render_timeline(ctx: dict) -> str:
     else:
         title = f"Динамика продаж {period_unit}"
 
+    # Б-3 (аудит Т3+): подпись отражает двухрежимность (обзор групп ⇄ детально),
+    # дефолт — обзор 4 групп в паритете с программой, а не «вклад каналов».
+    # (2026-07-25, Фаза 3 покрытия): было HTML-комментарием внутри клиентского
+    # тела секции — внутренняя аудит-заметка утекала в экспортируемый файл.
     body = f"""
 {_action_title(title)}
 <div class="chart-container">
   <div class="chart-title-bar">
     <div>
       <div class="chart-title">Продажи {period_unit}</div>
-      <!-- Б-3 (аудит Т3+): подпись отражает двухрежимность (обзор групп ⇄ детально),
-           дефолт — обзор 4 групп в паритете с программой, а не «вклад каналов». -->
       <div class="chart-subtitle">Декомпозиция по группам (обзор) или по каналам и факторам (детально). Ползунок - зум периода.</div>
     </div>
     <button class="btn-inline" id="tl-view-toggle" title="Показать каналы и факторы по отдельности. Итоговая сумма продаж одинакова в обоих режимах">Детально</button>
@@ -1649,15 +1651,15 @@ def _render_brand_perf_split_block(ctx: dict) -> str:
   <div class="method-col-label" style="margin-bottom:8px;">Иерархическая модель brand/performance (v1.1.0)</div>
   <p style="font-size:12px;line-height:1.5;color:var(--text-secondary,#94a3b8);">
     Модель разделяет каналы на brand (долгосрочный отклик) и performance (краткосрочный отклик).
-    Brand-каналы получают более широкий априорный параметр — отражает неизвестную длительность накопления эффекта.
+    Brand-каналы получают более широкий априорный параметр – отражает неизвестную длительность накопления эффекта.
     Performance-каналы используют тесный априорный параметр на быстрое затухание.
   </p>
   <ul style="font-size:12px;line-height:1.7;margin-top:8px;padding-left:16px;">
 {chr(10).join(rows)}
   </ul>
   <p style="font-size:11px;font-style:italic;color:var(--text-muted,#64748b);margin-top:8px;">
-    Атрибуция между brand и performance содержит неустранимую неопределённость — используются априорные ожидания на основе отраслевых норм.
-    Если категория канала вызывает сомнения, проверьте классификацию на шаге Validate.
+    Атрибуция между brand и performance содержит неустранимую неопределённость – используются априорные ожидания на основе отраслевых норм.
+    Если категория канала вызывает сомнения, проверьте классификацию на шаге «Валидация».
   </p>
   {warning_html}
 </div>"""
@@ -1817,7 +1819,7 @@ def render_sources(ctx: dict) -> str:
       <li>Продажи: первичные данные клиента</li>
       <li>Медиа-инвестиции: биллинг по каналам</li>
       <li>Нормирование: CPP / CPM per unit</li>
-      <li>Сезонность и макро: константы в baseline</li>
+      <li>Сезонность и макро: константы в базовом уровне продаж</li>
       <li>{escape(_src_line)}</li>
     </ul>
   </div>
@@ -1918,7 +1920,7 @@ def render_trust_loop(ctx: dict) -> str:
         blocks.append(f"""
 <div class="trust-block">
   <h3 class="trust-h">Проверка на истории</h3>
-  <p class="trust-hero">{escape(str(hit))} из {escape(str(n_int))} {word} — факт внутри 90%-интервала прогноза.</p>
+  <p class="trust-hero">{escape(str(hit))} из {escape(str(n_int))} {word} – факт внутри 90%-интервала прогноза.</p>
   <p class="trust-sub">Ошибка прогноза (MAPE): {float(bt.get("mape_model") or 0):.1f}%.{naive_line}
   {escape(str(bt.get("verdict_text") or ""))}</p>
   <table class="trust-table"><thead><tr>
@@ -1949,7 +1951,7 @@ def render_trust_loop(ctx: dict) -> str:
     <th>Канал</th><th>ROI: был → стал</th><th>Вердикт</th>
   </tr></thead><tbody>{rows}</tbody></table>
   <p class="trust-note">Обе версии модели пересчитаны на сегодняшних данных;
-  вердикт — по перекрытию интервалов неопределённости.</p>
+  вердикт – по перекрытию интервалов неопределённости.</p>
 </div>""")
 
     # ── E2: калибровка экспериментами ──
@@ -2143,7 +2145,7 @@ def render_retro_insights(ctx: dict) -> str:
         cov_sfx = (f" (покрытие {float(pp_cov):.0%})" if isinstance(pp_cov, (int, float)) else "")
         items.append(
             f"Априорные предположения расходятся с данными{cov_sfx} – "
-            "проверьте диапазоны adstock и насыщения на шаге Validate."
+            "проверьте диапазоны отложенного эффекта (adstock) и насыщения на шаге «Валидация»."
         )
 
     # 4. Низкое R² или высокий MAPE

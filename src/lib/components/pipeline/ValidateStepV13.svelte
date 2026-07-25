@@ -1217,7 +1217,7 @@
           {#if mp.period_labels?.length}
             ({mp.period_labels[0]} – {mp.period_labels[mp.period_labels.length - 1]})
           {/if}
-          — это ваш медиаплан?
+          – это ваш медиаплан?
         </p>
       </div>
       <div class="mp-banner-actions">
@@ -1231,7 +1231,7 @@
     </div>
   {:else if mediaPlanAnswered && !$mediaPlanDetected}
     <div class="mp-dismissed-note">
-      Будущие строки проигнорированы — шаг «Планирование» будет недоступен.
+      Будущие строки проигнорированы – шаг «Планирование» будет недоступен.
     </div>
   {/if}
 
@@ -1267,8 +1267,8 @@
         <div class="express-text">
           <strong>Автоматика уже настроила этот шаг.</strong>
           KPI: {expressPlan.kpiLabel} · медиа-каналов: {expressPlan.mediaChannels.length}
-          (все в рублях) · режим: ROI. Всё верно — продолжайте одним нажатием;
-          хотите поправить — пройдите шаги ниже.
+          (все в рублях) · режим: ROI. Всё верно – продолжайте одним нажатием;
+          хотите поправить – пройдите шаги ниже.
         </div>
         <button
           type="button"
@@ -1380,7 +1380,7 @@
     <AppliedModeSummary
       channels={channels.map((name) => ({
         name,
-        // Д-9: выбор хранится per-колонке — показываем метрику базы из развязки.
+        // Д-9: выбор хранится per-колонке – показываем метрику базы из развязки.
         detectedType: selectionByBase[name] ?? $perChannelInput?.[name] ?? detectChannelType(name),
       }))}
       channelSums={channelSums}

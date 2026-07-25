@@ -407,7 +407,7 @@
           </div>
           <!-- ONBOARD-1: теория MMM теперь по желанию (opt-in), не авто-старт. -->
           <button type="button" class="pipeline-promo-learn" onclick={() => showIntroTutorial.set(true)}>
-            Что такое MMM? — короткий разбор за 5 минут
+            Что такое MMM? – короткий разбор за 5 минут
           </button>
         </div>
       </div>

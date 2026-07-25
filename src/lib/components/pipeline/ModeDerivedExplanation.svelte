@@ -225,7 +225,7 @@
               </span>
             {/if}
           {:else}
-            —
+            –
           {/if}
         </span>
       </div>
@@ -242,7 +242,7 @@
     </h3>
 
     {#if mediaColumns.length === 0}
-      <p class="empty-note">Медиа-каналы не обнаружены — проверьте шаг Импорт.</p>
+      <p class="empty-note">Медиа-каналы не обнаружены – проверьте шаг Импорт.</p>
     {:else}
       <div class="table-wrap">
         <table class="media-table">
@@ -280,7 +280,7 @@
                     {:else if row.rawSum != null}
                       <span class="sum-units">{fmtNumber(row.rawSum)} ед</span>
                     {:else}
-                      —
+                      –
                     {/if}
                   </td>
                 {/if}
@@ -295,7 +295,7 @@
                   {#if totalMediaRub > 0}
                     {fmtNumber(totalMediaRub)} ₽
                   {:else}
-                    —
+                    –
                   {/if}
                 </td>
               </tr>
@@ -314,7 +314,7 @@
         <span class="count-badge">{controlColumns.length}</span>
         <span
           class="help-icon"
-          title="Контрольные переменные — сезонность, праздники, промо-активности. Они объясняют движение KPI, не связанное с медиа-расходами."
+          title="Контрольные переменные – сезонность, праздники, промо-активности. Они объясняют движение KPI, не связанное с медиа-расходами."
           aria-label="Что такое внешние факторы"
         >?</span>
       </h3>
@@ -357,14 +357,14 @@
       <!-- Ratio -->
       <div class="quality-card tone-{ratioStatus}" aria-label="Запас данных">
         <span class="qc-label">Запас данных (Ratio)</span>
-        <span class="qc-value">{detectedRatio > 0 ? detectedRatio.toFixed(1) + ':1' : '—'}</span>
+        <span class="qc-value">{detectedRatio > 0 ? detectedRatio.toFixed(1) + ':1' : '–'}</span>
         <span class="qc-status">{ratioStatusLabel}</span>
       </div>
 
       <!-- Период -->
       <div class="quality-card {periodWarn ? 'tone-warn' : 'tone-ok'}" aria-label="Период">
         <span class="qc-label">Период</span>
-        <span class="qc-value">{nObs > 0 ? nObs + ' нед' : '—'}</span>
+        <span class="qc-value">{nObs > 0 ? nObs + ' нед' : '–'}</span>
         <span class="qc-status">{periodWarn ? '< 52 нед' : nObs >= 104 ? 'Отлично' : 'Достаточно'}</span>
       </div>
 

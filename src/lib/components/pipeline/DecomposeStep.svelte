@@ -522,7 +522,7 @@
       <div class="reliability-warn-banner" role="alert">
         <span class="reliability-warn-icon" aria-hidden="true">⚠</span>
         <span class="reliability-warn-text">
-          Модель помечена как ориентировочная — вердикты ниже трактуйте осторожно.
+          Модель помечена как ориентировочная – вердикты ниже трактуйте осторожно.
           {#if modelHonestyVerdict === 'unreliable'}Высокий R-hat или много расходящихся цепей.{:else}Узкие данные или слабый prior-coverage.{/if}
         </span>
       </div>

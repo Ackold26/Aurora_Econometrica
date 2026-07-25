@@ -59,7 +59,7 @@
           type="button"
           class="mqs-help"
           onclick={openInterpretationHelp}
-          title="Как читать MQS, ROI и вердикты — открыть «Интерпретацию результатов»"
+          title="Как читать MQS, ROI и вердикты – открыть «Интерпретацию результатов»"
         >? Как читать результаты</button>
       </div>
     </div>

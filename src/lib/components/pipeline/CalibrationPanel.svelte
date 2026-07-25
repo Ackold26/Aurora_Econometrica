@@ -74,7 +74,7 @@
     <span class="calib-icon" aria-hidden="true"><FlaskConical size={15} strokeWidth={1.7} /></span>
     <span class="calib-title">Калибровка экспериментом</span>
     <span class="calib-hint">
-      Если у вас есть результат A/B или гео-теста — модель учтёт его как
+      Если у вас есть результат A/B или гео-теста – модель учтёт его как
       дополнительное наблюдение и приблизит оценку канала к измеренной.
     </span>
   </div>
@@ -85,7 +85,7 @@
         <li class="calib-row">
           <span class="calib-ch">{c.channel}</span>
           <span class="calib-meta">
-            {c.date_from} — {c.date_to} · прирост {c.lift_abs}
+            {c.date_from} – {c.date_to} · прирост {c.lift_abs}
             [{c.lift_low}–{c.lift_high}] ·
             {TEST_TYPES.find((t) => t.value === c.test_type)?.label ?? c.test_type}
           </span>

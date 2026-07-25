@@ -573,7 +573,7 @@
           tabindex="0"
           role="button"
           aria-label="Справка о типах Adstock"
-          title={`Adstock — модель остаточного эффекта рекламы во времени.
+          title={`Adstock – модель остаточного эффекта рекламы во времени.
 
 Geometric (быстрый спад):
 - Каналы с быстрым откликом: эффект почти сразу, затухает за 1-2 периода.
@@ -666,14 +666,14 @@ Weibull (плавный нарастающий эффект):
               <input type="radio" name="mcmcPreset" value="standard" bind:group={mcmcPreset} />
               <span class="preset-body">
                 <span class="preset-label">Стандартный</span>
-                <span class="preset-hint">Tune 2000 · Draws 2000 · Chains 4 — подходит для большинства задач</span>
+                <span class="preset-hint">Tune 2000 · Draws 2000 · Chains 4 – подходит для большинства задач</span>
               </span>
             </label>
             <label class="preset-radio">
               <input type="radio" name="mcmcPreset" value="precise" bind:group={mcmcPreset} />
               <span class="preset-body">
                 <span class="preset-label">Высокая точность</span>
-                <span class="preset-hint">Tune 4000 · Draws 4000 · Chains 4 — медленнее, для финальных моделей</span>
+                <span class="preset-hint">Tune 4000 · Draws 4000 · Chains 4 – медленнее, для финальных моделей</span>
               </span>
             </label>
             <label class="preset-radio">
