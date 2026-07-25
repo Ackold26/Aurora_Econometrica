@@ -84,7 +84,7 @@ describe('BacktestCard — чтение сохранённой витрины', 
       expect(screen.getByTestId('bt-verdict')).toHaveTextContent('Модель подтверждена на истории');
     });
     expect(screen.getByTestId('bt-hero')).toHaveTextContent('3 из 4');
-    expect(screen.getByText(/кварталов — факт внутри 90%-интервала/)).toBeInTheDocument();
+    expect(screen.getByText(/кварталов – факт внутри 90%-интервала/)).toBeInTheDocument();
     expect(screen.getByText(/наивный прогноз: 8.2%/)).toBeInTheDocument();
     // Устаревания нет: model_trained_at == model_trained_at_current
     expect(screen.queryByText(/результат устарел/)).not.toBeInTheDocument();
@@ -128,7 +128,7 @@ describe('BacktestCard — чтение сохранённой витрины', 
     mockInvoke({ saved: vitrinaFixture({ horizon_periods: 4 }) });
     render(BacktestCard);
     await waitFor(() => {
-      expect(screen.getByText(/окон проверки — факт внутри/)).toBeInTheDocument();
+      expect(screen.getByText(/окон проверки – факт внутри/)).toBeInTheDocument();
     });
   });
 });
