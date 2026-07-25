@@ -181,7 +181,7 @@
 
       // If no streaming happened, show the final state
       if (!responseText) {
-        chatMessages = [...chatMessages.slice(0, -1), { role: 'assistant', content: 'Анализ завершён. Ответ был передан через Claude.' }];
+        chatMessages = [...chatMessages.slice(0, -1), { role: 'assistant', content: 'Анализ завершён. Ответ получен через защищённый AI-сервер.' }];
       }
 
       suggestions = [];
