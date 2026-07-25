@@ -3,8 +3,11 @@ engines.pptx_export - thin adapter over aurora_pptx (M4 refactor, Session 4).
 
 Previously 703 LOC of manual slide construction. Refactored 2026-04-24 to
 delegate rendering to `econometrica.aurora_pptx.build_pptx(data)`, which
-produces the tier-1 Hybrid-branded 13-slide deliverable defined in
-`Standards/CLIENT_READY_ANATOMY.md` and the wireframe v3.
+produces the tier-1 Hybrid-branded 12-slide deliverable (plus up to 3
+conditional insert slides: backtest / quarter-over-quarter comparison /
+forecast) defined in `Standards/CLIENT_READY_ANATOMY.md` (file missing from
+this repo; current requirements source: `aurora-meta/STANDARDS/REPORTING_STANDARD.md`)
+and the wireframe v3.
 
 This module remains the single entry point for `server.py::export_pptx`.
 The public signature `build_pptx(model_data, decompose_data, optimize_data,
@@ -60,8 +63,10 @@ def build_pptx(
 ) -> dict[str, Any]:
     """Build a tier-1 client-ready PPTX from MMM pipeline data.
 
-    Delegates to aurora_pptx.build_pptx which renders the 13-slide Hybrid
-    deck per Standards/CLIENT_READY_ANATOMY.md.
+    Delegates to aurora_pptx.build_pptx which renders the 12-slide Hybrid
+    deck (plus up to 3 conditional insert slides) per Standards/CLIENT_READY_ANATOMY.md
+    (file missing from this repo; current requirements source:
+    aurora-meta/STANDARDS/REPORTING_STANDARD.md).
 
     Args:
         model_data: pipeline model output (diagnostics, metrics, MQS, spec)
