@@ -226,7 +226,7 @@
 
   async function saveVariant() {
     if (!nFuturePeriods) {
-      saveError = 'Нет горизонта прогноза — загрузите файл с будущими строками или настройте горизонт.';
+      saveError = 'Нет горизонта прогноза – загрузите файл с будущими строками или настройте горизонт.';
       return;
     }
     savingVariant = true;
@@ -253,11 +253,11 @@
       const rawName = variantDraftName || `Вариант ${variantCounter}`;
       const scenarioName = rawName.replace(/[/\\:*?"<>|]/g, '-').replace(/\s+/g, ' ').trim().slice(0, 120);
       if (!scenarioName || scenarioName === BASELINE_NAME) {
-        saveError = `Название пустое или занято базовым планом — выберите другое (не «${BASELINE_NAME}»).`;
+        saveError = `Название пустое или занято базовым планом – выберите другое (не «${BASELINE_NAME}»).`;
         return;
       }
       if (variants.some((v) => v.name === scenarioName)) {
-        saveError = `Вариант «${scenarioName}» уже существует — выберите другое название.`;
+        saveError = `Вариант «${scenarioName}» уже существует – выберите другое название.`;
         return;
       }
 
@@ -457,7 +457,7 @@
       const created = /** @type {any} */ (await invoke('econ_promise_create', {
         projectDir,
         actionText: (
-          `Медиаплан ${Math.round(totalMoney).toLocaleString('ru-RU')} ₽ — ` +
+          `Медиаплан ${Math.round(totalMoney).toLocaleString('ru-RU')} ₽ – ` +
           `${src.name} (${nFuturePeriods} пер.)`
         ),
         expectedKpiTotal: src.predictedKpi,
@@ -470,7 +470,7 @@
       }));
 
       if (created?.status === 'ok') {
-        promiseSuccess = '✓ Прогноз зафиксирован — сверится с фактом при обновлении данных';
+        promiseSuccess = '✓ Прогноз зафиксирован – сверится с фактом при обновлении данных';
         promisesVersion.update((n) => n + 1);
         setTimeout(() => { promiseSuccess = null; }, 4000);
       } else {

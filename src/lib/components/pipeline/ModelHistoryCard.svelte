@@ -75,7 +75,7 @@
       const dir = await projectDir();
       if (!dir) {
         compareState = 'error';
-        compareError = 'Проект не выбран — переоткройте проект.';
+        compareError = 'Проект не выбран – переоткройте проект.';
         return;
       }
       const res = /** @type {any} */ (await invoke('econ_generation_compare', { projectDir: dir }));
@@ -95,7 +95,7 @@
   /** @param {string} ts - 'YYYYmmdd_HHMMSS' → 'ДД.ММ.ГГГГ ЧЧ:ММ' */
   function fmtTs(ts) {
     const m = /^(\d{4})(\d{2})(\d{2})_(\d{2})(\d{2})/.exec(ts || '');
-    if (!m) return ts || '—';
+    if (!m) return ts || '–';
     return `${m[3]}.${m[2]}.${m[1]} ${m[4]}:${m[5]}`;
   }
 

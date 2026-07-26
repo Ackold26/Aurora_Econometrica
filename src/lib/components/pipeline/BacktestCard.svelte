@@ -97,7 +97,7 @@
       const dir = await projectDir();
       if (!dir) {
         cardState = 'error';
-        message = 'Проект не найден — переоткройте проект и повторите.';
+        message = 'Проект не найден – переоткройте проект и повторите.';
         return;
       }
       const res = /** @type {any} */ (await invoke('econ_backtest', { projectDir: dir }));
@@ -119,11 +119,11 @@
 
   /** @param {number | null | undefined} v */
   function fmtPct(v) {
-    return v == null ? '—' : `${(v * 100).toFixed(0)}%`;
+    return v == null ? '–' : `${(v * 100).toFixed(0)}%`;
   }
   /** @param {number | null | undefined} v */
   function fmtNum(v) {
-    return v == null ? '—' : Number(v).toLocaleString('ru-RU', { maximumFractionDigits: 0 });
+    return v == null ? '–' : Number(v).toLocaleString('ru-RU', { maximumFractionDigits: 0 });
   }
 </script>
 

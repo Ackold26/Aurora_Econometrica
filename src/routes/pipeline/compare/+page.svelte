@@ -56,7 +56,7 @@
     try {
       const projectId = get(activeProjectId);
       if (!projectId) {
-        loadError = 'Проект не выбран — откройте проект на шаге «Данные».';
+        loadError = 'Проект не выбран – откройте проект на шаге «Данные».';
         compareResult = null;
         return;
       }

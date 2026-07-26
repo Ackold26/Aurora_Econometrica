@@ -185,9 +185,9 @@
 
   // ── Adstock dropdown options ──
   const adstockOptions = [
-    { value: 'auto', label: 'Авто — система подберёт тип отклика для каждого канала по вашим данным' },
-    { value: 'geometric', label: 'Геометрический — эффект быстро затухает (все каналы)' },
-    { value: 'weibull', label: 'Вейбулл — эффект нарастает и держится (все каналы)' },
+    { value: 'auto', label: 'Авто – система подберёт тип отклика для каждого канала по вашим данным' },
+    { value: 'geometric', label: 'Геометрический – эффект быстро затухает (все каналы)' },
+    { value: 'weibull', label: 'Вейбулл – эффект нарастает и держится (все каналы)' },
   ];
   const currentAdstock = $derived(Object.values(channelAdstock)[0] || 'auto');
   const currentAdstockLabel = $derived(adstockOptions.find(o => o.value === currentAdstock)?.label || adstockOptions[0].label);
@@ -384,7 +384,7 @@
       analysisMode: get(analysisMode),
     })) {
       computeStatus.set(
-        'Обучение остановлено: есть канал в физических единицах (TRP/показы) в режиме ROI без указанной стоимости единицы — это даёт завышенный ROI. Укажите стоимость на шаге «Валидация» или выберите режим «Эффективность».'
+        'Обучение остановлено: есть канал в физических единицах (TRP/показы) в режиме ROI без указанной стоимости единицы – это даёт завышенный ROI. Укажите стоимость на шаге «Валидация» или выберите режим «Эффективность».'
       );
       setTimeout(() => computeStatus.set(''), 10000);
       trainInFlight = false;

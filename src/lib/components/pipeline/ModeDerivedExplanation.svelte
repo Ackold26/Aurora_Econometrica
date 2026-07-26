@@ -64,9 +64,9 @@
 
   /** @type {Record<AnalysisMode, string>} */
   const MODE_DESC = {
-    roi:           'Все каналы в ₽-бюджетах — модель оценивает ROI (₽ выручки / ₽ затрат)',
-    effectiveness: 'Все каналы в физических контактах — модель оценивает долю в продажах',
-    mixed:         'Смешанный ввод — кросс-канальное сравнение через долю в продажах',
+    roi:           'Все каналы в ₽-бюджетах – модель оценивает ROI (₽ выручки / ₽ затрат)',
+    effectiveness: 'Все каналы в физических контактах – модель оценивает долю в продажах',
+    mixed:         'Смешанный ввод – кросс-канальное сравнение через долю в продажах',
   };
 
   // ─── Derived data from stores ──────────────────────────────────────
@@ -166,7 +166,7 @@
   /** Форматирование числа → читаемый вид */
   /** @param {number} n */
   function fmtNumber(n) {
-    if (n == null) return '—';
+    if (n == null) return '–';
     if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(1)} млрд`;
     if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)} млн`;
     if (n >= 1_000) return `${(n / 1_000).toFixed(0)} тыс`;
@@ -179,8 +179,8 @@
     const warnings = $validateData?.result?.warnings ?? [];
     // Ищем предупреждение для этой колонки
     const w = warnings.find((/** @type {any} */ w) => w?.column === col.name);
-    if (w?.type === 'high_zeros') return `${col?.stats?.zeros_pct ?? ''}% нулей — слишком мало данных`;
-    if (w?.type === 'low_variance') return 'Вариативность <5% — канал не информативен';
+    if (w?.type === 'high_zeros') return `${col?.stats?.zeros_pct ?? ''}% нулей – слишком мало данных`;
+    if (w?.type === 'low_variance') return 'Вариативность <5% – канал не информативен';
     if (col?.role === 'excluded') return 'Исключена пользователем';
     return 'Не используется в модели';
   }

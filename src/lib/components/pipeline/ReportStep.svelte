@@ -264,7 +264,7 @@
     if (!mData?.diagnostics) return '';
     const parts = [];
     if (mqs != null) parts.push(`Качество модели: MQS ${mqs.toFixed(0)} (${mqsLabel})${rSq != null ? `, R² ${rSq.toFixed(3)}` : ''}${mape != null ? `, MAPE ${mape.toFixed(1)}%` : ''}.`);
-    if (basePct != null) parts.push(`Декомпозиция продаж: baseline ${basePct.toFixed(0)}%, медиа-вклад ${(100 - basePct).toFixed(0)}%.`);
+    if (basePct != null) parts.push(`Декомпозиция продаж: базовый спрос ${basePct.toFixed(0)}%, медиа-вклад ${(100 - basePct).toFixed(0)}%.`);
     if (topDriver) parts.push(`Главный драйвер - ${topDriver.name} (${topDriver.contribution_pct?.toFixed(0) ?? '-'}% от медиа-вклада, ROI ${topDriver.roi?.toFixed(2) ?? '-'}×).`);
     if (lift != null) {
       if (lift > 5) parts.push(`Оптимизация обещает +${lift.toFixed(1)}% KPI при текущем бюджете.`);
@@ -389,7 +389,7 @@
       else if (lift > 0.5 && !liftDrownsInBase) parts.push(`**Прирост +${lift.toFixed(1)}%** - план близок к оптимальному. Крупных неэффективностей нет.`);
       else if (liftDrownsInBase) {
         const share = Math.max(lift / /** @type {number} */ (mediaLift) * 100, 1);
-        parts.push(`**Итоговый прирост KPI ≈${lift.toFixed(1)}%, но эффективность медиа растёт на +${/** @type {number} */ (mediaLift).toFixed(1)}%** при перераспределении бюджета. Низкий итоговый процент — потому что органическая база доминирует (медиа даёт лишь ~${share.toFixed(0)}% продаж), а **не** потому что план уже оптимален. Действенный рычаг — структура медиа-сплита; перераспределение каналов реально улучшает медиа-отдачу.`);
+        parts.push(`**Итоговый прирост KPI ≈${lift.toFixed(1)}%, но эффективность медиа растёт на +${/** @type {number} */ (mediaLift).toFixed(1)}%** при перераспределении бюджета. Низкий итоговый процент – потому что органическая база доминирует (медиа даёт лишь ~${share.toFixed(0)}% продаж), а **не** потому что план уже оптимален. Действенный рычаг – структура медиа-сплита; перераспределение каналов реально улучшает медиа-отдачу.`);
       }
       else parts.push(`**Прирост ≈0%** - план уже оптимален в заданных ограничениях. Чтобы получить больше, нужно либо менять min/max % по каналам, либо увеличивать общий бюджет.`);
     }
@@ -512,12 +512,12 @@
     if (basePct != null) {
       if (basePct > 60) {
         items.push({
-          q: `${basePct.toFixed(0)}% baseline - это нормально?`,
+          q: `${basePct.toFixed(0)}% базового спроса - это нормально?`,
           a: `Это показывает силу бренда. Высокая база (>60%) типична для зрелых брендов с лояльной аудиторией. Означает что даже без рекламы продажи не упадут до нуля - есть постоянный спрос. Фокус медиа - защищать долю и расти сверх базы.`,
         });
       } else if (basePct < 30) {
         items.push({
-          q: `Baseline ${basePct.toFixed(0)}% - почему так мало?`,
+          q: `Базовый спрос ${basePct.toFixed(0)}% - почему так мало?`,
           a: `Характерно для молодых брендов или категорий с импульсным спросом. Большая часть продаж идёт «в моменте» - от активной рекламы. Риск: при сокращении медиа-бюджета продажи упадут быстро. Долгосрочно - инвестируйте в brand-building чтобы растить базу.`,
         });
       }
@@ -573,7 +573,7 @@
       lines.push(isOls
         ? '- Спецификация модели - Линейная регрессия, Adstock + Hill, OLS · closed-form · bootstrap-правдоподобный диапазон'
         : '- Спецификация модели - Bayesian MMM, Adstock + Hill, MCMC');
-      lines.push('- Декомпозиция продаж - baseline vs медиа по каналам');
+      lines.push('- Декомпозиция продаж - базовый спрос и медиа по каналам');
       lines.push('- ROI-анализ - Share of Spend vs Share of Effect, Gap');
       lines.push('- Динамика по периодам - база, медиа, внешние факторы и конкуренты во времени');
       lines.push('- Сравнение сценариев (если сохранены)');
@@ -584,7 +584,7 @@
       lines.push('Структура файла (листы XLSX):');
       lines.push('- Executive Summary - ключевые метрики качества');
       lines.push('- Спецификация - параметры модели, priors, методология');
-      lines.push('- Декомпозиция - вклад baseline и каналов');
+      lines.push('- Декомпозиция - вклад базового спроса и каналов');
       lines.push('- ROI каналов - ROI, Gap, Efficiency');
       lines.push('- Spend vs Effect');
       lines.push('- Динамика - таблица + stacked-area chart');
@@ -600,8 +600,8 @@
       lines.push('- Интерактивные графики (ECharts): waterfall, ROI, Spend vs Effect, timeline, оптимизация');
       lines.push('- Tooltip на каждом графике, zoom/scroll по таймлайну');
       lines.push(isOls
-        ? '- KPI-панель сверху: MQS, R², MAPE, надёжность оценок, baseline, прирост, бюджет'
-        : '- KPI-панель сверху: MQS, R², MAPE, R-hat, baseline, прирост, бюджет');
+        ? '- KPI-панель сверху: MQS, R², MAPE, надёжность оценок, базовый спрос, прирост, бюджет'
+        : '- KPI-панель сверху: MQS, R², MAPE, R-hat, базовый спрос, прирост, бюджет');
       lines.push('- Сводная таблица по каналам с цветовой разметкой ROI/Gap');
       lines.push('- Сравнение сохранённых сценариев (если есть)');
       lines.push('');
