@@ -1423,8 +1423,11 @@ mod tests {
         // запрашивая один и тот же байт.
         let (url, _hits) = spawn_test_server(vec![Scenario::EmptyChunk { total: VAULT_SIZE }]).await;
 
+        // Сторож ловит ЗАЦИКЛИВАНИЕ, а не медлительность, поэтому запас большой:
+        // пять повторов сами по себе выжидают 37 с пауз, и граница в минуту
+        // срабатывала на загруженной машине как ложная тревога.
         let err = tokio::time::timeout(
-            std::time::Duration::from_secs(60),
+            std::time::Duration::from_secs(180),
             download_url_resilient(&url, "файл кабинета"),
         )
         .await
@@ -1476,6 +1479,40 @@ mod tests {
             hits.load(std::sync::atomic::Ordering::SeqCst),
             1,
             "одновременные запросы одного файла обязаны дойти до сервера один раз"
+        );
+    }
+
+    /// Живая проверка против БОЕВОГО сервера: клиентский код обязан собрать
+    /// файл кабинета кусками с того самого адреса, куда ходит продукт.
+    ///
+    /// Тесты выше гоняют наш собственный тестовый сервер — то есть проверяют
+    /// клиент против нашего же представления о том, как отвечает Supabase.
+    /// Этот разрыв закрывается только обращением к настоящему адресу.
+    ///
+    /// В обычный прогон не входит (ходит в сеть и требует действующей
+    /// лицензии). Запуск:
+    /// `AURORA_PROBE_FINGERPRINT=<хеш отпечатка> cargo test -- --ignored ranged_download_against_production`
+    #[tokio::test]
+    #[ignore = "ходит в сеть, нужна действующая лицензия"]
+    async fn ranged_download_against_production() {
+        let Ok(fp) = std::env::var("AURORA_PROBE_FINGERPRINT") else {
+            panic!("нужен AURORA_PROBE_FINGERPRINT — хеш отпечатка машины с действующей лицензией");
+        };
+        let url = format!(
+            "{}/content?fingerprint_hash={}&product=econometrica&version=c3&file=econometrist.vault",
+            supabase_url(),
+            fp
+        );
+
+        let got = download_with_retries(&url, "econometrist.vault")
+            .await
+            .expect("файл кабинета обязан собраться с боевого сервера");
+
+        assert_eq!(got.len(), 34165, "собран файл не того размера");
+        assert_eq!(
+            format!("{:x}", Sha256::digest(&got)),
+            "6ce228e6b2bc85d1903f5d5abdf1595a84a9ce9dfe5f78e787ab96993eed540f",
+            "содержимое разошлось с тем, что отдаёт сервер целиком"
         );
     }
 
