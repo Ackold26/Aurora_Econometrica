@@ -293,14 +293,40 @@ pub async fn check_auth(
 
     info!("Online auth: POST {}", url);
 
-    let res = client
-        .post(&url)
-        .json(&req)
-        .send()
-        .await?;
+    // Повторы при обрыве связи (разбор отказа у клиента 2026-07-26): ответ
+    // сервера крошечный, но на нестабильном канале рвался и он —
+    // «error decoding response body» приходило и сюда. Кэш спасает только
+    // того, у кого он уже есть; на первом запуске кэша нет, и один
+    // неудачный запрос означал бы «программа не запускается».
+    const AUTH_ATTEMPTS: u32 = 3;
+    let mut last_err: Option<anyhow::Error> = None;
+    let mut response: Option<(reqwest::StatusCode, String)> = None;
 
-    let status_code = res.status();
-    let body = res.text().await?;
+    for attempt in 1..=AUTH_ATTEMPTS {
+        let sent = client.post(&url).json(&req).send().await;
+        match sent {
+            Ok(res) => {
+                let status_code = res.status();
+                match res.text().await {
+                    Ok(body) => {
+                        response = Some((status_code, body));
+                        break;
+                    }
+                    Err(e) => last_err = Some(anyhow::anyhow!("ответ оборван: {e}")),
+                }
+            }
+            Err(e) => last_err = Some(anyhow::anyhow!("{e}")),
+        }
+        if attempt < AUTH_ATTEMPTS {
+            warn!("Online auth: попытка {attempt}/{AUTH_ATTEMPTS} не удалась ({:#}) — повтор", last_err.as_ref().unwrap());
+            tokio::time::sleep(std::time::Duration::from_secs(2 * attempt as u64)).await;
+        }
+    }
+
+    let (status_code, body) = match response {
+        Some(v) => v,
+        None => return Err(last_err.unwrap_or_else(|| anyhow::anyhow!("Online auth: связь с сервером не установилась"))),
+    };
 
     let auth_response: AuthResponse = serde_json::from_str(&body)
         .map_err(|e| anyhow::anyhow!("Failed to parse auth response: {e}, body: {body}"))?;
