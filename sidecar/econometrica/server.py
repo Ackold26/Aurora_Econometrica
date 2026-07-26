@@ -909,7 +909,9 @@ def aggregate_preflight_tier(
 
     Conservative aggregation: tier = worst of (recommend, quick_proxy,
     prior_predictive). Mapping:
-      recommend.banner_tone: good→reliable, warn→directional, bad→insufficient
+      recommend.n_obs_tone: good→reliable, warn→directional, bad→insufficient
+        (честный тон по n; НЕ recommend.banner_tone — тот при override всегда
+        'good', см. находка 6)
       quick_proxy.tier: reliable | directional | insufficient (already correct)
       prior_predictive.status: pass→reliable, warn→directional, fail→insufficient
 
@@ -922,7 +924,11 @@ def aggregate_preflight_tier(
     интерфейс (ConfigPanel.svelte::preflightBasisText).
     """
     by_source = {
-        'n_obs': _TONE_TO_TIER.get(recommend.get('banner_tone'), 'reliable'),
+        # Находка 6 (2026-07-26): 'banner_tone' коротко замыкается в 'good' при
+        # активном override (явный выбор движка ИЛИ default-подстановка
+        # _validate_mode), поэтому источник объёма наблюдений считается по
+        # честному 'n_obs_tone' — он зависит только от n, не от override.
+        'n_obs': _TONE_TO_TIER.get(recommend.get('n_obs_tone'), 'reliable'),
         'quick_proxy': quick_proxy.get('tier', 'reliable'),
     }
     skipped: dict[str, str] = {}

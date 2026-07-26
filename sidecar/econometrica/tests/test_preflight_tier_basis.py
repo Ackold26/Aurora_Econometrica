@@ -14,11 +14,12 @@
 import pytest
 
 from server import aggregate_preflight_tier
+from engines.ols_modeler import recommend_engine
 
 
 def _call(**kw):
     base = dict(
-        recommend={'banner_tone': 'good'},
+        recommend={'banner_tone': 'good', 'n_obs_tone': 'good'},
         quick_proxy={'tier': 'reliable'},
         prior_predictive=None,
         recommended_mode='bayesian',
@@ -56,7 +57,7 @@ def test_decided_by_names_the_source_of_the_verdict():
 
 def test_several_sources_may_share_the_verdict():
     _, basis = _call(
-        recommend={'banner_tone': 'warn'},
+        recommend={'banner_tone': 'warn', 'n_obs_tone': 'warn'},
         quick_proxy={'tier': 'directional'},
         prior_predictive={'status': 'pass'},
     )
@@ -104,6 +105,60 @@ def test_unknown_source_values_do_not_silently_pass_as_reliable_verdict():
     поэтому важно, что оно ЗАПИСАНО в by_source: клиент и разработчик видят,
     что источник дал неразобранный ответ, а не что он подтвердил надёжность.
     """
-    _, basis = _call(recommend={'banner_tone': 'какой-то новый тон'})
+    _, basis = _call(recommend={'n_obs_tone': 'какой-то новый тон'})
     assert basis['by_source']['n_obs'] == 'reliable'
+    assert 'n_obs' in basis['decided_by']
+
+
+# ─── Находка 6 (2026-07-26): override не должен обелять малый n ────────────
+#
+# recommend_engine при активном override (явный выбор движка ИЛИ
+# _validate_mode's None→'bayesian' default) коротко замыкается и раньше
+# отдавал banner_tone='good' независимо от n — по этому полю
+# aggregate_preflight_tier решал 'n_obs' источник. На n=12 (n<20, порог
+# «данных недостаточно») это превращало insufficient-вердикт в directional/
+# reliable, и в skipped пропуск проверки не отмечался — то есть отсутствие
+# проверки читалось как её успешный результат. Объём наблюдений — свойство
+# ДАННЫХ, не движка: явный выбор не делает 12 строк достаточными.
+
+
+class TestHonestNObsToneIgnoresOverride:
+    """recommend_engine: n_obs_tone — только от n, независимо от override."""
+
+    @pytest.mark.parametrize("n_obs,expected_tone", [
+        (5, 'bad'), (12, 'bad'), (19, 'bad'),
+        (20, 'warn'), (25, 'warn'), (29, 'warn'),
+        (30, 'good'), (100, 'good'),
+    ])
+    def test_n_obs_tone_follows_thresholds_without_override(self, n_obs, expected_tone):
+        assert recommend_engine(n_obs)['n_obs_tone'] == expected_tone
+
+    @pytest.mark.parametrize("n_obs,expected_tone", [
+        (5, 'bad'), (12, 'bad'), (19, 'bad'),
+        (20, 'warn'), (29, 'warn'),
+        (30, 'good'), (100, 'good'),
+    ])
+    @pytest.mark.parametrize("override", ['ols', 'bayesian'])
+    def test_n_obs_tone_unaffected_by_override(self, n_obs, expected_tone, override):
+        """Ключевой кейс находки 6: override не меняет честный тон по n."""
+        result = recommend_engine(n_obs, override=override)
+        assert result['n_obs_tone'] == expected_tone
+        # banner_tone (UI-подсказка "ваш выбор принят") остаётся 'good' —
+        # это НЕ трогаем, это отдельный канал сообщения.
+        assert result['banner_tone'] == 'good'
+        assert result['override_active'] is True
+
+
+def test_n_obs_source_reflects_honest_tone_even_with_explicit_ols_override():
+    """Сквозной сценарий находки 6 через aggregate_preflight_tier.
+
+    Пользователь явно выбрал OLS на 12 строках (n<20). banner_tone от
+    override — 'good', но n_obs_tone честно 'bad' → источник 'n_obs' должен
+    дать 'insufficient', а не 'reliable'.
+    """
+    recommend = recommend_engine(12, override='ols')
+    assert recommend['banner_tone'] == 'good'  # предпосылка бага, если бы её читали
+    tier, basis = _call(recommend=recommend)
+    assert basis['by_source']['n_obs'] == 'insufficient'
+    assert tier == 'insufficient'
     assert 'n_obs' in basis['decided_by']
