@@ -566,56 +566,63 @@ where
     }
 }
 
-/// Скачать vault-файл с сервера, переживая обрывы канала.
-async fn download_vault_file(
-    fingerprint_hash: &str,
-    product: &str,
-    version: &str,
-    filename: &str,
-) -> Result<Vec<u8>> {
-    let client = resilient_client()?;
+/// Свежие результаты загрузок под общим замком.
+///
+/// В журнале клиента при старте видно по четыре-шесть подряд запросов
+/// авторизации и по четыре параллельные загрузки ОДНОГО файла: команду
+/// `get_cabinets` дёргают сразу несколько экранов, и каждый вызов начинал
+/// качать одно и то же. На слабом канале это прямой вред — обращения мешают
+/// друг другу. Замок выстраивает их в очередь, а короткая память результатов
+/// отдаёт уже скачанное вместо повторного обращения к серверу.
+type UrlLocks = std::sync::Mutex<HashMap<String, std::sync::Arc<tokio::sync::Mutex<()>>>>;
+type RecentDownloads = std::sync::Mutex<HashMap<String, (std::time::Instant, std::sync::Arc<Vec<u8>>)>>;
 
-    let url = format!(
-        "{}/content?fingerprint_hash={}&product={}&version={}&file={}",
-        supabase_url(), fingerprint_hash, product, version, filename
-    );
-
-    info!("Downloading vault: {}", filename);
-
-    let mut last_err: Option<anyhow::Error> = None;
-
-    for attempt in 1..=DOWNLOAD_ATTEMPTS {
-        match fetch_vault_once(&client, &url, filename).await {
-            Ok(bytes) => {
-                if attempt > 1 {
-                    info!("Vault {} получен с попытки {}/{} ({} байт)", filename, attempt, DOWNLOAD_ATTEMPTS, bytes.len());
-                }
-                return Ok(bytes);
-            }
-            Err(FetchFailure::Fatal(e)) => {
-                error!("Скачивание {} отклонено сервером: {:#}", filename, e);
-                return Err(e);
-            }
-            Err(FetchFailure::Transient(e)) => {
-                warn!("Скачивание {}: попытка {}/{} не удалась: {:#}", filename, attempt, DOWNLOAD_ATTEMPTS, e);
-                last_err = Some(e);
-                if attempt < DOWNLOAD_ATTEMPTS {
-                    let idx = ((attempt - 1) as usize).min(RETRY_BACKOFF_SECS.len() - 1);
-                    tokio::time::sleep(std::time::Duration::from_secs(RETRY_BACKOFF_SECS[idx])).await;
-                }
-            }
-        }
-    }
-
-    Err(last_err.unwrap_or_else(|| anyhow::anyhow!("{}: скачивание не удалось", filename)))
-        .with_context(|| format!("{}: связь с сервером не установилась за {} попыток", filename, DOWNLOAD_ATTEMPTS))
+/// Замки по адресу файла. Одинаковые загрузки идут по очереди, разные —
+/// по-прежнему параллельно: общий замок на весь транспорт заставил бы файлы
+/// ждать чужих повторов, а они длятся до полуминуты.
+fn url_locks() -> &'static UrlLocks {
+    static LOCKS: std::sync::OnceLock<UrlLocks> = std::sync::OnceLock::new();
+    LOCKS.get_or_init(|| std::sync::Mutex::new(HashMap::new()))
 }
 
-/// Скачать произвольный файл (пакет контента, бандл фронтенда) с теми же
-/// гарантиями, что и vault: без общего дедлайна, с повторами при обрыве.
-/// Пакеты весят десятки мегабайт — на слабом канале общий таймаут в 120 с
-/// рубил их гарантированно, даже когда передача исправно шла.
-async fn download_url_resilient(url: &str, what: &str) -> Result<Vec<u8>> {
+/// Память о только что полученных файлах.
+fn recent_downloads() -> &'static RecentDownloads {
+    static RECENT: std::sync::OnceLock<RecentDownloads> = std::sync::OnceLock::new();
+    RECENT.get_or_init(|| std::sync::Mutex::new(HashMap::new()))
+}
+
+/// Сколько только что скачанный файл считается свежим.
+/// Покрывает всплеск вызовов при старте, но не переживает его надолго:
+/// обновление, вышедшее через минуту, клиент увидит.
+const RECENT_DOWNLOAD_TTL_SECS: u64 = 30;
+
+/// Взять замок этого адреса, попутно выбросив те, за которые никто не держится.
+fn lock_for(url: &str) -> std::sync::Arc<tokio::sync::Mutex<()>> {
+    let mut locks = url_locks().lock().unwrap_or_else(|e| e.into_inner());
+    locks.retain(|_, l| std::sync::Arc::strong_count(l) > 1);
+    locks.entry(url.to_string()).or_default().clone()
+}
+
+/// Отдать файл, полученный только что, если он ещё свеж.
+fn take_recent(url: &str) -> Option<Vec<u8>> {
+    let mut recent = recent_downloads().lock().unwrap_or_else(|e| e.into_inner());
+    recent.retain(|_, (at, _)| at.elapsed().as_secs() < RECENT_DOWNLOAD_TTL_SECS);
+    recent.get(url).map(|(_, bytes)| bytes.as_ref().clone())
+}
+
+/// Скачать файл, переживая обрывы канала: повторы с нарастающей паузой,
+/// докачка по частям, память о только что полученном.
+async fn download_with_retries(url: &str, what: &str) -> Result<Vec<u8>> {
+    // Замок берётся ДО проверки памяти: иначе два одновременных вызова оба
+    // увидели бы пустоту и оба пошли бы в сеть — ровно тот дребезг, что лечим.
+    let lock = lock_for(url);
+    let _guard = lock.lock().await;
+
+    if let Some(bytes) = take_recent(url) {
+        info!("{}: файл получен только что — берём готовый, к серверу не идём", what);
+        return Ok(bytes);
+    }
+
     let client = resilient_client()?;
     let mut last_err: Option<anyhow::Error> = None;
 
@@ -625,6 +632,13 @@ async fn download_url_resilient(url: &str, what: &str) -> Result<Vec<u8>> {
                 if attempt > 1 {
                     info!("{} получен с попытки {}/{} ({} байт)", what, attempt, DOWNLOAD_ATTEMPTS, bytes.len());
                 }
+                recent_downloads()
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .insert(
+                        url.to_string(),
+                        (std::time::Instant::now(), std::sync::Arc::new(bytes.clone())),
+                    );
                 return Ok(bytes);
             }
             Err(FetchFailure::Fatal(e)) => {
@@ -644,6 +658,30 @@ async fn download_url_resilient(url: &str, what: &str) -> Result<Vec<u8>> {
 
     Err(last_err.unwrap_or_else(|| anyhow::anyhow!("{}: скачивание не удалось", what)))
         .with_context(|| format!("{}: связь с сервером не установилась за {} попыток", what, DOWNLOAD_ATTEMPTS))
+}
+
+/// Скачать vault-файл с сервера, переживая обрывы канала.
+async fn download_vault_file(
+    fingerprint_hash: &str,
+    product: &str,
+    version: &str,
+    filename: &str,
+) -> Result<Vec<u8>> {
+    let url = format!(
+        "{}/content?fingerprint_hash={}&product={}&version={}&file={}",
+        supabase_url(), fingerprint_hash, product, version, filename
+    );
+
+    info!("Downloading vault: {}", filename);
+    download_with_retries(&url, filename).await
+}
+
+/// Скачать произвольный файл (пакет контента, бандл фронтенда) с теми же
+/// гарантиями, что и vault: без общего дедлайна, с повторами при обрыве.
+/// Пакеты весят десятки мегабайт — на слабом канале общий таймаут в 120 с
+/// рубил их гарантированно, даже когда передача исправно шла.
+async fn download_url_resilient(url: &str, what: &str) -> Result<Vec<u8>> {
+    download_with_retries(url, what).await
 }
 
 /// Download and save all updated vault files.
@@ -1388,6 +1426,31 @@ mod tests {
         assert!(
             format!("{:#}", err).contains("изменился"),
             "ошибка обязана называть причину: {err:#}"
+        );
+    }
+
+    #[tokio::test]
+    async fn parallel_downloads_of_same_file_reach_server_once() {
+        // Дребезг из журнала клиента: команду за списком кабинетов дёргают
+        // несколько экранов сразу, и один файл начинал качаться четырежды.
+        let body = sample_body(1500);
+        let (url, hits) = spawn_test_server(vec![Scenario::RangeAware {
+            body: body.clone(),
+            threshold: PROXY_THRESHOLD,
+        }])
+        .await;
+
+        let (first, second) = tokio::join!(
+            download_url_resilient(&url, "файл кабинета"),
+            download_url_resilient(&url, "файл кабинета"),
+        );
+
+        assert_eq!(first.unwrap(), body);
+        assert_eq!(second.unwrap(), body, "второй вызов обязан получить тот же файл");
+        assert_eq!(
+            hits.load(std::sync::atomic::Ordering::SeqCst),
+            1,
+            "одновременные запросы одного файла обязаны дойти до сервера один раз"
         );
     }
 
