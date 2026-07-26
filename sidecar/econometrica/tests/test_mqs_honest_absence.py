@@ -107,3 +107,32 @@ def test_pptx_findings_shows_real_score_when_mqs_present(payload_with_mqs):
     prs = AuroraPPTXBuilder(payload_with_mqs).build()
     txt = _pptx_text(prs)
     assert "MQS 70/100" in txt, "Регресс: при наличии mqs_score PPTX findings обязаны показывать реальный балл"
+
+
+# ─── PPTX: карточка «Оценка качества модели» (Medium-долг, 2026-07-26) ───────
+
+def test_pptx_card_shows_no_empty_scale_when_mqs_missing(payload_no_mqs):
+    """Пустая шкала — та же ложь, что ноль: форма измерения без измерения.
+
+    До правки карточка рисовала «— / 100» (длинное тире заглушкой, вдобавок
+    нарушая правило клиентской типографики) и оставляла под ним ярлык уровня,
+    который читался как толкование этого «значения».
+    """
+    txt = _pptx_text(AuroraPPTXBuilder(payload_no_mqs).build())
+    card = [ln for ln in txt.splitlines() if "/ 100" in ln]
+    assert not card, f"MQS отсутствует, но карточка рисует пустую шкалу: {card}"
+    assert "—" not in txt, "длинное тире в клиентском тексте PPTX (П8-1)"
+    assert "Оценка не выполнялась" in txt, "ожидалась прямая формулировка отсутствия"
+    # Ярлык уровня — толкование балла: без балла ему неоткуда взяться.
+    # («н/д» в других полях слайда законно — это честная отметка отсутствия
+    # у периода, числа наблюдений и т.п., она не выдаёт себя за уровень.)
+    tiers = [t for t in ("Отличное", "Хорошее", "Приемлемое", "Слабое", "Ненадёжное")
+             if t in txt]
+    assert not tiers, f"MQS отсутствует, но уровень качества назван: {tiers}"
+
+
+def test_pptx_card_shows_scale_and_tier_when_mqs_present(payload_with_mqs):
+    """Регресс: с посчитанной метрикой карточка прежняя — число, шкала, уровень."""
+    txt = _pptx_text(AuroraPPTXBuilder(payload_with_mqs).build())
+    assert "/ 100" in txt, "при наличии метрики шкала обязана остаться"
+    assert "Оценка не выполнялась" not in txt

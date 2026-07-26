@@ -41,17 +41,39 @@ _BARE_ADSTOCK_RE = re.compile(r"(?<!\()\badstock\b(?!\))", re.IGNORECASE)
 
 
 def _production_source_lines() -> list[str]:
-    """Строки report.rs ДО `#[cfg(test)]` — только код, идущий в сборку
-    продукта, не Rust unit-тесты в конце файла."""
+    """Строки report.rs без тестовых модулей — только код, идущий в сборку.
+
+    2026-07-26: прежняя версия обрывала чтение на ПЕРВОМ `#[cfg(test)]` и
+    молча теряла весь остаток файла. Сейчас тестовый модуль в этом файле
+    один и стоит в конце, поэтому вреда не было, — но появись
+    вспомогательный тестовый модуль в середине, охват сузился бы без единого
+    слова, а сужение читается как «проверено всё». Теперь пропускается ровно
+    тело каждого `#[cfg(test)]`-модуля (по глубине фигурных скобок), а код
+    после него снова проверяется. Возвращаются пары (номер строки, строка),
+    чтобы номера оставались верными после пропусков.
+    """
     if not os.path.isfile(_REPORT_RS):
         return []
     with open(_REPORT_RS, encoding="utf-8") as f:
         lines = f.readlines()
+
     out = []
-    for line in lines:
-        if line.strip().startswith("#[cfg(test)]"):
-            break
-        out.append(line)
+    i = 0
+    while i < len(lines):
+        if lines[i].strip().startswith("#[cfg(test)]"):
+            # Найти открывающую скобку модуля и пройти его целиком.
+            depth = 0
+            opened = False
+            while i < len(lines):
+                depth += lines[i].count("{") - lines[i].count("}")
+                if "{" in lines[i]:
+                    opened = True
+                i += 1
+                if opened and depth <= 0:
+                    break
+            continue
+        out.append((i + 1, lines[i]))
+        i += 1
     return out
 
 
@@ -72,7 +94,7 @@ def _string_literals(line: str) -> list[str]:
 def _collect_violations():
     em_dash_hits, baseline_hits, media_hits, adstock_hits = [], [], [], []
     checked_lines = 0
-    for lineno, line in enumerate(_production_source_lines(), start=1):
+    for lineno, line in _production_source_lines():
         lits = _string_literals(line)
         if not lits:
             continue
