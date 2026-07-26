@@ -46,6 +46,13 @@ const DOWNLOAD_ATTEMPTS: u32 = 5;
 /// Паузы перед повторами (секунды): даём каналу восстановиться.
 const RETRY_BACKOFF_SECS: [u64; 4] = [2, 5, 10, 20];
 
+/// Верхняя граница ОДНОЙ попытки. Общего дедлайна на запрос нет намеренно
+/// (он рубит исправную медленную передачу), но и вовсе без границы попытка
+/// зависнет навсегда, если сервер шлёт по байту чаще, чем раз в READ_IDLE:
+/// таймаут тишины в такой передаче не срабатывает никогда (находка аудита H-4).
+/// Значение с большим запасом: наши файлы — единицы–десятки КБ.
+const ATTEMPT_BUDGET_SECS: u64 = 180;
+
 // ── Local version tracking (legacy) ───────────────────────────
 
 /// Path to local content version file.
@@ -383,6 +390,22 @@ async fn fetch_vault_once(
         .map_err(FetchFailure::Transient)
 }
 
+/// Ограничить одну попытку сверху (H-4). Истечение бюджета — это связь,
+/// а не отказ по существу: считаем повторяемым.
+async fn attempt_with_budget<F>(fut: F, what: &str) -> std::result::Result<Vec<u8>, FetchFailure>
+where
+    F: std::future::Future<Output = std::result::Result<Vec<u8>, FetchFailure>>,
+{
+    match tokio::time::timeout(std::time::Duration::from_secs(ATTEMPT_BUDGET_SECS), fut).await {
+        Ok(r) => r,
+        Err(_) => Err(FetchFailure::Transient(anyhow::anyhow!(
+            "{}: попытка не уложилась в {} с — передача идёт слишком медленно",
+            what,
+            ATTEMPT_BUDGET_SECS
+        ))),
+    }
+}
+
 /// Скачать vault-файл с сервера, переживая обрывы канала.
 async fn download_vault_file(
     fingerprint_hash: &str,
@@ -402,7 +425,7 @@ async fn download_vault_file(
     let mut last_err: Option<anyhow::Error> = None;
 
     for attempt in 1..=DOWNLOAD_ATTEMPTS {
-        match fetch_vault_once(&client, &url, filename).await {
+        match attempt_with_budget(fetch_vault_once(&client, &url, filename), filename).await {
             Ok(bytes) => {
                 if attempt > 1 {
                     info!("Vault {} получен с попытки {}/{} ({} байт)", filename, attempt, DOWNLOAD_ATTEMPTS, bytes.len());
@@ -437,7 +460,7 @@ async fn download_url_resilient(url: &str, what: &str) -> Result<Vec<u8>> {
     let mut last_err: Option<anyhow::Error> = None;
 
     for attempt in 1..=DOWNLOAD_ATTEMPTS {
-        match fetch_vault_once(&client, url, what).await {
+        match attempt_with_budget(fetch_vault_once(&client, url, what), what).await {
             Ok(bytes) => {
                 if attempt > 1 {
                     info!("{} получен с попытки {}/{} ({} байт)", what, attempt, DOWNLOAD_ATTEMPTS, bytes.len());
@@ -491,6 +514,7 @@ pub async fn download_updates(
         .context("Failed to create vaults directory")?;
 
     let mut updated = Vec::new();
+    let mut last_error: Option<anyhow::Error> = None;
 
     for (idx, filename) in files.iter().enumerate() {
         // Emit progress event
@@ -548,7 +572,19 @@ pub async fn download_updates(
             }
             Err(e) => {
                 error!("Failed to download {}: {}", filename, e);
+                // Причину держим при себе: без неё вызывающий видит пустой
+                // список и сообщает пользователю «сервер не отдал файл», хотя
+                // на деле оборвалась передача на N байт (находка аудита H-1).
+                last_error = Some(e);
             }
+        }
+    }
+
+    // Ни один файл не доехал, и причина известна — отдаём её наружу, а не
+    // пустой список: иначе пользователь получает домысел вместо факта (H-1).
+    if updated.is_empty() && !files.is_empty() {
+        if let Some(e) = last_error {
+            return Err(e);
         }
     }
 

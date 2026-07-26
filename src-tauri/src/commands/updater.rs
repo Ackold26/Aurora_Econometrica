@@ -306,6 +306,14 @@ async fn download_attempt(
 
     let status = resp.status();
     if !status.is_success() {
+        // 416 означает «запрошенный диапазон вне файла»: частичный файл уже
+        // полон либо больше исходного. Оставить его — значит получать 416 на
+        // каждой из пяти попыток и не докачать никогда (находка аудита H-3).
+        // Сбрасываем, следующая попытка скачает начисто.
+        if status == reqwest::StatusCode::RANGE_NOT_SATISFIABLE {
+            let _ = tokio::fs::remove_file(part_path).await;
+            return Err(coded_err(ErrorCode::UP002, "Частичный файл не соответствует серверному — начинаем заново"));
+        }
         return Err(coded_err(ErrorCode::UP002, &format!("Download returned {status}")));
     }
 
