@@ -46,7 +46,16 @@
     .footer { text-align: center; padding: 24px 32px; border-top: 1px solid var(--border); }
     .footer p { font-size: 11px; color: var(--text2); opacity: 0.5; }
     @media (max-width: 600px) { .categories, .steps { grid-template-columns: 1fr; } }
-  </style>
+    /* Типографский канон линейки (2026-07-26), §5 стандарта формата отчёта.
+     Одинокое слово на последней строке абзаца («вдова») и заголовок,
+     сломанный ступенькой в одно слово, — дефект вёрстки, а не мелочь:
+     клиент читает справку как документ продукта. Правила объявлены
+     последними в блоке, чтобы каскад страницы их не перекрыл.
+     На старом движке свойства игнорируются — вёрстка остаётся прежней. */
+  body { text-wrap: pretty; }
+  h1, h2, h3, h4, h5, h6 { text-wrap: balance; }
+  p, li { max-inline-size: 68ch; }
+</style>
 </head>
 <body>
 

@@ -70,6 +70,15 @@ p { font-size: 14.5px; margin-bottom: 14px; }
 .footer { text-align: center; padding: 24px; border-top: 1px solid var(--border); }
 .footer p { font-size: 11px; color: var(--text3); margin: 0; }
 @media (max-width: 600px) { .modules-grid, .data-grid { grid-template-columns: 1fr; } }
+  /* Типографский канон линейки (2026-07-26), §5 стандарта формата отчёта.
+     Одинокое слово на последней строке абзаца («вдова») и заголовок,
+     сломанный ступенькой в одно слово, — дефект вёрстки, а не мелочь:
+     клиент читает справку как документ продукта. Правила объявлены
+     последними в блоке, чтобы каскад страницы их не перекрыл.
+     На старом движке свойства игнорируются — вёрстка остаётся прежней. */
+  body { text-wrap: pretty; }
+  h1, h2, h3, h4, h5, h6 { text-wrap: balance; }
+  p, li { max-inline-size: 68ch; }
 </style>
 </head>
 <body>

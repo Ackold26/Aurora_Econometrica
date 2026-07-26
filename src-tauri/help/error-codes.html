@@ -17,6 +17,15 @@
   .search { width: 100%; padding: 10px 14px; background: #12121e; border: 1px solid #1a1a2e; border-radius: 8px; color: #e0e0e0; font-size: 14px; margin-bottom: 20px; outline: none; }
   .search:focus { border-color: #2E5BFF; }
   .hidden { display: none; }
+  /* Типографский канон линейки (2026-07-26), §5 стандарта формата отчёта.
+     Одинокое слово на последней строке абзаца («вдова») и заголовок,
+     сломанный ступенькой в одно слово, — дефект вёрстки, а не мелочь:
+     клиент читает справку как документ продукта. Правила объявлены
+     последними в блоке, чтобы каскад страницы их не перекрыл.
+     На старом движке свойства игнорируются — вёрстка остаётся прежней. */
+  body { text-wrap: pretty; }
+  h1, h2, h3, h4, h5, h6 { text-wrap: balance; }
+  p, li { max-inline-size: 68ch; }
 </style>
 </head>
 <body>

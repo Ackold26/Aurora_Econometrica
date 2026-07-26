@@ -32,6 +32,15 @@ code { background: var(--bg3); padding: 2px 6px; border-radius: 4px; font-size: 
 .command-detail h4 { font-size: 14px; margin-top: 16px; margin-bottom: 8px; color: var(--accent); }
 .cmd-desc { font-size: 14px; color: var(--text); margin-bottom: 12px; }
 @media print { body { background: #fff; color: #000; } nav { display: none; } h2 { color: #EF4444; } th { background: #f0f0f0; } }
+  /* Типографский канон линейки (2026-07-26), §5 стандарта формата отчёта.
+     Одинокое слово на последней строке абзаца («вдова») и заголовок,
+     сломанный ступенькой в одно слово, — дефект вёрстки, а не мелочь:
+     клиент читает справку как документ продукта. Правила объявлены
+     последними в блоке, чтобы каскад страницы их не перекрыл.
+     На старом движке свойства игнорируются — вёрстка остаётся прежней. */
+  body { text-wrap: pretty; }
+  h1, h2, h3, h4, h5, h6 { text-wrap: balance; }
+  p, li { max-inline-size: 68ch; }
 </style>
 </head>
 <body>
