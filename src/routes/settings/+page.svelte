@@ -131,6 +131,7 @@
   let usageMetrics = $state(null);
   /** @type {Array<[string, string, boolean]>} */
   let vaultStatus = $state([]);
+  let vaultImportStatus = $state('');
   let diagExporting = $state(false);
   let diagPath = $state('');
   /** @type {{status: string, content_version: string|null, expires_at: string|null, machine_id: string}|null} */
@@ -181,6 +182,26 @@
       await loadStatus();
     } catch (err) {
       importStatus = 'Ошибка: ' + err;
+    }
+  }
+
+  /**
+   * Запасной путь доставки: материалы кабинета берутся из файла, когда сеть
+   * их не пропускает (корпоративный шлюз, проверка соединений антивирусом).
+   */
+  async function importVault() {
+    try {
+      const filePath = await open({
+        title: 'Выберите файл материалов кабинета',
+        filters: [{ name: 'Материалы кабинета', extensions: ['vault'] }],
+        multiple: false,
+      });
+      if (!filePath) return;
+
+      vaultImportStatus = /** @type {string} */ (await invoke('import_cabinet_vault', { path: filePath }));
+      await loadVaultStatus();
+    } catch (err) {
+      vaultImportStatus = 'Не удалось загрузить: ' + err;
     }
   }
 
@@ -765,6 +786,14 @@
             </div>
           {/each}
         </div>
+        <p class="section-desc" style="margin-top: 12px;">
+          Обычно материалы кабинетов приезжают с сервера сами. Если связь их не пропускает
+          (например, в сети организации), запросите файл в поддержке и загрузите вручную.
+        </p>
+        <button class="btn-logs" onclick={importVault}>Загрузить материалы из файла</button>
+        {#if vaultImportStatus}
+          <p class="section-desc" style="margin-top: 8px;">{vaultImportStatus}</p>
+        {/if}
       </section>
     {/if}
 

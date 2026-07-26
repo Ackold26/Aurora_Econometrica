@@ -193,6 +193,89 @@ fn import_license(path: String, app_handle: tauri::AppHandle) -> Result<(), Stri
     }
 }
 
+/// Запасной путь доставки рабочих материалов кабинета — из файла, а не с сервера.
+///
+/// Нужен клиентам, у которых сеть режет или разбирает соединение (корпоративный
+/// шлюз, проверка защищённых соединений антивирусом): без этого пути продукт у
+/// них не открывается вовсе. На диске материалы лежат зашифрованными ключом
+/// машины, поэтому просто скопировать файл в папку нельзя — шифруем здесь.
+#[tauri::command]
+fn import_cabinet_vault(path: String, app_handle: tauri::AppHandle) -> Result<String, String> {
+    let config_dir = app_handle.path().app_config_dir().map_err(|e| e.to_string())?;
+    let data_dir = app_handle.path().app_data_dir().map_err(|e| e.to_string())?;
+
+    let result = (|| -> anyhow::Result<String> {
+        use anyhow::Context as _;
+        // Имя берём ТОЛЬКО из последнего сегмента пути: защита от «..» и абсолютных путей.
+        let filename = std::path::Path::new(&path)
+            .file_name()
+            .and_then(|n| n.to_str())
+            .ok_or_else(|| anyhow::anyhow!("Не удалось прочитать имя файла"))?
+            .to_ascii_lowercase();
+
+        let stem = filename.strip_suffix(".vault").ok_or_else(|| {
+            anyhow::anyhow!("Нужен файл кабинета с расширением .vault, выбран «{filename}»")
+        })?;
+        if stem.is_empty()
+            || stem.len() > 40
+            || !stem.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+        {
+            anyhow::bail!("Недопустимое имя файла кабинета: «{filename}»");
+        }
+
+        let raw = std::fs::read(&path)
+            .with_context(|| format!("Не удалось прочитать файл «{filename}»"))?;
+
+        // Ограничение размера: обычный файл кабинета — десятки килобайт,
+        // 200 МБ означает, что выбран не тот файл.
+        const MAX_VAULT_BYTES: usize = 200 * 1024 * 1024;
+        if raw.len() > MAX_VAULT_BYTES {
+            anyhow::bail!("Файл слишком велик для материалов кабинета ({} МБ)", raw.len() / (1024 * 1024));
+        }
+
+        // Проверяем, что это действительно наши материалы: gzip-архив, внутри
+        // которого читается хотя бы одна запись. Иначе пользователь узнал бы об
+        // ошибке только при открытии кабинета, уже без подсказки.
+        {
+            let gz = flate2::read::GzDecoder::new(std::io::Cursor::new(raw.as_slice()));
+            let mut archive = tar::Archive::new(gz);
+            let mut entries = archive
+                .entries()
+                .context("Файл не похож на материалы кабинета: архив не читается")?;
+            match entries.next() {
+                Some(Ok(_)) => {}
+                Some(Err(e)) => anyhow::bail!("Файл повреждён: {e}"),
+                None => anyhow::bail!("Файл пуст — в нём нет материалов кабинета"),
+            }
+        }
+
+        let key = content_updater::derive_local_key(&config_dir)
+            .context("Не удалось получить ключ этой машины")?;
+        let encrypted = crypto::aes::encrypt(&key, &raw).context("Не удалось зашифровать материалы")?;
+
+        let vaults_dir = vault::vaults_dir(&data_dir);
+        std::fs::create_dir_all(&vaults_dir).context("Не удалось создать папку материалов")?;
+        let dest = vaults_dir.join(&filename);
+        std::fs::write(&dest, &encrypted)
+            .with_context(|| format!("Не удалось сохранить материалы в {}", dest.display()))?;
+
+        info!("Материалы кабинета импортированы вручную: {} ({} байт)", filename, raw.len());
+        Ok(filename)
+    })();
+
+    match result {
+        Ok(filename) => {
+            metrics::audit::log_event("vault_import", &filename, true);
+            Ok(format!("Материалы кабинета загружены из файла «{filename}». Откройте кабинет заново."))
+        }
+        Err(e) => {
+            let msg = format!("{e:#}");
+            metrics::audit::log_event("vault_import", &msg, false);
+            Err(msg)
+        }
+    }
+}
+
 #[tauri::command]
 async fn check_online_auth(app_handle: tauri::AppHandle) -> Result<online_auth::OnlineAuthStatus, String> {
     let config_dir = app_handle.path().app_config_dir().map_err(|e| e.to_string())?;
@@ -462,14 +545,42 @@ async fn open_cabinet(
 
     if !vault_path.exists() {
         info!("Vault not found locally for {cabinet_id}, attempting server download...");
+        // Причину неудачи держим при себе: без неё пользователь получал голое
+        // «Failed to read vault: <путь>» (VT001) — техническую строку, из которой
+        // не следует ни причина, ни что делать (разбор отказа у клиента 2026-07-26).
+        let mut download_err: Option<String> = None;
+
         if let (Some(cv), true) = (&online.content_version, online.status == "ok" || online.status == "cached") {
             let product = online_auth::detect_product();
             let files = vec![vault_filename.clone()];
             let checksums = serde_json::json!({});
             match content_updater::download_updates(&config_dir, &data_dir, product, cv, &files, &checksums, online.vault_versions.as_ref(), Some(&app_handle)).await {
-                Ok(updated) => info!("Downloaded {} vault files from server", updated.len()),
-                Err(e) => warn!("Failed to download vault from server: {e}"),
+                Ok(updated) if !updated.is_empty() => info!("Downloaded {} vault files from server", updated.len()),
+                Ok(_) => {
+                    warn!("Vault download returned no files for {cabinet_id}");
+                    download_err = Some("сервер не отдал файл кабинета".to_string());
+                }
+                Err(e) => {
+                    warn!("Failed to download vault from server: {e:#}");
+                    download_err = Some(format!("{e:#}"));
+                }
             }
+        } else {
+            download_err = Some(format!("сервер лицензий недоступен (состояние связи: {})", online.status));
+        }
+
+        if !vault_path.exists() {
+            let detail = download_err.unwrap_or_else(|| "причина неизвестна".to_string());
+            error!("Кабинет {cabinet_id}: рабочие материалы не доставлены — {detail}");
+            return Err(format!(
+                "Не удалось загрузить рабочие материалы кабинета с сервера.\n\n\
+                 Связь с сервером обрывается при передаче файла, поэтому кабинет не открывается.\n\n\
+                 Что можно сделать:\n\
+                 • проверить подключение к интернету и повторить открытие кабинета;\n\
+                 • если компьютер работает в корпоративной сети с фильтрацией трафика – попросить администратора открыть доступ к серверу программы;\n\
+                 • если не помогает – выгрузить отчёт диагностики в настройках и прислать его в поддержку: рабочие материалы можно передать отдельным файлом.\n\n\
+                 Подробность для поддержки: кабинет {cabinet_id}, {detail}"
+            ));
         }
     }
 
@@ -3320,6 +3431,7 @@ fn build_app() -> Result<(), String> {
             get_cabinets,
             get_license_status,
             import_license,
+            import_cabinet_vault,
             check_online_auth,
             send_heartbeat,
             get_instance_id,
