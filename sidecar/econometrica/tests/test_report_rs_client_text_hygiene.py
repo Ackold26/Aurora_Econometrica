@@ -91,10 +91,52 @@ def _string_literals(line: str) -> list[str]:
     return STRING_LIT_RE.findall(line)
 
 
+def _join_continued_literals(pairs):
+    """Склеивает литерал, разорванный переносом строки, в одну логическую.
+
+    2026-07-26 (внешний аудит, Medium): разбор шёл построчно, поэтому литерал,
+    продолженный через `\\` в конце строки, не имел на своей строке закрывающей
+    кавычки и не попадал в выборку ВООБЩЕ — вместе со всем своим текстом.
+    Доказано боем: длинное тире, вставленное в клиентское предупреждение про
+    ROAS (report.rs, строки 1750-1751), давало ноль находок при зелёном тесте.
+
+    Признак продолжения — нечётное число неэкранированных кавычек в строке.
+    Номер логической строки — номер ПЕРВОЙ физической, чтобы сообщение об
+    ошибке указывало на начало литерала.
+    """
+    out = []
+    buf_lineno = None
+    buf = ""
+    for lineno, line in pairs:
+        stripped = line.rstrip("\n")
+        if buf_lineno is None:
+            buf_lineno, buf = lineno, stripped
+        else:
+            # Перенос внутри литерала: Rust отбрасывает `\` и ведущие пробелы.
+            buf = buf.rstrip("\\") + stripped.lstrip()
+        # Чётное число неэкранированных кавычек — литерал(ы) закрыты.
+        quotes, esc = 0, False
+        for ch in buf:
+            if esc:
+                esc = False
+                continue
+            if ch == "\\":
+                esc = True
+                continue
+            if ch == '"':
+                quotes += 1
+        if quotes % 2 == 0:
+            out.append((buf_lineno, buf))
+            buf_lineno, buf = None, ""
+    if buf_lineno is not None:  # незакрытый хвост — отдаём как есть
+        out.append((buf_lineno, buf))
+    return out
+
+
 def _collect_violations():
     em_dash_hits, baseline_hits, media_hits, adstock_hits = [], [], [], []
     checked_lines = 0
-    for lineno, line in _production_source_lines():
+    for lineno, line in _join_continued_literals(_production_source_lines()):
         lits = _string_literals(line)
         if not lits:
             continue
