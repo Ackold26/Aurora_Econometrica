@@ -2,6 +2,10 @@
   import { hasCompletedOnboarding } from '$lib/store.js';
 
   let step = $state(0);
+  /** Раскрыт ли блок технических подробностей текущего слайда.
+   *  Сбрасывается при переходе — иначе на следующем слайде остался бы
+   *  открытым блок, которого там нет. */
+  let detailsOpen = $state(false);
 
   const steps = [
     {
@@ -11,7 +15,14 @@
     },
     {
       title: 'Модели и методы',
-      desc: 'NumPyro + JAX для быстрого байесовского вывода (MCMC за секунды). Hill function для saturation curves, adstock-преобразования (geometric/Weibull) для моделирования запаздывающего эффекта. Автоматический подбор гиперпараметров.',
+      // Два уровня (решение владельца 2026-07-26): на слайде — что программа
+      // делает и почему это важно, без терминов, которые надо искать в
+      // словаре; под кнопкой «Подробнее» — те же методы своими именами, чтобы
+      // специалист видел, что под капотом не «чёрный ящик». Прежний единый
+      // текст держал восемь англоязычных терминов подряд, а онбординг видят
+      // все, не только аналитики.
+      desc: 'Байесовское моделирование медиаканалов – расчёт занимает секунды, а не часы. Программа сама учитывает, что реклама действует с запаздыванием, а отдача канала выходит на насыщение, и подбирает параметры без ручной настройки.',
+      details: 'Вывод – NumPyro + JAX (MCMC). Кривые насыщения – Hill function. Запаздывающий эффект (adstock) – преобразования geometric и Weibull. Гиперпараметры подбираются автоматически.',
       icon: 'M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5',
     },
     {
@@ -31,6 +42,7 @@
   function next() {
     if (step < steps.length - 1) {
       direction = 1;
+      detailsOpen = false;
       step++;
     } else {
       finish();
@@ -77,6 +89,18 @@
         </div>
         <h2 class="step-title">{steps[step].title}</h2>
         <p class="step-desc">{steps[step].desc}</p>
+        {#if steps[step].details}
+          <button
+            class="details-toggle"
+            aria-expanded={detailsOpen}
+            onclick={() => (detailsOpen = !detailsOpen)}
+          >
+            {detailsOpen ? 'Свернуть' : 'Подробнее'}
+          </button>
+          {#if detailsOpen}
+            <p class="step-details">{steps[step].details}</p>
+          {/if}
+        {/if}
       </div>
     {/key}
 
@@ -159,6 +183,32 @@
     color: var(--text-secondary);
     margin-bottom: 24px;
     white-space: pre-line;
+  }
+
+  /* Второй уровень: методы своими именами — для тех, кому это важно.
+     Кнопка намеренно скромная: она не должна конкурировать с «Далее». */
+  .details-toggle {
+    background: none;
+    border: none;
+    padding: 0;
+    margin: -16px 0 16px;
+    font-size: 13px;
+    color: var(--accent);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
+
+  .details-toggle:hover {
+    color: var(--accent-hover);
+  }
+
+  .step-details {
+    font-size: 13px;
+    line-height: 1.6;
+    color: var(--text-muted);
+    margin-bottom: 24px;
+    text-align: left;
+    max-inline-size: 68ch;
   }
 
   .dots {
