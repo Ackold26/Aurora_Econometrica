@@ -141,6 +141,31 @@ pub fn set_vault_version(app_config_dir: &Path, cabinet_id: &str, version: u32) 
     Ok(())
 }
 
+/// Забыть записанную версию кабинета после ручного импорта материалов из файла.
+///
+/// Версию импортированного файла мы не знаем: он мог быть получен в поддержке
+/// неделю назад. Оставить прежнюю отметку — значит выдать неизвестные материалы
+/// за актуальные, и обновление с сервера к этому кабинету больше не придёт
+/// никогда (находка аудита M-3). Без отметки клиент при следующем запуске
+/// спросит сервер и докачает, если там новее.
+pub fn forget_vault_version(app_config_dir: &Path, filename: &str) -> Result<()> {
+    let Some(stem) = filename.strip_suffix(".vault") else {
+        return Ok(());
+    };
+    let cab_id = stem_to_cabinet_id(stem);
+
+    let mut versions = get_vault_versions(app_config_dir);
+    if versions.remove(cab_id).is_none() {
+        return Ok(());
+    }
+    std::fs::write(
+        vault_versions_path(app_config_dir),
+        serde_json::to_string_pretty(&versions)?,
+    )?;
+    info!("Отметка версии кабинета {} снята: материалы загружены из файла", cab_id);
+    Ok(())
+}
+
 /// Выбрать номер версии для записи в vault-versions.json после докачки кабинета.
 ///
 /// Per-cabinet версия сервера (`vault_versions[cab_id]`) точнее глобального
@@ -1527,6 +1552,44 @@ mod tests {
         assert_eq!(versions.get("media-analyst"), Some(&5));
         assert_eq!(versions.get("creative-director"), Some(&3));
         assert_eq!(versions.get("social-listening"), None);
+    }
+
+    #[test]
+    fn forget_vault_version_clears_only_that_cabinet() {
+        let dir = TempDir::new().unwrap();
+        set_vault_version(dir.path(), "econometrist", 7).unwrap();
+        set_vault_version(dir.path(), "lawyer-claims", 3).unwrap();
+
+        forget_vault_version(dir.path(), "econometrist.vault").unwrap();
+
+        let left = get_vault_versions(dir.path());
+        assert!(
+            !left.contains_key("econometrist"),
+            "отметка импортированного кабинета обязана сниматься, иначе обновление к нему не придёт"
+        );
+        assert_eq!(left.get("lawyer-claims"), Some(&3), "соседние кабинеты трогать нельзя");
+    }
+
+    #[test]
+    fn forget_vault_version_maps_file_stem_to_cabinet() {
+        let dir = TempDir::new().unwrap();
+        // Файл creative-group.vault принадлежит кабинету creative-director.
+        set_vault_version(dir.path(), "creative-director", 5).unwrap();
+
+        forget_vault_version(dir.path(), "creative-group.vault").unwrap();
+
+        assert!(
+            !get_vault_versions(dir.path()).contains_key("creative-director"),
+            "имя файла обязано приводиться к имени кабинета"
+        );
+    }
+
+    #[test]
+    fn forget_vault_version_is_quiet_when_nothing_to_forget() {
+        let dir = TempDir::new().unwrap();
+        forget_vault_version(dir.path(), "econometrist.vault").unwrap();
+        forget_vault_version(dir.path(), "не-наш-файл.txt").unwrap();
+        assert!(get_vault_versions(dir.path()).is_empty());
     }
 
     #[test]

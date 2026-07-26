@@ -204,7 +204,9 @@ fn import_cabinet_vault(path: String, app_handle: tauri::AppHandle) -> Result<St
     let config_dir = app_handle.path().app_config_dir().map_err(|e| e.to_string())?;
     let data_dir = app_handle.path().app_data_dir().map_err(|e| e.to_string())?;
 
-    let result = (|| -> anyhow::Result<String> {
+    // Второе значение — заменили ли уже лежавшие материалы: пользователь должен
+    // узнать об этом из ответа, а не обнаружить потом.
+    let result = (|| -> anyhow::Result<(String, bool)> {
         use anyhow::Context as _;
         // Имя берём ТОЛЬКО из последнего сегмента пути: защита от «..» и абсолютных путей.
         let filename = std::path::Path::new(&path)
@@ -260,17 +262,32 @@ fn import_cabinet_vault(path: String, app_handle: tauri::AppHandle) -> Result<St
         let vaults_dir = vault::vaults_dir(&data_dir);
         std::fs::create_dir_all(&vaults_dir).context("Не удалось создать папку материалов")?;
         let dest = vaults_dir.join(&filename);
+        let replaced = dest.exists();
         std::fs::write(&dest, &encrypted)
             .with_context(|| format!("Не удалось сохранить материалы в {}", dest.display()))?;
 
+        // Версию импортированного файла мы не знаем, поэтому снимаем отметку:
+        // иначе клиент считал бы эти материалы актуальными и обновление с
+        // сервера к кабинету больше не пришло бы (находка аудита M-3).
+        if let Err(e) = content_updater::forget_vault_version(&config_dir, &filename) {
+            warn!("Не удалось снять отметку версии после импорта {filename}: {e:#}");
+        }
+
         info!("Материалы кабинета импортированы вручную: {} ({} байт)", filename, raw.len());
-        Ok(filename)
+        Ok((filename, replaced))
     })();
 
     match result {
-        Ok(filename) => {
+        Ok((filename, replaced)) => {
             metrics::audit::log_event("vault_import", &filename, true);
-            Ok(format!("Материалы кабинета загружены из файла «{filename}». Откройте кабинет заново."))
+            let replaced_note = if replaced {
+                " Прежние материалы этого кабинета заменены."
+            } else {
+                ""
+            };
+            Ok(format!(
+                "Материалы кабинета загружены из файла «{filename}».{replaced_note} Откройте кабинет заново."
+            ))
         }
         Err(e) => {
             let msg = format!("{e:#}");
@@ -485,6 +502,52 @@ async fn econ_ask_insight(
     .map_err(|e| e.to_string())
 }
 
+/// Человеческое объяснение, почему рабочие материалы не доехали, и что делать.
+///
+/// Раньше пользователю в любом случае сообщалось «связь обрывается при передаче
+/// файла» — в том числе когда сервер отказал по существу (нет лицензии, нет
+/// файла) или не отвечал вовсе (находка аудита M-5). Домысел вместо факта уводит
+/// и пользователя, и поддержку по ложному следу.
+fn delivery_failure_explanation(detail: &str) -> (&'static str, &'static str) {
+    let d = detail.to_lowercase();
+
+    if d.contains("403") || d.contains("лицензия") {
+        return (
+            "Сервер не подтвердил право на этот кабинет.",
+            "• проверить срок действия лицензии в настройках;\n\
+             • если срок в порядке – прислать отчёт диагностики в поддержку: кабинет мог быть не включён в вашу лицензию.",
+        );
+    }
+    if d.contains("404") || d.contains("не найден") || d.contains("не отдал файл") {
+        return (
+            "Нужного файла на сервере нет.",
+            "• повторить открытие кабинета через несколько минут – файл может выкладываться прямо сейчас;\n\
+             • если не помогает – прислать отчёт диагностики в поддержку.",
+        );
+    }
+    if d.contains("недоступен") {
+        return (
+            "Сервер программы сейчас недоступен.",
+            "• проверить подключение к интернету и повторить открытие кабинета;\n\
+             • если компьютер работает в корпоративной сети с фильтрацией трафика – попросить администратора открыть доступ к серверу программы.",
+        );
+    }
+    if d.contains("оборван") || d.contains("получено") || d.contains("не установилась") || d.contains("попыток") {
+        return (
+            "Связь с сервером обрывается при передаче файла.",
+            "• проверить подключение к интернету и повторить открытие кабинета;\n\
+             • если компьютер работает в корпоративной сети с фильтрацией трафика – попросить администратора открыть доступ к серверу программы;\n\
+             • если не помогает – загрузить рабочие материалы из файла в настройках: их можно получить в поддержке.",
+        );
+    }
+
+    (
+        "Загрузка рабочих материалов не завершилась.",
+        "• повторить открытие кабинета;\n\
+         • если не помогает – выгрузить отчёт диагностики в настройках и прислать его в поддержку.",
+    )
+}
+
 #[tauri::command]
 async fn open_cabinet(
     cabinet_id: String,
@@ -576,13 +639,12 @@ async fn open_cabinet(
         if !vault_path.exists() {
             let detail = download_err.unwrap_or_else(|| "причина неизвестна".to_string());
             error!("Кабинет {cabinet_id}: рабочие материалы не доставлены — {detail}");
+            let (reason, hints) = delivery_failure_explanation(&detail);
             return Err(format!(
                 "Не удалось загрузить рабочие материалы кабинета с сервера.\n\n\
-                 Связь с сервером обрывается при передаче файла, поэтому кабинет не открывается.\n\n\
+                 {reason} Поэтому кабинет не открывается.\n\n\
                  Что можно сделать:\n\
-                 • проверить подключение к интернету и повторить открытие кабинета;\n\
-                 • если компьютер работает в корпоративной сети с фильтрацией трафика – попросить администратора открыть доступ к серверу программы;\n\
-                 • если не помогает – выгрузить отчёт диагностики в настройках и прислать его в поддержку: рабочие материалы можно передать отдельным файлом.\n\n\
+                 {hints}\n\n\
                  Подробность для поддержки: кабинет {cabinet_id}, {detail}"
             ));
         }
@@ -3699,6 +3761,63 @@ pub fn run() {
                     err_str
                 );
                 show_error_dialog("Aurora AI Econometrica - Ошибка запуска", &msg);
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod delivery_failure_tests {
+    use super::*;
+
+    /// Причина отказа обязана следовать из факта, а не быть одной на все случаи
+    /// (находка аудита M-5): домысел уводит по ложному следу и пользователя,
+    /// и поддержку.
+    #[test]
+    fn reason_follows_the_actual_failure() {
+        let (reason, _) = delivery_failure_explanation(
+            "econometrist.vault: поток оборван на 4278 байт (сервер обещал 34165)",
+        );
+        assert!(reason.contains("обрывается"), "обрыв связи: {reason}");
+
+        let (reason, hints) = delivery_failure_explanation(
+            "Download failed for econometrist.vault: HTTP 403 Forbidden - Лицензия не найдена",
+        );
+        assert!(reason.contains("право"), "отказ по лицензии: {reason}");
+        assert!(hints.contains("лицензии"), "совет обязан быть про лицензию: {hints}");
+
+        let (reason, _) = delivery_failure_explanation(
+            "Download failed for econometrist.vault: HTTP 404 - Файл не найден",
+        );
+        assert!(reason.contains("нет"), "файла нет на сервере: {reason}");
+
+        let (reason, _) =
+            delivery_failure_explanation("сервер лицензий недоступен (состояние связи: offline)");
+        assert!(reason.contains("недоступен"), "сервер не отвечает: {reason}");
+
+        // Неизвестная причина не должна выдавать себя за известную.
+        let (reason, _) = delivery_failure_explanation("причина неизвестна");
+        assert!(
+            !reason.contains("обрывается") && !reason.contains("недоступен"),
+            "неизвестная причина обязана оставаться нейтральной: {reason}"
+        );
+    }
+
+    /// В клиентском тексте — короткое тире, без кодов и путей.
+    #[test]
+    fn client_text_keeps_typography() {
+        for detail in [
+            "поток оборван на 100 байт",
+            "HTTP 403",
+            "HTTP 404",
+            "сервер лицензий недоступен",
+            "что-то ещё",
+        ] {
+            let (reason, hints) = delivery_failure_explanation(detail);
+            for text in [reason, hints] {
+                assert!(!text.contains('—'), "длинное тире в клиентском тексте: {text}");
+                assert!(!text.contains(".vault"), "имя файла в клиентском тексте: {text}");
+                assert!(!text.contains("HTTP"), "технический код в клиентском тексте: {text}");
             }
         }
     }

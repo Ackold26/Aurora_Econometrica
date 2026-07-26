@@ -221,7 +221,9 @@ fn save_cache(app_config_dir: &Path, response: &AuthResponse) -> Result<()> {
     Ok(())
 }
 
-fn load_cache(app_config_dir: &Path) -> Option<AuthResponse> {
+/// Прочитать сохранённый ответ, если он ещё годен. Возвращает его вместе с
+/// возрастом в секундах. Молча: сообщения пишет тот, кто кэш применяет.
+fn read_fresh_cache(app_config_dir: &Path) -> Option<(AuthResponse, u64)> {
     let path = cache_path(app_config_dir);
     let data = std::fs::read_to_string(&path).ok()?;
     let cached: CachedAuth = serde_json::from_str(&data).ok()?;
@@ -234,13 +236,24 @@ fn load_cache(app_config_dir: &Path) -> Option<AuthResponse> {
     if cached.cached_at > now {
         return None;
     }
-    if now - cached.cached_at > CACHE_TTL_SECS {
-        info!("Auth cache expired (age: {}h)", (now - cached.cached_at) / 3600);
+    let age = now - cached.cached_at;
+    if age > CACHE_TTL_SECS {
+        info!("Auth cache expired (age: {}h)", age / 3600);
         return None;
     }
 
-    info!("Using cached auth response (age: {}m)", (now - cached.cached_at) / 60);
-    Some(cached.response)
+    Some((cached.response, age))
+}
+
+/// Есть ли на руках годный сохранённый ответ — тихая проверка.
+fn has_fresh_cache(app_config_dir: &Path) -> bool {
+    read_fresh_cache(app_config_dir).is_some()
+}
+
+fn load_cache(app_config_dir: &Path) -> Option<AuthResponse> {
+    let (response, age) = read_fresh_cache(app_config_dir)?;
+    info!("Using cached auth response (age: {}m)", age / 60);
+    Some(response)
 }
 
 // ── HTTP helpers ───────────────────────────────────────────
@@ -298,11 +311,19 @@ pub async fn check_auth(
     // «error decoding response body» приходило и сюда. Кэш спасает только
     // того, у кого он уже есть; на первом запуске кэша нет, и один
     // неудачный запрос означал бы «программа не запускается».
+    //
+    // Число попыток зависит от того, есть ли чем подстраховаться (находка
+    // аудита M-1): с годным сохранённым ответом на руках хватает одной, и
+    // старт при недоступной сети остаётся быстрым — иначе путь «связи нет,
+    // берём сохранённое» удлинялся втрое вместе с паузами между попытками.
+    // Без кэша (первый запуск) пробуем трижды: там цена отказа — «программа
+    // не открывается вовсе».
     const AUTH_ATTEMPTS: u32 = 3;
+    let attempts = if has_fresh_cache(app_config_dir) { 1 } else { AUTH_ATTEMPTS };
     let mut last_err: Option<anyhow::Error> = None;
     let mut response: Option<(reqwest::StatusCode, String)> = None;
 
-    for attempt in 1..=AUTH_ATTEMPTS {
+    for attempt in 1..=attempts {
         let sent = client.post(&url).json(&req).send().await;
         match sent {
             Ok(res) => {
@@ -317,8 +338,8 @@ pub async fn check_auth(
             }
             Err(e) => last_err = Some(anyhow::anyhow!("{e}")),
         }
-        if attempt < AUTH_ATTEMPTS {
-            warn!("Online auth: попытка {attempt}/{AUTH_ATTEMPTS} не удалась ({:#}) — повтор", last_err.as_ref().unwrap());
+        if attempt < attempts {
+            warn!("Online auth: попытка {attempt}/{attempts} не удалась ({:#}) — повтор", last_err.as_ref().unwrap());
             tokio::time::sleep(std::time::Duration::from_secs(2 * attempt as u64)).await;
         }
     }
