@@ -117,6 +117,36 @@ fn diag_metric(model: &Value, nested_key: &str, flat_key: &str) -> f64 {
         .unwrap_or(0.0)
 }
 
+/// «Нет числа — нет подписи» (2026-07-26): дословно та же формулировка
+/// отсутствия оценки, что в `aurora_pptx/builder.py` (карточка MQS слайда)
+/// и `aurora_html/sections.py::render_sources` (карточка «Качество модели»).
+/// Единая точка текста для XLSX и markdown-отчёта — разнобой формулировок
+/// по поверхностям это тот же дефект в профиль.
+const MQS_ABSENT_TEXT: &str = "Оценка не выполнялась для этого расчёта";
+
+/// Значение ячейки MQS Score листа «Executive Summary» — либо реальное число,
+/// либо честный текст отсутствия (никогда фиктивный 0.0).
+enum MqsCell {
+    Value(f64),
+    Absent,
+}
+
+/// Строит содержимое строки MQS Score (ячейки B5/C5) и строки «MQS Tier»
+/// листа «Executive Summary» XLSX. Единая точка для build_xlsx — раньше
+/// `model["diagnostics"]["mqs"]["score"].as_f64().unwrap_or(0.0)` превращал
+/// несчитанную оценку в ноль, и лист печатал «MQS Score | 0 | Требует
+/// доработки» - приговор модели вместо отметки, что её не оценивали.
+/// Настоящий ноль (mqs == Some(0.0)) - валидное значение и сохраняется.
+fn mqs_xlsx_row(mqs: Option<f64>, mqs_label: Option<&str>) -> (MqsCell, &'static str, String) {
+    match mqs {
+        Some(v) => {
+            let grade = if v >= 80.0 { "Отлично" } else if v >= 60.0 { "Хорошо" } else { "Требует доработки" };
+            (MqsCell::Value(v), grade, format!("MQS Tier: {}", mqs_label.unwrap_or("N/A")))
+        }
+        None => (MqsCell::Absent, "", MQS_ABSENT_TEXT.to_string()),
+    }
+}
+
 /// Pull the model spec from diagnostics; if backend didn't supply one (old
 /// trained models), fall back to the canonical Bayesian MMM spec hardcoded
 /// here. Keep priors in sync with sidecar `utils/model_spec.py`.
@@ -304,8 +334,11 @@ fn read_forecast(project_id: &str) -> Option<Value> {
 
 /// Build a full Markdown report from MMM pipeline data.
 fn build_markdown(model: &Value, decompose: &Value, optimize: &Value) -> String {
-    let mqs        = model["diagnostics"]["mqs"]["score"].as_f64().unwrap_or(0.0);
-    let mqs_label  = model["diagnostics"]["mqs"]["tier_label"].as_str().unwrap_or("N/A");
+    // «Нет числа — нет подписи» (INV-106, 2026-07-26): mqs остаётся Option -
+    // несчитанная оценка не должна превращаться в фиктивный 0.0 (см.
+    // MQS_ABSENT_TEXT выше). Настоящий ноль (Some(0.0)) - валидное значение.
+    let mqs        = model["diagnostics"]["mqs"]["score"].as_f64();
+    let mqs_label  = model["diagnostics"]["mqs"]["tier_label"].as_str();
     let r_squared  = diag_metric(model, "r_squared", "r_squared");
     let mape       = diag_metric(model, "mape_pct", "mape");
     let r_hat      = model["diagnostics"]["metrics"]["r_hat_max"]
@@ -346,7 +379,10 @@ fn build_markdown(model: &Value, decompose: &Value, optimize: &Value) -> String 
 
     // ── Executive Summary ────────────────────────────────────
     md.push_str("## EXECUTIVE SUMMARY\n\n");
-    md.push_str(&format!("- **Качество модели (MQS):** {mqs:.1} - {mqs_label}\n"));
+    match mqs {
+        Some(v) => md.push_str(&format!("- **Качество модели (MQS):** {v:.1} - {}\n", mqs_label.unwrap_or("N/A"))),
+        None => md.push_str(&format!("- **Качество модели (MQS):** {MQS_ABSENT_TEXT}\n")),
+    }
     md.push_str(&format!("- **R²:** {r_squared:.4} (объяснённая дисперсия: {:.1}%)\n", r_squared * 100.0));
     md.push_str(&format!("- **MAPE:** {mape:.2}%\n"));
     md.push_str(&format!("- **Ожидаемый прирост от оптимизации:** {:+.1}%\n", lift));
@@ -360,8 +396,13 @@ fn build_markdown(model: &Value, decompose: &Value, optimize: &Value) -> String 
     md.push_str("## Качество модели\n\n");
     md.push_str("| Метрика | Значение |\n");
     md.push_str("|---------|----------|\n");
-    md.push_str(&format!("| MQS Score | {mqs:.1} |\n"));
-    md.push_str(&format!("| MQS Tier | {mqs_label} |\n"));
+    match mqs {
+        Some(v) => {
+            md.push_str(&format!("| MQS Score | {v:.1} |\n"));
+            md.push_str(&format!("| MQS Tier | {} |\n", mqs_label.unwrap_or("N/A")));
+        }
+        None => md.push_str(&format!("| MQS | {MQS_ABSENT_TEXT} |\n")),
+    }
     md.push_str(&format!("| R² | {r_squared:.4} |\n"));
     md.push_str(&format!("| MAPE | {mape:.2}% |\n"));
     if let Some(rh) = r_hat {
@@ -466,11 +507,16 @@ fn build_markdown(model: &Value, decompose: &Value, optimize: &Value) -> String 
     if r_squared < 0.7 {
         md.push_str("- [СРЕДНЯЯ] R² ниже рекомендуемого порога 0.7 - рассмотреть добавление контрольных переменных\n");
     }
-    if mqs < 60.0 {
-        md.push_str("- [СРЕДНЯЯ] MQS Score ниже 60 - модель требует доработки или дополнительных данных\n");
-    }
-    if mqs >= 80.0 {
-        md.push_str("- [ВЫСОКАЯ] Высокий MQS Score - результаты модели надёжны для принятия решений\n");
+    // Вердикт по MQS печатается только когда оценка реально посчитана -
+    // при отсутствии (mqs == None) нет основания ни для «требует доработки»,
+    // ни для «надёжны» (было: фиктивный 0.0 всегда бил в первую ветку).
+    if let Some(v) = mqs {
+        if v < 60.0 {
+            md.push_str("- [СРЕДНЯЯ] MQS Score ниже 60 - модель требует доработки или дополнительных данных\n");
+        }
+        if v >= 80.0 {
+            md.push_str("- [ВЫСОКАЯ] Высокий MQS Score - результаты модели надёжны для принятия решений\n");
+        }
     }
     md.push_str(&format!("- [ВЫСОКАЯ] Приоритизировать канал **{top_ch}** - наивысший ROI в миксе\n"));
     md.push('\n');
@@ -950,8 +996,10 @@ fn build_xlsx(
         apply_base_cols(ws, &base_fmt)?;
         apply_print_setup(ws, "Executive Summary")?;
 
-        let mqs       = model["diagnostics"]["mqs"]["score"].as_f64().unwrap_or(0.0);
-        let mqs_label = model["diagnostics"]["mqs"]["tier_label"].as_str().unwrap_or("N/A");
+        // «Нет числа — нет подписи» (INV-106, 2026-07-26): mqs остаётся Option -
+        // см. mqs_xlsx_row выше. Настоящий ноль (Some(0.0)) - валидное значение.
+        let mqs       = model["diagnostics"]["mqs"]["score"].as_f64();
+        let mqs_label = model["diagnostics"]["mqs"]["tier_label"].as_str();
         let r_sq      = diag_metric(model, "r_squared", "r_squared");
         let mape      = diag_metric(model, "mape_pct", "mape");
         let r_hat     = model["diagnostics"]["metrics"]["r_hat_max"]
@@ -977,20 +1025,30 @@ fn build_xlsx(
         ws.write_with_format(3, 1, "Значение", &header_fmt).map_err(|e| format!("{e}"))?;
         ws.write_with_format(3, 2, "Оценка", &header_fmt).map_err(|e| format!("{e}"))?;
 
+        // MQS - строка 4 (B5/C5, см. define_name "MQS_Score" ниже) - отдельно
+        // от общего вектора: при отсутствии оценки значение не выражается
+        // числом f64 без лжи, и оценка-«вердикт» (col C) не рисуется вовсе.
+        let (mqs_cell, mqs_grade, mqs_tier_line) = mqs_xlsx_row(mqs, mqs_label);
+        ws.write(4, 0, "MQS Score").map_err(|e| format!("{e}"))?;
+        match mqs_cell {
+            MqsCell::Value(v) => { ws.write(4, 1, v).map_err(|e| format!("{e}"))?; }
+            MqsCell::Absent => { ws.write(4, 1, MQS_ABSENT_TEXT).map_err(|e| format!("{e}"))?; }
+        }
+        ws.write(4, 2, mqs_grade).map_err(|e| format!("{e}"))?;
+
         let metrics: Vec<(&str, f64, &str)> = vec![
-            ("MQS Score", mqs, if mqs >= 80.0 { "Отлично" } else if mqs >= 60.0 { "Хорошо" } else { "Требует доработки" }),
             ("R²", r_sq, if r_sq >= 0.8 { "Отлично" } else if r_sq >= 0.6 { "Хорошо" } else { "Слабо" }),
             ("MAPE (%)", mape, if mape <= 10.0 { "Отлично" } else if mape <= 20.0 { "Приемлемо" } else { "Высокая ошибка" }),
             ("Прирост от оптимизации (%)", lift, if lift > 10.0 { "Значительный" } else if lift > 3.0 { "Умеренный" } else { "Минимальный" }),
             ("Общий бюджет", budget, ""),
         ];
         for (i, (label, val, grade)) in metrics.iter().enumerate() {
-            let row = (i + 4) as u32;
+            let row = (i + 5) as u32;
             ws.write(row, 0, *label).map_err(|e| format!("{e}"))?;
             ws.write(row, 1, *val).map_err(|e| format!("{e}"))?;
             ws.write(row, 2, *grade).map_err(|e| format!("{e}"))?;
         }
-        ws.write(9, 0, format!("MQS Tier: {mqs_label}")).map_err(|e| format!("{e}"))?;
+        ws.write(9, 0, mqs_tier_line).map_err(|e| format!("{e}"))?;
         if let Some(rh) = r_hat {
             ws.write(10, 0, format!("R-hat (сходимость): {rh:.4}")).map_err(|e| format!("{e}"))?;
         }
@@ -1966,5 +2024,84 @@ mod tests {
         assert_eq!(dates.len(), 2);
         let headers: Vec<&str> = cols.iter().map(|(h, _)| h.as_str()).collect();
         assert_eq!(headers, vec!["Базовый спрос", "TV"]);
+    }
+
+    // ── «Нет числа — нет подписи» (INV-106, 2026-07-26, находка 3) ──────────
+    // Регресс-тест на дефект: несчитанный mqs.score превращался в фиктивный
+    // 0.0 (`.unwrap_or(0.0)`) и markdown/XLSX печатали приговор модели
+    // («Требует доработки», «MQS Score ниже 60») вместо честной отметки, что
+    // оценку не считали. Настоящий ноль (mqs.score == Some(0.0)) обязан
+    // оставаться валидным значением.
+
+    #[test]
+    fn markdown_mqs_absent_shows_honest_text_not_fake_zero() {
+        let model = json!({"diagnostics": {}});
+        let md = build_markdown(&model, &json!({}), &json!({}));
+        assert!(
+            md.contains(MQS_ABSENT_TEXT),
+            "ожидалась честная формулировка отсутствия MQS в markdown"
+        );
+        assert!(
+            !md.contains("Качество модели (MQS): 0.0"),
+            "MQS отсутствует, но markdown печатает фиктивный 0.0 как приговор модели"
+        );
+        assert!(
+            !md.contains("MQS Score ниже 60"),
+            "MQS отсутствует - рекомендация про низкий балл не должна печататься"
+        );
+        assert!(
+            !md.contains("Высокий MQS Score"),
+            "MQS отсутствует - рекомендация про высокий балл не должна печататься"
+        );
+    }
+
+    #[test]
+    fn markdown_mqs_present_shows_real_score() {
+        let model = json!({"diagnostics": {"mqs": {"score": 70.0, "tier_label": "Хорошо"}}});
+        let md = build_markdown(&model, &json!({}), &json!({}));
+        assert!(md.contains("Качество модели (MQS):** 70.0 - Хорошо"));
+        assert!(md.contains("| MQS Score | 70.0 |"));
+        assert!(md.contains("| MQS Tier | Хорошо |"));
+        assert!(!md.contains(MQS_ABSENT_TEXT));
+    }
+
+    #[test]
+    fn markdown_mqs_real_zero_is_shown_not_treated_as_absent() {
+        // Различаем «оценка равна нулю» и «оценки нет» - настоящий ноль
+        // валиден и обязан идти в отчёт числом, с полагающейся рекомендацией.
+        let model = json!({"diagnostics": {"mqs": {"score": 0.0, "tier_label": "Ненадёжное"}}});
+        let md = build_markdown(&model, &json!({}), &json!({}));
+        assert!(md.contains("Качество модели (MQS):** 0.0 - Ненадёжное"));
+        assert!(md.contains("MQS Score ниже 60"), "реальный низкий балл 0 обязан триггерить рекомендацию");
+        assert!(!md.contains(MQS_ABSENT_TEXT));
+    }
+
+    #[test]
+    fn xlsx_mqs_row_absent_is_honest_text() {
+        let (cell, grade, tier_line) = mqs_xlsx_row(None, None);
+        assert!(matches!(cell, MqsCell::Absent));
+        assert_eq!(grade, "");
+        assert_eq!(tier_line, MQS_ABSENT_TEXT);
+    }
+
+    #[test]
+    fn xlsx_mqs_row_present_is_value_with_grade() {
+        let (cell, grade, tier_line) = mqs_xlsx_row(Some(70.0), Some("Хорошо"));
+        match cell {
+            MqsCell::Value(v) => assert_eq!(v, 70.0),
+            MqsCell::Absent => panic!("оценка присутствует - ожидался MqsCell::Value"),
+        }
+        assert_eq!(grade, "Хорошо");
+        assert_eq!(tier_line, "MQS Tier: Хорошо");
+    }
+
+    #[test]
+    fn xlsx_mqs_row_real_zero_is_valid_value_not_absent() {
+        let (cell, grade, _tier_line) = mqs_xlsx_row(Some(0.0), Some("Ненадёжное"));
+        match cell {
+            MqsCell::Value(v) => assert_eq!(v, 0.0),
+            MqsCell::Absent => panic!("настоящий ноль - валидное значение, не отсутствие"),
+        }
+        assert_eq!(grade, "Требует доработки");
     }
 }

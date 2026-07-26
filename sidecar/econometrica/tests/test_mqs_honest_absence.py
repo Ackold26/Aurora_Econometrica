@@ -16,7 +16,7 @@ import os
 
 import pytest
 
-from aurora_html.sections import render_at_a_glance, render_executive_summary
+from aurora_html.sections import render_at_a_glance, render_executive_summary, render_sources
 from aurora_pptx.builder import AuroraPPTXBuilder
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
@@ -136,3 +136,29 @@ def test_pptx_card_shows_scale_and_tier_when_mqs_present(payload_with_mqs):
     txt = _pptx_text(AuroraPPTXBuilder(payload_with_mqs).build())
     assert "/ 100" in txt, "при наличии метрики шкала обязана остаться"
     assert "Оценка не выполнялась" not in txt
+
+
+# ─── HTML: render_sources — карточка «Model Quality Score» (находка 4) ───────
+
+def test_html_sources_card_no_empty_scale_when_mqs_missing(payload_no_mqs):
+    """Пустая шкала «- /100» с ярлыком уровня ниже — та же ложь, что фиктивный
+    ноль: форма измерения без измерения. До правки карточка секции
+    «Качество модели и источники данных» рисовала именно это, хотя findings
+    той же страницы уже честно сообщали «MQS не выполнялась» — отчёт
+    отправлял клиента к прочерку со шкалой."""
+    html = render_sources(_ctx(payload_no_mqs))
+    assert "-/100" not in html.replace(" ", ""), (
+        f"MQS отсутствует, но карточка рисует пустую шкалу: {html}"
+    )
+    assert "Оценка не выполнялась для этого расчёта" in html, (
+        "ожидалась прямая формулировка отсутствия, дословно как в PPTX-карточке"
+    )
+    # Ярлык уровня без балла — его не из чего вывести.
+    assert "mqs-tier" not in html
+
+
+def test_html_sources_card_shows_scale_and_tier_when_mqs_present(payload_with_mqs):
+    """Регресс: с посчитанной метрикой карточка прежняя — число, шкала /100, уровень."""
+    html = render_sources(_ctx(payload_with_mqs))
+    assert "70<sub>/100</sub>" in html, "при наличии метрики шкала и число обязаны остаться"
+    assert "Оценка не выполнялась" not in html

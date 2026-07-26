@@ -3647,7 +3647,7 @@ class AuroraPPTXBuilder:
                     return ""
                 return f" [{float(ci[0]):.1f}–{float(ci[1]):.1f}]"
             self._text(
-                slide, right_x, ry, name_w, 0.24, str(ch.get("name") or "—"),
+                slide, right_x, ry, name_w, 0.24, str(ch.get("name") or "н/д"),
                 font=self.sans, size=9, color=self.deep_100,
             )
             self._text(
@@ -3741,21 +3741,21 @@ class AuroraPPTXBuilder:
             ci_str = (
                 f"{ci_low_val:,.0f} – {ci_high_val:,.0f}".replace(",", " ")
                 if ci_low_val is not None and ci_high_val is not None
-                else "—"
+                else "н/д"
             )
             budget_str = (
                 f"{sc.get('total_spend_money'):,.0f}".replace(",", " ")
-                if sc.get("total_spend_money") is not None else "—"
+                if sc.get("total_spend_money") is not None else "н/д"
             )
             kpi_str = (
                 f"{sc.get('total_kpi'):,.0f}".replace(",", " ")
-                if sc.get("total_kpi") is not None else "—"
+                if sc.get("total_kpi") is not None else "н/д"
             )
             roas_str = (
                 f"{sc.get('roas_money'):.2f}"
-                if sc.get("roas_money") is not None else "—"
+                if sc.get("roas_money") is not None else "н/д"
             )
-            name_str = str(sc.get("name") or sc.get("variant_id") or "—")
+            name_str = str(sc.get("name") or sc.get("variant_id") or "н/д")
             if is_accepted:
                 name_str = f"★ {name_str}"
 

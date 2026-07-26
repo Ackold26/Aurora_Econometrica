@@ -1756,9 +1756,9 @@ def render_sources(ctx: dict) -> str:
     mqs = diag.get("mqs_score")
     mqs_tier = diag.get("mqs_tier_label") or "-"
     try:
-        mqs_display = f"{int(round(float(mqs)))}" if mqs is not None else "-"
+        mqs_display = f"{int(round(float(mqs)))}" if mqs is not None else None
     except (TypeError, ValueError):
-        mqs_display = "-"
+        mqs_display = None
 
     # INV-50 F-DELIVERABLE-1 (2026-06-07): честная оговорка о тонких данных /
     # переобучении — та же формулировка, что в вердикте программы и письме
@@ -1802,13 +1802,27 @@ def render_sources(ctx: dict) -> str:
         else "Bayesian MMM · posterior means · 90% HDI"
     )
 
+    # Нет числа - нет подписи (2026-07-26): пустая шкала «- /100» с ярлыком
+    # уровня ниже - та же ложь, что фиктивный ноль (форма измерения без
+    # измерения). Формулировка отсутствия дословно та же, что в PPTX-карточке
+    # (aurora_pptx/builder.py) - разнобой по поверхностям это тот же дефект
+    # в профиль. При отсутствии оценки шкала и ярлык уровня не рисуются вовсе.
+    if mqs_display is not None:
+        mqs_score_block = (
+            f'<div class="mqs-score">{escape(mqs_display)}<sub>/100</sub></div>\n'
+            f'    <div class="mqs-tier">{escape(mqs_tier)}</div>'
+        )
+    else:
+        mqs_score_block = (
+            '<div class="mqs-absent">Оценка не выполнялась для этого расчёта</div>'
+        )
+
     body = f"""
 {_action_title("Качество модели и источники данных")}
 <div class="sources-grid">
   <div class="mqs-card">
     <div class="mqs-label">Model Quality Score</div>
-    <div class="mqs-score">{escape(mqs_display)}<sub>/100</sub></div>
-    <div class="mqs-tier">{escape(mqs_tier)}</div>
+    {mqs_score_block}
     {f'<div class="mqs-caveat">{escape(mqs_caveat)}</div>' if mqs_caveat else ''}
     {f'<div class="mqs-diag">{mqs_diag_html}</div>' if mqs_diag_html else ''}
     <a class="method-badge" href="#method">{escape(_badge_text)}</a>
@@ -1905,10 +1919,10 @@ def render_trust_loop(ctx: dict) -> str:
         for w in (bt.get("windows") or [])[:8]:
             lo, hi = w.get("pi_low_total"), w.get("pi_high_total")
             interval = (f"{_fmt_int(lo)} – {_fmt_int(hi)}"
-                        if lo is not None and hi is not None else "—")
-            mark = "✓" if w.get("hit_total") else ("—" if w.get("hit_total") is None else "✕")
+                        if lo is not None and hi is not None else "н/д")
+            mark = "✓" if w.get("hit_total") else ("–" if w.get("hit_total") is None else "✕")
             rows += (
-                f'<tr><td>{escape(str(w.get("window") or "—"))}</td>'
+                f'<tr><td>{escape(str(w.get("window") or "н/д"))}</td>'
                 f'<td class="num">{_fmt_int(w.get("actual_total"))}</td>'
                 f'<td class="num">{_fmt_int(w.get("predicted_total"))}</td>'
                 f'<td class="num">{interval}</td><td class="center">{mark}</td></tr>'
@@ -2028,15 +2042,15 @@ def render_forecast_plan(ctx: dict) -> str:
         ci_high_val = sc.get("total_kpi_ci_high")
         ci_str = (
             f"{int(ci_low_val):,} – {int(ci_high_val):,}".replace(",", " ")
-            if ci_low_val is not None and ci_high_val is not None else "—"
+            if ci_low_val is not None and ci_high_val is not None else "н/д"
         )
         budget = sc.get("total_spend_money")
         kpi = sc.get("total_kpi")
         roas = sc.get("roas_money")
-        budget_str = f"{int(budget):,}".replace(",", " ") if budget is not None else "—"
-        kpi_str = f"{int(kpi):,}".replace(",", " ") if kpi is not None else "—"
-        roas_str = f"{float(roas):.2f}" if roas is not None else "—"
-        name_str = escape(str(sc.get("name") or sc.get("variant_id") or "—"))
+        budget_str = f"{int(budget):,}".replace(",", " ") if budget is not None else "н/д"
+        kpi_str = f"{int(kpi):,}".replace(",", " ") if kpi is not None else "н/д"
+        roas_str = f"{float(roas):.2f}" if roas is not None else "н/д"
+        name_str = escape(str(sc.get("name") or sc.get("variant_id") or "н/д"))
         star = "★ " if is_accepted else ""
         bold_open = "<strong>" if is_accepted else ""
         bold_close = "</strong>" if is_accepted else ""
