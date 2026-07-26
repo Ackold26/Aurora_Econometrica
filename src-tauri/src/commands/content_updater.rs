@@ -27,11 +27,17 @@ fn supabase_url() -> String {
 // и исправную медленную докачку тоже (у клиента ошибка приходила ровно через
 // 120 с — это срабатывал общий таймаут, а не отказ сервера).
 //
-// Докачки по HTTP Range здесь нет намеренно: Edge Function `/content` отдаёт
-// файл целиком и на запрос с `Range` отвечает 200 (проверено зондом 2026-07-26),
-// а vault-файлы весят единицы–десятки КБ — полная перекачка стоит дешевле, чем
-// поддержка резюма. Для крупных пакетов (content-pack, фронтенд-бандл) резюм
-// имеет смысл, но требует поддержки Range на стороне функции.
+// Файлы забираются ПО ЧАСТЯМ (HTTP Range), а не целиком. Причина — приёмка
+// 2.4.1 на машине клиента 26.07.2026: повторы и раздельные таймауты работали,
+// но не лечили, потому что посредник в сети клиента обрывает ответ примерно
+// после 4 КБ. Файлы 2,0–2,9 КБ доходили все, 20 и 34 КБ — ни разу: 10 обрывов
+// из 10 на 3251…5649 байт. Против такого порога бессильны и увеличенный
+// таймаут, и любое число повторов — каждая попытка упирается в него заново.
+// Единственное лечение — не просить у сервера кусок больше порога.
+//
+// Сервер, который частей не умеет (старая сборка функции, посторонний адрес),
+// отвечает на запрос с Range кодом 200 и телом целиком — этот путь сохранён,
+// поэтому правка обратно совместима.
 
 /// Таймаут установки соединения.
 const CONNECT_TIMEOUT_SECS: u64 = 20;
@@ -51,7 +57,31 @@ const RETRY_BACKOFF_SECS: [u64; 4] = [2, 5, 10, 20];
 /// зависнет навсегда, если сервер шлёт по байту чаще, чем раз в READ_IDLE:
 /// таймаут тишины в такой передаче не срабатывает никогда (находка аудита H-4).
 /// Значение с большим запасом: наши файлы — единицы–десятки КБ.
+///
+/// Бюджет считается на ОДИН запрос куска, а не на сборку файла целиком:
+/// иначе исправная, но медленная докачка из полутора десятков кусков рубилась
+/// бы на середине — ровно та ошибка, из-за которой отвергнут общий дедлайн.
 const ATTEMPT_BUDGET_SECS: u64 = 180;
+
+/// Размер куска при докачке по частям.
+///
+/// Два килобайта — заведомо ниже наблюдённого у клиента порога обрыва
+/// (минимальный зафиксированный обрыв — 3251 байт), с запасом на разброс
+/// порога у других посредников. Цена — лишние запросы: файл кабинета в 34 КБ
+/// собирается за 17 обращений вместо одного.
+const RANGE_CHUNK_BYTES: u64 = 2048;
+
+/// Потолок предварительного резерва памяти под тело ответа.
+///
+/// Длину объявляет сервер, и доверять ей на слово нельзя: ответ со сломанным
+/// или злонамеренным `Content-Length` заставил бы выделить память ДО чтения
+/// хотя бы одного байта тела. Дальше буфер растёт естественно, по мере
+/// поступления данных.
+const MAX_PREALLOC_BYTES: u64 = 8 * 1024 * 1024;
+
+/// Жёсткий потолок на тело одного ответа: дальше чтение обрывается ошибкой.
+/// Через этот путь ходят файлы кабинетов и пакеты контента — запас огромен.
+const MAX_BODY_BYTES: usize = 256 * 1024 * 1024;
 
 // ── Local version tracking (legacy) ───────────────────────────
 
@@ -329,14 +359,25 @@ enum FetchFailure {
 /// успели получить и сколько обещал сервер.
 async fn read_body_counted(mut res: reqwest::Response, what: &str) -> Result<Vec<u8>> {
     let declared = res.content_length();
+    // Резерв ограничен сверху намеренно: заявленная сервером длина — это его
+    // слово, а не факт, и по ней нельзя выделять память до чтения тела.
     let mut buf: Vec<u8> = match declared {
-        Some(n) => Vec::with_capacity(n as usize),
+        Some(n) => Vec::with_capacity(n.min(MAX_PREALLOC_BYTES) as usize),
         None => Vec::new(),
     };
 
     loop {
         match res.chunk().await {
-            Ok(Some(chunk)) => buf.extend_from_slice(&chunk),
+            Ok(Some(chunk)) => {
+                buf.extend_from_slice(&chunk);
+                if buf.len() > MAX_BODY_BYTES {
+                    anyhow::bail!(
+                        "{}: ответ превысил {} МБ и оборван — столько наши файлы не весят",
+                        what,
+                        MAX_BODY_BYTES / (1024 * 1024)
+                    );
+                }
+            }
             Ok(None) => break,
             Err(e) => anyhow::bail!(
                 "{}: поток оборван на {} байт (сервер обещал {}): {}",
@@ -358,43 +399,162 @@ async fn read_body_counted(mut res: reqwest::Response, what: &str) -> Result<Vec
     Ok(buf)
 }
 
-/// Одна попытка скачать файл.
+/// Что сервер ответил на запрос куска.
+enum RangeReply {
+    /// 206: кусок файла и полный размер, сообщённый в `Content-Range`.
+    Part { bytes: Vec<u8>, total: u64 },
+    /// 200: отдавать части сервер не умеет и прислал файл целиком.
+    Whole(Vec<u8>),
+}
+
+/// Полный размер файла из заголовка `Content-Range` вида `bytes 0-2047/34165`.
+fn parse_content_range_total(value: &str) -> Option<u64> {
+    value.rsplit('/').next()?.trim().parse::<u64>().ok()
+}
+
+/// Запросить у сервера один кусок файла (границы включительные).
+async fn request_range(
+    client: &reqwest::Client,
+    url: &str,
+    start: u64,
+    end: u64,
+    what: &str,
+) -> std::result::Result<RangeReply, FetchFailure> {
+    let res = client
+        .get(url)
+        .header(reqwest::header::RANGE, format!("bytes={start}-{end}"))
+        .send()
+        .await
+        .map_err(|e| FetchFailure::Transient(anyhow::anyhow!("{}: запрос не прошёл: {}", what, e)))?;
+
+    let status = res.status();
+
+    if status == reqwest::StatusCode::PARTIAL_CONTENT {
+        let total = res
+            .headers()
+            .get(reqwest::header::CONTENT_RANGE)
+            .and_then(|v| v.to_str().ok())
+            .and_then(parse_content_range_total);
+        // Кусок без внятного полного размера бесполезен: собрать по нему файл
+        // нельзя — не с чем сверить итог, и усечение прошло бы незамеченным.
+        let Some(total) = total else {
+            return Err(FetchFailure::Transient(anyhow::anyhow!(
+                "{}: сервер отдал часть файла, не сообщив полный размер",
+                what
+            )));
+        };
+        let bytes = read_body_counted(res, what).await.map_err(FetchFailure::Transient)?;
+        return Ok(RangeReply::Part { bytes, total });
+    }
+
+    if status.is_success() {
+        let bytes = read_body_counted(res, what).await.map_err(FetchFailure::Transient)?;
+        return Ok(RangeReply::Whole(bytes));
+    }
+
+    let body = res.text().await.unwrap_or_default();
+    let err = anyhow::anyhow!("Download failed for {}: HTTP {} - {}", what, status, body);
+    // 5xx и 429 — сторона сервера/лимиты, повторяем. Прочие 4xx — по существу.
+    Err(if status.is_server_error()
+        || status == reqwest::StatusCode::TOO_MANY_REQUESTS
+        || status == reqwest::StatusCode::REQUEST_TIMEOUT
+    {
+        FetchFailure::Transient(err)
+    } else {
+        FetchFailure::Fatal(err)
+    })
+}
+
+/// Одна попытка забрать файл — по частям, кусками ниже порога обрыва.
+///
+/// Первый запрос всегда просит первый кусок. Сервер, умеющий отдавать части,
+/// отвечает 206 и сообщает полный размер — дальше добираем до конца. Сервер,
+/// который не умеет, отвечает 200 и телом целиком: это прежнее поведение,
+/// сохранённое ради обратной совместимости.
 async fn fetch_vault_once(
     client: &reqwest::Client,
     url: &str,
     filename: &str,
 ) -> std::result::Result<Vec<u8>, FetchFailure> {
-    let res = client
-        .get(url)
-        .send()
-        .await
-        .map_err(|e| FetchFailure::Transient(anyhow::anyhow!("{}: запрос не прошёл: {}", filename, e)))?;
+    let first = attempt_with_budget(
+        request_range(client, url, 0, RANGE_CHUNK_BYTES - 1, filename),
+        filename,
+    )
+    .await?;
 
-    let status = res.status();
-    if !status.is_success() {
-        let body = res.text().await.unwrap_or_default();
-        let err = anyhow::anyhow!("Download failed for {}: HTTP {} - {}", filename, status, body);
-        // 5xx и 429 — сторона сервера/лимиты, повторяем. Прочие 4xx — по существу.
-        return Err(if status.is_server_error()
-            || status == reqwest::StatusCode::TOO_MANY_REQUESTS
-            || status == reqwest::StatusCode::REQUEST_TIMEOUT
-        {
-            FetchFailure::Transient(err)
-        } else {
-            FetchFailure::Fatal(err)
-        });
+    let (mut buf, total) = match first {
+        RangeReply::Whole(bytes) => return Ok(bytes),
+        RangeReply::Part { bytes, total } => (bytes, total),
+    };
+
+    while (buf.len() as u64) < total {
+        let start = buf.len() as u64;
+        let end = (start + RANGE_CHUNK_BYTES - 1).min(total - 1);
+
+        let reply = attempt_with_budget(
+            request_range(client, url, start, end, filename),
+            filename,
+        )
+        .await?;
+
+        match reply {
+            RangeReply::Part { bytes, total: reported } => {
+                // Файл на сервере подменили посреди докачки — склеивать куски
+                // разных версий нельзя, начинаем попытку заново.
+                if reported != total {
+                    return Err(FetchFailure::Transient(anyhow::anyhow!(
+                        "{}: размер файла на сервере изменился при докачке ({} вместо {})",
+                        filename,
+                        reported,
+                        total
+                    )));
+                }
+                // Пустой кусок не сдвигает сборку с места: без этой проверки
+                // цикл крутился бы вечно, запрашивая один и тот же байт.
+                if bytes.is_empty() {
+                    return Err(FetchFailure::Transient(anyhow::anyhow!(
+                        "{}: сервер отдал пустой кусок с байта {} из {} — докачка не движется",
+                        filename,
+                        start,
+                        total
+                    )));
+                }
+                buf.extend_from_slice(&bytes);
+            }
+            RangeReply::Whole(bytes) => {
+                // Сервер перестал понимать части на середине (смена узла,
+                // посредник). Принимаем целый файл, только если он той длины,
+                // о которой сервер сам сообщил в начале.
+                if bytes.len() as u64 == total {
+                    return Ok(bytes);
+                }
+                return Err(FetchFailure::Transient(anyhow::anyhow!(
+                    "{}: на запрос куска пришёл файл целиком неверной длины ({} вместо {})",
+                    filename,
+                    bytes.len(),
+                    total
+                )));
+            }
+        }
     }
 
-    read_body_counted(res, filename)
-        .await
-        .map_err(FetchFailure::Transient)
+    if buf.len() as u64 != total {
+        return Err(FetchFailure::Transient(anyhow::anyhow!(
+            "{}: собрано {} байт из {}",
+            filename,
+            buf.len(),
+            total
+        )));
+    }
+
+    Ok(buf)
 }
 
-/// Ограничить одну попытку сверху (H-4). Истечение бюджета — это связь,
+/// Ограничить один запрос сверху (H-4). Истечение бюджета — это связь,
 /// а не отказ по существу: считаем повторяемым.
-async fn attempt_with_budget<F>(fut: F, what: &str) -> std::result::Result<Vec<u8>, FetchFailure>
+async fn attempt_with_budget<T, F>(fut: F, what: &str) -> std::result::Result<T, FetchFailure>
 where
-    F: std::future::Future<Output = std::result::Result<Vec<u8>, FetchFailure>>,
+    F: std::future::Future<Output = std::result::Result<T, FetchFailure>>,
 {
     match tokio::time::timeout(std::time::Duration::from_secs(ATTEMPT_BUDGET_SECS), fut).await {
         Ok(r) => r,
@@ -425,7 +585,7 @@ async fn download_vault_file(
     let mut last_err: Option<anyhow::Error> = None;
 
     for attempt in 1..=DOWNLOAD_ATTEMPTS {
-        match attempt_with_budget(fetch_vault_once(&client, &url, filename), filename).await {
+        match fetch_vault_once(&client, &url, filename).await {
             Ok(bytes) => {
                 if attempt > 1 {
                     info!("Vault {} получен с попытки {}/{} ({} байт)", filename, attempt, DOWNLOAD_ATTEMPTS, bytes.len());
@@ -460,7 +620,7 @@ async fn download_url_resilient(url: &str, what: &str) -> Result<Vec<u8>> {
     let mut last_err: Option<anyhow::Error> = None;
 
     for attempt in 1..=DOWNLOAD_ATTEMPTS {
-        match attempt_with_budget(fetch_vault_once(&client, url, what), what).await {
+        match fetch_vault_once(&client, url, what).await {
             Ok(bytes) => {
                 if attempt > 1 {
                     info!("{} получен с попытки {}/{} ({} байт)", what, attempt, DOWNLOAD_ATTEMPTS, bytes.len());
@@ -921,6 +1081,25 @@ mod tests {
         Truncated(Vec<u8>, usize),
         /// Ответить кодом состояния без тела.
         Status(u16),
+        /// Посредник из сети клиента: сервер умеет отдавать части, но всё, что
+        /// длиннее порога, обрывается на нём. Куски ниже порога проходят.
+        RangeAware { body: Vec<u8>, threshold: usize },
+        /// Сервер без поддержки частей: на Range отвечает 200 и телом целиком,
+        /// но тот же порог обрыва действует (старая сборка функции).
+        NoRangeSupport { body: Vec<u8>, threshold: usize },
+        /// Отдаёт пустой кусок: сборка не двигается с места.
+        EmptyChunk { total: usize },
+        /// На втором и следующих кусках сообщает другой полный размер:
+        /// файл на сервере подменили посреди докачки.
+        ShiftingTotal { body: Vec<u8> },
+    }
+
+    /// Границы из заголовка `Range` запроса (включительные).
+    fn requested_range(req: &str) -> Option<(usize, usize)> {
+        let line = req.lines().find(|l| l.to_ascii_lowercase().starts_with("range:"))?;
+        let spec = line.split('=').nth(1)?.trim();
+        let (s, e) = spec.split_once('-')?;
+        Some((s.trim().parse().ok()?, e.trim().parse().ok()?))
     }
 
     /// Поднять локальный сервер, отрабатывающий сценарии по очереди.
@@ -946,7 +1125,8 @@ mod tests {
 
                 // Дочитываем запрос до пустой строки, иначе клиент увидит reset.
                 let mut buf = [0u8; 1024];
-                let _ = sock.read(&mut buf).await;
+                let read = sock.read(&mut buf).await.unwrap_or(0);
+                let req = String::from_utf8_lossy(&buf[..read]).to_string();
 
                 let scenario = scenarios
                     .get(idx)
@@ -978,6 +1158,60 @@ mod tests {
                         );
                         let _ = sock.write_all(head.as_bytes()).await;
                     }
+                    Scenario::RangeAware { body, threshold } => {
+                        let total = body.len();
+                        let (start, end) = match requested_range(&req) {
+                            Some((s, e)) => (s.min(total), e.min(total - 1)),
+                            // Range не запрошен — отдаём целиком и упираемся в порог.
+                            None => (0, total - 1),
+                        };
+                        let piece = &body[start..=end];
+                        let status = if requested_range(&req).is_some() { 206 } else { 200 };
+                        let mut head = format!(
+                            "HTTP/1.1 {} OK\r\nContent-Length: {}\r\nAccept-Ranges: bytes\r\nConnection: close\r\n",
+                            status,
+                            piece.len()
+                        );
+                        if status == 206 {
+                            head.push_str(&format!("Content-Range: bytes {}-{}/{}\r\n", start, end, total));
+                        }
+                        head.push_str("\r\n");
+                        let _ = sock.write_all(head.as_bytes()).await;
+                        // Порог посредника: всё, что длиннее, обрывается на нём.
+                        let cut = piece.len().min(threshold);
+                        let _ = sock.write_all(&piece[..cut]).await;
+                    }
+                    Scenario::NoRangeSupport { body, threshold } => {
+                        let head = format!(
+                            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                            body.len()
+                        );
+                        let _ = sock.write_all(head.as_bytes()).await;
+                        let cut = body.len().min(threshold);
+                        let _ = sock.write_all(&body[..cut]).await;
+                    }
+                    Scenario::EmptyChunk { total } => {
+                        let (start, end) = requested_range(&req).unwrap_or((0, 0));
+                        let head = format!(
+                            "HTTP/1.1 206 OK\r\nContent-Length: 0\r\nContent-Range: bytes {}-{}/{}\r\nConnection: close\r\n\r\n",
+                            start, end, total
+                        );
+                        let _ = sock.write_all(head.as_bytes()).await;
+                    }
+                    Scenario::ShiftingTotal { body } => {
+                        let total = body.len();
+                        let (start, end) = requested_range(&req).unwrap_or((0, total - 1));
+                        let end = end.min(total - 1);
+                        let piece = &body[start..=end];
+                        // Первый кусок честен, дальше полный размер «уезжает».
+                        let reported = if start == 0 { total } else { total + 4096 };
+                        let head = format!(
+                            "HTTP/1.1 206 OK\r\nContent-Length: {}\r\nContent-Range: bytes {}-{}/{}\r\nConnection: close\r\n\r\n",
+                            piece.len(), start, end, reported
+                        );
+                        let _ = sock.write_all(head.as_bytes()).await;
+                        let _ = sock.write_all(piece).await;
+                    }
                 }
                 let _ = sock.shutdown().await;
             }
@@ -1008,6 +1242,15 @@ mod tests {
     #[tokio::test]
     async fn truncated_body_is_not_accepted_as_success() {
         // Сервер всегда рвёт поток — обязаны получить ошибку, а не обрезанный файл.
+        //
+        // Честная оговорка (находка аудита M-4): здесь ошибку возвращает сам
+        // слой HTTP — он видит объявленный Content-Length и ранний конец
+        // соединения. Наша сверка длины в read_body_counted до срабатывания
+        // не доходит и остаётся вторым слоем защиты: сценария «длина объявлена,
+        // байт меньше, при этом обрыв чистый» протокол HTTP не допускает.
+        // Собственная сверка итога проверяется на докачке по частям — там полный
+        // размер берётся из Content-Range, и он наш, а не чужой
+        // (см. `ranged_download_rejects_shifting_total` и `..._empty_chunk`).
         let body: Vec<u8> = vec![7u8; 2048];
         let (url, _hits) = spawn_test_server(vec![Scenario::Truncated(body, 512)]).await;
 
@@ -1018,6 +1261,145 @@ mod tests {
             text.contains("байт"),
             "ошибка обязана называть, сколько байт получено: {text}"
         );
+    }
+
+    // ── Докачка по частям (порог обрыва у клиента, 2026-07-26) ────────────────
+
+    /// Размер файла кабинета, на котором вскрылся отказ у клиента.
+    const VAULT_SIZE: usize = 34165;
+
+    /// Порог посредника: середина наблюдённого разброса обрывов (3251…5649).
+    const PROXY_THRESHOLD: usize = 4096;
+
+    fn sample_body(len: usize) -> Vec<u8> {
+        (0..len).map(|i| (i % 251) as u8).collect()
+    }
+
+    #[tokio::test]
+    async fn ranged_download_assembles_file_above_proxy_threshold() {
+        // Главный гейт всей правки: файл заметно больше порога обрыва обязан
+        // собраться кусками. Ровно этот файл (34 КБ) не доезжал у клиента ни
+        // разу за две недели.
+        let body = sample_body(VAULT_SIZE);
+        let (url, hits) = spawn_test_server(vec![Scenario::RangeAware {
+            body: body.clone(),
+            threshold: PROXY_THRESHOLD,
+        }])
+        .await;
+
+        let got = download_url_resilient(&url, "файл кабинета").await.unwrap();
+
+        assert_eq!(got, body, "файл обязан собраться из кусков без потерь");
+        let expected_chunks =
+            (VAULT_SIZE as u64).div_ceil(RANGE_CHUNK_BYTES) as usize;
+        assert_eq!(
+            hits.load(std::sync::atomic::Ordering::SeqCst),
+            expected_chunks,
+            "лишние обращения к серверу — признак повторов, которых быть не должно"
+        );
+    }
+
+    #[tokio::test]
+    async fn whole_file_download_fails_at_the_same_threshold() {
+        // Обратная сторона того же гейта: при том же пороге загрузка целиком
+        // не проходит. Без неё первый тест доказывал бы лишь то, что сервер
+        // исправен, а не то, что лечит именно докачка по частям.
+        let body = sample_body(VAULT_SIZE);
+        let (url, _hits) = spawn_test_server(vec![Scenario::NoRangeSupport {
+            body,
+            threshold: PROXY_THRESHOLD,
+        }])
+        .await;
+
+        let err = download_url_resilient(&url, "файл кабинета").await.unwrap_err();
+        let text = format!("{:#}", err);
+
+        assert!(
+            text.contains("байт"),
+            "в ошибке обязано быть число полученных байт: {text}"
+        );
+    }
+
+    #[tokio::test]
+    async fn small_file_needs_one_request() {
+        // Файлы меньше куска не должны дорожать: у клиента такие доезжали и
+        // раньше, и лишние обращения им ни к чему.
+        let body = sample_body(1500);
+        let (url, hits) = spawn_test_server(vec![Scenario::RangeAware {
+            body: body.clone(),
+            threshold: PROXY_THRESHOLD,
+        }])
+        .await;
+
+        let got = download_url_resilient(&url, "мелкий файл").await.unwrap();
+
+        assert_eq!(got, body);
+        assert_eq!(
+            hits.load(std::sync::atomic::Ordering::SeqCst),
+            1,
+            "файл короче куска обязан приходить одним запросом"
+        );
+    }
+
+    #[tokio::test]
+    async fn server_without_range_support_still_works() {
+        // Обратная совместимость: пока серверная правка не доехала (или адрес
+        // посторонний), клиент обязан работать по-прежнему.
+        let body = sample_body(9000);
+        let (url, hits) = spawn_test_server(vec![Scenario::Full(body.clone())]).await;
+
+        let got = download_url_resilient(&url, "файл со старого сервера").await.unwrap();
+
+        assert_eq!(got, body, "сервер без поддержки частей обязан работать как раньше");
+        assert_eq!(hits.load(std::sync::atomic::Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn ranged_download_rejects_empty_chunk() {
+        // Пустой кусок не сдвигает сборку: без проверки цикл крутился бы вечно,
+        // запрашивая один и тот же байт.
+        let (url, _hits) = spawn_test_server(vec![Scenario::EmptyChunk { total: VAULT_SIZE }]).await;
+
+        let err = tokio::time::timeout(
+            std::time::Duration::from_secs(60),
+            download_url_resilient(&url, "файл кабинета"),
+        )
+        .await
+        .expect("пустой кусок обязан прерывать сборку, а не зацикливать её")
+        .unwrap_err();
+
+        assert!(
+            format!("{:#}", err).contains("не движется"),
+            "ошибка обязана называть причину: {err:#}"
+        );
+    }
+
+    #[tokio::test]
+    async fn ranged_download_rejects_shifting_total() {
+        // Файл на сервере подменили посреди докачки — склеивать куски разных
+        // версий нельзя: получился бы правдоподобный, но битый файл.
+        let (url, _hits) = spawn_test_server(vec![Scenario::ShiftingTotal {
+            body: sample_body(VAULT_SIZE),
+        }])
+        .await;
+
+        let err = download_url_resilient(&url, "файл кабинета").await.unwrap_err();
+
+        assert!(
+            format!("{:#}", err).contains("изменился"),
+            "ошибка обязана называть причину: {err:#}"
+        );
+    }
+
+    #[test]
+    fn content_range_total_is_parsed() {
+        assert_eq!(parse_content_range_total("bytes 0-2047/34165"), Some(34165));
+        assert_eq!(parse_content_range_total("bytes 34000-34164/34165"), Some(34165));
+        // 416 сообщает полный размер тем же заголовком.
+        assert_eq!(parse_content_range_total("bytes */34165"), Some(34165));
+        // Полный размер неизвестен серверу — склеивать нечего, доверять нельзя.
+        assert_eq!(parse_content_range_total("bytes 0-2047/*"), None);
+        assert_eq!(parse_content_range_total("мусор"), None);
     }
 
     #[tokio::test]
