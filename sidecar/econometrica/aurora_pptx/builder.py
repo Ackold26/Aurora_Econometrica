@@ -266,6 +266,12 @@ class AuroraPPTXBuilder:
         diag = self.data.get("diagnostics") or {}
         _d = (lambda key, preview: diag.get(key, None if self.is_live else preview))
         self.mqs_score = _d("mqs_score", 87)
+        # 2026-07-26: нечисло — это отсутствие оценки, а не низкий балл. NaN
+        # проходит float() без исключения, и карточка слайда печатала клиенту
+        # «nan / 100» гигантским шрифтом. Отсекаем здесь, у разбора данных, а не
+        # у каждого потребителя: иначе следующая поверхность повторит дефект.
+        if isinstance(self.mqs_score, float) and not math.isfinite(self.mqs_score):
+            self.mqs_score = None
         self.mqs_tier_label = _d("mqs_tier_label", "GOOD - готовность к production")
         self.r_squared = _d("r_squared", 0.872)
         self.mape_pct = _d("mape_pct", 8.3)
@@ -976,6 +982,10 @@ class AuroraPPTXBuilder:
         try:
             mqs = float(self.mqs_score) if self.mqs_score is not None else None
         except (TypeError, ValueError):
+            mqs = None
+        # 2026-07-26: NaN проходит float() и получал вердикт как настоящий балл.
+        # Нечисло — это отсутствие оценки, а не её низкое значение.
+        if mqs is not None and not math.isfinite(mqs):
             mqs = None
         if mqs is None:
             f5 = "Оценка качества модели (MQS) не выполнялась для этого расчёта"

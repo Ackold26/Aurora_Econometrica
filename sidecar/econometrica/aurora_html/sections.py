@@ -17,6 +17,7 @@ JS layer adds sortable columns, drill-downs, counters, etc.
 """
 from __future__ import annotations
 
+import math
 from typing import Any
 
 from .security import escape
@@ -869,6 +870,12 @@ def render_at_a_glance(ctx: dict) -> str:
             try:
                 mqs_val = float(mqs)
             except (TypeError, ValueError):
+                mqs_val = None
+            # 2026-07-26: NaN проходит float() без исключения и получал вердикт
+            # «MQS nan/100 – Ненадёжное» — приговор модели вместо отметки, что
+            # оценки нет. NaN приходит штатно: json.loads принимает литерал NaN,
+            # а метрики дают его при нулевых фактах. Нечисло — это отсутствие.
+            if mqs_val is not None and not math.isfinite(mqs_val):
                 mqs_val = None
         if mqs_val is None:
             f5 = strings["findings_templates"]["f5_mqs_unavailable"]

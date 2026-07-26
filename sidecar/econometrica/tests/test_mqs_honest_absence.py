@@ -162,3 +162,30 @@ def test_html_sources_card_shows_scale_and_tier_when_mqs_present(payload_with_mq
     html = render_sources(_ctx(payload_with_mqs))
     assert "70<sub>/100</sub>" in html, "при наличии метрики шкала и число обязаны остаться"
     assert "Оценка не выполнялась" not in html
+
+
+# ─── NaN — это отсутствие оценки, а не её низкое значение ────────────────────
+# Страж ловил только None и нецелочисляемые типы: float('nan') проходил
+# приведение без исключения и получал вердикт «MQS nan/100 - Ненадёжное», то
+# есть приговор модели вместо отметки, что её не оценивали. NaN приходит
+# штатно — json.loads принимает литерал NaN, а метрики дают его при нулевых
+# фактах. Внешний аудит, Medium, 2026-07-26.
+
+def test_nan_mqs_is_treated_as_absent_everywhere(payload_no_mqs):
+    import copy as _copy
+    p = _copy.deepcopy(payload_no_mqs)
+    p["diagnostics"]["mqs_score"] = float("nan")
+
+    # Ищем именно БАЛЛ, а не подстроку: «nan» встречается внутри обычных слов
+    # клиентского текста («management»), и широкий поиск давал ложную находку —
+    # дефект проверки, а не продукта.
+    import re as _re
+    score_re = _re.compile(r"nan\s*/\s*100|MQS\s*nan", _re.IGNORECASE)
+
+    html = render_at_a_glance(_ctx(p))
+    assert not score_re.search(html), "NaN доехал до клиента в HTML как балл"
+    assert "не выполнялась" in html, "NaN должен читаться как отсутствие оценки"
+
+    txt = _pptx_text(AuroraPPTXBuilder(p).build())
+    assert not score_re.search(txt), "NaN доехал до клиента в колоде как балл"
+    assert "не выполнялась" in txt, "NaN должен читаться как отсутствие оценки"
