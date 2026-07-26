@@ -9,6 +9,9 @@
  * @module tooltip-texts
  */
 
+// MQS SSOT (2026-07-26): текст шкалы MQS собирается из канона, а не пишется руками.
+import { mqsScaleText } from '../mqs-tiers.js';
+
 /** @type {Record<string, string>} */
 export const TOOLTIPS = {
 
@@ -79,7 +82,7 @@ export const TOOLTIPS = {
     'ROI (Return on Investment) - отдача по прибыли, не выручке. ROI < 1 – убыточный канал. Для счётных KPI (упаковки, установки) используется CPU: ₽ за единицу в сравнении с маржой.',
 
   'metric.mqs':
-    'MQS (Model Quality Score) - сводная оценка качества модели от 0 до 100. ≥ 80 - отлично, 60-79 - приемлемо, < 60 - требует доработки данных.',
+    `MQS (Model Quality Score) - сводная оценка качества модели от 0 до 100. Шкала: ${mqsScaleText()}.`,
 
   // ── Channel groups (ValidateStepV13 / ChannelCategoriesPanel) ──────────────
 

@@ -7,6 +7,7 @@
   import { Check, X } from 'lucide-svelte';
   import { PIPELINE_STEPS, pipelineCurrentStep, pipelineStepMeta, validationHeaderMetrics } from '$lib/project-state.js';
   import { stepIcons } from '$lib/step-icons.js';
+  import { mqsScaleText } from '$lib/mqs-tiers.js';
 
   /** helpPage сохранён как prop для обратной совместимости с /pipeline/+page.svelte,
       но сама кнопка «?» больше здесь не рендерится - она переехала в header pipeline. */
@@ -50,7 +51,7 @@
           <span class="metric-label">Период</span>
           <span class="metric-value">{validationMetrics.nObs}</span>
         </span>
-        <span class="metric-chip light-{validationMetrics.mqsStatus}" title="MQS прогноз - комбинированная оценка готовности данных до обучения (на основе Ratio, VIF, периода). ≥80 модель будет точной, 60–80 приемлемая, <60 нужна доработка данных. Реальный MQS уточнится после обучения.">
+        <span class="metric-chip light-{validationMetrics.mqsStatus}" title="MQS прогноз - комбинированная оценка готовности данных до обучения (на основе Ratio, VIF, периода). Шкала: {mqsScaleText()}. Реальный MQS уточнится после обучения.">
           <span class="metric-label">MQS прогноз</span>
           <span class="metric-value">{validationMetrics.mqs}</span>
         </span>

@@ -27,6 +27,9 @@ import { pluralizeRu } from './utils/i18n.js';
 // ratio. Инсайты больше НЕ читают эти производные из diagnostics напрямую —
 // только через mqsView/ratioView, чтобы honesty-баг не вернулся N+1-м слоем.
 import { mqsView, ratioView } from './metric-views.js';
+// MQS SSOT (2026-07-26): ветвление по имени уровня канона, не по своим числам —
+// см. mqs-tiers.js и его гард.
+import { mqsTierInfo, mqsIsDependable } from './mqs-tiers.js';
 // Аудит 2026-07-05: пары «бюджет ₽ + натуральная метрика» одного канала
 // коррелированы by-design (r≈0.99 через закупочную цену) — инсайт-слой обязан
 // говорить о них то же, что heatmap (ожидаемо, в модель идёт одна колонка),
@@ -375,7 +378,7 @@ export function validateConfirmInsights(result, context = {}) {
     out.push({
       severity: 'warning',
       text: `Ratio данных ${ratio.toFixed(1)}:1 (наблюдения ÷ выбранные признаки, оценка до обучения) ниже рекомендованного 4:1 с учётом авто-контролей (авто-праздники; сезонность может добавить ещё несколько признаков после обучения). Модель обучится, но результаты с широкими диапазонами возможных значений.`,
-      tip: 'После обучения смотрите R-hat (показатель сходимости модели, < 1.05) и MQS - если < 1.05 и > 60 соответственно, модель надёжна для пилотных решений.',
+      tip: 'После обучения смотрите R-hat (показатель сходимости модели - должен быть ниже 1.05) и MQS: модель надёжна для пилотных решений, если качество на уровне «Хорошее» и выше.',
     });
   }
 
@@ -1329,13 +1332,13 @@ export function modelInsights(data, ratioOverride = undefined) {
       text: `Оценка качества модели (MQS) не рассчитана для этого расчёта – итоговый балл не показывается.${thinSuffix}`,
       tip: 'Отсутствие балла не означает низкое качество: оценка просто не была посчитана. Ориентируйтесь на метрики ниже (R², MAPE, сходимость); балл появится после полного расчёта.',
     });
-  } else if (mqs >= 80) {
+  } else if (mqsIsDependable(mqs)) {
     out.push({
       severity: 'success',
       text: `MQS = ${mqs.toFixed(0)} (${label}) - высокое качество модели. Результаты надёжны для принятия решений.${thinSuffix}`,
       tip: 'Перейдите к Декомпозиции, чтобы увидеть вклад каждого канала, и к Оптимизации - для перераспределения бюджета.',
     });
-  } else if (mqs >= 60) {
+  } else if (mqsTierInfo(mqs)?.tier === 'acceptable') {
     out.push({
       severity: 'info',
       text: `MQS = ${mqs.toFixed(0)} (${label}) - приемлемое качество.${thinSuffix}`,
@@ -1455,7 +1458,7 @@ export function modelInsights(data, ratioOverride = undefined) {
   // На тонких данных (Ratio < 4:1) блок доверия НЕ показываем - он вводит в заблуждение.
   // mqs может быть null (оценка не считалась) — без балла блок доверия не
   // показываем: «доверяй» без основания и есть та самая подпись без числа.
-  const isGoodModel = mqs != null && mqs >= 70 && rHat > 0 && rHat <= 1.05 && divergences === 0 && rSq >= 0.7 && !isThin;
+  const isGoodModel = mqsIsDependable(mqs) && rHat > 0 && rHat <= 1.05 && divergences === 0 && rSq >= 0.7 && !isThin;
   if (isGoodModel) {
     out.push({
       severity: 'info',
@@ -2263,7 +2266,7 @@ export function reportInsights(ctx = {}) {
   if (mape != null) mqsParts.push(`MAPE ${mape.toFixed(1)}%`);
   if (ratio != null) mqsParts.push(`Ratio ${ratio.toFixed(1)}:1`);
 
-  if (mqs >= 80 && !isThin) {
+  if (mqsIsDependable(mqs) && !isThin) {
     out.push({
       severity: 'success',
       text: `🎯 Модель: ${mqsParts.join(' · ')}. Результаты надёжны.`,
@@ -2276,10 +2279,11 @@ export function reportInsights(ctx = {}) {
       tip: `Рекомендация: относитесь к ROI и декомпозиции как к ориентиру, а не истине. При Ratio < 4:1 модель может «выучить» точки, а не закономерность.\n\nЧто сделать: (1) запустите пилот 4-6 недель на части бюджета для валидации, (2) перед решениями смотрите на направление (увеличить/сократить), а не на абсолютные числа, (3) планируйте собрать ≥52 недель данных для следующей итерации.`,
     });
   } else {
+    const isAcceptable = mqsTierInfo(mqs)?.tier === 'acceptable';
     out.push({
-      severity: mqs >= 60 ? 'info' : 'warning',
-      text: `${mqs >= 60 ? '📊' : '⚠'} Модель: ${mqsParts.join(' · ')}.`,
-      tip: mqs >= 60
+      severity: isAcceptable ? 'info' : 'warning',
+      text: `${isAcceptable ? '📊' : '⚠'} Модель: ${mqsParts.join(' · ')}.`,
+      tip: isAcceptable
         ? 'Рекомендация: приемлемое качество для ориентировочных решений. Пилот 4-6 недель обязателен перед полным переходом на новый медиа-план.'
         : 'Рекомендация: модель слабая. Добавьте контрольные переменные (сезонность, промо), увеличьте историю данных или упростите модель (меньше каналов).',
     });

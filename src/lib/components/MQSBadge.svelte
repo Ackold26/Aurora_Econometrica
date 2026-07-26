@@ -7,6 +7,8 @@
    */
   import { invoke } from '@tauri-apps/api/core';
   import { mqsView } from '$lib/metric-views.js';
+  // MQS SSOT (2026-07-26): текст шкалы MQS собирается из канона, а не пишется руками.
+  import { mqsScaleText } from '$lib/mqs-tiers.js';
 
   /**
    * @type {{ diagnostics: any }}
@@ -46,8 +48,8 @@
         class="mqs-score"
         style="--score-color: {displayMqs.color}"
         title={isOls
-          ? "MQS (Model Quality Score) - общая агрегированная оценка качества модели от 0 до 100.\n\nФормула: R² (fit, 40%) + MAPE (точность прогноза, 30%) + надёжность оценок (bootstrap, 30%).\n\nШкала: ≥ 80 - отлично, 60-80 - хорошо, 40-60 - приемлемо, < 40 - требует доработки."
-          : "MQS (Model Quality Score) - общая агрегированная оценка качества модели от 0 до 100.\n\nФормула: R² (fit, 40%) + MAPE (точность прогноза, 30%) + сходимость MCMC (30%).\n\nШкала: ≥ 80 - отлично, 60-80 - хорошо, 40-60 - приемлемо, < 40 - требует доработки."}
+          ? `MQS (Model Quality Score) - общая агрегированная оценка качества модели от 0 до 100.\n\nФормула: R² (fit, 40%) + MAPE (точность прогноза, 30%) + надёжность оценок (bootstrap, 30%).\n\nШкала: ${mqsScaleText()}.`
+          : `MQS (Model Quality Score) - общая агрегированная оценка качества модели от 0 до 100.\n\nФормула: R² (fit, 40%) + MAPE (точность прогноза, 30%) + сходимость MCMC (30%).\n\nШкала: ${mqsScaleText()}.`}
       >
         <span class="score-title">MQS</span>
         <span class="score-value">{Math.round(displayMqs.score)}</span>

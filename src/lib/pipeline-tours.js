@@ -10,6 +10,9 @@
  * карточка центрируется, spotlight не показывается.
  */
 
+// MQS SSOT (2026-07-26): текст шкалы MQS собирается из канона, а не пишется руками.
+import { mqsScaleText } from './mqs-tiers.js';
+
 /** @typedef {{ selector: string | null, title: string, body: string }} TourStep */
 
 /** @type {TourStep[]} - Тур шага «Импорт данных» (1). */
@@ -76,7 +79,7 @@ export const MODEL_TOUR = [
   {
     selector: '[data-tour="model-mqs"]',
     title: 'Качество модели (MQS)',
-    body: 'Model Quality Score - 0-100 сводный индикатор надёжности. ≥ 80 - отлично, 60-79 - работать можно, ниже 60 - требует доработки данных или переобучения.',
+    body: `Model Quality Score - 0-100 сводный индикатор надёжности. Шкала: ${mqsScaleText()}.`,
   },
   {
     selector: '[data-tour="model-convergence"]',

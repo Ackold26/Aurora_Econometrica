@@ -11,6 +11,9 @@
 import { writable, derived, get } from 'svelte/store';
 import { invoke } from '@tauri-apps/api/core';
 import { classifyRatio, severityTo3Tier } from './ratio-classifier.js';
+// MQS SSOT (2026-07-26): прогнозный MQS (до обучения) — та же клиентская шкала,
+// что и посчитанный MQS, поэтому уровень берём из канона, а не своим порогом.
+import { mqsTierInfo } from './mqs-tiers.js';
 import { applyProjectRolesToColumns } from './column-roles.js';
 import { detectChannelUnitType } from './services/classifier-patterns.js';
 
@@ -529,7 +532,15 @@ export const validationHeaderMetrics = derived(validateData, ($vd) => {
     activeControls,
     periodStatus: tierUp(nObs, 24, 12),
     mqs,
-    mqsStatus: tierUp(mqs, 80, 60),
+    // Тот же 3-тир вокабуляр 'ok'/'warn'/'bad', что и у соседних chip'ов (tierUp/
+    // tierDown), но граница — из канона MQS_TIERS, а не своя. excellent/good → ok,
+    // acceptable → warn, weak/poor → bad.
+    mqsStatus: /** @type {'ok'|'warn'|'bad'} */ ((() => {
+      const tier = mqsTierInfo(mqs)?.tier;
+      if (tier === 'excellent' || tier === 'good') return 'ok';
+      if (tier === 'acceptable') return 'warn';
+      return 'bad';
+    })()),
   };
 });
 

@@ -27,6 +27,7 @@
   import { shouldShowOnboarding } from '$lib/onboarding-state.js';
   import { unitCosts, activeProject, valuePerCountUnit, kpiKind } from '$lib/project-state.js';
   import { mqsView, ratioView } from '$lib/metric-views.js';
+  import { mqsTierInfo, mqsTone } from '$lib/mqs-tiers.js';
   import { periodUnit, periodThreshold, ruPeriodForm } from '$lib/period-format.js';
   import Tooltip from '$lib/components/Tooltip.svelte';
   import { TOOLTIPS } from '$lib/data/tooltip-texts.js';
@@ -342,9 +343,18 @@
   const interpretationQuality = $derived.by(() => {
     if (!mData?.diagnostics || mqs == null) return '';
     const parts = [];
-    if (mqs >= 80) parts.push(`**Качество модели - отличное (MQS ${mqs.toFixed(0)}).** Можно уверенно использовать результаты для принятия решений, включая перераспределение бюджета.`);
-    else if (mqs >= 60) parts.push(`**Качество модели - хорошее (MQS ${mqs.toFixed(0)}).** Результаты надёжны для стратегических решений, но крайние значения ROI по отдельным каналам перепроверяйте.`);
-    else parts.push(`**Качество модели - требует доработки (MQS ${mqs.toFixed(0)}).** Используйте как первичный ориентир, но не делайте крупных перекладов бюджета без пилота.`);
+    // Уровень и его ярлык — из единого источника (mqs-tiers.js, зеркало канона
+    // 85/70/55/40). Прежде здесь жила своя лестница 80/60: один и тот же балл
+    // назывался «отличным» на экране и «Хорошим» в отчёте.
+    const _q = mqsTierInfo(mqs);
+    const _qGuidance = {
+      excellent: 'Можно уверенно использовать результаты для принятия решений, включая перераспределение бюджета.',
+      good: 'Результаты надёжны для стратегических решений, но крайние значения ROI по отдельным каналам перепроверяйте.',
+      acceptable: 'Выводы валидны с учётом диагностических метрик; крупные переклады бюджета подтверждайте пилотом.',
+      weak: 'Используйте как первичный ориентир, но не делайте крупных перекладов бюджета без пилота.',
+      poor: 'Используйте как первичный ориентир, но не делайте крупных перекладов бюджета без пилота.',
+    };
+    parts.push(`**Качество модели - ${_q.label.toLowerCase()} (MQS ${mqs.toFixed(0)}).** ${_qGuidance[_q.tier]}`);
     if (rSq != null) {
       if (rSq >= 0.9) parts.push(`R² = ${rSq.toFixed(3)} означает что модель объясняет ${(rSq * 100).toFixed(0)}% колебаний продаж - почти всю динамику.`);
       else if (rSq >= 0.7) parts.push(`R² = ${rSq.toFixed(3)} - модель объясняет ${(rSq * 100).toFixed(0)}% динамики продаж. Оставшиеся ${((1 - rSq) * 100).toFixed(0)}% - шум, внешние факторы или каналы которых нет в данных.`);
@@ -435,15 +445,25 @@
 
     // Q: про качество модели
     if (mqs != null) {
-      if (mqs >= 80) {
+      const _qa = mqsTierInfo(mqs);
+      if (_qa.tier === 'excellent') {
         items.push({
           q: `Модель показывает MQS ${mqs.toFixed(0)} - это хорошо?`,
-          a: `Да, отличный результат. MQS ≥ 80 означает что прогнозы точны, правдоподобные диапазоны узкие, модель сошлась. Можно уверенно использовать для принятия бюджетных решений.`,
+          a: `Да, отличный результат: уровень «${_qa.label}». Прогнозы точны, правдоподобные диапазоны узкие, модель сошлась. Можно уверенно использовать для принятия бюджетных решений.`,
         });
-      } else if (mqs >= 60) {
+      } else if (_qa.tier === 'good') {
         items.push({
           q: `MQS ${mqs.toFixed(0)} - насколько надёжны выводы?`,
           a: `Хороший уровень для стратегических решений. Ключевые тренды (сильные/слабые каналы, необходимость перераспределения) - точны. Но крайние значения ROI по отдельным каналам (очень высокие или отрицательные) перепроверяйте через пилот.`,
+        });
+      } else if (_qa.tier === 'acceptable') {
+        // Отдельная ветка появилась вместе с переходом на канон: по прежней
+        // шкале 80/60 балл 60-69 считался «хорошим», по канону это «Приемлемое».
+        // Без этой ветки такой балл попадал бы в ответ «почему такой низкий» -
+        // формулировка несоразмерна уровню.
+        items.push({
+          q: `MQS ${mqs.toFixed(0)} - можно ли опираться на выводы?`,
+          a: `Уровень «${_qa.label}»: направление выводов (какие каналы работают, где перекос бюджета) читается, но точность оценок по отдельным каналам ограничена. Опирайтесь на выводы вместе с диагностическими метриками, а крупные переклады бюджета подтверждайте пилотом.`,
         });
       } else {
         items.push({
@@ -809,7 +829,7 @@
         <Tooltip text={TOOLTIPS['metric.mqs']} position="top">
           <div class="metric-label" style="cursor:help;">MQS Score</div>
         </Tooltip>
-        <div class="metric-value" class:good={mqs != null && mqs >= 60} class:warn={mqs != null && mqs < 60}>
+        <div class="metric-value" class:good={mqsTone(mqs) === 'good'} class:warn={mqsTone(mqs) != null && mqsTone(mqs) !== 'good'}>
           {fmt(mqs)}
         </div>
         <div class="metric-sub">{mqsLabel}</div>
