@@ -1919,10 +1919,10 @@ def render_trust_loop(ctx: dict) -> str:
         for w in (bt.get("windows") or [])[:8]:
             lo, hi = w.get("pi_low_total"), w.get("pi_high_total")
             interval = (f"{_fmt_int(lo)} – {_fmt_int(hi)}"
-                        if lo is not None and hi is not None else "—")
-            mark = "✓" if w.get("hit_total") else ("—" if w.get("hit_total") is None else "✕")
+                        if lo is not None and hi is not None else "н/д")
+            mark = "✓" if w.get("hit_total") else ("–" if w.get("hit_total") is None else "✕")
             rows += (
-                f'<tr><td>{escape(str(w.get("window") or "—"))}</td>'
+                f'<tr><td>{escape(str(w.get("window") or "н/д"))}</td>'
                 f'<td class="num">{_fmt_int(w.get("actual_total"))}</td>'
                 f'<td class="num">{_fmt_int(w.get("predicted_total"))}</td>'
                 f'<td class="num">{interval}</td><td class="center">{mark}</td></tr>'
@@ -2042,15 +2042,15 @@ def render_forecast_plan(ctx: dict) -> str:
         ci_high_val = sc.get("total_kpi_ci_high")
         ci_str = (
             f"{int(ci_low_val):,} – {int(ci_high_val):,}".replace(",", " ")
-            if ci_low_val is not None and ci_high_val is not None else "—"
+            if ci_low_val is not None and ci_high_val is not None else "н/д"
         )
         budget = sc.get("total_spend_money")
         kpi = sc.get("total_kpi")
         roas = sc.get("roas_money")
-        budget_str = f"{int(budget):,}".replace(",", " ") if budget is not None else "—"
-        kpi_str = f"{int(kpi):,}".replace(",", " ") if kpi is not None else "—"
-        roas_str = f"{float(roas):.2f}" if roas is not None else "—"
-        name_str = escape(str(sc.get("name") or sc.get("variant_id") or "—"))
+        budget_str = f"{int(budget):,}".replace(",", " ") if budget is not None else "н/д"
+        kpi_str = f"{int(kpi):,}".replace(",", " ") if kpi is not None else "н/д"
+        roas_str = f"{float(roas):.2f}" if roas is not None else "н/д"
+        name_str = escape(str(sc.get("name") or sc.get("variant_id") or "н/д"))
         star = "★ " if is_accepted else ""
         bold_open = "<strong>" if is_accepted else ""
         bold_close = "</strong>" if is_accepted else ""
