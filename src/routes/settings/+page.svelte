@@ -774,9 +774,14 @@
     <!-- L18-L20: «Статистика использования» block removed entirely (irrelevant
          для Econometrica build, leaked Aurora Agency commands в UI). -->
 
-    {#if vaultStatus.length > 0}
-      <section class="section">
-        <h2 class="section-title">Vault-статус</h2>
+    <!-- Секция показывается ВСЕГДА, а не только при непустом списке кабинетов
+         (находка аудита): список пуст ровно тогда, когда не прошла авторизация
+         или не отдался список кабинетов — то есть при тех самых сетевых
+         проблемах, ради которых запасной путь и существует. Пряча секцию по
+         пустому списку, мы отнимали кнопку у единственных, кому она нужна. -->
+    <section class="section">
+      <h2 class="section-title">Материалы кабинетов</h2>
+      {#if vaultStatus.length > 0}
         <div class="vault-list">
           {#each vaultStatus as [cabId, cabName, hasVault]}
             <div class="vault-row">
@@ -786,16 +791,21 @@
             </div>
           {/each}
         </div>
-        <p class="section-desc" style="margin-top: 12px;">
-          Обычно материалы кабинетов приезжают с сервера сами. Если связь их не пропускает
-          (например, в сети организации), запросите файл в поддержке и загрузите вручную.
+      {:else}
+        <p class="section-desc">
+          Список кабинетов сейчас недоступен – обычно это значит, что не удалось связаться
+          с сервером. Материалы можно загрузить из файла.
         </p>
-        <button class="btn-logs" onclick={importVault}>Загрузить материалы из файла</button>
-        {#if vaultImportStatus}
-          <p class="section-desc" style="margin-top: 8px;">{vaultImportStatus}</p>
-        {/if}
-      </section>
-    {/if}
+      {/if}
+      <p class="section-desc" style="margin-top: 12px;">
+        Обычно материалы кабинетов приезжают с сервера сами. Если связь их не пропускает
+        (например, в сети организации), запросите файл в поддержке и загрузите вручную.
+      </p>
+      <button class="btn-logs" onclick={importVault}>Загрузить материалы из файла</button>
+      {#if vaultImportStatus}
+        <p class="section-desc" style="margin-top: 8px;">{vaultImportStatus}</p>
+      {/if}
+    </section>
 
     <section class="section">
       <h2 class="section-title">Логи и диагностика</h2>
