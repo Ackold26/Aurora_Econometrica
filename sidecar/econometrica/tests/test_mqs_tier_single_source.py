@@ -72,3 +72,40 @@ def test_thresholds_are_not_duplicated_as_own_ladder():
         assert above.lower() in t_above and below.lower() in t_below, (
             f"на пороге {threshold} слайд не различает «{above}» и «{below}»"
         )
+
+
+# ─── Карточка «Оценка качества модели» на отдельном слайде ───────────────────
+# Инвариант закрывался для findings, а карточка продолжала брать ярлык из поля
+# бэкенда (`mqs_tier_label`). При пришедшем балле и отсутствующем ярлыке одна и
+# та же колода противоречила сама себе: слайд 3 — «MQS 70/100 – хорошее»,
+# карточка — «уровень не определён». Внешний аудит, седьмая волна, 2026-07-26.
+
+_CARD_MARKER = "ОЦЕНКА КАЧЕСТВА МОДЕЛИ"
+
+
+def _card_slide_texts(prs):
+    """Тексты всех фигур того слайда, где живёт карточка оценки."""
+    for slide in prs.slides:
+        texts = [sh.text_frame.text for sh in slide.shapes if sh.has_text_frame]
+        if any(_CARD_MARKER in t for t in texts):
+            return texts
+    return []
+
+
+@pytest.mark.parametrize("score", (92, 85, 82, 70, 69, 55, 40, 12))
+def test_card_label_matches_single_source(score):
+    """Ярлык на карточке выводится из балла, а не ждётся от бэкенда."""
+    prs = AuroraPPTXBuilder(_payload_with_score(score)).build()
+    texts = _card_slide_texts(prs)
+    assert texts, "слайд с карточкой оценки качества не найден в колоде"
+    blob = " ".join(texts).lower()
+
+    assert "уровень не определён" not in blob, (
+        f"MQS {score}: балл посчитан, но карточка объявляет уровень неопределённым — "
+        f"ярлык снова ждут от бэкенда вместо единого источника"
+    )
+    expected = mqs_tier_info(score)["tier_label"].lower()
+    assert expected in blob, (
+        f"MQS {score}: карточка не называет уровень «{expected}» из единого источника; "
+        f"тексты слайда: {texts}"
+    )

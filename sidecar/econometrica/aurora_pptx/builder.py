@@ -3163,9 +3163,18 @@ class AuroraPPTXBuilder:
 
             # Status - below number with clear gap
             self._hairline(slide, card_x + 0.35, card_y + 2.55, card_w - 0.7, weight=0.5)
+            # 2026-07-26 (внешний аудит, седьмая волна): ярлык уровня берётся из
+            # единого источника по посчитанному баллу, а не из поля бэкенда.
+            # Прежде при пришедшем балле и отсутствующем ярлыке одна и та же
+            # колода противоречила сама себе: слайд 3 печатал «MQS 70/100 –
+            # хорошее», а эта карточка — «уровень не определён». Слой
+            # представления своей шкалы не держит и чужой подписи не ждёт: балл
+            # есть — уровень выводится из него, как в findings выше.
+            from utils.diagnostics import mqs_tier_info
+            _card_tier = mqs_tier_info(float(self.mqs_score))
             self._text(
                 slide, card_x + 0.35, card_y + 2.7, card_w - 0.7, 0.3,
-                self.mqs_tier_label or "уровень не определён",
+                _card_tier['tier_label'].lower(),
                 font=self.sans, size=12, italic=True, color=self.deep_100,
             )
 
