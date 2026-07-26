@@ -18,8 +18,33 @@ fn supabase_url() -> String {
     obfstr::obfstr!("https://quzhkfvglqmppxcrindh.supabase.co/functions/v1").to_string()
 }
 
-/// HTTP request timeout for downloads (longer for large files).
-const DOWNLOAD_TIMEOUT_SECS: u64 = 120;
+// ── Устойчивость канала доставки (2026-07-26, разбор отказа у клиента) ──
+//
+// Обрыв TLS/тела на середине ответа — штатное поведение нестабильного канала
+// (посредник закрывает сессию без close_notify; rustls внутри reqwest сообщает
+// об этом как «error decoding response body»), а НЕ признак мёртвого сервера.
+// Лечится повтором, а не увеличением таймаута: общий дедлайн на запрос рубит
+// и исправную медленную докачку тоже (у клиента ошибка приходила ровно через
+// 120 с — это срабатывал общий таймаут, а не отказ сервера).
+//
+// Докачки по HTTP Range здесь нет намеренно: Edge Function `/content` отдаёт
+// файл целиком и на запрос с `Range` отвечает 200 (проверено зондом 2026-07-26),
+// а vault-файлы весят единицы–десятки КБ — полная перекачка стоит дешевле, чем
+// поддержка резюма. Для крупных пакетов (content-pack, фронтенд-бандл) резюм
+// имеет смысл, но требует поддержки Range на стороне функции.
+
+/// Таймаут установки соединения.
+const CONNECT_TIMEOUT_SECS: u64 = 20;
+
+/// Таймаут ТИШИНЫ сокета: столько ждём очередную порцию данных.
+/// Не общий дедлайн запроса — медленный, но живой канал не обрывается.
+const READ_IDLE_TIMEOUT_SECS: u64 = 30;
+
+/// Сколько раз пытаемся забрать файл при обрыве связи.
+const DOWNLOAD_ATTEMPTS: u32 = 5;
+
+/// Паузы перед повторами (секунды): даём каналу восстановиться.
+const RETRY_BACKOFF_SECS: [u64; 4] = [2, 5, 10, 20];
 
 // ── Local version tracking (legacy) ───────────────────────────
 
@@ -272,16 +297,100 @@ pub fn derive_local_key(app_config_dir: &Path) -> Result<[u8; 32]> {
 
 // ── Download ───────────────────────────────────────────────
 
-/// Download a single vault file from the server.
+/// HTTP-клиент для докачек: без общего дедлайна на запрос, с раздельными
+/// таймаутами соединения и тишины сокета (см. блок констант выше).
+fn resilient_client() -> Result<reqwest::Client> {
+    Ok(reqwest::Client::builder()
+        .connect_timeout(std::time::Duration::from_secs(CONNECT_TIMEOUT_SECS))
+        .read_timeout(std::time::Duration::from_secs(READ_IDLE_TIMEOUT_SECS))
+        .build()?)
+}
+
+/// Исход одной попытки скачивания.
+enum FetchFailure {
+    /// Связь: обрыв, таймаут, 5xx, 429 — имеет смысл повторить.
+    Transient(anyhow::Error),
+    /// Отказ по существу: 403 (нет лицензии), 404 (нет файла) — повтор не поможет.
+    Fatal(anyhow::Error),
+}
+
+/// Прочитать тело ответа порциями, отличая честное завершение от обрыва.
+///
+/// `res.bytes()` на оборванном потоке отдаёт то же самое «error decoding
+/// response body» без единой цифры — по журналу клиента невозможно понять,
+/// пришло 0 байт или почти всё. Поэтому читаем сами и сообщаем, сколько
+/// успели получить и сколько обещал сервер.
+async fn read_body_counted(mut res: reqwest::Response, what: &str) -> Result<Vec<u8>> {
+    let declared = res.content_length();
+    let mut buf: Vec<u8> = match declared {
+        Some(n) => Vec::with_capacity(n as usize),
+        None => Vec::new(),
+    };
+
+    loop {
+        match res.chunk().await {
+            Ok(Some(chunk)) => buf.extend_from_slice(&chunk),
+            Ok(None) => break,
+            Err(e) => anyhow::bail!(
+                "{}: поток оборван на {} байт (сервер обещал {}): {}",
+                what,
+                buf.len(),
+                declared.map(|n| n.to_string()).unwrap_or_else(|| "неизвестно".into()),
+                e
+            ),
+        }
+    }
+
+    // Усечение без ошибки сокета: посредник закрыл соединение «чисто».
+    if let Some(n) = declared {
+        if buf.len() as u64 != n {
+            anyhow::bail!("{}: получено {} байт из обещанных {}", what, buf.len(), n);
+        }
+    }
+
+    Ok(buf)
+}
+
+/// Одна попытка скачать файл.
+async fn fetch_vault_once(
+    client: &reqwest::Client,
+    url: &str,
+    filename: &str,
+) -> std::result::Result<Vec<u8>, FetchFailure> {
+    let res = client
+        .get(url)
+        .send()
+        .await
+        .map_err(|e| FetchFailure::Transient(anyhow::anyhow!("{}: запрос не прошёл: {}", filename, e)))?;
+
+    let status = res.status();
+    if !status.is_success() {
+        let body = res.text().await.unwrap_or_default();
+        let err = anyhow::anyhow!("Download failed for {}: HTTP {} - {}", filename, status, body);
+        // 5xx и 429 — сторона сервера/лимиты, повторяем. Прочие 4xx — по существу.
+        return Err(if status.is_server_error()
+            || status == reqwest::StatusCode::TOO_MANY_REQUESTS
+            || status == reqwest::StatusCode::REQUEST_TIMEOUT
+        {
+            FetchFailure::Transient(err)
+        } else {
+            FetchFailure::Fatal(err)
+        });
+    }
+
+    read_body_counted(res, filename)
+        .await
+        .map_err(FetchFailure::Transient)
+}
+
+/// Скачать vault-файл с сервера, переживая обрывы канала.
 async fn download_vault_file(
     fingerprint_hash: &str,
     product: &str,
     version: &str,
     filename: &str,
 ) -> Result<Vec<u8>> {
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(DOWNLOAD_TIMEOUT_SECS))
-        .build()?;
+    let client = resilient_client()?;
 
     let url = format!(
         "{}/content?fingerprint_hash={}&product={}&version={}&file={}",
@@ -290,16 +399,68 @@ async fn download_vault_file(
 
     info!("Downloading vault: {}", filename);
 
-    let res = client.get(&url).send().await?;
+    let mut last_err: Option<anyhow::Error> = None;
 
-    if !res.status().is_success() {
-        let status = res.status();
-        let body = res.text().await.unwrap_or_default();
-        anyhow::bail!("Download failed for {}: HTTP {} - {}", filename, status, body);
+    for attempt in 1..=DOWNLOAD_ATTEMPTS {
+        match fetch_vault_once(&client, &url, filename).await {
+            Ok(bytes) => {
+                if attempt > 1 {
+                    info!("Vault {} получен с попытки {}/{} ({} байт)", filename, attempt, DOWNLOAD_ATTEMPTS, bytes.len());
+                }
+                return Ok(bytes);
+            }
+            Err(FetchFailure::Fatal(e)) => {
+                error!("Скачивание {} отклонено сервером: {:#}", filename, e);
+                return Err(e);
+            }
+            Err(FetchFailure::Transient(e)) => {
+                warn!("Скачивание {}: попытка {}/{} не удалась: {:#}", filename, attempt, DOWNLOAD_ATTEMPTS, e);
+                last_err = Some(e);
+                if attempt < DOWNLOAD_ATTEMPTS {
+                    let idx = ((attempt - 1) as usize).min(RETRY_BACKOFF_SECS.len() - 1);
+                    tokio::time::sleep(std::time::Duration::from_secs(RETRY_BACKOFF_SECS[idx])).await;
+                }
+            }
+        }
     }
 
-    let bytes = res.bytes().await?;
-    Ok(bytes.to_vec())
+    Err(last_err.unwrap_or_else(|| anyhow::anyhow!("{}: скачивание не удалось", filename)))
+        .with_context(|| format!("{}: связь с сервером не установилась за {} попыток", filename, DOWNLOAD_ATTEMPTS))
+}
+
+/// Скачать произвольный файл (пакет контента, бандл фронтенда) с теми же
+/// гарантиями, что и vault: без общего дедлайна, с повторами при обрыве.
+/// Пакеты весят десятки мегабайт — на слабом канале общий таймаут в 120 с
+/// рубил их гарантированно, даже когда передача исправно шла.
+async fn download_url_resilient(url: &str, what: &str) -> Result<Vec<u8>> {
+    let client = resilient_client()?;
+    let mut last_err: Option<anyhow::Error> = None;
+
+    for attempt in 1..=DOWNLOAD_ATTEMPTS {
+        match fetch_vault_once(&client, url, what).await {
+            Ok(bytes) => {
+                if attempt > 1 {
+                    info!("{} получен с попытки {}/{} ({} байт)", what, attempt, DOWNLOAD_ATTEMPTS, bytes.len());
+                }
+                return Ok(bytes);
+            }
+            Err(FetchFailure::Fatal(e)) => {
+                error!("Скачивание {} отклонено сервером: {:#}", what, e);
+                return Err(e);
+            }
+            Err(FetchFailure::Transient(e)) => {
+                warn!("Скачивание {}: попытка {}/{} не удалась: {:#}", what, attempt, DOWNLOAD_ATTEMPTS, e);
+                last_err = Some(e);
+                if attempt < DOWNLOAD_ATTEMPTS {
+                    let idx = ((attempt - 1) as usize).min(RETRY_BACKOFF_SECS.len() - 1);
+                    tokio::time::sleep(std::time::Duration::from_secs(RETRY_BACKOFF_SECS[idx])).await;
+                }
+            }
+        }
+    }
+
+    Err(last_err.unwrap_or_else(|| anyhow::anyhow!("{}: скачивание не удалось", what)))
+        .with_context(|| format!("{}: связь с сервером не установилась за {} попыток", what, DOWNLOAD_ATTEMPTS))
 }
 
 /// Download and save all updated vault files.
@@ -442,21 +603,10 @@ pub async fn download_content_pack(
     expected_checksum: &str,
     app_handle: &tauri::AppHandle,
 ) -> Result<()> {
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(DOWNLOAD_TIMEOUT_SECS))
-        .build()?;
-
     info!("Downloading content pack from URL");
     let _ = app_handle.emit("content-pack-update-progress", serde_json::json!({ "stage": "connecting" }));
 
-    let resp = client.get(url).send().await?;
-    if !resp.status().is_success() {
-        let status = resp.status();
-        let body = resp.text().await.unwrap_or_default();
-        anyhow::bail!("Content pack download failed: HTTP {} - {}", status, body);
-    }
-
-    let bytes = resp.bytes().await?;
+    let bytes = download_url_resilient(url, "пакет контента").await?;
     info!("Downloaded content pack ({} bytes)", bytes.len());
 
     // Verify bundle checksum
@@ -485,7 +635,7 @@ pub async fn download_content_pack(
     std::fs::create_dir_all(&staging_dir)
         .context("Failed to create content-pack staging dir")?;
 
-    let cursor = std::io::Cursor::new(bytes.as_ref());
+    let cursor = std::io::Cursor::new(bytes.as_slice());
     let gz = flate2::read::GzDecoder::new(cursor);
     let mut archive = tar::Archive::new(gz);
     archive.unpack(&staging_dir)
@@ -534,26 +684,20 @@ pub async fn download_frontend_bundle(
     app_handle: &tauri::AppHandle,
 ) -> Result<()> {
     let url = format!("{}/frontend-bundle?product={}", supabase_url(), product);
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(DOWNLOAD_TIMEOUT_SECS))
-        .build()?;
 
     info!("Downloading frontend bundle: product={}", product);
 
     let _ = app_handle.emit("frontend-repair-progress", serde_json::json!({ "stage": "connecting" }));
 
-    let resp = client.get(&url).send().await?;
-
-    if resp.status() == reqwest::StatusCode::NOT_FOUND {
-        anyhow::bail!("Frontend bundle not available on server for product={}", product);
-    }
-    if !resp.status().is_success() {
-        let status = resp.status();
-        let body = resp.text().await.unwrap_or_default();
-        anyhow::bail!("Frontend bundle download failed: HTTP {} - {}", status, body);
-    }
-
-    let bytes = resp.bytes().await?;
+    let bytes = download_url_resilient(&url, "бандл фронтенда").await
+        .map_err(|e| {
+            // Отсутствие бандла на сервере — отдельный случай для вызывающего.
+            if format!("{:#}", e).contains("HTTP 404") {
+                anyhow::anyhow!("Frontend bundle not available on server for product={}", product)
+            } else {
+                e
+            }
+        })?;
     info!("Downloaded frontend bundle ({} bytes)", bytes.len());
 
     let _ = app_handle.emit("frontend-repair-progress", serde_json::json!({
@@ -579,7 +723,7 @@ pub async fn download_frontend_bundle(
     std::fs::create_dir_all(&staging_dir)
         .context("Failed to create staging dir")?;
 
-    let cursor = std::io::Cursor::new(bytes.as_ref());
+    let cursor = std::io::Cursor::new(bytes.as_slice());
     let gz = flate2::read::GzDecoder::new(cursor);
     let mut archive = tar::Archive::new(gz);
     archive.unpack(&staging_dir)
@@ -624,21 +768,10 @@ pub async fn download_frontend_bundle_from_url(
     version: u32,
     app_handle: &tauri::AppHandle,
 ) -> Result<()> {
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(DOWNLOAD_TIMEOUT_SECS))
-        .build()?;
-
     info!("Downloading frontend bundle v{} from URL", version);
     let _ = app_handle.emit("frontend-repair-progress", serde_json::json!({ "stage": "connecting" }));
 
-    let resp = client.get(url).send().await?;
-    if !resp.status().is_success() {
-        let status = resp.status();
-        let body = resp.text().await.unwrap_or_default();
-        anyhow::bail!("Frontend bundle download failed: HTTP {} - {}", status, body);
-    }
-
-    let bytes = resp.bytes().await?;
+    let bytes = download_url_resilient(url, "бандл фронтенда").await?;
     info!("Downloaded frontend bundle ({} bytes)", bytes.len());
 
     // Verify bundle checksum
@@ -668,7 +801,7 @@ pub async fn download_frontend_bundle_from_url(
     std::fs::create_dir_all(&staging_dir)
         .context("Failed to create frontend staging dir")?;
 
-    let cursor = std::io::Cursor::new(bytes.as_ref());
+    let cursor = std::io::Cursor::new(bytes.as_slice());
     let gz = flate2::read::GzDecoder::new(cursor);
     let mut archive = tar::Archive::new(gz);
     archive.unpack(&staging_dir)
@@ -737,6 +870,144 @@ mod tests {
     use super::*;
     use std::collections::HashMap;
     use tempfile::TempDir;
+
+    // ── Устойчивость докачки (разбор отказа у клиента 2026-07-26) ─────────────
+    //
+    // Гейт против возврата хрупкого загрузчика: обрыв тела обязан лечиться
+    // повтором, отказ по существу (403/404) — не должен порождать повторов.
+
+    /// Что тестовый сервер делает с очередным соединением.
+    #[derive(Clone)]
+    enum Scenario {
+        /// Отдать тело целиком.
+        Full(Vec<u8>),
+        /// Объявить Content-Length, отдать только часть и закрыть сокет.
+        Truncated(Vec<u8>, usize),
+        /// Ответить кодом состояния без тела.
+        Status(u16),
+    }
+
+    /// Поднять локальный сервер, отрабатывающий сценарии по очереди.
+    /// Возвращает базовый адрес и счётчик принятых соединений.
+    async fn spawn_test_server(
+        scenarios: Vec<Scenario>,
+    ) -> (String, std::sync::Arc<std::sync::atomic::AtomicUsize>) {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let hits = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let hits_srv = hits.clone();
+
+        tokio::spawn(async move {
+            let mut idx = 0usize;
+            loop {
+                let (mut sock, _) = match listener.accept().await {
+                    Ok(v) => v,
+                    Err(_) => return,
+                };
+                hits_srv.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+
+                // Дочитываем запрос до пустой строки, иначе клиент увидит reset.
+                let mut buf = [0u8; 1024];
+                let _ = sock.read(&mut buf).await;
+
+                let scenario = scenarios
+                    .get(idx)
+                    .cloned()
+                    .unwrap_or_else(|| scenarios.last().cloned().unwrap());
+                idx += 1;
+
+                match scenario {
+                    Scenario::Full(body) => {
+                        let head = format!(
+                            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                            body.len()
+                        );
+                        let _ = sock.write_all(head.as_bytes()).await;
+                        let _ = sock.write_all(&body).await;
+                    }
+                    Scenario::Truncated(body, cut) => {
+                        let head = format!(
+                            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+                            body.len()
+                        );
+                        let _ = sock.write_all(head.as_bytes()).await;
+                        let _ = sock.write_all(&body[..cut]).await;
+                    }
+                    Scenario::Status(code) => {
+                        let head = format!(
+                            "HTTP/1.1 {} STATUS\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                            code
+                        );
+                        let _ = sock.write_all(head.as_bytes()).await;
+                    }
+                }
+                let _ = sock.shutdown().await;
+            }
+        });
+
+        (format!("http://{}/file", addr), hits)
+    }
+
+    #[tokio::test]
+    async fn download_survives_broken_stream() {
+        let body: Vec<u8> = (0..4096u32).map(|i| (i % 251) as u8).collect();
+        let (url, hits) = spawn_test_server(vec![
+            Scenario::Truncated(body.clone(), 1000),
+            Scenario::Full(body.clone()),
+        ])
+        .await;
+
+        let got = download_url_resilient(&url, "тестовый файл").await.unwrap();
+
+        assert_eq!(got, body, "после повтора файл должен прийти целиком");
+        assert_eq!(
+            hits.load(std::sync::atomic::Ordering::SeqCst),
+            2,
+            "обрыв обязан приводить ровно к одному повтору"
+        );
+    }
+
+    #[tokio::test]
+    async fn truncated_body_is_not_accepted_as_success() {
+        // Сервер всегда рвёт поток — обязаны получить ошибку, а не обрезанный файл.
+        let body: Vec<u8> = vec![7u8; 2048];
+        let (url, _hits) = spawn_test_server(vec![Scenario::Truncated(body, 512)]).await;
+
+        let err = download_url_resilient(&url, "тестовый файл").await.unwrap_err();
+        let text = format!("{:#}", err);
+
+        assert!(
+            text.contains("байт"),
+            "ошибка обязана называть, сколько байт получено: {text}"
+        );
+    }
+
+    #[tokio::test]
+    async fn client_error_is_not_retried() {
+        let (url, hits) = spawn_test_server(vec![Scenario::Status(403)]).await;
+
+        let err = download_url_resilient(&url, "тестовый файл").await.unwrap_err();
+
+        assert!(format!("{:#}", err).contains("403"));
+        assert_eq!(
+            hits.load(std::sync::atomic::Ordering::SeqCst),
+            1,
+            "отказ по существу (403) не должен порождать повторы"
+        );
+    }
+
+    #[tokio::test]
+    async fn server_error_is_retried() {
+        let body: Vec<u8> = vec![3u8; 128];
+        let (url, hits) = spawn_test_server(vec![Scenario::Status(503), Scenario::Full(body.clone())]).await;
+
+        let got = download_url_resilient(&url, "тестовый файл").await.unwrap();
+
+        assert_eq!(got, body);
+        assert_eq!(hits.load(std::sync::atomic::Ordering::SeqCst), 2);
+    }
 
     // ── Local version (legacy) ────────────────────────────────────────────────
 

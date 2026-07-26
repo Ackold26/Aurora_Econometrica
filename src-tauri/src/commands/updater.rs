@@ -18,6 +18,17 @@ fn supabase_update_url() -> String {
     obfstr::obfstr!("https://quzhkfvglqmppxcrindh.supabase.co/functions/v1/app-update").to_string()
 }
 
+/// Публичный anon-ключ проекта: платформа Supabase требует его на каждом вызове
+/// Edge Function (гейт `verify_jwt`), иначе шлюз отвечает 401
+/// `UNAUTHORIZED_NO_AUTH_HEADER` ДО входа в код функции. Без него канал
+/// обновлений через Supabase мёртв при живом сервере (у клиента это выглядело
+/// как бесконечный UP005 → запасной GitHub Pages на каждом старте).
+/// Ключ публичный по устройству (он и так уезжает в браузерные клиенты),
+/// доступ ограничивают RLS и логика функции.
+fn supabase_anon_key() -> String {
+    obfstr::obfstr!("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InF1emhrZnZnbHFtcHB4Y3JpbmRoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ4OTc4MjMsImV4cCI6MjA5MDQ3MzgyM30.UJ8BfkwJnK6pl5KctO8YRI0PIxdTUN85jw5IvjUpGHI").to_string()
+}
+
 /// Хосты, с которых мы публикуем установщики: Supabase Storage (текущий прод),
 /// GitHub Releases и GitHub Pages (fallback). Схема обязана быть https.
 /// Основную защиту даёт то, что download_url приходит из серверного манифеста
@@ -64,8 +75,11 @@ async fn check_supabase(product: &str) -> Result<VersionInfo> {
         .timeout(std::time::Duration::from_secs(10))
         .build()?;
 
+    let anon_key = supabase_anon_key();
     let resp = client
         .post(supabase_update_url())
+        .header("Authorization", format!("Bearer {}", anon_key))
+        .header("apikey", &anon_key)
         .json(&serde_json::json!({ "product": product }))
         .send()
         .await?;
