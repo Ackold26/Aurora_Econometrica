@@ -888,10 +888,16 @@ def render_at_a_glance(ctx: dict) -> str:
             # Pre-fix: `if diag_tier:` falsy для empty string '' → silent fallback
             # к local computation, masking backend issues. Post-fix: trust backend
             # value when present (even if empty), only fallback when truly absent.
-            if diag_tier is not None and diag_tier != "":
+            # Audit fix (2026-07-26): непустоты мало — ярлык обязан принадлежать
+            # набору канона. Прежде сюда проходило любое значение: подстановка
+            # ключа `tier` вместо `tier_label` («excellent») печаталась клиенту
+            # по-английски и сбивала подбор пояснения на «Приемлемо» при
+            # отличной модели, потому что ниже стоит .get(..., 'acceptable').
+            # Чужой подписи слой представления не ждёт: не узнал — считает сам.
+            from utils.diagnostics import mqs_tier_info, MQS_TIER_LABELS
+            if diag_tier in MQS_TIER_LABELS:
                 tier_label_text = diag_tier
             else:
-                from utils.diagnostics import mqs_tier_info
                 tier_label_text = mqs_tier_info(mqs_val)['tier_label']
             # Support text per tier
             support_key = {

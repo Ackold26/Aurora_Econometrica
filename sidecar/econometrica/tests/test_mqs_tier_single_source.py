@@ -109,3 +109,49 @@ def test_card_label_matches_single_source(score):
         f"MQS {score}: карточка не называет уровень «{expected}» из единого источника; "
         f"тексты слайда: {texts}"
     )
+
+
+# ─── Ярлык, пришедший извне, проверяется по набору канона ────────────────────
+# Слой представления доверял полю `mqs_tier_label` как есть — хватало непустой
+# строки. Подстановка значения ключа `tier` вместо `tier_label` («excellent»
+# вместо «Отличное») печаталась клиенту по-английски и сбивала подбор пояснения
+# на «Приемлемо» при отличной модели. Внешний аудит, Medium, 2026-07-26.
+
+def _html_ctx(payload):
+    strings_path = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "econometrica", "aurora_html", "strings_ru.json",
+    )
+    if not os.path.exists(strings_path):
+        strings_path = os.path.join(
+            os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            "aurora_html", "strings_ru.json",
+        )
+    with open(strings_path, encoding="utf-8") as f:
+        strings = json.load(f)
+    return {
+        "meta": payload.get("meta") or {},
+        "facts": payload.get("narrative_facts"),
+        "channels": payload.get("channels") or [],
+        "diagnostics": payload.get("diagnostics") or {},
+        "strings": strings,
+        "kpi": {},
+    }
+
+
+@pytest.mark.parametrize("alien", ["excellent", "GOOD", "уровень-которого-нет", " "])
+def test_alien_tier_label_never_reaches_client(alien):
+    """Чужой ярлык не показывается: уровень считается из балла."""
+    from aurora_html.sections import render_at_a_glance
+
+    p = _payload_with_score(92)
+    p["diagnostics"]["mqs_tier_label"] = alien
+    html = render_at_a_glance(_html_ctx(p))
+
+    assert alien.strip() == "" or alien not in html, (
+        f"ярлык «{alien}» пришёл извне и доехал до клиента — слой представления "
+        f"обязан проверять его по набору канона, а не только на непустоту"
+    )
+    assert mqs_tier_info(92)["tier_label"] in html, (
+        "не показан уровень из единого источника при неизвестном ярлыке"
+    )
