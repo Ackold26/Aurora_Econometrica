@@ -71,3 +71,6 @@ sidecar/econometrica/aurora_html/templates/aurora_html.css
 sidecar/econometrica/aurora_html/templates/aurora_html_tokens.js
 .dev-tauri.log
 .dev-tauri.err
+
+# Служебный кэш Supabase CLI (версии, временные файлы) — не исходники
+supabase/.temp/
