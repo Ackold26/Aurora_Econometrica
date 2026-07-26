@@ -1935,7 +1935,13 @@ def model_history(req: ModelHistoryRequest):
             channels = list(data.get('channel_params', {}).keys())
             versions.append({
                 'timestamp': ts_str,
-                'mqs_score': mqs.get('score', 0),
+                # Нет числа - нет подписи (2026-07-26): несчитанная оценка
+                # остаётся отсутствующей и не превращается в ноль. Прежде версия
+                # без оценки попадала в список наравне с настоящими и была от них
+                # неотличима. Клиентская карточка истории балл сейчас не
+                # показывает, но контракт врать не должен - следующий потребитель
+                # получил бы приговор вместо отметки «не оценивали».
+                'mqs_score': mqs.get('score'),
                 'mqs_label': mqs.get('tier_label', ''),
                 'r_squared': metrics.get('r_squared', diag.get('r_squared', 0)),
                 'mape': metrics.get('mape_pct', diag.get('mape', 0)),
