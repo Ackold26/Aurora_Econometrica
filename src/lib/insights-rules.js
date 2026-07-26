@@ -1211,8 +1211,13 @@ export function modelInsights(data, ratioOverride = undefined) {
   const _mqsV = mqsView(d);
   const _ratioV = ratioView(d, ratioOverride ?? null);
   const ratio = _ratioV?.ratio ?? 0;
-  /** @type {number} */
-  const mqs = _mqsV?.score ?? 0;
+  // «Нет числа — нет подписи» (2026-07-26): несчитанная оценка качества НЕ
+  // подставляется нулём. Прежнее `?? 0` давало на экране «MQS = 0 () - модель
+  // требует доработки» — неотличимо от реального нуля, и клиент принимал по
+  // нему решение о медиабюджете. В отчёте это уже честно (sections.py,
+  // builder.py), здесь оставалось прежним: в файле правда, на экране — нет.
+  /** @type {number|null} */
+  const mqs = _mqsV?.score ?? null;
   /** @type {string} */
   const label = _mqsV?.tierLabel ?? '';
   const thinnessCap = _mqsV?.thinnessCap ?? null;
@@ -1318,7 +1323,13 @@ export function modelInsights(data, ratioOverride = undefined) {
 
   // ── 1. Headline verdict (MQS-based) ──
   const thinSuffix = isThin ? ' Учитывайте, что данных мало - правдоподобный диапазон широкий.' : '';
-  if (mqs >= 80) {
+  if (mqs == null) {
+    out.push({
+      severity: 'info',
+      text: `Оценка качества модели (MQS) не рассчитана для этого расчёта – итоговый балл не показывается.${thinSuffix}`,
+      tip: 'Отсутствие балла не означает низкое качество: оценка просто не была посчитана. Ориентируйтесь на метрики ниже (R², MAPE, сходимость); балл появится после полного расчёта.',
+    });
+  } else if (mqs >= 80) {
     out.push({
       severity: 'success',
       text: `MQS = ${mqs.toFixed(0)} (${label}) - высокое качество модели. Результаты надёжны для принятия решений.${thinSuffix}`,
@@ -1442,7 +1453,9 @@ export function modelInsights(data, ratioOverride = undefined) {
   // ── 5. Trust foundation - что повышает доверие ──
   // Показываем только когда модель действительно хорошая - иначе совет «доверяй» звучит фальшиво.
   // На тонких данных (Ratio < 4:1) блок доверия НЕ показываем - он вводит в заблуждение.
-  const isGoodModel = mqs >= 70 && rHat > 0 && rHat <= 1.05 && divergences === 0 && rSq >= 0.7 && !isThin;
+  // mqs может быть null (оценка не считалась) — без балла блок доверия не
+  // показываем: «доверяй» без основания и есть та самая подпись без числа.
+  const isGoodModel = mqs != null && mqs >= 70 && rHat > 0 && rHat <= 1.05 && divergences === 0 && rSq >= 0.7 && !isThin;
   if (isGoodModel) {
     out.push({
       severity: 'info',

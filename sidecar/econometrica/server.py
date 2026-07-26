@@ -892,6 +892,59 @@ class PreflightRequest(BaseModel):
     skip_prior_predictive: bool = False  # для fast iteration UI
 
 
+_TIER_RANK = {'reliable': 0, 'directional': 1, 'insufficient': 2}
+_TONE_TO_TIER = {'good': 'reliable', 'warn': 'directional', 'bad': 'insufficient'}
+_STATUS_TO_TIER = {'pass': 'reliable', 'warn': 'directional', 'fail': 'insufficient'}
+
+
+def aggregate_preflight_tier(
+    *,
+    recommend: dict,
+    quick_proxy: dict,
+    prior_predictive: dict | None,
+    recommended_mode: str,
+    skip_prior_predictive: bool,
+) -> tuple[str, dict]:
+    """Худший из уровней + разметка ИСТОЧНИКА, которым он получен.
+
+    Conservative aggregation: tier = worst of (recommend, quick_proxy,
+    prior_predictive). Mapping:
+      recommend.banner_tone: good→reliable, warn→directional, bad→insufficient
+      quick_proxy.tier: reliable | directional | insufficient (already correct)
+      prior_predictive.status: pass→reliable, warn→directional, fail→insufficient
+
+    Разметка источника (2026-07-26): клиенту существенно, КАКИМ основанием
+    получен уровень. Быстрая оценка и полная проверка предположений дают
+    одну и ту же подпись, но не одну и ту же доказательность; пропущенный
+    источник без явной отметки читается как «проверено и чисто» — тот же
+    класс дефекта, что несчитанная метрика, показанная нулём. Ключи —
+    внутренний контракт (английские), клиентские формулировки собирает
+    интерфейс (ConfigPanel.svelte::preflightBasisText).
+    """
+    by_source = {
+        'n_obs': _TONE_TO_TIER.get(recommend.get('banner_tone'), 'reliable'),
+        'quick_proxy': quick_proxy.get('tier', 'reliable'),
+    }
+    skipped: dict[str, str] = {}
+    if prior_predictive is not None:
+        by_source['prior_predictive'] = _STATUS_TO_TIER.get(
+            prior_predictive.get('status'), 'reliable',
+        )
+    elif recommended_mode != 'bayesian':
+        skipped['prior_predictive'] = 'engine_not_bayesian'
+    elif skip_prior_predictive:
+        skipped['prior_predictive'] = 'disabled_by_user'
+    else:
+        skipped['prior_predictive'] = 'failed'
+
+    overall = max(by_source.values(), key=lambda t: _TIER_RANK.get(t, 0))
+    return overall, {
+        'decided_by': sorted(s for s, t in by_source.items() if t == overall),
+        'by_source': by_source,
+        'skipped': skipped,
+    }
+
+
 @app.post('/compute/preflight')
 def preflight(req: PreflightRequest):
     """Unified pre-train reliability pipeline (S1 audit synergy).
@@ -968,21 +1021,13 @@ def preflight(req: PreflightRequest):
             prior_predictive = None
 
     # ── Aggregate tier ──────────────────────────────────────────────────
-    # Conservative aggregation: tier = worst of (recommend, quick_proxy, prior_predictive).
-    # Mapping:
-    #   recommend.banner_tone: good→reliable, warn→directional, bad→insufficient
-    #   quick_proxy.tier: reliable | directional | insufficient (already correct)
-    #   prior_predictive.status: pass→reliable, warn→directional, fail→insufficient
-    tier_rank = {'reliable': 0, 'directional': 1, 'insufficient': 2}
-    tone_to_tier = {'good': 'reliable', 'warn': 'directional', 'bad': 'insufficient'}
-    status_to_tier = {'pass': 'reliable', 'warn': 'directional', 'fail': 'insufficient'}
-
-    tiers = ['reliable']  # baseline
-    tiers.append(tone_to_tier.get(recommend.get('banner_tone'), 'reliable'))
-    tiers.append(quick_proxy.get('tier', 'reliable'))
-    if prior_predictive is not None:
-        tiers.append(status_to_tier.get(prior_predictive.get('status'), 'reliable'))
-    overall_tier = max(tiers, key=lambda t: tier_rank.get(t, 0))
+    overall_tier, tier_basis = aggregate_preflight_tier(
+        recommend=recommend,
+        quick_proxy=quick_proxy,
+        prior_predictive=prior_predictive,
+        recommended_mode=recommended_mode,
+        skip_prior_predictive=bool(req.skip_prior_predictive),
+    )
 
     # Aggregate warnings + recommendation
     all_warnings = []
@@ -1008,6 +1053,7 @@ def preflight(req: PreflightRequest):
             'quick_proxy': quick_proxy,
             'prior_predictive': prior_predictive,
         },
+        'tier_basis': tier_basis,
         'warnings': all_warnings,
         'recommendation': _aggregate_recommendation(overall_tier, recommended_mode, len(all_warnings)),
     })

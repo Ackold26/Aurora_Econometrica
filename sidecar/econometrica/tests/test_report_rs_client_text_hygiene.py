@@ -102,21 +102,25 @@ def _collect_violations():
     }
 
 
-# Спорные находки (2026-07-25) — НЕ исключения в regex (не ослабляем правило),
-# конкретные строки помечены поимённо и оставлены на решение Антона:
-#
-# 1) "Лифт vs baseline" (Сценарии/forecast-сравнение) — здесь "baseline"
-#    обозначает не MMM-компонент органического спроса (как в "Данные"-листе,
-#    который уже переименован в "Базовый спрос"), а сценарий/бюджет сравнения
-#    в прогнозе. Неверный перевод хуже отсутствия перевода — нужен домен-контекст.
-_KNOWN_BASELINE_SPORNY_LINES = {1657}
-#
-# 2) "Adstock (geometric)"/"Adstock (Weibull)" — строки таблицы
-#    transformations на листе «Спецификация модели»: технический
-#    методологический ярлык рядом с формулами (та же строка, что и формулы
-#    Hill/Adstock), не клиентская проза. Аналогичная развилка есть в HTML
-#    (глоссарий) — решение по расширению исключения тоже за Антоном.
-_KNOWN_ADSTOCK_SPORNY_LINES = {135, 136}
+# Узаконенные термины (решение владельца 2026-07-26): принятые обозначения
+# отрасли остаются как есть, механический перевод читался бы хуже и разошёлся
+# бы с литературой. Реестр — по ТЕКСТУ литерала, а НЕ по номеру строки:
+# номера сползают при первой же правке report.rs и исключение молча
+# перестаёт совпадать (либо начинает прикрывать чужую строку).
+_LEGITIMISED_LITERALS = {
+    "Лифт vs baseline": (
+        "лист «Сценарии»: baseline здесь — сценарий сравнения в прогнозе, а не "
+        "MMM-компонент органического спроса (тот уже назван «Базовый спрос»)"
+    ),
+    "Adstock (geometric)": (
+        "лист «Спецификация модели», таблица преобразований: методологический "
+        "ярлык рядом с формулой, не клиентская проза"
+    ),
+    "Adstock (Weibull)": (
+        "лист «Спецификация модели», таблица преобразований: методологический "
+        "ярлык рядом с формулой, не клиентская проза"
+    ),
+}
 
 
 def test_rs_report_no_em_dash():
@@ -131,25 +135,35 @@ def test_rs_report_no_media_latin():
 
 def test_rs_report_no_bare_baseline():
     v = _collect_violations()
-    unexpected = [(ln, lit) for ln, lit in v["baseline"] if ln not in _KNOWN_BASELINE_SPORNY_LINES]
+    unexpected = [
+        (ln, lit) for ln, lit in v["baseline"]
+        if lit.strip() not in _LEGITIMISED_LITERALS
+    ]
     assert not unexpected, f"П8-2: голый baseline в report.rs (production, DISPLAY-текст): {unexpected}"
-    known = [(ln, lit) for ln, lit in v["baseline"] if ln in _KNOWN_BASELINE_SPORNY_LINES]
-    if known:
-        pytest.xfail(
-            f"Спорная находка («Лифт vs baseline» — не MMM-компонент, а "
-            f"forecast-сравнение, перевод нужно уточнить у Антона): {known}"
-        )
 
 
-def test_rs_report_bare_adstock_known_or_none():
+def test_rs_report_no_bare_adstock():
     v = _collect_violations()
-    unexpected = [(ln, lit) for ln, lit in v["adstock"] if ln not in _KNOWN_ADSTOCK_SPORNY_LINES]
+    unexpected = [
+        (ln, lit) for ln, lit in v["adstock"]
+        if lit.strip() not in _LEGITIMISED_LITERALS
+    ]
     assert not unexpected, f"П8-2: НОВЫЙ голый adstock в report.rs (production): {unexpected}"
-    known = [(ln, lit) for ln, lit in v["adstock"] if ln in _KNOWN_ADSTOCK_SPORNY_LINES]
-    if known:
-        pytest.xfail(
-            f"Спорная находка (спец-таблица transformations, не проза): {known}"
-        )
+
+
+def test_legitimised_literals_are_all_alive():
+    """Узаконенный литерал обязан существовать в файле.
+
+    Иначе исключение переживает собственный повод (строку переименовали, а
+    разрешение осталось) и молча прикрывает будущее нарушение с тем же текстом.
+    """
+    v = _collect_violations()
+    present = {lit.strip() for _, lit in v["baseline"] + v["adstock"]}
+    dead = sorted(set(_LEGITIMISED_LITERALS) - present)
+    assert not dead, (
+        f"узаконенные литералы больше не встречаются в report.rs {dead} — "
+        f"повод исчез, удалить запись из _LEGITIMISED_LITERALS"
+    )
 
 
 def test_rs_report_coverage_is_reported():
@@ -158,8 +172,8 @@ def test_rs_report_coverage_is_reported():
     summary = (
         f"ОХВАТ Rust XLSX (report.rs, production-код до #[cfg(test)]): "
         f"строк со строковыми литералами проверено {v['checked_lines']}; "
-        f"известные спорные строки (baseline) {sorted(_KNOWN_BASELINE_SPORNY_LINES)}, "
-        f"(adstock) {sorted(_KNOWN_ADSTOCK_SPORNY_LINES)}"
+        f"узаконенных терминов {len(_LEGITIMISED_LITERALS)} — "
+        f"{sorted(_LEGITIMISED_LITERALS)}"
     )
     print(summary)
     assert v["checked_lines"] > 100, (

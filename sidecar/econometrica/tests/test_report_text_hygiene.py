@@ -271,13 +271,15 @@ def test_pptx_normal_no_media_latin(normal_payload, tmp_path):
 #               <!-- HTML-комментарий --> (не текст, но внутренняя информация
 #               в экспортируемом файле) — вынесена в Python-комментарий
 #
-# Одна находка ОСТАВЛЕНА как спорная (НЕ ослабляем правило ради зелёного):
+# Одна находка была оставлена спорной и РЕШЕНА владельцем 2026-07-26:
 # глоссарий определяет термин «Baseline» headword-строкой на отдельной
 # строке — тем же способом, каким уже разрешён «Adstock» в
-# _has_bare_adstock_in_client_text (см. код выше), но для baseline такого
-# исключения в проверке нет. Решение — за Антоном. Помечено xfail(strict=True):
-# если Антон добавит исключение (или переименует), xfail обязан пропасть —
-# иначе тест сломается как XPASS и потребует снять маркер.
+# _has_bare_adstock_in_client_text (см. код выше). Решение: это принятый
+# термин отрасли, определяемый в глоссарии, а не англицизм в прозе —
+# узаконен точечным правилом (_bare_baseline_lines ниже), не xfail'ом и не
+# ослаблением regex. Разрешена ровно строка-заголовок термина и только в
+# секции glossary; «baseline» внутри определения или в любой другой секции
+# остаётся нарушением.
 
 _BLOCK_CLOSE_RE = re.compile(
     r"</(div|p|li|tr|td|th|table|thead|tbody|ul|ol|h1|h2|h3|h4|section|"
@@ -377,32 +379,49 @@ def _full_ctx(payload: dict) -> dict:
 _ALL_SECTION_IDS = tuple(sid for sid, _ in SECTION_RENDERERS)
 _SECTION_RENDER_BY_ID = dict(SECTION_RENDERERS)
 
-# Спорная находка (2026-07-25) — см. блок-комментарий выше. НЕ исключение в
-# коде проверки (это ослабило бы правило); секция явно помечена xfail с
-# указанием причины, а не молча пропущена.
-_KNOWN_CONTENT_QUESTIONS = {
-    "glossary": (
-        "glossary headword «Baseline» — тот же паттерн, что уже разрешён для "
-        "«Adstock» (headword на отдельной строке глоссария), но исключения в "
-        "коде для baseline нет. Решение — Антону, см. PHASE3_ECON_COVERAGE.md."
+# Узаконенные термины (решение владельца 2026-07-26) — где именно термин
+# отрасли разрешён и почему. Реестр открытый и печатается в охвате: молча
+# разрастись он не может, каждая запись требует обоснования строкой.
+_LEGITIMISED_TERMS = {
+    ("glossary", "Baseline"): (
+        "строка-заголовок термина в глоссарии: определение принятого термина "
+        "отрасли, не англицизм в прозе. Тот же приём уже действует для «Adstock»"
     ),
 }
 
 
-def _section_params():
-    params = []
-    for sid in _ALL_SECTION_IDS:
-        if sid in _KNOWN_CONTENT_QUESTIONS:
-            params.append(pytest.param(
-                sid,
-                marks=pytest.mark.xfail(reason=_KNOWN_CONTENT_QUESTIONS[sid], strict=True),
-            ))
-        else:
-            params.append(sid)
-    return params
+def _bare_baseline_lines(text: str, section_id: str) -> list:
+    """Строки клиентского текста с голым «baseline» — кроме узаконенных.
+
+    Разрешена ровно строка, целиком равная термину, и только в той секции,
+    для которой это записано в _LEGITIMISED_TERMS. «baseline» внутри прозы,
+    определения или любой другой секции — по-прежнему нарушение.
+    """
+    out = []
+    for line in text.split("\n"):
+        if not BASELINE_RE.search(line):
+            continue
+        stripped = line.strip()
+        if (section_id, stripped) in _LEGITIMISED_TERMS:
+            continue
+        out.append(stripped[:120])
+    return out
 
 
-@pytest.mark.parametrize("section_id", _section_params())
+def test_baseline_rule_still_catches_prose():
+    """INV-99: правило узаконивания обязано уметь краснеть.
+
+    Узаконена строка-заголовок термина; всё, что рядом, ловится по-прежнему —
+    иначе исключение молча превратилось бы в разрешение слова везде.
+    """
+    assert _bare_baseline_lines("Baseline", "glossary") == []
+    assert _bare_baseline_lines("Baseline", "summary") == ["Baseline"]
+    assert _bare_baseline_lines("Доля baseline выросла", "glossary") == [
+        "Доля baseline выросла"
+    ]
+
+
+@pytest.mark.parametrize("section_id", _ALL_SECTION_IDS)
 def test_html_section_hygiene(section_id, honest_payload):
     """П8-1/П8-2 на КАЖДОЙ из 17 секций HTML-отчёта (Фаза 3, было 2/17).
 
@@ -420,13 +439,25 @@ def test_html_section_hygiene(section_id, honest_payload):
     em = EM_DASH_RE.findall(html)
     assert not em, f"П8-1: em-dash в секции «{section_id}»: {em[:3]}"
 
-    bl = BASELINE_RE.findall(html)
-    assert not bl, f"П8-2: голый baseline в секции «{section_id}»: {bl}"
-
     ml = MEDIA_LATIN_RE.findall(html)
     assert not ml, f"П8-2: latin media- в секции «{section_id}»: {ml}"
 
     stripped = _strip_tags_preserve_lines(html)
+
+    # baseline проверяется по клиентскому ТЕКСТУ, а не по сырому html: правило
+    # узаконивания построчное (см. _LEGITIMISED_TERMS). Сужение охвата здесь
+    # мнимое — проверено зондом, что ни в одной из 17 секций слова baseline в
+    # разметке (классы, идентификаторы, атрибуты) нет вовсе; появится — его
+    # поймает отдельная проверка ниже.
+    bl = _bare_baseline_lines(stripped, section_id)
+    assert not bl, f"П8-2: голый baseline в секции «{section_id}»: {bl}"
+
+    markup_only = len(BASELINE_RE.findall(html)) - len(BASELINE_RE.findall(stripped))
+    assert markup_only <= 0, (
+        f"П8-2: baseline появился в разметке секции «{section_id}» "
+        f"(класс/идентификатор/атрибут) — вне охвата текстовой проверки"
+    )
+
     assert not _has_bare_adstock_in_client_text(stripped), (
         f"П8-2: голый adstock в секции «{section_id}»"
     )
@@ -442,15 +473,20 @@ def test_html_section_coverage_is_reported(honest_payload):
     SECTION_RENDERERS, а не захардкожен.
     """
     total = len(_ALL_SECTION_IDS)
-    out_of_scope = sorted(set(_KNOWN_CONTENT_QUESTIONS) & set(_ALL_SECTION_IDS))
-    checked_clean = total - len(out_of_scope)
+    terms = sorted(f"{sid}: «{term}»" for sid, term in _LEGITIMISED_TERMS)
     summary = (
         f"ОХВАТ П8-1/П8-2 (HTML-отчёт, aurora_html.sections.SECTION_RENDERERS): "
-        f"секций проверено {checked_clean} из {total} без замечаний; "
-        f"вне охвата (спорная находка, xfail) {len(out_of_scope)} — {out_of_scope}"
+        f"секций проверено {total} из {total}, вне охвата 0; "
+        f"узаконенных терминов {len(terms)} — {terms}"
     )
     print(summary)
     assert total == len(SECTION_RENDERERS), (
         "SECTION_RENDERERS разошёлся с census внутри теста — обновить _ALL_SECTION_IDS"
     )
-    assert out_of_scope == ["glossary"], summary
+    unknown_sections = sorted(
+        sid for sid, _ in _LEGITIMISED_TERMS if sid not in _ALL_SECTION_IDS
+    )
+    assert not unknown_sections, (
+        f"узаконенный термин записан для несуществующей секции {unknown_sections} — "
+        f"исключение стало мёртвым, удалить или переписать"
+    )

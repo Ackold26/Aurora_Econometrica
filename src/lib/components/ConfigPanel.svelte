@@ -270,6 +270,43 @@
   /** @type {any | null} */
   let preflightResult = $state(null);
 
+  // Разметка источника (2026-07-26): баннер говорит клиенту, надёжна ли
+  // модель, но прежде не говорил, ЧЕМ это установлено. Быстрая оценка и
+  // полная проверка предположений выглядели одинаково, а пропущенная
+  // проверка не отличалась от пройденной — то есть отсутствие проверки
+  // читалось как её успешный результат.
+  /** @type {Record<string, string>} */
+  const PREFLIGHT_SOURCE_RU = {
+    n_obs: 'объём наблюдений',
+    quick_proxy: 'быстрая оценка данных',
+    prior_predictive: 'проверка предположений модели',
+  };
+  /** @type {Record<string, string>} */
+  const PREFLIGHT_SKIP_RU = {
+    engine_not_bayesian: 'неприменима к выбранному способу расчёта',
+    disabled_by_user: 'отключена в настройках',
+    failed: 'не удалась на этих данных',
+  };
+
+  /**
+   * Подпись основания вывода: чем именно получен уровень и что не проверялось.
+   * @param {any} basis
+   * @returns {string}
+   */
+  function preflightBasisText(basis) {
+    if (!basis) return '';
+    const decided = (basis.decided_by || [])
+      .map((/** @type {string} */ s) => PREFLIGHT_SOURCE_RU[s] || s);
+    const parts = [];
+    if (decided.length) parts.push(`Основание вывода: ${decided.join(', ')}.`);
+    for (const [src, reason] of Object.entries(basis.skipped || {})) {
+      const name = PREFLIGHT_SOURCE_RU[src] || src;
+      const why = PREFLIGHT_SKIP_RU[/** @type {string} */ (reason)] || reason;
+      parts.push(`Не выполнялась: ${name} – ${why}.`);
+    }
+    return parts.join(' ');
+  }
+
   /** @param {boolean} skipPreflight */
   async function trainModel(skipPreflight = false) {
     if (trainInFlight || $isComputing) return;
@@ -779,6 +816,12 @@ Weibull (плавный нарастающий эффект):
           Проверка данных: модель будет ориентировочной
         {/if}
       </strong>
+      {#if preflightResult.tier_basis}
+        {@const _basis = preflightBasisText(preflightResult.tier_basis)}
+        {#if _basis}
+          <p class="preflight-basis">{_basis}</p>
+        {/if}
+      {/if}
       {#if preflightResult.warnings?.length}
         <ul class="preflight-warnings">
           {#each preflightResult.warnings.slice(0, 4) as w}
@@ -859,6 +902,7 @@ Weibull (плавный нарастающий эффект):
   }
   .preflight-banner strong { color: var(--text-primary); font-size: 13px; }
   .preflight-warnings { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 3px; }
+  .preflight-basis { margin: 0; font-size: 0.85em; opacity: 0.85; }
   .preflight-reco { margin: 0; font-style: italic; }
   .preflight-actions { display: flex; gap: 8px; margin-top: 2px; }
   .btn-override {
