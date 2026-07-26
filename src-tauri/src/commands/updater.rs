@@ -156,43 +156,44 @@ pub async fn check_for_updates(current_version: &str) -> Result<Option<VersionIn
     }
 }
 
-/// Download update .exe to a temp directory, emitting progress events.
+/// Загрузки установщика, идущие прямо сейчас — по пути частичного файла.
+/// Две параллельные загрузки в один и тот же файл писали бы друг поверх друга.
+fn in_flight_downloads() -> &'static Mutex<std::collections::HashSet<PathBuf>> {
+    static SET: OnceLock<Mutex<std::collections::HashSet<PathBuf>>> = OnceLock::new();
+    SET.get_or_init(|| Mutex::new(std::collections::HashSet::new()))
+}
+
+struct InFlightGuard(PathBuf);
+
+impl Drop for InFlightGuard {
+    fn drop(&mut self) {
+        let mut set = in_flight_downloads().lock().unwrap_or_else(|e| e.into_inner());
+        set.remove(&self.0);
+    }
+}
+
+/// Скачать установщик во временную папку, сообщая о ходе загрузки.
+///
+/// С докачкой: байты пишутся в постоянный файл `.part`, привязанный к адресу
+/// загрузки, поэтому оборванное соединение продолжается с последнего байта
+/// (HTTP Range), а не начинает 245 МБ заново. До 5 попыток с паузой.
+///
+/// Порт обкатанного загрузчика Oracle (`21487b8`, `891a80f`, M1/M2/M6/M7 аудита
+/// пути доставки). Причина порта — разбор отказа у клиента 2026-07-26: общий
+/// таймаут в 600 с на 245 МБ требует скорости от 400 КБ/с, а измеренная скорость
+/// у клиента была около 10 КБ/с, то есть обновление не могло установиться
+/// физически, сколько бы раз он ни пробовал.
 pub async fn download_update(url: &str, app_handle: &tauri::AppHandle) -> Result<PathBuf> {
     // SEC-04 defense-in-depth: качаем только с доверенных хостов публикации.
     if !is_trusted_update_url(url) {
         return Err(coded_err(ErrorCode::UP002, "Update URL is not from a trusted host"));
     }
 
-    let client = reqwest::Client::builder()
-        .timeout(std::time::Duration::from_secs(600))
-        // SEC-04: reqwest по умолчанию следует до 10 редиректов БЕЗ повторной проверки
-        // хоста. Валидация исходного url недостаточна: open-redirect на доверенном
-        // хосте или подменённый Location увели бы загрузку на посторонний сервер.
-        // checksum-gate ниже это отклонил бы, но слой доверенного хоста должен быть
-        // полным - re-валидируем КАЖДЫЙ хоп (github.com → githubusercontent.com при
-        // релизах остаётся легитимным, оба в allowlist).
-        .redirect(reqwest::redirect::Policy::custom(|attempt| {
-            if is_trusted_update_url(attempt.url().as_str()) {
-                attempt.follow()
-            } else {
-                attempt.error("update redirect to an untrusted host")
-            }
-        }))
-        .build()?;
-
-    let resp = client.get(url).send().await
-        .map_err(|e| coded_err(ErrorCode::UP002, &format!("Не удалось загрузить обновление (проверьте подключение к интернету): {e}")))?;
-
-    if !resp.status().is_success() {
-        return Err(coded_err(ErrorCode::UP002, &format!("Сервер обновлений вернул ошибку {} — повторите позже.", resp.status())));
-    }
-
-    let total_size = resp.content_length().unwrap_or(0);
-    let temp_dir = tempfile::Builder::new()
-        .prefix("aurora-update-")
-        .tempdir()
+    // Постоянная папка (не случайная временная): повтор и перезапуск приложения
+    // должны находить недокачанный файл на месте.
+    let temp_dir_path = std::env::temp_dir().join("aurora-update");
+    std::fs::create_dir_all(&temp_dir_path)
         .map_err(|e| coded_err(ErrorCode::UP002, &format!("Failed to create temp dir: {e}")))?;
-    let temp_dir_path = temp_dir.keep();
 
     // Extract filename from URL — sanitize to a bare basename with a strict
     // whitelist: a manifest-controlled download_url must never place the .exe
@@ -210,12 +211,135 @@ pub async fn download_update(url: &str, app_handle: &tauri::AppHandle) -> Result
     };
     let dest_path = temp_dir_path.join(filename);
 
-    let mut file = tokio::fs::File::create(&dest_path).await?;
-    let mut downloaded: u64 = 0;
+    // Имя частичного файла привязано к хешу адреса: новая версия никогда не
+    // допишется поверх байтов предыдущей.
+    let url_hash = hex::encode(sha2::Sha256::digest(url.as_bytes()));
+    let part_path = temp_dir_path.join(format!("{}.{}.part", filename, &url_hash[..16]));
+
+    {
+        let mut set = in_flight_downloads().lock().unwrap_or_else(|e| e.into_inner());
+        if !set.insert(part_path.clone()) {
+            return Err(coded_err(ErrorCode::UP002, "Загрузка обновления уже идёт"));
+        }
+    }
+    let _in_flight_guard = InFlightGuard(part_path.clone());
+
+    // Общего дедлайна нет намеренно: медленная загрузка в сотни мегабайт не
+    // должна обрываться на середине. Зависание ловится таймаутом тишины сокета.
+    // SEC-04: reqwest по умолчанию следует до 10 редиректов БЕЗ повторной проверки
+    // хоста. Валидация исходного url недостаточна: open-redirect на доверенном
+    // хосте или подменённый Location увели бы загрузку на посторонний сервер.
+    // checksum-gate ниже это отклонил бы, но слой доверенного хоста должен быть
+    // полным - re-валидируем КАЖДЫЙ хоп (github.com → githubusercontent.com при
+    // релизах остаётся легитимным, оба в allowlist).
+    let client = reqwest::Client::builder()
+        .connect_timeout(std::time::Duration::from_secs(30))
+        .read_timeout(std::time::Duration::from_secs(60))
+        .redirect(reqwest::redirect::Policy::custom(|attempt| {
+            if is_trusted_update_url(attempt.url().as_str()) {
+                attempt.follow()
+            } else {
+                attempt.error("update redirect to an untrusted host")
+            }
+        }))
+        .build()?;
+
+    const MAX_ATTEMPTS: u32 = 5;
+    let mut last_err = String::new();
+
+    for attempt in 1..=MAX_ATTEMPTS {
+        match download_attempt(&client, url, &part_path, app_handle).await {
+            Ok(downloaded) => {
+                let _ = std::fs::remove_file(&dest_path);
+                if let Err(rename_err) = std::fs::rename(&part_path, &dest_path) {
+                    // На Windows переименование может не пройти даже после удаления
+                    // выше (файл на миг занят проверкой антивируса). Копирование не
+                    // требует атомарности и обычно проходит; если и оно упало —
+                    // отдаём исходную ошибку.
+                    std::fs::copy(&part_path, &dest_path)
+                        .and_then(|_| std::fs::remove_file(&part_path))
+                        .map_err(|copy_err| coded_err(ErrorCode::UP002, &format!(
+                            "Failed to finalize download: {rename_err} (copy fallback also failed: {copy_err})"
+                        )))?;
+                }
+                info!("Update downloaded: {} ({} bytes, attempt {})", dest_path.display(), downloaded, attempt);
+                return Ok(dest_path);
+            }
+            Err(e) => {
+                last_err = e.to_string();
+                info!("UP002: попытка {attempt}/{MAX_ATTEMPTS} не удалась ({last_err}) — продолжим с недокачанного места");
+                if attempt < MAX_ATTEMPTS {
+                    tokio::time::sleep(std::time::Duration::from_secs(2 * attempt as u64)).await;
+                }
+            }
+        }
+    }
+
+    Err(coded_err(ErrorCode::UP002, &format!(
+        "Не удалось загрузить обновление за {MAX_ATTEMPTS} попыток (проверьте подключение к интернету): {last_err}"
+    )))
+}
+
+/// Продолженной (206) загрузке можно верить, только если сервер сообщил полный
+/// размер и он не меньше уже лежащего на диске. Вынесено отдельной функцией,
+/// чтобы проверялась сама логика, а не только обвязка вокруг сети.
+fn validate_resume_total(content_range_total: Option<u64>, existing: u64) -> Option<u64> {
+    content_range_total.filter(|&total| total >= existing)
+}
+
+/// Одна попытка: докачивает в `part_path` через HTTP Range, если там уже есть байты.
+/// Возвращает итоговый объём на диске, когда файл получен целиком.
+async fn download_attempt(
+    client: &reqwest::Client,
+    url: &str,
+    part_path: &std::path::Path,
+    app_handle: &tauri::AppHandle,
+) -> Result<u64> {
+    let existing: u64 = std::fs::metadata(part_path).map(|m| m.len()).unwrap_or(0);
+
+    let mut req = client.get(url);
+    if existing > 0 {
+        req = req.header(reqwest::header::RANGE, format!("bytes={existing}-"));
+    }
+    let resp = req.send().await
+        .map_err(|e| coded_err(ErrorCode::UP002, &format!("Download failed: {e}")))?;
+
+    let status = resp.status();
+    if !status.is_success() {
+        return Err(coded_err(ErrorCode::UP002, &format!("Download returned {status}")));
+    }
+
+    // 206 — сервер принял Range, дописываем; 200 — отдаёт файл целиком, начинаем заново.
+    let resumed = status == reqwest::StatusCode::PARTIAL_CONTENT && existing > 0;
+    let content_range_total = if resumed {
+        resp.headers().get(reqwest::header::CONTENT_RANGE)
+            .and_then(|v| v.to_str().ok())
+            .and_then(|v| v.rsplit('/').next())
+            .and_then(|v| v.parse::<u64>().ok())
+    } else {
+        None
+    };
+    // Ответ 206 без внятного полного размера (или с размером меньше уже
+    // скачанного) доверия не заслуживает: сломанный посредник дал бы ход
+    // загрузки больше 100% и провёл бы усечённый файл мимо проверки ниже.
+    // Сбрасываем частичный файл, чтобы следующая попытка скачала начисто.
+    if resumed && validate_resume_total(content_range_total, existing).is_none() {
+        let _ = tokio::fs::remove_file(part_path).await;
+        return Err(coded_err(ErrorCode::UP002, "Ответ на докачку противоречив — начинаем заново"));
+    }
+    let (mut file, mut downloaded, total_size) = if resumed {
+        let total = content_range_total.expect("проверено выше: Some(total) при total >= existing");
+        let file = tokio::fs::OpenOptions::new().append(true).open(part_path).await?;
+        info!("Докачка обновления с байта {existing} из {total}");
+        (file, existing, total)
+    } else {
+        let file = tokio::fs::File::create(part_path).await?;
+        (file, 0u64, resp.content_length().unwrap_or(0))
+    };
 
     use tokio::io::AsyncWriteExt;
-    let mut stream = resp.bytes_stream();
     use futures_util::StreamExt;
+    let mut stream = resp.bytes_stream();
 
     while let Some(chunk) = stream.next().await {
         let chunk = chunk.map_err(|e| coded_err(ErrorCode::UP002, &format!("Download stream error: {e}")))?;
@@ -232,8 +356,15 @@ pub async fn download_update(url: &str, app_handle: &tauri::AppHandle) -> Result
     }
     file.flush().await?;
 
-    info!("Update downloaded: {} ({} bytes)", dest_path.display(), downloaded);
-    Ok(dest_path)
+    // Поток может закончиться «чисто», не отдав всех байтов (посредник, сброс
+    // соединения): считаем это обрывом, иначе установили бы усечённый файл.
+    if total_size == 0 {
+        log::warn!("Загрузка завершилась без известного размера — усечение поймает только проверка контрольной суммы");
+    } else if downloaded < total_size {
+        return Err(coded_err(ErrorCode::UP002, &format!("Download incomplete: {downloaded}/{total_size} bytes")));
+    }
+
+    Ok(downloaded)
 }
 
 // SEC-03/04: реестр установщиков, прошедших проверку контрольной суммы в этом сеансе.
@@ -483,6 +614,31 @@ use sha2::Digest;
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Ответ 206 с отсутствующим, неразбираемым или меньшим, чем уже скачано,
+    /// полным размером не должен использоваться для докачки.
+    #[test]
+    fn resume_rejects_inconsistent_content_range() {
+        assert_eq!(validate_resume_total(None, 100), None, "полный размер не сообщён — докачке верить нельзя");
+        assert_eq!(validate_resume_total(Some(50), 100), None, "полный размер меньше уже скачанного — сломанный посредник");
+        assert_eq!(validate_resume_total(Some(100), 100), Some(100), "на грани, но допустимо");
+        assert_eq!(validate_resume_total(Some(200), 100), Some(200), "обычная докачка");
+    }
+
+    /// Слот параллельной загрузки освобождается при выходе из области видимости —
+    /// иначе после одной неудачной попытки все следующие получали бы отказ.
+    #[test]
+    fn in_flight_slot_is_released() {
+        let part = std::path::PathBuf::from("D:/tmp/aurora-test.part");
+        {
+            let mut set = in_flight_downloads().lock().unwrap_or_else(|e| e.into_inner());
+            assert!(set.insert(part.clone()));
+        }
+        let _guard = InFlightGuard(part.clone());
+        drop(_guard);
+        let set = in_flight_downloads().lock().unwrap_or_else(|e| e.into_inner());
+        assert!(!set.contains(&part), "после освобождения слот должен быть свободен");
+    }
 
     #[test]
     fn version_comparison() {
