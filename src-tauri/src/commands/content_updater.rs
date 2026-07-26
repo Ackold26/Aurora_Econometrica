@@ -83,6 +83,23 @@ const MAX_PREALLOC_BYTES: u64 = 8 * 1024 * 1024;
 /// Через этот путь ходят файлы кабинетов и пакеты контента — запас огромен.
 const MAX_BODY_BYTES: usize = 256 * 1024 * 1024;
 
+/// Потолок на СОБРАННЫЙ из кусков файл (находка аудита H-2).
+///
+/// Полный размер приходит из чужого `Content-Range`, и до этой проверки он
+/// ничем не ограничивался: ответ `bytes 0-2047/999999999999` заставлял клиент
+/// крутить сотни миллионов запросов, наращивая память и удерживая замок
+/// адреса, а вызов открытия кабинета не возвращался никогда.
+const MAX_ASSEMBLED_BYTES: u64 = 64 * 1024 * 1024;
+
+/// Файл крупнее этого забираем одним запросом, не кусками (находка аудита H-3).
+///
+/// Дробление придумано против посредника, режущего соединение после ~4 КБ, и
+/// годится для файлов кабинетов в десятки килобайт. Бандл интерфейса весит
+/// полтора мегабайта — это 734 запроса, каждый с полным TLS-рукопожатием, и
+/// единственный сбой откатывал бы сборку в ноль. Для таких файлов прежний
+/// путь честнее: один запрос, повторы при обрыве.
+const RANGE_MAX_FILE_BYTES: u64 = 512 * 1024;
+
 // ── Local version tracking (legacy) ───────────────────────────
 
 /// Path to local content version file.
@@ -445,6 +462,36 @@ fn parse_content_range_total(value: &str) -> Option<u64> {
     value.rsplit('/').next()?.trim().parse::<u64>().ok()
 }
 
+/// Забрать файл одним запросом, без дробления: для крупных файлов, где
+/// куски по 2 КБ дали бы сотни рукопожатий (находка аудита H-3).
+async fn fetch_whole(
+    client: &reqwest::Client,
+    url: &str,
+    what: &str,
+) -> std::result::Result<Vec<u8>, FetchFailure> {
+    let res = client
+        .get(url)
+        .send()
+        .await
+        .map_err(|e| FetchFailure::Transient(anyhow::anyhow!("{}: запрос не прошёл: {}", what, e)))?;
+
+    let status = res.status();
+    if status.is_success() {
+        return read_body_counted(res, what).await.map_err(FetchFailure::Transient);
+    }
+
+    let body = res.text().await.unwrap_or_default();
+    let err = anyhow::anyhow!("Download failed for {}: HTTP {} - {}", what, status, body);
+    Err(if status.is_server_error()
+        || status == reqwest::StatusCode::TOO_MANY_REQUESTS
+        || status == reqwest::StatusCode::REQUEST_TIMEOUT
+    {
+        FetchFailure::Transient(err)
+    } else {
+        FetchFailure::Fatal(err)
+    })
+}
+
 /// Запросить у сервера один кусок файла (границы включительные).
 async fn request_range(
     client: &reqwest::Client,
@@ -519,6 +566,29 @@ async fn fetch_vault_once(
         RangeReply::Whole(bytes) => return Ok(bytes),
         RangeReply::Part { bytes, total } => (bytes, total),
     };
+
+    // Полный размер назвал сервер, и верить ему на слово нельзя: ответ вида
+    // `bytes 0-2047/999999999999` крутил бы цикл сотни миллионов раз, наращивая
+    // память и удерживая замок адреса (находка аудита H-2).
+    if total > MAX_ASSEMBLED_BYTES {
+        return Err(FetchFailure::Fatal(anyhow::anyhow!(
+            "{}: сервер объявил размер {} байт — больше допустимых {} МБ",
+            filename,
+            total,
+            MAX_ASSEMBLED_BYTES / (1024 * 1024)
+        )));
+    }
+
+    // Крупный файл собирать кусками по 2 КБ бессмысленно: сотни рукопожатий,
+    // и любой сбой откатывает в ноль. Берём прежним путём — одним запросом
+    // с повторами (находка аудита H-3).
+    if total > RANGE_MAX_FILE_BYTES {
+        info!(
+            "{}: {} байт — крупный файл, забираем одним запросом, без дробления",
+            filename, total
+        );
+        return fetch_whole(client, url, filename).await;
+    }
 
     while (buf.len() as u64) < total {
         let start = buf.len() as u64;

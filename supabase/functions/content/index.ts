@@ -84,6 +84,18 @@ Deno.serve(async (req: Request) => {
       );
     }
 
+    // Строгая проверка сегментов пути. Лицензия сверяется только по `product`,
+    // а путь в хранилище склеивается из `product/version/file` — без этой
+    // проверки `version=../<чужой-продукт>/<версия>` отдаёт материалы другого
+    // продукта владельцу любой действующей лицензии: слой HTTP нормализует
+    // `..` до обращения к хранилищу. Проверено боем 27.07.2026 — обход
+    // возвращал 200 и файл целиком.
+    const SEGMENT = /^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$/;
+    const safeSegment = (v: string) => SEGMENT.test(v) && !v.includes("..");
+    if (!safeSegment(product) || !safeSegment(version) || !safeSegment(file)) {
+      return jsonResponse({ status: "error", message: "Invalid params" }, 400);
+    }
+
     const supabase = createClient(
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
