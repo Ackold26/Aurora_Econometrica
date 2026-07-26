@@ -1767,7 +1767,25 @@ def render_sources(ctx: dict) -> str:
     is_ols = (diag.get("engine") == "ols") or (ctx.get("model_version") == "1.0-ols")
 
     mqs = diag.get("mqs_score")
-    mqs_tier = diag.get("mqs_tier_label") or "-"
+    # 🔴 Внешний аудит 2026-07-26: та же проверка, что в findings выше, — карточка
+    # секции её не имела. Адаптер при отсутствии `tier_label` подставляет значение
+    # ключа `tier` («excellent»), и клиенту печаталась латиница, тогда как findings
+    # той же страницы говорили «Отличное». Ярлык принимается только из набора
+    # канона; иначе уровень выводится из посчитанного балла, а при его отсутствии
+    # ярлыка нет вовсе (карточка ниже рисует честное отсутствие).
+    from utils.diagnostics import mqs_tier_info, MQS_TIER_LABELS
+    _diag_tier = diag.get("mqs_tier_label")
+    if _diag_tier in MQS_TIER_LABELS:
+        mqs_tier = _diag_tier
+    else:
+        try:
+            _mqs_num = float(mqs) if mqs is not None else None
+        except (TypeError, ValueError):
+            _mqs_num = None
+        if _mqs_num is not None and math.isfinite(_mqs_num):
+            mqs_tier = mqs_tier_info(_mqs_num)["tier_label"]
+        else:
+            mqs_tier = ""
     try:
         mqs_display = f"{int(round(float(mqs)))}" if mqs is not None else None
     except (TypeError, ValueError):

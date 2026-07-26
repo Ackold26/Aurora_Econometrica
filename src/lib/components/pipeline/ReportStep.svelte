@@ -27,7 +27,7 @@
   import { shouldShowOnboarding } from '$lib/onboarding-state.js';
   import { unitCosts, activeProject, valuePerCountUnit, kpiKind } from '$lib/project-state.js';
   import { mqsView, ratioView } from '$lib/metric-views.js';
-  import { mqsTierInfo, mqsTone } from '$lib/mqs-tiers.js';
+  import { mqsTierInfo, mqsTone, MQS_TIERS } from '$lib/mqs-tiers.js';
   import { periodUnit, periodThreshold, ruPeriodForm } from '$lib/period-format.js';
   import Tooltip from '$lib/components/Tooltip.svelte';
   import { TOOLTIPS } from '$lib/data/tooltip-texts.js';
@@ -346,7 +346,7 @@
     // Уровень и его ярлык — из единого источника (mqs-tiers.js, зеркало канона
     // 85/70/55/40). Прежде здесь жила своя лестница 80/60: один и тот же балл
     // назывался «отличным» на экране и «Хорошим» в отчёте.
-    const _q = mqsTierInfo(mqs);
+    const _q = mqsTierInfo(mqs) ?? MQS_TIERS[MQS_TIERS.length - 1];
     const _qGuidance = {
       excellent: 'Можно уверенно использовать результаты для принятия решений, включая перераспределение бюджета.',
       good: 'Результаты надёжны для стратегических решений, но крайние значения ROI по отдельным каналам перепроверяйте.',
@@ -445,7 +445,7 @@
 
     // Q: про качество модели
     if (mqs != null) {
-      const _qa = mqsTierInfo(mqs);
+      const _qa = mqsTierInfo(mqs) ?? MQS_TIERS[MQS_TIERS.length - 1];
       if (_qa.tier === 'excellent') {
         items.push({
           q: `Модель показывает MQS ${mqs.toFixed(0)} - это хорошо?`,
