@@ -84,7 +84,16 @@ fn map_response(resp: aurora_gateway::GatewayResponse) -> Result<String> {
 fn describe_transport_error(err: &aurora_gateway::TransportError) -> String {
     match err {
         aurora_gateway::TransportError::MissingClientFile { .. } => {
-            "Клиентский пакет не установлен – скопируйте файлы доступа в папку client рядом с приложением.".to_string()
+            // Путь называем ровно тот, откуда читаем (`app_data_dir()/client`).
+            // Прежний текст отправлял пользователя «в папку рядом с приложением» —
+            // туда файлы класть бесполезно, программа их там не ищет, и человек
+            // добросовестно делает бесполезную работу (репорт владельца 27.07.2026).
+            "Помощник недоступен: не установлены файлы доступа к серверу.\n\n\
+             Что делать: запустите файл «install_client_package.ps1» из пакета доступа, \
+             полученного в поддержке, и перезапустите программу.\n\n\
+             Подробность для поддержки: файлы ожидаются в папке client каталога данных \
+             программы (переменная APPDATA), а не рядом с исполняемым файлом."
+                .to_string()
         }
         other => other.to_string(),
     }
@@ -288,6 +297,18 @@ mod tests {
     fn missing_client_file_gets_russian_explanation() {
         let err = TransportError::MissingClientFile { path: std::path::PathBuf::from("client_key") };
         let msg = describe_transport_error(&err);
-        assert!(msg.contains("Клиентский пакет не установлен"), "получено: {msg}");
+
+        assert!(msg.contains("не установлены файлы доступа"), "получено: {msg}");
+        assert!(
+            msg.contains("install_client_package.ps1"),
+            "текст обязан называть, ЧТО запустить: {msg}"
+        );
+        // Прежний текст звал класть файлы «рядом с приложением», а читаются они из
+        // каталога данных. Человек делал бесполезную работу и оставался без помощника.
+        assert!(
+            !msg.contains("рядом с приложением"),
+            "нельзя отправлять пользователя не туда: {msg}"
+        );
+        assert!(msg.contains("APPDATA"), "верный путь обязан быть назван: {msg}");
     }
 }
