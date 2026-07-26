@@ -1,1761 +1,1026 @@
-### REPO: Aurora_Econometrica (feat/econ-thin-client), база 29eb8c8 = origin/feat/econ-v2.3.0
-diff --git a/Cargo.lock b/Cargo.lock
-index e89c93a..b5f7182 100644
---- a/Cargo.lock
-+++ b/Cargo.lock
-@@ -341,6 +341,7 @@ version = "2.4.0"
- dependencies = [
-  "aes-gcm",
-  "anyhow",
-+ "aurora_gateway",
-  "base64 0.22.1",
-  "chrono",
-  "ed25519-dalek",
-@@ -379,6 +380,15 @@ dependencies = [
-  "zip",
- ]
- 
-+[[package]]
-+name = "aurora_gateway"
-+version = "0.1.0"
-+dependencies = [
-+ "serde",
-+ "serde_json",
-+ "thiserror 1.0.69",
-+]
-+
- [[package]]
- name = "autocfg"
- version = "1.5.0"
-diff --git a/package.json b/package.json
-index 4ce9c8f..bd43b23 100644
---- a/package.json
-+++ b/package.json
-@@ -16,6 +16,7 @@
-     "tauri": "tauri",
-     "tauri:dev": "tauri dev --config src-tauri/tauri.dev.conf.json",
-     "tauri:build:local": "tauri build --config src-tauri/tauri.local.conf.json -- --no-default-features",
-+    "tauri:build:thin": "tauri build --config src-tauri/tauri.thin.conf.json -- --features thin",
-     "test": "vitest run",
-     "test:watch": "vitest",
-     "lint:xss": "node tools/lint-xss.mjs",
-diff --git a/src-tauri/Cargo.toml b/src-tauri/Cargo.toml
-index 2a94513..bf39344 100644
---- a/src-tauri/Cargo.toml
-+++ b/src-tauri/Cargo.toml
-@@ -22,6 +22,12 @@ cloud_advisors = []
- # продукт. В 9 форках feature отсутствует → legacy %APPDATA%\AIAgency\license.json
- # fallback компилируется в zero-LOC. См. memory/project_per_user_port_isolation.md.
- legacy_aiagency_fallback = []
-+# thin — тонкая версия: кабинет-советник исполняется через SSH-gateway (aurora_gateway,
-+# узел Б), а не локальным Claude CLI на клиентском ПК. Собирается ПОВЕРХ default (thin не
-+# отключает cloud_advisors — согласие/local-only гейты остаются, меняется только транспорт
-+# исполнения claude.rs::run_claude*):
-+#   cargo build --features thin  (или tauri build -- --features thin)
-+thin = ["dep:aurora_gateway"]
- 
- [build-dependencies]
- tauri-build = { version = "2", features = [] }
-@@ -86,6 +92,10 @@ wait-timeout = "0.2"
- # SID hashing для deterministic per-user port allocation (RDP multi-user isolation)
- xxhash-rust = { version = "0.8", features = ["xxh3"] }
- 
-+# Тонкая версия (feature `thin`): общий SSH-транспорт для gateway-исполнения кабинета —
-+# aurora-platform-core Core SSOT, не app-to-app копия. optional — грузится только с thin.
-+aurora_gateway = { path = "../../../aurora-platform-core/aurora_gateway", optional = true }
-+
- # Windows system info + API для process owner detection
- [target.'cfg(windows)'.dependencies]
- wmi = "0.14"
-diff --git a/src-tauri/src/commands/claude.rs b/src-tauri/src/commands/claude.rs
-index 462298e..6d7ef4c 100644
---- a/src-tauri/src/commands/claude.rs
-+++ b/src-tauri/src/commands/claude.rs
-@@ -140,8 +140,24 @@ pub async fn run_claude(
-     {
-         ensure_not_local_only(&app_handle)?;
-         ensure_cloud_consent(&app_handle)?;
--        let (sid, response_text) = run_claude_inner(work_dir, prompt, app_handle, cabinet_id, resume_session_id, active_pids, false, suppress_export, model).await?;
--        Ok((sid, response_text))
-+
-+        #[cfg(feature = "thin")]
-+        {
-+            // Тонкая версия: исполнение кабинета — SSH-gateway на узле Б, не локальный
-+            // Claude CLI. Гейты выше (local-only/consent) сохранены — данные всё равно
-+            // уходят на сервер. active_pids/model — часть локального CLI-мира, gateway
-+            // не спавнит процесс и не выбирает модель клиентской командой.
-+            let _ = (active_pids, model);
-+            let (sid, response_text) = crate::commands::gateway_executor::run_claude_gateway(
-+                work_dir, prompt, app_handle, cabinet_id, resume_session_id, suppress_export,
-+            ).await?;
-+            Ok((sid, response_text))
-+        }
-+        #[cfg(not(feature = "thin"))]
-+        {
-+            let (sid, response_text) = run_claude_inner(work_dir, prompt, app_handle, cabinet_id, resume_session_id, active_pids, false, suppress_export, model).await?;
-+            Ok((sid, response_text))
-+        }
-     }
+diff --git a/src-tauri/src/commands/content_updater.rs b/src-tauri/src/commands/content_updater.rs
+index 2db354b..f6adf3a 100644
+--- a/src-tauri/src/commands/content_updater.rs
++++ b/src-tauri/src/commands/content_updater.rs
+@@ -18,8 +18,33 @@ fn supabase_url() -> String {
+     obfstr::obfstr!("https://quzhkfvglqmppxcrindh.supabase.co/functions/v1").to_string()
  }
  
-@@ -163,9 +179,23 @@ pub async fn run_claude_pipeline(
-     {
-         ensure_not_local_only(&app_handle)?;
-         ensure_cloud_consent(&app_handle)?;
--        // Pipeline phases always suppress export - final output is built by post-processor
--        let (sid, response_text) = run_claude_inner(work_dir, prompt, app_handle, cabinet_id, resume_session_id, active_pids, true, true, None).await?;
--        Ok((sid, response_text))
+-/// HTTP request timeout for downloads (longer for large files).
+-const DOWNLOAD_TIMEOUT_SECS: u64 = 120;
++// ── Устойчивость канала доставки (2026-07-26, разбор отказа у клиента) ──
++//
++// Обрыв TLS/тела на середине ответа — штатное поведение нестабильного канала
++// (посредник закрывает сессию без close_notify; rustls внутри reqwest сообщает
++// об этом как «error decoding response body»), а НЕ признак мёртвого сервера.
++// Лечится повтором, а не увеличением таймаута: общий дедлайн на запрос рубит
++// и исправную медленную докачку тоже (у клиента ошибка приходила ровно через
++// 120 с — это срабатывал общий таймаут, а не отказ сервера).
++//
++// Докачки по HTTP Range здесь нет намеренно: Edge Function `/content` отдаёт
++// файл целиком и на запрос с `Range` отвечает 200 (проверено зондом 2026-07-26),
++// а vault-файлы весят единицы–десятки КБ — полная перекачка стоит дешевле, чем
++// поддержка резюма. Для крупных пакетов (content-pack, фронтенд-бандл) резюм
++// имеет смысл, но требует поддержки Range на стороне функции.
 +
-+        #[cfg(feature = "thin")]
-+        {
-+            // Pipeline phases always suppress export/done - final output is built by
-+            // post-processor. Зеркалит suppress_done=true, suppress_export=true CLI-пути.
-+            let _ = active_pids;
-+            let (sid, response_text) = crate::commands::gateway_executor::run_claude_pipeline_gateway(
-+                work_dir, prompt, app_handle, cabinet_id, resume_session_id,
-+            ).await?;
-+            Ok((sid, response_text))
-+        }
-+        #[cfg(not(feature = "thin"))]
-+        {
-+            // Pipeline phases always suppress export - final output is built by post-processor
-+            let (sid, response_text) = run_claude_inner(work_dir, prompt, app_handle, cabinet_id, resume_session_id, active_pids, true, true, None).await?;
-+            Ok((sid, response_text))
-+        }
-     }
- }
- 
-@@ -173,6 +203,9 @@ pub async fn run_claude_pipeline(
- /// Перенаправляет user-level слой claude CLI (settings/hooks/skills/plugins/MCP/sessions/credentials)
- /// в отдельную папку → операторские/клиентские hooks/skills/MCP НЕ протекают в кабинет.
- /// Project-уровень кабинета (work_dir/CLAUDE.md барьер+scope) СОХРАНЯЕТСЯ (грузится из cwd, CONFIG_DIR его не трогает).
-+/// Используется только из `run_claude_inner`, которая при feature `thin` недостижима
-+/// (gateway_executor заменяет её) — глушим dead_code точечно для этой конфигурации.
-+#[cfg_attr(feature = "thin", allow(dead_code))]
- fn isolated_claude_config_dir(app_handle: &tauri::AppHandle) -> Option<std::path::PathBuf> {
-     let iso = app_handle.path().app_local_data_dir().ok()?.join("claude-runtime");
-     if let Err(e) = std::fs::create_dir_all(&iso) {
-@@ -218,6 +251,10 @@ fn isolated_claude_config_dir(app_handle: &tauri::AppHandle) -> Option<std::path
-     Some(iso)
- }
- 
-+// При feature `thin` вызовы run_claude_inner заменены веткой gateway_executor
-+// (см. run_claude/run_claude_pipeline выше) — функция становится недостижимой
-+// в этой конфигурации; глушим dead_code точечно, не трогая остальной модуль.
-+#[cfg_attr(feature = "thin", allow(dead_code))]
- #[allow(clippy::too_many_arguments)]
- async fn run_claude_inner(
-     work_dir: &Path,
-@@ -484,36 +521,55 @@ async fn run_claude_inner(
-     // Auto-save response to exports/ (including partial results on timeout)
-     // Skip saving for auto-continue intermediate responses (suppress_export=true)
-     let final_text = result_text.unwrap_or(delta_text);
--    if !suppress_export && !final_text.trim().is_empty() {
--        let slug = extract_command_slug(prompt);
--        let timestamp = chrono::Local::now().format("%Y%m%d-%H%M%S");
--        let suffix = if timed_out { "-partial" } else { "" };
--        let filename = format!("{}-{}{}.md", slug, timestamp, suffix);
--        let exports_dir = work_dir.join("exports");
--        let _ = std::fs::create_dir_all(&exports_dir);
--        let export_path = exports_dir.join(&filename);
--
--        match std::fs::write(&export_path, &final_text) {
--            Ok(_) => {
--                info!("Auto-saved response: {}", export_path.display());
--                let _ = crate::metrics::collector::record_export();
--                convert_to_docx(&export_path);
--                convert_to_pdf(&export_path);
--                convert_to_xlsx(&export_path);
--                let _ = app_handle.emit(
--                    &format!("exports-updated-{cabinet_id}"),
--                    serde_json::json!({}),
--                );
--            }
--            Err(e) => warn!("Failed to auto-save response: {e}"),
--        }
--    } else if suppress_export {
-+    if !suppress_export {
-+        auto_save_response(&app_handle, work_dir, &cabinet_id, prompt, &final_text, timed_out);
-+    } else {
-         debug!("Skipped auto-save for auto-continue response [{cabinet_id}]");
-     }
- 
-     Ok((captured_session_id, final_text))
- }
- 
-+/// Сохранить финальный текст ответа в exports/ (+ конвертации docx/pdf/xlsx + событие
-+/// exports-updated). Общий хелпер: вызывается из `run_claude_inner` (локальный Claude CLI)
-+/// и из `gateway_executor` (feature `thin`, SSH-транспорт) — поведение автосохранения
-+/// идентично независимо от того, ЧЕМ исполнен кабинет. Ничего не делает при пустом тексте
-+/// (зеркалит прежнюю проверку `!final_text.trim().is_empty()`).
-+pub(crate) fn auto_save_response(
-+    app_handle: &tauri::AppHandle,
-+    work_dir: &Path,
-+    cabinet_id: &str,
-+    prompt: &str,
-+    final_text: &str,
-+    partial_suffix: bool,
-+) {
-+    if final_text.trim().is_empty() {
-+        return;
-+    }
-+    let slug = extract_command_slug(prompt);
-+    let timestamp = chrono::Local::now().format("%Y%m%d-%H%M%S");
-+    let suffix = if partial_suffix { "-partial" } else { "" };
-+    let filename = format!("{}-{}{}.md", slug, timestamp, suffix);
-+    let exports_dir = work_dir.join("exports");
-+    let _ = std::fs::create_dir_all(&exports_dir);
-+    let export_path = exports_dir.join(&filename);
++/// Таймаут установки соединения.
++const CONNECT_TIMEOUT_SECS: u64 = 20;
 +
-+    match std::fs::write(&export_path, final_text) {
-+        Ok(_) => {
-+            info!("Auto-saved response: {}", export_path.display());
-+            let _ = crate::metrics::collector::record_export();
-+            convert_to_docx(&export_path);
-+            convert_to_pdf(&export_path);
-+            convert_to_xlsx(&export_path);
-+            let _ = app_handle.emit(
-+                &format!("exports-updated-{cabinet_id}"),
-+                serde_json::json!({}),
-+            );
-+        }
-+        Err(e) => warn!("Failed to auto-save response: {e}"),
-+    }
++/// Таймаут ТИШИНЫ сокета: столько ждём очередную порцию данных.
++/// Не общий дедлайн запроса — медленный, но живой канал не обрывается.
++const READ_IDLE_TIMEOUT_SECS: u64 = 30;
++
++/// Сколько раз пытаемся забрать файл при обрыве связи.
++const DOWNLOAD_ATTEMPTS: u32 = 5;
++
++/// Паузы перед повторами (секунды): даём каналу восстановиться.
++const RETRY_BACKOFF_SECS: [u64; 4] = [2, 5, 10, 20];
+ 
+ // ── Local version tracking (legacy) ───────────────────────────
+ 
+@@ -272,16 +297,100 @@ pub fn derive_local_key(app_config_dir: &Path) -> Result<[u8; 32]> {
+ 
+ // ── Download ───────────────────────────────────────────────
+ 
+-/// Download a single vault file from the server.
++/// HTTP-клиент для докачек: без общего дедлайна на запрос, с раздельными
++/// таймаутами соединения и тишины сокета (см. блок констант выше).
++fn resilient_client() -> Result<reqwest::Client> {
++    Ok(reqwest::Client::builder()
++        .connect_timeout(std::time::Duration::from_secs(CONNECT_TIMEOUT_SECS))
++        .read_timeout(std::time::Duration::from_secs(READ_IDLE_TIMEOUT_SECS))
++        .build()?)
 +}
 +
- /// Extract a short slug from the user prompt for use in the filename.
- /// "/ad-variants some extra text" → "ad-variants"
- /// "some free text" → "response"
-@@ -834,6 +890,8 @@ mod tests {
- }
- 
- /// Find the Claude CLI binary and validate it's in a trusted location.
-+/// Используется только из `run_claude_inner` — недостижима при feature `thin`, см. там.
-+#[cfg_attr(feature = "thin", allow(dead_code))]
- fn find_claude_binary() -> Result<String> {
-     let candidates = ["claude", "claude.cmd", "claude.exe"];
- 
-diff --git a/src-tauri/src/commands/gateway_executor.rs b/src-tauri/src/commands/gateway_executor.rs
-new file mode 100644
-index 0000000..5318c8a
---- /dev/null
-+++ b/src-tauri/src/commands/gateway_executor.rs
-@@ -0,0 +1,272 @@
-+//! Gateway-исполнитель тонкой версии (feature `thin`): кабинет исполняется через
-+//! SSH-транспорт `aurora_gateway` на узле Б, а не локальным Claude CLI. Адаптер
-+//! зеркалит контракт `claude::run_claude`/`run_claude_pipeline` (та же пара
-+//! входов, та же семантика suppress_export/suppress_done), чтобы `claude.rs`
-+//! подключал его минимальной правкой веток `#[cfg(feature = "thin")]`.
-+//!
-+//! ## Сессии
-+//! label = `resume_session_id`, а если `None` — генерируем `tc-<cabinet_id>-<hex>`.
-+//! Возвращаем label как первый элемент кортежа (`Some(label)`) — существующий
-+//! механизм продукта `set_claude_session_id`/`get_claude_session_id`/
-+//! `clear_claude_session_id` (session/manager.rs) АВТОМАТИЧЕСКИ рулит серверными
-+//! sticky-сессиями: продолжение диалога шлёт тот же label, слэш-сброс — новый.
-+//! Ноль нового состояния на клиенте.
-+//!
-+//! ## Ошибки
-+//! Коды в стиле claude.rs ([CL-...]): `[TC-GW-TIMEOUT]` (сервер не ответил вовремя),
-+//! `[TC-GW-SRV]` (сервер вернул error/незнакомый статус), `[TC-GW-SSH]` (транспорт —
-+//! ssh не запустился, клиентский пакет отсутствует, сеть и т.п.).
-+
-+use std::path::Path;
-+use std::sync::atomic::{AtomicU32, Ordering};
-+use std::time::{SystemTime, UNIX_EPOCH};
-+
-+use anyhow::Result;
-+use log::{debug, info};
-+use tauri::{Emitter, Manager};
-+
-+use crate::commands::claude::auto_save_response;
-+
-+/// Адрес gateway-узла (узел Б). Переопределяется `AURORA_NODE_B` для тестовых стендов —
-+/// см. `AURORA_NODE_B` в окружении сборки/дистрибутива тонкого клиента.
-+fn gateway_node() -> String {
-+    std::env::var("AURORA_NODE_B").unwrap_or_else(|_| "37.27.218.187".to_string())
++/// Исход одной попытки скачивания.
++enum FetchFailure {
++    /// Связь: обрыв, таймаут, 5xx, 429 — имеет смысл повторить.
++    Transient(anyhow::Error),
++    /// Отказ по существу: 403 (нет лицензии), 404 (нет файла) — повтор не поможет.
++    Fatal(anyhow::Error),
 +}
 +
-+/// Сгенерировать новую метку сессии для sticky-маршрутизации на сервере.
-+/// Не крипто-стойкость (детерминированной стойкости не требуется, session_key —
-+/// не секрет, см. `aurora_gateway::GatewayRequest`) — только уникальность в рамках
-+/// процесса: наносекунды + монотонный счётчик + PID.
-+fn generate_session_label(cabinet_id: &str) -> String {
-+    static COUNTER: AtomicU32 = AtomicU32::new(0);
-+    let nanos = SystemTime::now()
-+        .duration_since(UNIX_EPOCH)
-+        .map(|d| d.as_nanos())
-+        .unwrap_or(0);
-+    let counter = COUNTER.fetch_add(1, Ordering::Relaxed);
-+    let mixed = (nanos as u64) ^ ((counter as u64) << 32) ^ (std::process::id() as u64);
-+    format!("tc-{cabinet_id}-{:08x}", (mixed & 0xFFFF_FFFF) as u32)
-+}
-+
-+/// Строка-событие `result` для канала `claude-stream-<cabinet>` — минимальный паритет
-+/// с финальной строкой stream-json локального CLI: ChatPanel добавляет assistant-пузырь
-+/// из `data.result` при `data.type === "result"` (ChatPanel.svelte, ветка result).
-+/// В gateway-режиме дельт нет — ответ приходит одной такой строкой.
-+fn build_result_event(text: &str) -> String {
-+    serde_json::json!({ "type": "result", "result": text }).to_string()
-+}
-+
-+/// Замэппить ответ gateway в текст ответа или классифицированную ошибку. Чистая
-+/// функция без побочных эффектов (не трогает app_handle/ФС) — тестируется без сети.
-+fn map_response(resp: aurora_gateway::GatewayResponse) -> Result<String> {
-+    match resp.status.as_str() {
-+        // "done" — реальная форма боевого ответа сервера; "ok" — задокументированный
-+        // альтернативный статус контракта (aurora_gateway::GatewayResponse). Оба
-+        // означают успех, только если сервер не проставил error отдельно.
-+        "done" | "ok" if resp.error.is_none() => Ok(resp.text.unwrap_or_default()),
-+        "timeout" => anyhow::bail!(
-+            "[TC-GW-TIMEOUT] Превышено время ожидания ответа сервера – повторите позже."
-+        ),
-+        _ => {
-+            let detail = resp.error.unwrap_or(resp.status);
-+            anyhow::bail!("[TC-GW-SRV] {detail}")
-+        }
-+    }
-+}
-+
-+/// Русское пояснение к ошибке транспортного уровня. `MissingClientFile` — единственный
-+/// вариант, для которого typовое сообщение `thiserror` недостаточно самообъясняюще для
-+/// пользователя тонкого клиента (остальные варианты уже человекочитаемы по-русски).
-+fn describe_transport_error(err: &aurora_gateway::TransportError) -> String {
-+    match err {
-+        aurora_gateway::TransportError::MissingClientFile { .. } => {
-+            "Клиентский пакет не установлен – скопируйте файлы доступа в папку client рядом с приложением.".to_string()
-+        }
-+        other => other.to_string(),
-+    }
-+}
-+
-+/// Общая реализация обоих публичных входов: отправить промпт на gateway, замэппить
-+/// ответ, эмитировать `claude-done` (если не suppress_done) и сохранить экспорт
-+/// (если не suppress_export) — тот же контракт, что и `claude::run_claude_inner`.
-+#[allow(clippy::too_many_arguments)]
-+async fn execute(
-+    work_dir: &Path,
-+    prompt: &str,
-+    app_handle: tauri::AppHandle,
-+    cabinet_id: String,
-+    resume_session_id: Option<String>,
-+    suppress_export: bool,
-+    suppress_done: bool,
-+) -> Result<(Option<String>, String)> {
-+    let label = resume_session_id.unwrap_or_else(|| generate_session_label(&cabinet_id));
-+    let node = gateway_node();
-+    let client_dir = app_handle
-+        .path()
-+        .app_data_dir()
-+        .map_err(|e| anyhow::anyhow!("app_data_dir: {e}"))?
-+        .join("client");
-+
-+    info!("Gateway-запрос [{cabinet_id}]: node={node}, label={label}");
-+
-+    if !suppress_done {
-+        // Паритет CLI (system/init — первая строка stream-json локального пути): снимает
-+        // safety-таймер ChatPanel до долгого ответа сервера. Gateway промежуточных строк
-+        // не шлёт — без init таймер отменил бы длинную задачу и породил гонку UI
-+        // с поздним result (в CLI init приходит от запустившегося процесса).
-+        let _ = app_handle.emit(
-+            &format!("claude-stream-{cabinet_id}"),
-+            r#"{"type":"system","subtype":"init"}"#.to_string(),
-+        );
-+    }
-+
-+    let cabinet_owned = cabinet_id.clone();
-+    let prompt_owned = prompt.to_string();
-+    let label_owned = label.clone();
-+    let response = tokio::task::spawn_blocking(move || {
-+        aurora_gateway::send_to_gateway(&node, &client_dir, &cabinet_owned, &prompt_owned, &label_owned)
-+    })
-+    .await
-+    .map_err(|e| anyhow::anyhow!("[TC-GW-JOIN] Поток gateway-вызова прерван: {e}"))?;
-+
-+    let text = match response {
-+        Ok(resp) => map_response(resp)?,
-+        Err(err) => anyhow::bail!("[TC-GW-SSH] {}", describe_transport_error(&err)),
++/// Прочитать тело ответа порциями, отличая честное завершение от обрыва.
++///
++/// `res.bytes()` на оборванном потоке отдаёт то же самое «error decoding
++/// response body» без единой цифры — по журналу клиента невозможно понять,
++/// пришло 0 байт или почти всё. Поэтому читаем сами и сообщаем, сколько
++/// успели получить и сколько обещал сервер.
++async fn read_body_counted(mut res: reqwest::Response, what: &str) -> Result<Vec<u8>> {
++    let declared = res.content_length();
++    let mut buf: Vec<u8> = match declared {
++        Some(n) => Vec::with_capacity(n as usize),
++        None => Vec::new(),
 +    };
 +
-+    info!("Gateway-ответ получен [{cabinet_id}]: {} байт, label={label}", text.len());
-+
-+    if !suppress_done {
-+        // Финальный текст в чат ДО done (порядок CLI-пути: result-строка из stdout,
-+        // затем claude-done). Без этого события send_message вернул бы Ok(()), а
-+        // ChatPanel не получил бы текст вовсе — ответ существовал бы только в exports.
-+        let _ = app_handle.emit(
-+            &format!("claude-stream-{cabinet_id}"),
-+            build_result_event(&text),
-+        );
-+        let _ = app_handle.emit(
-+            &format!("claude-done-{cabinet_id}"),
-+            serde_json::json!({ "exit_code": 0 }),
-+        );
-+    }
-+
-+    if !suppress_export {
-+        auto_save_response(&app_handle, work_dir, &cabinet_id, prompt, &text, false);
-+    } else {
-+        debug!("Skipped auto-save for gateway response [{cabinet_id}]");
-+    }
-+
-+    Ok((Some(label), text))
-+}
-+
-+/// Зеркалит `claude::run_claude` для feature `thin`. `active_pids`/`model` — часть
-+/// локального CLI-мира (PID управляемого процесса, выбор модели CLI-флагом), gateway
-+/// их не использует: вызывающая сторона (`claude.rs`) передаёт их через `let _ = ...`.
-+pub async fn run_claude_gateway(
-+    work_dir: &Path,
-+    prompt: &str,
-+    app_handle: tauri::AppHandle,
-+    cabinet_id: String,
-+    resume_session_id: Option<String>,
-+    suppress_export: bool,
-+) -> Result<(Option<String>, String)> {
-+    execute(work_dir, prompt, app_handle, cabinet_id, resume_session_id, suppress_export, false).await
-+}
-+
-+/// Зеркалит `claude::run_claude_pipeline` для feature `thin`. suppress_export и
-+/// suppress_done жёстко true — pipeline-фазы никогда не эмитят `claude-done` и не
-+/// пишут в exports/, финальный ответ строит пост-процессор (тот же контракт, что и
-+/// у CLI-пути: `run_claude_inner(..., true, true, None)`).
-+pub async fn run_claude_pipeline_gateway(
-+    work_dir: &Path,
-+    prompt: &str,
-+    app_handle: tauri::AppHandle,
-+    cabinet_id: String,
-+    resume_session_id: Option<String>,
-+) -> Result<(Option<String>, String)> {
-+    execute(work_dir, prompt, app_handle, cabinet_id, resume_session_id, true, true).await
-+}
-+
-+#[cfg(test)]
-+mod tests {
-+    use super::*;
-+    use aurora_gateway::{GatewayResponse, TransportError};
-+
-+    // ── Генерация метки сессии ───────────────────────────────────────────────
-+
-+    #[test]
-+    fn session_label_has_expected_prefix_and_length() {
-+        let label = generate_session_label("legal");
-+        assert!(label.starts_with("tc-legal-"), "формат префикса: {label}");
-+        // "tc-legal-" + 8 hex символов.
-+        assert_eq!(label.len(), "tc-legal-".len() + 8, "8 hex-символов метки: {label}");
-+    }
-+
-+    #[test]
-+    fn session_label_is_unique_across_calls() {
-+        let a = generate_session_label("econometrist");
-+        let b = generate_session_label("econometrist");
-+        assert_ne!(a, b, "две подряд сгенерированные метки не должны совпадать");
-+    }
-+
-+    // ── Строка-событие result для ChatPanel ─────────────────────────────────
-+
-+    #[test]
-+    fn result_event_parses_back_with_type_and_text() {
-+        let raw = build_result_event("Ответ советника.");
-+        let v: serde_json::Value = serde_json::from_str(&raw).expect("строка должна быть валидным JSON");
-+        assert_eq!(v["type"], "result");
-+        assert_eq!(v["result"], "Ответ советника.");
-+    }
-+
-+    #[test]
-+    fn result_event_escapes_quotes_and_newlines() {
-+        // Текст с кавычками/переносами не должен ломать JSON (ChatPanel делает JSON.parse).
-+        let raw = build_result_event("Строка с «кавычками», \"двойными\"\nи переносом");
-+        let v: serde_json::Value = serde_json::from_str(&raw).expect("экранирование сломано");
-+        assert_eq!(v["result"], "Строка с «кавычками», \"двойными\"\nи переносом");
-+    }
-+
-+    // ── Маппинг ответа сервера ───────────────────────────────────────────────
-+
-+    #[test]
-+    fn map_response_done_without_error_extracts_text() {
-+        let resp = GatewayResponse {
-+            status: "done".to_string(),
-+            text: Some("Ок.".to_string()),
-+            files: None,
-+            elapsed: Some(2.9),
-+            error: None,
-+        };
-+        assert_eq!(map_response(resp).unwrap(), "Ок.");
-+    }
-+
-+    #[test]
-+    fn map_response_timeout_status_maps_to_tc_gw_timeout() {
-+        let resp = GatewayResponse { status: "timeout".to_string(), text: None, files: None, elapsed: None, error: None };
-+        let err = map_response(resp).unwrap_err();
-+        assert!(err.to_string().starts_with("[TC-GW-TIMEOUT]"), "получено: {err}");
-+    }
-+
-+    #[test]
-+    fn map_response_error_status_maps_to_tc_gw_srv_with_detail() {
-+        let resp = GatewayResponse {
-+            status: "error".to_string(),
-+            text: None,
-+            files: None,
-+            elapsed: None,
-+            error: Some("кабинет недоступен".to_string()),
-+        };
-+        let err = map_response(resp).unwrap_err();
-+        assert_eq!(err.to_string(), "[TC-GW-SRV] кабинет недоступен");
-+    }
-+
-+    // ── Пояснение транспортной ошибки ────────────────────────────────────────
-+
-+    #[test]
-+    fn missing_client_file_gets_russian_explanation() {
-+        let err = TransportError::MissingClientFile { path: std::path::PathBuf::from("client_key") };
-+        let msg = describe_transport_error(&err);
-+        assert!(msg.contains("Клиентский пакет не установлен"), "получено: {msg}");
-+    }
-+}
-diff --git a/src-tauri/src/commands/mod.rs b/src-tauri/src/commands/mod.rs
-index a5a1d7c..1becf97 100644
---- a/src-tauri/src/commands/mod.rs
-+++ b/src-tauri/src/commands/mod.rs
-@@ -8,6 +8,8 @@ pub mod data_migration;
- pub mod content_updater;
- pub mod econometrica;
- pub mod feedback;
-+#[cfg(feature = "thin")]
-+pub mod gateway_executor;
- pub mod license;
- pub mod online_auth;
- pub mod parser;
-diff --git a/src-tauri/src/commands/updater.rs b/src-tauri/src/commands/updater.rs
-index d2feb6c..b9efbb1 100644
---- a/src-tauri/src/commands/updater.rs
-+++ b/src-tauri/src/commands/updater.rs
-@@ -104,8 +104,17 @@ async fn check_github_pages(product: &str) -> Result<VersionInfo> {
- ///   облачная:  aurora-econometrica-gui/latest.json
- ///   локальная: aurora-econometrica-gui-local/latest.json
- /// Публикация локального манифеста — регламент aurora-release-update.
-+///
-+/// Тонкая версия (feature `thin`, добавлено при внедрении gateway-транспорта):
-+/// собирается ПОВЕРХ default (`cloud_advisors` остаётся включённой) — поэтому
-+/// проверяем `thin` ПЕРВЫМ в цепочке приоритетов, иначе она попала бы в облачную
-+/// ветку и получала бы обновления полного клиента (с локальным Claude CLI внутри).
-+/// thin и локальная не сочетаются (thin не собирается с --no-default-features).
-+///   тонкая:    aurora-econometrica-gui-thin/latest.json
- pub fn update_product_key() -> String {
--    if cfg!(feature = "cloud_advisors") {
-+    if cfg!(feature = "thin") {
-+        format!("{}-thin", env!("CARGO_PKG_NAME"))
-+    } else if cfg!(feature = "cloud_advisors") {
-         env!("CARGO_PKG_NAME").to_string()
-     } else {
-         format!("{}-local", env!("CARGO_PKG_NAME"))
-@@ -478,15 +487,20 @@ mod tests {
-         assert!(!is_newer("v0.0.1", "0.0.1"));
-     }
- 
--    /// D2: канал обновлений согласован с редакцией сборки — облачная идёт
--    /// по базовому ключу, локальная по «-local» (иначе локальным клиентам
--    /// приедет облачный exe с Claude-каналом — нарушение «0 egress»).
-+    /// D2 + thin: канал обновлений согласован с редакцией сборки — тонкая идёт
-+    /// по «-thin» (высший приоритет: thin собирается ПОВЕРХ cloud_advisors, см.
-+    /// update_product_key), облачная (без thin) — по базовому ключу, локальная
-+    /// (без cloud_advisors) — по «-local». Редакции не делят канал, иначе клиенту
-+    /// одной редакции приедет exe другой — нарушение egress-контракта редакции.
-     #[test]
-     fn update_channel_matches_edition() {
-         let key = update_product_key();
--        if cfg!(feature = "cloud_advisors") {
-+        if cfg!(feature = "thin") {
-+            assert_eq!(key, format!("{}-thin", env!("CARGO_PKG_NAME")));
-+        } else if cfg!(feature = "cloud_advisors") {
-             assert_eq!(key, env!("CARGO_PKG_NAME"));
-             assert!(!key.ends_with("-local"));
-+            assert!(!key.ends_with("-thin"));
-         } else {
-             assert_eq!(key, format!("{}-local", env!("CARGO_PKG_NAME")));
-         }
-diff --git a/src-tauri/src/lib.rs b/src-tauri/src/lib.rs
-index a8a8f60..64ade41 100644
---- a/src-tauri/src/lib.rs
-+++ b/src-tauri/src/lib.rs
-@@ -321,6 +321,15 @@ fn get_local_content_version(app_handle: tauri::AppHandle) -> Result<Option<Stri
-     Ok(content_updater::get_local_version(&config_dir))
- }
- 
-+/// Отображаемая версия приложения. Суффикс «C» помечает тонкую редакцию (feature
-+/// `thin`, кабинет исполняется через SSH-gateway) — отличает её от полной в UI
-+/// (Настройки → О программе) без отдельного продукта в семантике версии.
-+#[tauri::command]
-+fn display_version() -> String {
-+    let suffix = if cfg!(feature = "thin") { "C" } else { "" };
-+    env!("CARGO_PKG_VERSION").to_string() + suffix
-+}
-+
- #[tauri::command]
- fn get_machine_id() -> Result<String, String> {
-     let fp = crypto::fingerprint::get_machine_fingerprint().map_err(|e| e.to_string())?;
-@@ -3309,6 +3318,7 @@ fn build_app() -> Result<(), String> {
-             check_content_update,
-             update_content,
-             get_local_content_version,
-+            display_version,
-             get_machine_id,
-             get_full_machine_hash,
-             get_raw_fingerprint,
-diff --git a/src-tauri/tauri.thin.conf.json b/src-tauri/tauri.thin.conf.json
-new file mode 100644
-index 0000000..596248b
---- /dev/null
-+++ b/src-tauri/tauri.thin.conf.json
-@@ -0,0 +1,5 @@
-+{
-+    "$schema": "https://schema.tauri.app/config/2",
-+    "productName": "Optimizer MMM",
-+    "identifier": "com.aurora.econometrica.thin"
-+}
-diff --git a/src/routes/settings/+page.svelte b/src/routes/settings/+page.svelte
-index 990b458..a23c420 100644
---- a/src/routes/settings/+page.svelte
-+++ b/src/routes/settings/+page.svelte
-@@ -4,10 +4,11 @@
-   import { theme, toggleTheme, cloudConsent, cloudConsentPromptOpen } from '$lib/store.js';
-   import { productType } from '$lib/creative-store.js';
-   import { getProductName, filterCabinetsByProduct } from '$lib/command-meta.js';
--  import { getVersion } from '@tauri-apps/api/app';
- 
-   let APP_VERSION = $state('...');
--  getVersion().then(v => { APP_VERSION = v; }).catch(() => { APP_VERSION = '?'; });
-+  // display_version (не getVersion из @tauri-apps/api/app): тонкая редакция (feature
-+  // `thin`) добавляет суффикс «C» к версии сборки — Rust-команда знает про cfg, JS нет.
-+  invoke('display_version').then(v => { APP_VERSION = v; }).catch(() => { APP_VERSION = '?'; });
-   import { isAudioEnabled, setAudioEnabled } from '$lib/audio.js';
-   import { onboardingEnabled } from '$lib/onboarding-state.js';
-   import { hideEducationalHints, showGlossaryPanel, showIntroTutorial } from '$lib/project-state.js';
-
-### REPO: aurora-platform-core (feat/gateway-transport-crate), база b65e9d0 = origin/main
-diff --git a/aurora_fleet/src/error.rs b/aurora_fleet/src/error.rs
-index fb77817..35b11ef 100644
---- a/aurora_fleet/src/error.rs
-+++ b/aurora_fleet/src/error.rs
-@@ -34,6 +34,11 @@ pub enum FleetError {
-     /// A self-updater error. Already prefixed with the donor-faithful code, e.g.
-     /// `"[UP-003] …"` (see `updater::UpdaterCode`).
-     Update(String),
-+    /// HTTP-ответ с неуспешным статусом (4xx/5xx) от online-auth бэкенда.
-+    /// Не является сетевой ошибкой (`Network`) — соединение состоялось, но сервер
-+    /// вернул явный отказ. Вызывающий `authorize()` должен маппить это в "offline",
-+    /// а не в "ok" (5xx с JSON-телом похожим на успех не должен трактоваться как авторизация).
-+    HttpStatus(u16),
-     /// Cloud-processing consent is required before an egress to a foreign LLM is
-     /// allowed (152-ФЗ transborder transfer; INV-38 Tier-2 compliance basis). The
-     /// string is prefixed with the donor-faithful marker `"[CL-CONSENT] …"`, so a
-@@ -64,6 +69,7 @@ impl fmt::Display for FleetError {
-             FleetError::Parse(msg) => write!(f, "parse error: {msg}"),
-             // Already code-prefixed (`[UP-xxx] …`) — emit verbatim.
-             FleetError::Update(msg) => write!(f, "{msg}"),
-+            FleetError::HttpStatus(code) => write!(f, "HTTP error {code} from auth backend"),
-             // Already code-prefixed (`[CL-CONSENT] …`) — emit verbatim.
-             FleetError::Consent(msg) => write!(f, "{msg}"),
-         }
-@@ -104,6 +110,7 @@ impl FleetError {
-             | FleetError::Network(s)
-             | FleetError::Parse(s) => s,
-             FleetError::BadSignatureLength(_) => "signature must be 64 bytes",
-+            FleetError::HttpStatus(_) => "HTTP error from auth backend",
-         }
-     }
- }
-diff --git a/aurora_fleet/src/lib.rs b/aurora_fleet/src/lib.rs
-index 27d76b2..8e4486b 100644
---- a/aurora_fleet/src/lib.rs
-+++ b/aurora_fleet/src/lib.rs
-@@ -20,6 +20,7 @@ pub mod ed25519;
- pub mod error;
- pub mod fingerprint;
- pub mod license;
-+pub mod local_mode;
- pub mod online_auth;
- pub mod updater;
- 
-diff --git a/aurora_fleet/src/license.rs b/aurora_fleet/src/license.rs
-index 26ced83..e695820 100644
---- a/aurora_fleet/src/license.rs
-+++ b/aurora_fleet/src/license.rs
-@@ -137,8 +137,25 @@ impl License {
-     }
- 
-     /// Canonical JSON for signature verification (all fields except signature).
-+    ///
-+    /// ⚠️  ВНИМАНИЕ — НЕ МЕНЯТЬ СЕРИАЛИЗАЦИЮ БЕЗ СОГЛАСОВАННОЙ МИГРАЦИИ ОБЕИХ СТОРОН.
-+    ///
-+    /// Этот формат ЗАМОРОЖЕН: любое изменение (порядок ключей, пробелы, экранирование)
-+    /// сломает проверку подписей ВСЕХ уже выданных лицензий необратимо.
-+    ///
-+    /// Подписчик (`tools/license-generator`) ОБЯЗАН строить канонический JSON байт-в-байт
-+    /// так же. Поля `issued_to`/`license_id` вставляются через format!() без JSON-экранирования
-+    /// → спецсимволы (кавычка `"`, обратная черта `\`) дают невалидный, но детерминированный
-+    /// вид (подпись всё равно пройдёт, если генератор делает то же самое). При расхождении
-+    /// с генератором проверка необратимо сломается.
-+    ///
-+    /// TODO: согласованная миграция обеих сторон на строгий сериализатор (serde canonical)
-+    /// ДО первых коммерческих лицензий с кавычками/backslash в названии компании.
-     fn canonical_json(&self) -> String {
--        // Deterministic JSON: sorted keys, no signature field
-+        // Deterministic JSON: sorted keys, no signature field.
-+        // НЕ использовать serde_json::to_string для всего объекта — порядок ключей
-+        // не гарантирован. Поле `cabinets` сериализуется через serde (корректный JSON-массив);
-+        // строковые поля — через format! (без экранирования спецсимволов — см. ⚠️ выше).
-         format!(
-             r#"{{"cabinets":{cabinets},"expires_at":"{expires}","issued_to":"{issued}","license_id":"{id}","machine_fingerprint_hash":"{fp}","salt":"{salt}"}}"#,
-             cabinets = serde_json::to_string(&self.cabinets).unwrap_or_else(|_| "[]".to_string()),
-@@ -189,7 +206,11 @@ impl License {
-         // Parse expiry early so days_remaining is available in all branches
-         let expires = NaiveDate::parse_from_str(&self.expires_at, "%Y-%m-%d")
-             .map_err(|_| coded_err(LicenseCode::Li008, "Invalid expiry date format"))?;
--        let today = chrono::Local::now().date_naive();
-+        // G-03: UTC единообразно с gateway — избегаем false-reject в часовых поясах
-+        // западнее UTC (local-evening = UTC-next-day → local-date < expire-date при
-+        // пограничном expires_at). Expiry — календарная дата, UTC-полдень ≈ безопасная
-+        // точка отсчёта для всех зон; anti-rollback выше уже использует UTC.
-+        let today = chrono::Utc::now().date_naive();
-         let days_remaining = (expires - today).num_days();
- 
-         // Check machine binding
-@@ -404,6 +425,38 @@ mod tests {
-         );
-     }
- 
-+    /// Регрессионный тест: кавычка в `issued_to` вставляется без экранирования
-+    /// (текущее поведение через format!, а не через serde_json).
-+    ///
-+    /// ⚠️  Тест ФИКСИРУЕТ КОНТРАКТ, а не «правильное» поведение.
-+    /// Результат — невалидный JSON (сломанная кавычка), но детерминированный:
-+    /// если генератор лицензии делает то же самое (format! без экранирования),
-+    /// подпись пройдёт. Тест ловит любое непреднамеренное изменение формата.
-+    ///
-+    /// TODO: согласованная миграция на serde canonical до первых коммерческих
-+    /// лицензий с кавычками в названии — тогда этот тест обновить синхронно.
-+    #[test]
-+    fn canonical_json_quote_in_issued_to_is_unescaped_current_contract() {
-+        let lic = License {
-+            license_id: "TEST-Q".into(),
-+            issued_to: r#"Co "Quote" Ltd"#.into(), // кавычки в названии
-+            expires_at: "2030-01-01".into(),
-+            machine_fingerprint_hash: "fp".into(),
-+            cabinets: vec!["analyst".into()],
-+            salt: "c2FsdA==".into(),
-+            signature: String::new(),
-+        };
-+        let canon = lic.canonical_json();
-+        // Текущий контракт: кавычки НЕ экранируются (format! без JSON-escape).
-+        // Результат невалидный JSON — зафиксировано как известное ограничение.
-+        assert!(
-+            canon.contains(r#"Co "Quote" Ltd"#),
-+            "кавычка в issued_to должна быть не экранирована (текущий контракт): {canon}"
-+        );
-+        // Ключи и порядок не должны измениться.
-+        assert!(canon.starts_with(r#"{"cabinets":"#), "порядок ключей не изменился: {canon}");
-+    }
-+
-     #[test]
-     fn license_verify_signature_invalid() {
-         // Wrong-length signature → ed25519::verify_signature returns Err.
-diff --git a/aurora_fleet/src/local_mode.rs b/aurora_fleet/src/local_mode.rs
-new file mode 100644
-index 0000000..6bb15f8
---- /dev/null
-+++ b/aurora_fleet/src/local_mode.rs
-@@ -0,0 +1,470 @@
-+//! Offline-приоритетная проверка лицензии для локального режима Aurora.
-+//!
-+//! **Зачем этот модуль:**
-+//! Тонкий клиент Aurora поддерживает три режима работы: облачный, гибридный и
-+//! «локальный» (on-device модель работает на машине пользователя без SSH-gateway).
-+//! В облачном и гибридном режимах каждый запрос проходит через серверный шлюз, и
-+//! лицензионный контроль осуществляется на сервере. В **локальном** режиме трафик
-+//! обходит сервер целиком, поэтому серверная проверка не срабатывает автоматически.
-+//!
-+//! Этот модуль закрывает дыру: при старте локального режима клиент **сам**
-+//! проверяет лицензию, используя онлайн-приоритет с Ed25519-fallback'ом когда
-+//! сервер недоступен. Без этой проверки локальный режим можно было бы использовать
-+//! без действующей лицензии, просто отключив сеть.
-+//!
-+//! **Логика (fail-closed):**
-+//! 1. Online-приоритет: спрашиваем сервер через [`online_auth::authorize`].
-+//!    - `"ok"` / `"cached"` → разрешаем (сервер подтвердил или кэш свеж).
-+//!    - `"blocked"` → **жёсткий отказ** без выхода в offline: сервер явно
-+//!      заблокировал лицензию, игнорировать этот сигнал означало бы дыру
-+//!      (пользователь может снять кабель и получить доступ через Ed25519).
-+//!    - `"offline"` (нет сети, нет кэша) → переходим к п. 2.
-+//! 2. Offline Ed25519 fallback: загружаем лицензию и проверяем WMI-binding +
-+//!    anti-rollback + expiry + подпись через [`license::License::validate`].
-+//! 3. Любой путь, не давший явного `allowed = true`, оставляет `allowed = false`.
-+//!    Сомнение = отказ.
-+//!
-+//! **Гранулярность кабинетов в локальном режиме:**
-+//! На текущей фазе: валидная подписанная лицензия + совпавшая машина = локальный
-+//! режим разрешён; поле `local_mode_allowed` намеренно НЕ добавляется в структуру
-+//! `License` (это сломало бы подписи уже выданных лицензий). Гранулярный запрет
-+//! конкретного клиента на локальный режим — это server-side (ответ `"blocked"`).
-+
-+use chrono::NaiveDate;
-+use serde::Serialize;
-+use std::path::Path;
-+
-+use crate::{license::License, online_auth};
-+use crate::online_auth::OnlineAuthStatus;
-+
-+// ── Публичные типы ──────────────────────────────────────────────────────────
-+
-+/// Источник, из которого получен вердикт о локальном режиме.
-+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
-+pub enum LocalModeSource {
-+    /// Сервер ответил и подтвердил лицензию (status="ok").
-+    Online,
-+    /// Свежий кэш успешной авторизации (status="cached", сервер недоступен).
-+    OnlineCache,
-+    /// Сервер недоступен И кэша нет — проверка прошла через Ed25519-подпись.
-+    OfflineEd25519,
-+    /// Сервер явно заблокировал, или Ed25519 отказал, или лицензия не найдена.
-+    Denied,
-+}
-+
-+/// Вердикт проверки лицензии для локального режима.
-+///
-+/// `allowed = false` при любом сомнении (fail-closed). UI должен показывать
-+/// `reason` пользователю и предлагать проверить сеть или лицензию.
-+#[derive(Debug, Clone, Serialize)]
-+pub struct LocalModeVerdict {
-+    /// Разрешён ли локальный режим.
-+    pub allowed: bool,
-+    /// Список разрешённых кабинетов (пуст при `allowed = false`).
-+    pub cabinets: Vec<String>,
-+    /// Откуда получен вердикт — для диагностики и логирования.
-+    pub source: LocalModeSource,
-+    /// Причина отказа для UI, или `None` если `allowed = true`.
-+    pub reason: Option<String>,
-+}
-+
-+// ── Внутренний маппинг online-статусов ─────────────────────────────────────
-+
-+/// Принимает решение на основе ответа online-уровня.
-+///
-+/// Возвращает `Some(LocalModeVerdict)` если online-уровень дал окончательный
-+/// ответ (ok / cached / blocked), и `None` если сеть недоступна и нет кэша
-+/// ("offline") — тогда нужно уйти в Ed25519-fallback.
-+///
-+/// Вынесена в отдельную чистую функцию для юнит-тестирования без сети.
-+///
-+/// **Важно:** `"blocked"` → `Some(Denied)`, NOT `None`. Выход в offline при
-+/// явном серверном запрете был бы дырой: пользователь мог бы снять кабель и
-+/// обойти блокировку через Ed25519.
-+pub fn decide_from_online(status: &OnlineAuthStatus) -> Option<LocalModeVerdict> {
-+    match status.status.as_str() {
-+        "ok" => Some(LocalModeVerdict {
-+            allowed: true,
-+            cabinets: status.cabinets.clone(),
-+            source: LocalModeSource::Online,
-+            reason: None,
-+        }),
-+        "cached" => Some(LocalModeVerdict {
-+            allowed: true,
-+            cabinets: status.cabinets.clone(),
-+            source: LocalModeSource::OnlineCache,
-+            reason: None,
-+        }),
-+        "blocked" => {
-+            // Сервер явно запретил — не падаем в offline, это дыра.
-+            let reason = status
-+                .message
-+                .clone()
-+                .unwrap_or_else(|| "Лицензия заблокирована сервером".to_string());
-+            Some(LocalModeVerdict {
-+                allowed: false,
-+                cabinets: vec![],
-+                source: LocalModeSource::Denied,
-+                reason: Some(reason),
-+            })
-+        }
-+        // КОНТРАКТ (намеренный): единственный явный серверный запрет — `"blocked"`.
-+        // `"offline"` и любой иной/неизвестный статус (в т.ч. `"error"`, `"maintenance"`,
-+        // будущие статусы) возвращают None → Ed25519-fallback. Это осознанный выбор:
-+        // неизвестный статус = техническая недоступность, а не намеренный запрет.
-+        // Ed25519-fallback сам fail-closed: требует валидную подписанную лицензию
-+        // с совпадением машины — несанкционированный доступ через него невозможен.
-+        // Превращать неизвестные статусы в Denied сломало бы легитимный offline
-+        // при временном сбое сервера (например, кратковременный 500 или деплой).
-+        _ => None,
-+    }
-+}
-+
-+// ── Основная точка входа ────────────────────────────────────────────────────
-+
-+/// Проверить право на использование локального режима Aurora.
-+///
-+/// Online-приоритет: сначала проверяем через Supabase-бэкенд; если сервер
-+/// недоступен и кэша нет — валидируем Ed25519-лицензию локально. Fail-closed:
-+/// любой неопределённый исход возвращает `allowed = false`.
-+///
-+/// # Аргументы
-+/// * `app_config_dir` — директория конфигурации приложения (там живут `license.json`,
-+///   `session_cache.json`, `instance.id`).
-+/// * `app_version` — версия приложения для онлайн-авторизации.
-+/// * `content_version` — версия контент-пакета для онлайн-авторизации.
-+/// * `product` — идентификатор продукта для бэкенда (например `"thin-client"`).
-+/// * `build_date` — дата сборки приложения; передаётся в `License::validate` для
-+///   anti-rollback проверки часов (LI-009).
-+pub async fn verify_local_mode(
-+    app_config_dir: &Path,
-+    app_version: &str,
-+    content_version: &str,
-+    product: &str,
-+    build_date: NaiveDate,
-+) -> LocalModeVerdict {
-+    // ── Шаг 1: Online-приоритет ─────────────────────────────────────────────
-+    let online_status =
-+        online_auth::authorize(app_config_dir, app_version, content_version, product).await;
-+
-+    if let Some(verdict) = decide_from_online(&online_status) {
-+        // Сервер дал окончательный ответ (ok / cached / blocked).
-+        return verdict;
-+    }
-+
-+    // ── Шаг 2: Offline Ed25519 fallback ────────────────────────────────────
-+    // Доходим сюда только если status="offline" (нет сети И нет свежего кэша).
-+    // Загружаем и валидируем Ed25519-лицензию: machine binding + anti-rollback
-+    // + expiry + подпись.
-+    let load_result = License::load(app_config_dir);
-+    match load_result {
-+        Err(e) => {
-+            // Лицензия не найдена или повреждена.
-+            LocalModeVerdict {
-+                allowed: false,
-+                cabinets: vec![],
-+                source: LocalModeSource::Denied,
-+                reason: Some(e.to_string()),
-+            }
-+        }
-+        Ok(license) => {
-+            match license.validate(build_date) {
-+                Err(e) => {
-+                    // validate() возвращает Err только на не-валидационных ошибках
-+                    // (WMI недоступен, некорректный base64 и т.п.).
-+                    LocalModeVerdict {
-+                        allowed: false,
-+                        cabinets: vec![],
-+                        source: LocalModeSource::Denied,
-+                        reason: Some(e.to_string()),
-+                    }
-+                }
-+                Ok(status) if status.valid => LocalModeVerdict {
-+                    allowed: true,
-+                    cabinets: status.cabinets,
-+                    source: LocalModeSource::OfflineEd25519,
-+                    reason: None,
-+                },
-+                Ok(status) => {
-+                    // valid=false — LI-005 (истекла), LI-006 (другая машина),
-+                    // LI-007 (неверная подпись), LI-009 (часы откатаны) и т.д.
-+                    LocalModeVerdict {
-+                        allowed: false,
-+                        cabinets: vec![],
-+                        source: LocalModeSource::OfflineEd25519,
-+                        reason: status.error,
-+                    }
-+                }
-+            }
-+        }
-+    }
-+}
-+
-+// ── Тесты ───────────────────────────────────────────────────────────────────
-+
-+#[cfg(test)]
-+mod tests {
-+    use super::*;
-+    use crate::{fingerprint, license::License};
-+
-+    // ── Вспомогательные конструкторы OnlineAuthStatus ───────────────────────
-+
-+    fn make_online_status(status: &str, cabinets: Vec<String>, message: Option<String>) -> OnlineAuthStatus {
-+        OnlineAuthStatus {
-+            available: matches!(status, "ok" | "blocked"),
-+            status: status.to_string(),
-+            cabinets,
-+            content_version: None,
-+            app_min_version: "0.0.0".to_string(),
-+            expires_at: None,
-+            machine_id: "test-machine".to_string(),
-+            message,
-+            update_required: false,
-+            update_url: None,
-+            vault_versions: None,
-+            content_pack_version: None,
-+            content_pack_url: None,
-+            content_pack_checksum: None,
-+            frontend_version: None,
-+            frontend_url: None,
-+            frontend_checksum: None,
++    loop {
++        match res.chunk().await {
++            Ok(Some(chunk)) => buf.extend_from_slice(&chunk),
++            Ok(None) => break,
++            Err(e) => anyhow::bail!(
++                "{}: поток оборван на {} байт (сервер обещал {}): {}",
++                what,
++                buf.len(),
++                declared.map(|n| n.to_string()).unwrap_or_else(|| "неизвестно".into()),
++                e
++            ),
 +        }
 +    }
 +
-+    // ── Тесты LocalModeVerdict: конструирование и сериализация ──────────────
-+
-+    #[test]
-+    fn verdict_allowed_serializes_correctly() {
-+        let v = LocalModeVerdict {
-+            allowed: true,
-+            cabinets: vec!["analyst".into(), "director".into()],
-+            source: LocalModeSource::Online,
-+            reason: None,
-+        };
-+        let json = serde_json::to_string(&v).unwrap();
-+        // Все поля присутствуют в JSON
-+        assert!(json.contains("\"allowed\":true"), "allowed field");
-+        assert!(json.contains("\"analyst\""), "cabinets content");
-+        assert!(json.contains("\"source\":\"Online\""), "source field");
-+        assert!(json.contains("\"reason\":null"), "reason null when allowed");
-+    }
-+
-+    #[test]
-+    fn verdict_denied_serializes_correctly() {
-+        let v = LocalModeVerdict {
-+            allowed: false,
-+            cabinets: vec![],
-+            source: LocalModeSource::Denied,
-+            reason: Some("[LI-005] License has expired".into()),
-+        };
-+        let json = serde_json::to_string(&v).unwrap();
-+        assert!(json.contains("\"allowed\":false"), "allowed=false");
-+        assert!(json.contains("\"cabinets\":[]"), "empty cabinets on denial");
-+        assert!(json.contains("\"source\":\"Denied\""), "Denied source");
-+        assert!(json.contains("LI-005"), "reason contains LI code");
-+    }
-+
-+    #[test]
-+    fn all_source_variants_serialize() {
-+        for (src, expected) in [
-+            (LocalModeSource::Online, "Online"),
-+            (LocalModeSource::OnlineCache, "OnlineCache"),
-+            (LocalModeSource::OfflineEd25519, "OfflineEd25519"),
-+            (LocalModeSource::Denied, "Denied"),
-+        ] {
-+            let json = serde_json::to_string(&src).unwrap();
-+            assert!(
-+                json.contains(expected),
-+                "variant {expected} missing from serialized form: {json}"
-+            );
++    // Усечение без ошибки сокета: посредник закрыл соединение «чисто».
++    if let Some(n) = declared {
++        if buf.len() as u64 != n {
++            anyhow::bail!("{}: получено {} байт из обещанных {}", what, buf.len(), n);
 +        }
 +    }
 +
-+    // ── Тесты маппинга online-статусов ─────────────────────────────────────
-+
-+    #[test]
-+    fn decide_ok_gives_allowed_online() {
-+        let status = make_online_status("ok", vec!["analyst".into()], None);
-+        let verdict = decide_from_online(&status).expect("ok must give Some");
-+        assert!(verdict.allowed, "ok → allowed");
-+        assert_eq!(verdict.source, LocalModeSource::Online);
-+        assert_eq!(verdict.cabinets, vec!["analyst"]);
-+        assert!(verdict.reason.is_none());
-+    }
-+
-+    #[test]
-+    fn decide_cached_gives_allowed_onlinecache() {
-+        let status = make_online_status("cached", vec!["director".into()], None);
-+        let verdict = decide_from_online(&status).expect("cached must give Some");
-+        assert!(verdict.allowed, "cached → allowed");
-+        assert_eq!(verdict.source, LocalModeSource::OnlineCache);
-+        assert_eq!(verdict.cabinets, vec!["director"]);
-+    }
-+
-+    #[test]
-+    fn decide_blocked_gives_denied_not_none() {
-+        // blocked → жёсткий Denied, НЕ None (иначе упадём в Ed25519 fallback,
-+        // что позволит обойти блокировку отключив кабель).
-+        let msg = "Лицензия отозвана администратором".to_string();
-+        let status = make_online_status("blocked", vec![], Some(msg.clone()));
-+        let verdict = decide_from_online(&status).expect("blocked must give Some, not fall through to offline");
-+        assert!(!verdict.allowed, "blocked → denied");
-+        assert_eq!(verdict.source, LocalModeSource::Denied);
-+        assert_eq!(verdict.reason.as_deref(), Some(msg.as_str()));
-+        assert!(verdict.cabinets.is_empty());
-+    }
-+
-+    #[test]
-+    fn decide_blocked_without_message_uses_default_reason() {
-+        let status = make_online_status("blocked", vec![], None);
-+        let verdict = decide_from_online(&status).unwrap();
-+        assert!(!verdict.allowed);
-+        // Дефолтная причина должна быть непустой — UI не должен видеть пустой текст.
-+        assert!(
-+            verdict.reason.as_deref().unwrap_or("").len() > 0,
-+            "default blocked reason must be non-empty"
-+        );
-+    }
-+
-+    #[test]
-+    fn decide_offline_gives_none() {
-+        // "offline" → None, нужно падать в Ed25519 fallback.
-+        let status = make_online_status("offline", vec![], None);
-+        let result = decide_from_online(&status);
-+        assert!(result.is_none(), "offline must return None to trigger Ed25519 fallback");
-+    }
-+
-+    #[test]
-+    fn decide_unknown_status_gives_none() {
-+        // Неизвестный статус — не trust, не block, уходим в fallback.
-+        let status = make_online_status("unknown-future-status", vec![], None);
-+        let result = decide_from_online(&status);
-+        assert!(result.is_none(), "unknown status must return None (conservative)");
-+    }
-+
-+    /// Регрессионный тест контракта ветки `_ => None` в `decide_from_online`.
-+    ///
-+    /// Статус `"error"` — технический сбой на сервере, НЕ намеренный запрет.
-+    /// Контракт: `decide_from_online` возвращает `None` → уход в Ed25519-fallback,
-+    /// который сам fail-closed (требует валидную подписанную лицензию + совпадение машины).
-+    /// Превращение `"error"` в `Denied` сломало бы легитимный offline при кратковременном
-+    /// сбое сервера (500, деплой и т.п.).
-+    #[test]
-+    fn decide_error_status_gives_none_not_denied() {
-+        let status = make_online_status("error", vec![], None);
-+        let result = decide_from_online(&status);
-+        assert!(
-+            result.is_none(),
-+            "status='error' must return None (техническая недоступность → Ed25519-fallback)"
-+        );
-+    }
-+
-+    /// Аналогично: `"maintenance"` — плановое техническое окно, не блокировка.
-+    /// Пользователь с валидной лицензией должен продолжать работать offline.
-+    #[test]
-+    fn decide_maintenance_status_gives_none_not_denied() {
-+        let status = make_online_status("maintenance", vec![], None);
-+        let result = decide_from_online(&status);
-+        assert!(
-+            result.is_none(),
-+            "status='maintenance' must return None (плановое окно → Ed25519-fallback)"
-+        );
-+    }
-+
-+    // ── Тест fail-closed: denied-вердикт строго соблюдает инвариант ─────────
-+
-+    #[test]
-+    fn denied_verdict_invariant() {
-+        // Любой denied-вердикт должен иметь allowed=false и reason=Some.
-+        let v = LocalModeVerdict {
-+            allowed: false,
-+            cabinets: vec![],
-+            source: LocalModeSource::Denied,
-+            reason: Some("причина".into()),
-+        };
-+        assert!(!v.allowed, "denied: allowed must be false");
-+        assert!(v.reason.is_some(), "denied: reason must be Some");
-+        assert!(v.cabinets.is_empty(), "denied: cabinets must be empty");
-+    }
-+
-+    // ── Тест offline-ветки через License::validate_without_rollback_check ───
-+
-+    /// Проверяет offline-ветку отказа через просроченную лицензию.
-+    /// Использует `validate_without_rollback_check` (без anti-rollback),
-+    /// чтобы тест не зависел от системного времени.
-+    /// Пропускается если WMI недоступен (headless CI).
-+    #[test]
-+    fn offline_branch_expired_license_is_denied() {
-+        // Нам нужен реальный отпечаток машины, чтобы пройти machine-binding check
-+        // и добраться до проверки expiry (LI-005).
-+        let Ok(fp) = fingerprint::get_machine_fingerprint() else {
-+            // WMI недоступен — пропускаем.
-+            return;
-+        };
-+        let fp_hash = fingerprint::hash_fingerprint(&fp);
-+
-+        let expired_license = License {
-+            license_id: "R10-TEST-EXPIRED".into(),
-+            issued_to: "Test Corp".into(),
-+            expires_at: "2020-01-01".into(), // в прошлом
-+            machine_fingerprint_hash: fp_hash,
-+            cabinets: vec!["analyst".into()],
-+            salt: "c2FsdA==".into(),
-+            signature: String::new(), // подпись пустая — но expiry проверяется до неё
-+        };
-+
-+        // validate_without_rollback_check: anti-rollback выключен, проверяем только
-+        // machine binding + expiry + signature.
-+        let status = expired_license
-+            .validate_without_rollback_check()
-+            .expect("validate returns Ok (not Err) even for invalid licenses");
-+
-+        assert!(!status.valid, "expired license must be invalid");
-+        let err = status.error.unwrap_or_default();
-+        assert!(
-+            err.contains("LI-005"),
-+            "expected LI-005 (expired), got: {err}"
-+        );
-+
-+        // Эмулируем вердикт offline-ветки как это делает verify_local_mode.
-+        let verdict = LocalModeVerdict {
-+            allowed: false,
-+            cabinets: vec![],
-+            source: LocalModeSource::OfflineEd25519,
-+            reason: Some(err),
-+        };
-+        assert!(!verdict.allowed, "fail-closed: expired offline license → denied");
-+        assert_eq!(verdict.source, LocalModeSource::OfflineEd25519);
-+        assert!(verdict.reason.is_some());
-+    }
-+
-+    /// Проверяет offline-ветку: отсутствие license.json → вердикт Denied с LI-001.
-+    #[test]
-+    fn offline_branch_missing_license_is_denied() {
-+        let tmp = std::env::temp_dir().join(format!(
-+            "aurora-local-mode-test-{}",
-+            std::process::id()
-+        ));
-+        let _ = std::fs::remove_dir_all(&tmp);
-+        std::fs::create_dir_all(&tmp).unwrap();
-+
-+        // License::load на пустой директории → LI-001.
-+        let err = License::load(&tmp).unwrap_err();
-+        assert!(
-+            err.to_string().contains("LI-001"),
-+            "missing license should surface LI-001, got: {err}"
-+        );
-+
-+        // verify_local_mode превратит это в Denied.
-+        let verdict = LocalModeVerdict {
-+            allowed: false,
-+            cabinets: vec![],
-+            source: LocalModeSource::Denied,
-+            reason: Some(err.to_string()),
-+        };
-+        assert!(!verdict.allowed);
-+        assert!(verdict.reason.as_deref().unwrap().contains("LI-001"));
-+
-+        let _ = std::fs::remove_dir_all(&tmp);
-+    }
-+}
-diff --git a/aurora_fleet/src/online_auth.rs b/aurora_fleet/src/online_auth.rs
-index e3cd283..e2a5f7b 100644
---- a/aurora_fleet/src/online_auth.rs
-+++ b/aurora_fleet/src/online_auth.rs
-@@ -301,6 +301,14 @@ pub async fn check_auth_with_consent(
- 
-     let res = client.post(&url).json(&req).send().await?;
- 
-+    // R-04: 5xx с JSON-телом, похожим на успех, НЕ должен трактоваться как авторизация.
-+    // Проверяем статус ДО чтения тела — иначе сервер может вернуть HTTP 503 с {"status":"ok"},
-+    // и `auth_response.status == "ok"` пройдёт проверку, создав иллюзию авторизации.
-+    // FleetError::HttpStatus попадёт в Err-ветку authorize() → offline/cached (не "ok").
-+    if !res.status().is_success() {
-+        return Err(FleetError::HttpStatus(res.status().as_u16()));
-+    }
-+
-     let body = res.text().await?;
- 
-     let auth_response: AuthResponse = serde_json::from_str(&body).map_err(|e| {
-diff --git a/aurora_gateway/Cargo.toml b/aurora_gateway/Cargo.toml
-new file mode 100644
-index 0000000..8b6c814
---- /dev/null
-+++ b/aurora_gateway/Cargo.toml
-@@ -0,0 +1,15 @@
-+[package]
-+name = "aurora_gateway"
-+version = "0.1.0"
-+edition = "2021"
-+description = "Aurora gateway layer — shared SSH transport for thin-client cabinets (send_to_gateway), promoted from the production-proven thin-client/app stack to be the cross-product SSOT instead of app-to-app copies."
-+license = "Proprietary"
-+repository = "https://github.com/Ackold26/aurora-platform-core"
-+
-+[lib]
-+crate-type = ["rlib"]
-+
-+[dependencies]
-+serde = { version = "1", features = ["derive"] }
-+serde_json = "1"
-+thiserror = "1"
-diff --git a/aurora_gateway/src/lib.rs b/aurora_gateway/src/lib.rs
-new file mode 100644
-index 0000000..b0f164e
---- /dev/null
-+++ b/aurora_gateway/src/lib.rs
-@@ -0,0 +1,21 @@
-+//! Aurora gateway layer — shared SSH transport for thin-client cabinets.
-+//!
-+//! Core-крейт: общий SSH-транспорт тонких клиентов Aurora; перенос боевого
-+//! эталона `thin-client/app` (`send_to_gateway` + типы запроса/ответа), чтобы
-+//! каждый продукт с feature `thin` подключал Core, а не копировал модуль
-+//! app-to-app.
-+//!
-+//! ## Серверный контракт
-+//! SSH forced-command на gateway-узле. JSON в stdin
-+//! `{"cabinet","prompt","session_key"}` → JSON в stdout
-+//! `{"status","text","files","turn","elapsed"}`. Контракт боевой, крейт его
-+//! не меняет — только транспортирует.
-+//!
-+//! ## Потребители
-+//! Tauri-продукты Aurora, собранные с feature `thin` (например Econometrica
-+//! `--features thin`): вызывающий сам оборачивает синхронный `send_to_gateway`
-+//! в `tokio::task::spawn_blocking`.
-+
-+pub mod transport;
-+
-+pub use transport::{send_to_gateway, GatewayRequest, GatewayResponse, TransportError};
-diff --git a/aurora_gateway/src/transport.rs b/aurora_gateway/src/transport.rs
-new file mode 100644
-index 0000000..28a8c6e
---- /dev/null
-+++ b/aurora_gateway/src/transport.rs
-@@ -0,0 +1,450 @@
-+//! Core-крейт: общий SSH-транспорт тонких клиентов Aurora; перенос боевого
-+//! эталона thin-client/app.
-+//!
-+//! Транспортный модуль Aurora тонкого клиента.
-+//!
-+//! Ответственность: отправить JSON-запрос на gateway-узел через SSH
-+//! и вернуть распарсенный JSON-ответ. Всё остальное — не наша задача.
-+//!
-+//! ## Транспортный контракт
-+//! Канал: системный `ssh` (OpenSSH). На Windows — System32\OpenSSH\ssh.exe.
-+//! Аутентификация клиента: user-сертификат (`client_key` + `client_key-cert.pub`).
-+//! Доверие серверу: host-CA в `known_hosts` (`@cert-authority`), никакого TOFU.
-+//! Обмен: строго JSON в stdin → JSON в stdout. Ни shell, ни ФС сервера недоступны
-+//! (forced-command на сервере).
-+//!
-+//! ## Размещение ключей клиента
-+//! По умолчанию `%APPDATA%\Aurora\client\` (Windows) или `~/.aurora-thin/` (POSIX).
-+//! Набор файлов: `client_key` (приватный ключ), `client_key-cert.pub` (сертификат),
-+//! `known_hosts` (CA-запись сервера). Выдаётся через `issue_client.sh` на сервере.
-+//!
-+//! ## Почему std::process::Command, не tokio::process
-+//! SSH-процесс — это блокирующий I/O с очень предсказуемым временем жизни:
-+//! запрос отправлен → ждём ответа. Tokio нужен нам для параллельных задач
-+//! Tauri-команд, но SSH-диалог сам по себе последовательный. Используем
-+//! `tokio::task::spawn_blocking` чтобы не блокировать рантайм.
-+
-+use serde::{Deserialize, Serialize};
-+use std::path::{Path, PathBuf};
-+use std::process::{Command, Stdio};
-+use std::io::{Read, Write};
-+use thiserror::Error;
-+
-+// ── Типы ────────────────────────────────────────────────────────────────────
-+
-+/// Запрос к gateway. Поля совпадают с контрактом сервера (aurora-thin.sh).
-+#[derive(Debug, Clone, Serialize, Deserialize)]
-+pub struct GatewayRequest {
-+    /// Идентификатор кабинета (например "legal", "analyst").
-+    pub cabinet: String,
-+    /// Промпт пользователя — произвольный текст, не интерполируется в shell.
-+    pub prompt: String,
-+    /// Метка сессии для логирования на сервере (не секрет).
-+    pub session_key: String,
++    Ok(buf)
 +}
 +
-+/// Ответ от gateway. Сервер всегда возвращает JSON с полями ниже.
-+#[derive(Debug, Clone, Deserialize, Serialize)]
-+pub struct GatewayResponse {
-+    /// "ok" при успехе, "error" при сбое на стороне сервера.
-+    pub status: String,
-+    /// Текстовый ответ кабинета (при status="ok").
-+    #[serde(default)]
-+    pub text: Option<String>,
-+    /// Вложения-файлы если кабинет вернул артефакты (base64 или URL).
-+    #[serde(default)]
-+    pub files: Option<Vec<String>>,
-+    /// Время выполнения запроса на сервере, СЕКУНДЫ (float — движок отдаёт
-+    /// round(elapsed, 1), напр. 2.9). Тип f64 обязателен: u64 уронил бы парсинг
-+    /// реального ответа сервера (проверено боем — сервер возвращает "elapsed": 2.9).
-+    #[serde(default)]
-+    pub elapsed: Option<f64>,
-+    /// Сообщение об ошибке (при status="error").
-+    #[serde(default)]
-+    pub error: Option<String>,
-+}
++/// Одна попытка скачать файл.
++async fn fetch_vault_once(
++    client: &reqwest::Client,
++    url: &str,
++    filename: &str,
++) -> std::result::Result<Vec<u8>, FetchFailure> {
++    let res = client
++        .get(url)
++        .send()
++        .await
++        .map_err(|e| FetchFailure::Transient(anyhow::anyhow!("{}: запрос не прошёл: {}", filename, e)))?;
 +
-+/// Ошибки транспортного уровня.
-+#[derive(Debug, Error)]
-+pub enum TransportError {
-+    /// Один или несколько файлов клиентского пакета отсутствуют/нечитаемы.
-+    #[error("Файл клиентского пакета не найден: {path}")]
-+    MissingClientFile { path: PathBuf },
-+
-+    /// Процесс ssh завершился с ненулевым кодом.
-+    #[error("SSH завершился с кодом {code}: {stderr}")]
-+    SshExitError { code: i32, stderr: String },
-+
-+    /// Сигнал завершил SSH-процесс (kill, OOM и т.п.).
-+    #[error("SSH-процесс прерван сигналом")]
-+    SshKilled,
-+
-+    /// Не удалось запустить процесс ssh (не найден, нет прав).
-+    #[error("Не удалось запустить ssh: {0}")]
-+    SpawnFailed(#[from] std::io::Error),
-+
-+    /// Ошибка сериализации JSON-запроса.
-+    #[error("Ошибка сериализации запроса: {0}")]
-+    SerializeRequest(serde_json::Error),
-+
-+    /// Ответ сервера не является валидным JSON.
-+    #[error("Ответ сервера не является JSON: {raw}")]
-+    InvalidJson { raw: String },
-+
-+    /// Ошибка записи stdin в SSH-процесс.
-+    #[error("Не удалось записать запрос в stdin SSH: {0}")]
-+    StdinWrite(std::io::Error),
-+
-+    /// SSH вернул пустой stdout — это не ожидаемое поведение gateway.
-+    #[error("Пустой ответ от gateway (ssh вернул пустой stdout)")]
-+    EmptyResponse,
-+
-+    /// Ответ сервера превысил допустимый размер (защита от OOM при баге сервера).
-+    #[error("Ответ сервера превысил лимит {limit} байт")]
-+    ResponseTooLarge { limit: usize },
-+}
-+
-+/// Потолок размера ответа gateway (защита от OOM). Ответы кабинетов — текст,
-+/// реальный размер килобайты; 16 МБ с огромным запасом, но не «бесконечность».
-+const MAX_RESPONSE_BYTES: usize = 16 * 1024 * 1024;
-+
-+// ── Константы ───────────────────────────────────────────────────────────────
-+
-+/// Пользователь SSH-соединения на gateway. Задан forced-command на сервере.
-+const SSH_USER: &str = "aurora-client";
-+
-+/// Имена файлов в директории клиентского пакета.
-+const FILE_KEY: &str = "client_key";
-+const FILE_CERT: &str = "client_key-cert.pub";
-+const FILE_KH: &str = "known_hosts";
-+
-+// ── Определение пути к ssh ───────────────────────────────────────────────────
-+
-+/// Возвращает путь к ssh-бинарю.
-+///
-+/// На Windows используем System32\OpenSSH\ssh.exe — встроенный OpenSSH.
-+/// Git-Bash-овский ssh не поддерживает нужный формат CertificateFile в
-+/// сочетании с known_hosts @cert-authority (проверено боем в aurora-thin.sh).
-+/// На POSIX-системах — просто "ssh" из PATH.
-+fn ssh_binary() -> PathBuf {
-+    #[cfg(target_os = "windows")]
-+    {
-+        // Канонический путь встроенного OpenSSH на Windows 10/11.
-+        let system32 = std::env::var("SystemRoot").unwrap_or_else(|_| "C:\\Windows".to_string());
-+        PathBuf::from(format!("{}\\System32\\OpenSSH\\ssh.exe", system32))
-+    }
-+    #[cfg(not(target_os = "windows"))]
-+    {
-+        PathBuf::from("ssh")
-+    }
-+}
-+
-+// ── Основная функция ─────────────────────────────────────────────────────────
-+
-+/// Отправить запрос на gateway-узел через SSH и вернуть распарсенный ответ.
-+///
-+/// # Аргументы
-+/// * `node` — IP-адрес или hostname gateway-узла (без порта, SSH порт 22).
-+/// * `client_dir` — директория с клиентским пакетом (`client_key`,
-+///   `client_key-cert.pub`, `known_hosts`).
-+/// * `cabinet` — идентификатор кабинета.
-+/// * `prompt` — промпт пользователя.
-+/// * `session_key` — метка сессии.
-+///
-+/// # Безопасность
-+/// * Никакой интерполяции пользовательского ввода в shell-строки: промпт
-+///   передаётся через stdin как JSON-данные, не как аргументы командной строки.
-+/// * `StrictHostKeyChecking=yes` + `UserKnownHostsFile` с @cert-authority —
-+///   доверие серверу по CA, MITM-подмена host-ключа отвергается немедленно.
-+/// * `IdentitiesOnly=yes` — ssh использует ровно наш ключ+cert, не перебирает
-+///   агента (BatchMode=yes блокирует любой интерактивный ввод).
-+///
-+/// # Блокировка
-+/// Функция синхронная; вызывать через `tokio::task::spawn_blocking` из async-контекста.
-+pub fn send_to_gateway(
-+    node: &str,
-+    client_dir: &Path,
-+    cabinet: &str,
-+    prompt: &str,
-+    session_key: &str,
-+) -> Result<GatewayResponse, TransportError> {
-+    // ── Шаг 1: Проверить наличие клиентского пакета ──────────────────────────
-+    let key_path = client_dir.join(FILE_KEY);
-+    let cert_path = client_dir.join(FILE_CERT);
-+    let kh_path = client_dir.join(FILE_KH);
-+
-+    for path in [&key_path, &cert_path, &kh_path] {
-+        if !path.exists() {
-+            return Err(TransportError::MissingClientFile { path: path.clone() });
-+        }
-+    }
-+
-+    // ── Шаг 2: Сериализовать запрос в JSON ──────────────────────────────────
-+    let req = GatewayRequest {
-+        cabinet: cabinet.to_string(),
-+        prompt: prompt.to_string(),
-+        session_key: session_key.to_string(),
-+    };
-+    let req_json = serde_json::to_string(&req).map_err(TransportError::SerializeRequest)?;
-+
-+    // ── Шаг 3: Запустить SSH с нужными опциями ───────────────────────────────
-+    // Опции зеркалят aurora-thin.sh (доказано боем):
-+    //   -i client_key                     — приватный ключ клиента
-+    //   -o CertificateFile=cert.pub       — user-сертификат (подписан CA)
-+    //   -o IdentitiesOnly=yes             — ровно наш ключ, без агента
-+    //   -o BatchMode=yes                  — без интерактивного ввода
-+    //   -o StrictHostKeyChecking=yes      — отвергать неизвестные host-ключи
-+    //   -o UserKnownHostsFile=known_hosts — наш known_hosts с @cert-authority
-+    let mut child = Command::new(ssh_binary())
-+        .arg("-i").arg(&key_path)
-+        .arg("-o").arg(format!("CertificateFile={}", cert_path.display()))
-+        .arg("-o").arg("IdentitiesOnly=yes")
-+        .arg("-o").arg("BatchMode=yes")
-+        .arg("-o").arg("StrictHostKeyChecking=yes")
-+        .arg("-o").arg(format!("UserKnownHostsFile={}", kh_path.display()))
-+        // C-2 (аудит): без таймаутов ssh висит вечно при протухшем NAT/мёртвом сервере,
-+        // замораживая поток spawn_blocking. ConnectTimeout — на установку; ServerAlive*
-+        // (15с × 4 = 60с) детектит мёртвое соединение НЕ убивая долгую задачу (движок poll
-+        // до 30 мин: keepalive идёт на SSH-уровне, пока сервер жив).
-+        .arg("-o").arg("ConnectTimeout=10")
-+        .arg("-o").arg("ServerAliveInterval=15")
-+        .arg("-o").arg("ServerAliveCountMax=4")
-+        .arg(format!("{}@{}", SSH_USER, node))
-+        .stdin(Stdio::piped())
-+        .stdout(Stdio::piped())
-+        .stderr(Stdio::piped())
-+        .spawn()?;
-+
-+    // ── Шаг 4: Записать JSON в stdin ─────────────────────────────────────────
-+    // printf '%s' "$REQ" в aurora-thin.sh — без завершающего \n на Windows/Linux.
-+    // H-4 (аудит): stdin обязателен — при None (не должно быть при Stdio::piped, но defensive)
-+    // сервер получил бы EOF без запроса; fail-closed вместо тихого пустого запроса.
-+    {
-+        let mut stdin = child.stdin.take().ok_or_else(|| {
-+            TransportError::StdinWrite(std::io::Error::new(
-+                std::io::ErrorKind::BrokenPipe, "stdin SSH-процесса недоступен"))
-+        })?;
-+        stdin.write_all(req_json.as_bytes()).map_err(TransportError::StdinWrite)?;
-+        // stdin закрывается при выходе из блока — сигнализирует EOF серверу.
-+    }
-+
-+    // ── Шаг 5: Читать stdout и stderr ПАРАЛЛЕЛЬНО, затем ждать завершения ──────
-+    // R-02 (доработка): читать stdout блокирующим take().read_to_end(), а stderr —
-+    // ПОСЛЕ wait() нельзя: если ssh пишет >64 КБ в stderr пока stdout открыт,
-+    // дочерний процесс блокируется на записи в заполненный буфер трубы, а мы —
-+    // на чтении stdout → взаимоблокировка. Решение: дренируем stderr в отдельном
-+    // потоке параллельно с чтением stdout (так же, как делал wait_with_output()).
-+    //
-+    // Ограничения аллокации на обоих потоках:
-+    //   stdout — Read::take(MAX_RESPONSE_BYTES): лишние байты не аллоцируются.
-+    //   stderr — Read::take(STDERR_CAP): достаточно для диагностики SSH, не OOM.
-+    //
-+    // M-5 (аудит): потолок MAX_RESPONSE_BYTES — защита от OOM при баге сервера.
-+    // Если прочитано ровно MAX_RESPONSE_BYTES → take() остановил поток → лимит достигнут.
-+    const STDERR_CAP: u64 = 64 * 1024; // 64 КБ — достаточно для любого SSH-сообщения об ошибке
-+
-+    // Запускаем дренирование stderr в отдельном потоке, пока основной читает stdout.
-+    let stderr_handle = {
-+        let stderr_pipe = child.stderr.take().ok_or_else(|| {
-+            TransportError::StdinWrite(std::io::Error::new(
-+                std::io::ErrorKind::Other, "stderr SSH-процесса недоступен"))
-+        })?;
-+        std::thread::spawn(move || {
-+            let mut buf = Vec::new();
-+            // take() обрезает поток — stderr не может съесть неограниченно RAM.
-+            let _ = stderr_pipe.take(STDERR_CAP).read_to_end(&mut buf);
-+            buf
-+        })
-+    };
-+
-+    // Основной поток: читаем stdout с лимитом аллокации на входе.
-+    let stdout_bytes = {
-+        let stdout = child.stdout.take().ok_or_else(|| {
-+            TransportError::StdinWrite(std::io::Error::new(
-+                std::io::ErrorKind::Other, "stdout SSH-процесса недоступен"))
-+        })?;
-+        let mut buf = Vec::new();
-+        stdout.take(MAX_RESPONSE_BYTES as u64).read_to_end(&mut buf)?;
-+        buf
-+    };
-+
-+    // stdout исчерпан → дочерний процесс может завершиться. Ждём.
-+    let status = child.wait()?;
-+
-+    // Забираем stderr из потока (он уже завершился к этому моменту, т.к. процесс закрыт).
-+    let stderr_bytes = stderr_handle.join().unwrap_or_default();
-+
-+    // Проверяем лимит stdout: ровно MAX_RESPONSE_BYTES → take() остановил нас.
-+    if stdout_bytes.len() == MAX_RESPONSE_BYTES {
-+        return Err(TransportError::ResponseTooLarge { limit: MAX_RESPONSE_BYTES });
-+    }
-+
-+    if !status.success() {
-+        let stderr = String::from_utf8_lossy(&stderr_bytes).into_owned();
-+        if status.code().is_none() {
-+            return Err(TransportError::SshKilled);
-+        }
-+        return Err(TransportError::SshExitError {
-+            code: status.code().unwrap_or(-1),
-+            stderr,
++    let status = res.status();
++    if !status.is_success() {
++        let body = res.text().await.unwrap_or_default();
++        let err = anyhow::anyhow!("Download failed for {}: HTTP {} - {}", filename, status, body);
++        // 5xx и 429 — сторона сервера/лимиты, повторяем. Прочие 4xx — по существу.
++        return Err(if status.is_server_error()
++            || status == reqwest::StatusCode::TOO_MANY_REQUESTS
++            || status == reqwest::StatusCode::REQUEST_TIMEOUT
++        {
++            FetchFailure::Transient(err)
++        } else {
++            FetchFailure::Fatal(err)
 +        });
 +    }
 +
-+    // ── Шаг 6: Распарсить JSON-ответ ─────────────────────────────────────────
-+    let raw = String::from_utf8_lossy(&stdout_bytes).into_owned();
-+    if raw.trim().is_empty() {
-+        return Err(TransportError::EmptyResponse);
-+    }
-+
-+    serde_json::from_str::<GatewayResponse>(&raw)
-+        .map_err(|_| TransportError::InvalidJson { raw })
++    read_body_counted(res, filename)
++        .await
++        .map_err(FetchFailure::Transient)
 +}
 +
-+// ── Юнит-тесты (без реальной сети) ──────────────────────────────────────────
-+
-+#[cfg(test)]
-+mod tests {
-+    use super::*;
-+
-+    // ── Сериализация запроса ─────────────────────────────────────────────────
-+
-+    #[test]
-+    fn request_serializes_all_fields() {
-+        let req = GatewayRequest {
-+            cabinet: "legal".to_string(),
-+            prompt: "Проверь договор".to_string(),
-+            session_key: "sess-001".to_string(),
-+        };
-+        let json = serde_json::to_string(&req).unwrap();
-+        assert!(json.contains("\"cabinet\":\"legal\""), "cabinet");
-+        assert!(json.contains("\"prompt\":\"Проверь договор\""), "prompt");
-+        assert!(json.contains("\"session_key\":\"sess-001\""), "session_key");
++/// Скачать vault-файл с сервера, переживая обрывы канала.
+ async fn download_vault_file(
+     fingerprint_hash: &str,
+     product: &str,
+     version: &str,
+     filename: &str,
+ ) -> Result<Vec<u8>> {
+-    let client = reqwest::Client::builder()
+-        .timeout(std::time::Duration::from_secs(DOWNLOAD_TIMEOUT_SECS))
+-        .build()?;
++    let client = resilient_client()?;
+ 
+     let url = format!(
+         "{}/content?fingerprint_hash={}&product={}&version={}&file={}",
+@@ -290,16 +399,68 @@ async fn download_vault_file(
+ 
+     info!("Downloading vault: {}", filename);
+ 
+-    let res = client.get(&url).send().await?;
++    let mut last_err: Option<anyhow::Error> = None;
+ 
+-    if !res.status().is_success() {
+-        let status = res.status();
+-        let body = res.text().await.unwrap_or_default();
+-        anyhow::bail!("Download failed for {}: HTTP {} - {}", filename, status, body);
++    for attempt in 1..=DOWNLOAD_ATTEMPTS {
++        match fetch_vault_once(&client, &url, filename).await {
++            Ok(bytes) => {
++                if attempt > 1 {
++                    info!("Vault {} получен с попытки {}/{} ({} байт)", filename, attempt, DOWNLOAD_ATTEMPTS, bytes.len());
++                }
++                return Ok(bytes);
++            }
++            Err(FetchFailure::Fatal(e)) => {
++                error!("Скачивание {} отклонено сервером: {:#}", filename, e);
++                return Err(e);
++            }
++            Err(FetchFailure::Transient(e)) => {
++                warn!("Скачивание {}: попытка {}/{} не удалась: {:#}", filename, attempt, DOWNLOAD_ATTEMPTS, e);
++                last_err = Some(e);
++                if attempt < DOWNLOAD_ATTEMPTS {
++                    let idx = ((attempt - 1) as usize).min(RETRY_BACKOFF_SECS.len() - 1);
++                    tokio::time::sleep(std::time::Duration::from_secs(RETRY_BACKOFF_SECS[idx])).await;
++                }
++            }
++        }
 +    }
 +
-+    #[test]
-+    fn request_no_extra_fields() {
-+        // Запрос должен содержать ровно три поля — не более, не менее.
-+        let req = GatewayRequest {
-+            cabinet: "x".into(),
-+            prompt: "y".into(),
-+            session_key: "z".into(),
-+        };
-+        let val: serde_json::Value = serde_json::to_value(&req).unwrap();
-+        let obj = val.as_object().unwrap();
-+        assert_eq!(obj.len(), 3, "ровно 3 поля в запросе, получено: {}", obj.len());
++    Err(last_err.unwrap_or_else(|| anyhow::anyhow!("{}: скачивание не удалось", filename)))
++        .with_context(|| format!("{}: связь с сервером не установилась за {} попыток", filename, DOWNLOAD_ATTEMPTS))
++}
++
++/// Скачать произвольный файл (пакет контента, бандл фронтенда) с теми же
++/// гарантиями, что и vault: без общего дедлайна, с повторами при обрыве.
++/// Пакеты весят десятки мегабайт — на слабом канале общий таймаут в 120 с
++/// рубил их гарантированно, даже когда передача исправно шла.
++async fn download_url_resilient(url: &str, what: &str) -> Result<Vec<u8>> {
++    let client = resilient_client()?;
++    let mut last_err: Option<anyhow::Error> = None;
++
++    for attempt in 1..=DOWNLOAD_ATTEMPTS {
++        match fetch_vault_once(&client, url, what).await {
++            Ok(bytes) => {
++                if attempt > 1 {
++                    info!("{} получен с попытки {}/{} ({} байт)", what, attempt, DOWNLOAD_ATTEMPTS, bytes.len());
++                }
++                return Ok(bytes);
++            }
++            Err(FetchFailure::Fatal(e)) => {
++                error!("Скачивание {} отклонено сервером: {:#}", what, e);
++                return Err(e);
++            }
++            Err(FetchFailure::Transient(e)) => {
++                warn!("Скачивание {}: попытка {}/{} не удалась: {:#}", what, attempt, DOWNLOAD_ATTEMPTS, e);
++                last_err = Some(e);
++                if attempt < DOWNLOAD_ATTEMPTS {
++                    let idx = ((attempt - 1) as usize).min(RETRY_BACKOFF_SECS.len() - 1);
++                    tokio::time::sleep(std::time::Duration::from_secs(RETRY_BACKOFF_SECS[idx])).await;
++                }
++            }
++        }
+     }
+ 
+-    let bytes = res.bytes().await?;
+-    Ok(bytes.to_vec())
++    Err(last_err.unwrap_or_else(|| anyhow::anyhow!("{}: скачивание не удалось", what)))
++        .with_context(|| format!("{}: связь с сервером не установилась за {} попыток", what, DOWNLOAD_ATTEMPTS))
+ }
+ 
+ /// Download and save all updated vault files.
+@@ -442,21 +603,10 @@ pub async fn download_content_pack(
+     expected_checksum: &str,
+     app_handle: &tauri::AppHandle,
+ ) -> Result<()> {
+-    let client = reqwest::Client::builder()
+-        .timeout(std::time::Duration::from_secs(DOWNLOAD_TIMEOUT_SECS))
+-        .build()?;
+-
+     info!("Downloading content pack from URL");
+     let _ = app_handle.emit("content-pack-update-progress", serde_json::json!({ "stage": "connecting" }));
+ 
+-    let resp = client.get(url).send().await?;
+-    if !resp.status().is_success() {
+-        let status = resp.status();
+-        let body = resp.text().await.unwrap_or_default();
+-        anyhow::bail!("Content pack download failed: HTTP {} - {}", status, body);
+-    }
+-
+-    let bytes = resp.bytes().await?;
++    let bytes = download_url_resilient(url, "пакет контента").await?;
+     info!("Downloaded content pack ({} bytes)", bytes.len());
+ 
+     // Verify bundle checksum
+@@ -485,7 +635,7 @@ pub async fn download_content_pack(
+     std::fs::create_dir_all(&staging_dir)
+         .context("Failed to create content-pack staging dir")?;
+ 
+-    let cursor = std::io::Cursor::new(bytes.as_ref());
++    let cursor = std::io::Cursor::new(bytes.as_slice());
+     let gz = flate2::read::GzDecoder::new(cursor);
+     let mut archive = tar::Archive::new(gz);
+     archive.unpack(&staging_dir)
+@@ -534,26 +684,20 @@ pub async fn download_frontend_bundle(
+     app_handle: &tauri::AppHandle,
+ ) -> Result<()> {
+     let url = format!("{}/frontend-bundle?product={}", supabase_url(), product);
+-    let client = reqwest::Client::builder()
+-        .timeout(std::time::Duration::from_secs(DOWNLOAD_TIMEOUT_SECS))
+-        .build()?;
+ 
+     info!("Downloading frontend bundle: product={}", product);
+ 
+     let _ = app_handle.emit("frontend-repair-progress", serde_json::json!({ "stage": "connecting" }));
+ 
+-    let resp = client.get(&url).send().await?;
+-
+-    if resp.status() == reqwest::StatusCode::NOT_FOUND {
+-        anyhow::bail!("Frontend bundle not available on server for product={}", product);
+-    }
+-    if !resp.status().is_success() {
+-        let status = resp.status();
+-        let body = resp.text().await.unwrap_or_default();
+-        anyhow::bail!("Frontend bundle download failed: HTTP {} - {}", status, body);
+-    }
+-
+-    let bytes = resp.bytes().await?;
++    let bytes = download_url_resilient(&url, "бандл фронтенда").await
++        .map_err(|e| {
++            // Отсутствие бандла на сервере — отдельный случай для вызывающего.
++            if format!("{:#}", e).contains("HTTP 404") {
++                anyhow::anyhow!("Frontend bundle not available on server for product={}", product)
++            } else {
++                e
++            }
++        })?;
+     info!("Downloaded frontend bundle ({} bytes)", bytes.len());
+ 
+     let _ = app_handle.emit("frontend-repair-progress", serde_json::json!({
+@@ -579,7 +723,7 @@ pub async fn download_frontend_bundle(
+     std::fs::create_dir_all(&staging_dir)
+         .context("Failed to create staging dir")?;
+ 
+-    let cursor = std::io::Cursor::new(bytes.as_ref());
++    let cursor = std::io::Cursor::new(bytes.as_slice());
+     let gz = flate2::read::GzDecoder::new(cursor);
+     let mut archive = tar::Archive::new(gz);
+     archive.unpack(&staging_dir)
+@@ -624,21 +768,10 @@ pub async fn download_frontend_bundle_from_url(
+     version: u32,
+     app_handle: &tauri::AppHandle,
+ ) -> Result<()> {
+-    let client = reqwest::Client::builder()
+-        .timeout(std::time::Duration::from_secs(DOWNLOAD_TIMEOUT_SECS))
+-        .build()?;
+-
+     info!("Downloading frontend bundle v{} from URL", version);
+     let _ = app_handle.emit("frontend-repair-progress", serde_json::json!({ "stage": "connecting" }));
+ 
+-    let resp = client.get(url).send().await?;
+-    if !resp.status().is_success() {
+-        let status = resp.status();
+-        let body = resp.text().await.unwrap_or_default();
+-        anyhow::bail!("Frontend bundle download failed: HTTP {} - {}", status, body);
+-    }
+-
+-    let bytes = resp.bytes().await?;
++    let bytes = download_url_resilient(url, "бандл фронтенда").await?;
+     info!("Downloaded frontend bundle ({} bytes)", bytes.len());
+ 
+     // Verify bundle checksum
+@@ -668,7 +801,7 @@ pub async fn download_frontend_bundle_from_url(
+     std::fs::create_dir_all(&staging_dir)
+         .context("Failed to create frontend staging dir")?;
+ 
+-    let cursor = std::io::Cursor::new(bytes.as_ref());
++    let cursor = std::io::Cursor::new(bytes.as_slice());
+     let gz = flate2::read::GzDecoder::new(cursor);
+     let mut archive = tar::Archive::new(gz);
+     archive.unpack(&staging_dir)
+@@ -738,6 +871,144 @@ mod tests {
+     use std::collections::HashMap;
+     use tempfile::TempDir;
+ 
++    // ── Устойчивость докачки (разбор отказа у клиента 2026-07-26) ─────────────
++    //
++    // Гейт против возврата хрупкого загрузчика: обрыв тела обязан лечиться
++    // повтором, отказ по существу (403/404) — не должен порождать повторов.
++
++    /// Что тестовый сервер делает с очередным соединением.
++    #[derive(Clone)]
++    enum Scenario {
++        /// Отдать тело целиком.
++        Full(Vec<u8>),
++        /// Объявить Content-Length, отдать только часть и закрыть сокет.
++        Truncated(Vec<u8>, usize),
++        /// Ответить кодом состояния без тела.
++        Status(u16),
 +    }
 +
-+    #[test]
-+    fn request_with_unicode_prompt_round_trips() {
-+        // Кириллица и спецсимволы не должны ломать JSON.
-+        let prompt = "Ставка НДС 20% — «котируется»?";
-+        let req = GatewayRequest {
-+            cabinet: "analyst".into(),
-+            prompt: prompt.into(),
-+            session_key: "unicode-test".into(),
-+        };
-+        let json = serde_json::to_string(&req).unwrap();
-+        let back: GatewayRequest = serde_json::from_str(&json).unwrap();
-+        assert_eq!(back.prompt, prompt, "промпт с кириллицей должен round-trip без потерь");
++    /// Поднять локальный сервер, отрабатывающий сценарии по очереди.
++    /// Возвращает базовый адрес и счётчик принятых соединений.
++    async fn spawn_test_server(
++        scenarios: Vec<Scenario>,
++    ) -> (String, std::sync::Arc<std::sync::atomic::AtomicUsize>) {
++        use tokio::io::{AsyncReadExt, AsyncWriteExt};
++
++        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
++        let addr = listener.local_addr().unwrap();
++        let hits = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
++        let hits_srv = hits.clone();
++
++        tokio::spawn(async move {
++            let mut idx = 0usize;
++            loop {
++                let (mut sock, _) = match listener.accept().await {
++                    Ok(v) => v,
++                    Err(_) => return,
++                };
++                hits_srv.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
++
++                // Дочитываем запрос до пустой строки, иначе клиент увидит reset.
++                let mut buf = [0u8; 1024];
++                let _ = sock.read(&mut buf).await;
++
++                let scenario = scenarios
++                    .get(idx)
++                    .cloned()
++                    .unwrap_or_else(|| scenarios.last().cloned().unwrap());
++                idx += 1;
++
++                match scenario {
++                    Scenario::Full(body) => {
++                        let head = format!(
++                            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
++                            body.len()
++                        );
++                        let _ = sock.write_all(head.as_bytes()).await;
++                        let _ = sock.write_all(&body).await;
++                    }
++                    Scenario::Truncated(body, cut) => {
++                        let head = format!(
++                            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
++                            body.len()
++                        );
++                        let _ = sock.write_all(head.as_bytes()).await;
++                        let _ = sock.write_all(&body[..cut]).await;
++                    }
++                    Scenario::Status(code) => {
++                        let head = format!(
++                            "HTTP/1.1 {} STATUS\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
++                            code
++                        );
++                        let _ = sock.write_all(head.as_bytes()).await;
++                    }
++                }
++                let _ = sock.shutdown().await;
++            }
++        });
++
++        (format!("http://{}/file", addr), hits)
 +    }
 +
-+    // ── Десериализация ответа ────────────────────────────────────────────────
++    #[tokio::test]
++    async fn download_survives_broken_stream() {
++        let body: Vec<u8> = (0..4096u32).map(|i| (i % 251) as u8).collect();
++        let (url, hits) = spawn_test_server(vec![
++            Scenario::Truncated(body.clone(), 1000),
++            Scenario::Full(body.clone()),
++        ])
++        .await;
 +
-+    #[test]
-+    fn response_ok_full_parses() {
-+        let json = r#"{"status":"ok","text":"Анализ завершён","files":null,"elapsed":1234,"error":null}"#;
-+        let resp: GatewayResponse = serde_json::from_str(json).unwrap();
-+        assert_eq!(resp.status, "ok");
-+        assert_eq!(resp.text.as_deref(), Some("Анализ завершён"));
-+        assert_eq!(resp.elapsed, Some(1234.0));
-+        assert!(resp.error.is_none());
-+    }
++        let got = download_url_resilient(&url, "тестовый файл").await.unwrap();
 +
-+    #[test]
-+    fn response_error_parses() {
-+        let json = r#"{"status":"error","error":"кабинет недоступен"}"#;
-+        let resp: GatewayResponse = serde_json::from_str(json).unwrap();
-+        assert_eq!(resp.status, "error");
-+        assert_eq!(resp.error.as_deref(), Some("кабинет недоступен"));
-+        assert!(resp.text.is_none());
-+    }
-+
-+    #[test]
-+    fn response_missing_optional_fields_parse_as_none() {
-+        // Сервер может не вернуть files/elapsed — должны заполниться None по умолчанию.
-+        let json = r#"{"status":"ok","text":"привет"}"#;
-+        let resp: GatewayResponse = serde_json::from_str(json).unwrap();
-+        assert_eq!(resp.status, "ok");
-+        assert!(resp.files.is_none(), "files должен быть None если не пришёл");
-+        assert!(resp.elapsed.is_none(), "elapsed должен быть None если не пришёл");
-+    }
-+
-+    #[test]
-+    fn response_with_files_parses() {
-+        let json = r#"{"status":"ok","text":"готово","files":["data:text/plain;base64,SGVsbG8="],"elapsed":500}"#;
-+        let resp: GatewayResponse = serde_json::from_str(json).unwrap();
-+        let files = resp.files.unwrap();
-+        assert_eq!(files.len(), 1);
-+        assert!(files[0].starts_with("data:text/plain"));
-+    }
-+
-+    #[test]
-+    fn response_real_server_shape_parses() {
-+        // Реальный ответ gateway из боя: status="done", elapsed — FLOAT секунды,
-+        // присутствует лишнее поле "turn" (serde должен его игнорировать).
-+        let json = r#"{"status": "done", "text": "Ок.", "files": [], "turn": 1, "elapsed": 2.9}"#;
-+        let resp: GatewayResponse = serde_json::from_str(json).unwrap();
-+        assert_eq!(resp.status, "done");
-+        assert_eq!(resp.elapsed, Some(2.9), "elapsed float секунды должен распарситься");
-+        assert_eq!(resp.text.as_deref(), Some("Ок."));
-+        assert_eq!(resp.files.as_ref().map(|f| f.len()), Some(0));
-+    }
-+
-+    #[test]
-+    fn invalid_json_produces_error_variant() {
-+        // Не-JSON строка от сервера → транспорт должен вернуть InvalidJson.
-+        let raw = "не JSON вообще";
-+        let result = serde_json::from_str::<GatewayResponse>(raw);
-+        assert!(result.is_err(), "не-JSON должен провалить парсинг");
-+    }
-+
-+    // ── Проверка клиентского пакета ──────────────────────────────────────────
-+
-+    #[test]
-+    fn missing_client_file_detected() {
-+        // Директория без файлов → ошибка до запуска SSH.
-+        let tmp = std::env::temp_dir().join(format!(
-+            "aurora-transport-test-{}",
-+            std::process::id()
-+        ));
-+        let _ = std::fs::remove_dir_all(&tmp);
-+        std::fs::create_dir_all(&tmp).unwrap();
-+
-+        let result = send_to_gateway("127.0.0.1", &tmp, "test", "prompt", "sess");
-+        assert!(
-+            matches!(result, Err(TransportError::MissingClientFile { .. })),
-+            "должна вернуться MissingClientFile, получено: {:?}", result
++        assert_eq!(got, body, "после повтора файл должен прийти целиком");
++        assert_eq!(
++            hits.load(std::sync::atomic::Ordering::SeqCst),
++            2,
++            "обрыв обязан приводить ровно к одному повтору"
 +        );
-+        let _ = std::fs::remove_dir_all(&tmp);
 +    }
 +
-+    // ── SSH-бинарь ───────────────────────────────────────────────────────────
++    #[tokio::test]
++    async fn truncated_body_is_not_accepted_as_success() {
++        // Сервер всегда рвёт поток — обязаны получить ошибку, а не обрезанный файл.
++        let body: Vec<u8> = vec![7u8; 2048];
++        let (url, _hits) = spawn_test_server(vec![Scenario::Truncated(body, 512)]).await;
 +
-+    #[test]
-+    #[cfg(target_os = "windows")]
-+    fn ssh_binary_windows_points_to_system32() {
-+        let bin = ssh_binary();
-+        let s = bin.to_string_lossy().to_lowercase();
++        let err = download_url_resilient(&url, "тестовый файл").await.unwrap_err();
++        let text = format!("{:#}", err);
++
 +        assert!(
-+            s.contains("system32\\openssh\\ssh.exe") || s.contains("system32/openssh/ssh.exe"),
-+            "на Windows ssh должен указывать на System32\\OpenSSH\\ssh.exe, получено: {}",
-+            bin.display()
++            text.contains("байт"),
++            "ошибка обязана называть, сколько байт получено: {text}"
 +        );
 +    }
 +
-+    #[test]
-+    #[cfg(not(target_os = "windows"))]
-+    fn ssh_binary_posix_is_ssh() {
-+        assert_eq!(ssh_binary(), PathBuf::from("ssh"));
++    #[tokio::test]
++    async fn client_error_is_not_retried() {
++        let (url, hits) = spawn_test_server(vec![Scenario::Status(403)]).await;
++
++        let err = download_url_resilient(&url, "тестовый файл").await.unwrap_err();
++
++        assert!(format!("{:#}", err).contains("403"));
++        assert_eq!(
++            hits.load(std::sync::atomic::Ordering::SeqCst),
++            1,
++            "отказ по существу (403) не должен порождать повторы"
++        );
++    }
++
++    #[tokio::test]
++    async fn server_error_is_retried() {
++        let body: Vec<u8> = vec![3u8; 128];
++        let (url, hits) = spawn_test_server(vec![Scenario::Status(503), Scenario::Full(body.clone())]).await;
++
++        let got = download_url_resilient(&url, "тестовый файл").await.unwrap();
++
++        assert_eq!(got, body);
++        assert_eq!(hits.load(std::sync::atomic::Ordering::SeqCst), 2);
++    }
++
+     // ── Local version (legacy) ────────────────────────────────────────────────
+ 
+     #[test]
+diff --git a/src-tauri/src/commands/online_auth.rs b/src-tauri/src/commands/online_auth.rs
+index f140d9b..2db9526 100644
+--- a/src-tauri/src/commands/online_auth.rs
++++ b/src-tauri/src/commands/online_auth.rs
+@@ -293,14 +293,40 @@ pub async fn check_auth(
+ 
+     info!("Online auth: POST {}", url);
+ 
+-    let res = client
+-        .post(&url)
+-        .json(&req)
+-        .send()
+-        .await?;
++    // Повторы при обрыве связи (разбор отказа у клиента 2026-07-26): ответ
++    // сервера крошечный, но на нестабильном канале рвался и он —
++    // «error decoding response body» приходило и сюда. Кэш спасает только
++    // того, у кого он уже есть; на первом запуске кэша нет, и один
++    // неудачный запрос означал бы «программа не запускается».
++    const AUTH_ATTEMPTS: u32 = 3;
++    let mut last_err: Option<anyhow::Error> = None;
++    let mut response: Option<(reqwest::StatusCode, String)> = None;
++
++    for attempt in 1..=AUTH_ATTEMPTS {
++        let sent = client.post(&url).json(&req).send().await;
++        match sent {
++            Ok(res) => {
++                let status_code = res.status();
++                match res.text().await {
++                    Ok(body) => {
++                        response = Some((status_code, body));
++                        break;
++                    }
++                    Err(e) => last_err = Some(anyhow::anyhow!("ответ оборван: {e}")),
++                }
++            }
++            Err(e) => last_err = Some(anyhow::anyhow!("{e}")),
++        }
++        if attempt < AUTH_ATTEMPTS {
++            warn!("Online auth: попытка {attempt}/{AUTH_ATTEMPTS} не удалась ({:#}) — повтор", last_err.as_ref().unwrap());
++            tokio::time::sleep(std::time::Duration::from_secs(2 * attempt as u64)).await;
++        }
++    }
+ 
+-    let status_code = res.status();
+-    let body = res.text().await?;
++    let (status_code, body) = match response {
++        Some(v) => v,
++        None => return Err(last_err.unwrap_or_else(|| anyhow::anyhow!("Online auth: связь с сервером не установилась"))),
++    };
+ 
+     let auth_response: AuthResponse = serde_json::from_str(&body)
+         .map_err(|e| anyhow::anyhow!("Failed to parse auth response: {e}, body: {body}"))?;
+diff --git a/src-tauri/src/commands/updater.rs b/src-tauri/src/commands/updater.rs
+index b9efbb1..87e792b 100644
+--- a/src-tauri/src/commands/updater.rs
++++ b/src-tauri/src/commands/updater.rs
+@@ -18,6 +18,17 @@ fn supabase_update_url() -> String {
+     obfstr::obfstr!("https://quzhkfvglqmppxcrindh.supabase.co/functions/v1/app-update").to_string()
+ }
+ 
++/// Публичный anon-ключ проекта: платформа Supabase требует его на каждом вызове
++/// Edge Function (гейт `verify_jwt`), иначе шлюз отвечает 401
++/// `UNAUTHORIZED_NO_AUTH_HEADER` ДО входа в код функции. Без него канал
++/// обновлений через Supabase мёртв при живом сервере (у клиента это выглядело
++/// как бесконечный UP005 → запасной GitHub Pages на каждом старте).
++/// Ключ публичный по устройству (он и так уезжает в браузерные клиенты),
++/// доступ ограничивают RLS и логика функции.
++fn supabase_anon_key() -> String {
++    obfstr::obfstr!("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InF1emhrZnZnbHFtcHB4Y3JpbmRoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ4OTc4MjMsImV4cCI6MjA5MDQ3MzgyM30.UJ8BfkwJnK6pl5KctO8YRI0PIxdTUN85jw5IvjUpGHI").to_string()
++}
++
+ /// Хосты, с которых мы публикуем установщики: Supabase Storage (текущий прод),
+ /// GitHub Releases и GitHub Pages (fallback). Схема обязана быть https.
+ /// Основную защиту даёт то, что download_url приходит из серверного манифеста
+@@ -64,8 +75,11 @@ async fn check_supabase(product: &str) -> Result<VersionInfo> {
+         .timeout(std::time::Duration::from_secs(10))
+         .build()?;
+ 
++    let anon_key = supabase_anon_key();
+     let resp = client
+         .post(supabase_update_url())
++        .header("Authorization", format!("Bearer {}", anon_key))
++        .header("apikey", &anon_key)
+         .json(&serde_json::json!({ "product": product }))
+         .send()
+         .await?;
+@@ -142,43 +156,44 @@ pub async fn check_for_updates(current_version: &str) -> Result<Option<VersionIn
+     }
+ }
+ 
+-/// Download update .exe to a temp directory, emitting progress events.
++/// Загрузки установщика, идущие прямо сейчас — по пути частичного файла.
++/// Две параллельные загрузки в один и тот же файл писали бы друг поверх друга.
++fn in_flight_downloads() -> &'static Mutex<std::collections::HashSet<PathBuf>> {
++    static SET: OnceLock<Mutex<std::collections::HashSet<PathBuf>>> = OnceLock::new();
++    SET.get_or_init(|| Mutex::new(std::collections::HashSet::new()))
++}
++
++struct InFlightGuard(PathBuf);
++
++impl Drop for InFlightGuard {
++    fn drop(&mut self) {
++        let mut set = in_flight_downloads().lock().unwrap_or_else(|e| e.into_inner());
++        set.remove(&self.0);
 +    }
 +}
++
++/// Скачать установщик во временную папку, сообщая о ходе загрузки.
++///
++/// С докачкой: байты пишутся в постоянный файл `.part`, привязанный к адресу
++/// загрузки, поэтому оборванное соединение продолжается с последнего байта
++/// (HTTP Range), а не начинает 245 МБ заново. До 5 попыток с паузой.
++///
++/// Порт обкатанного загрузчика Oracle (`21487b8`, `891a80f`, M1/M2/M6/M7 аудита
++/// пути доставки). Причина порта — разбор отказа у клиента 2026-07-26: общий
++/// таймаут в 600 с на 245 МБ требует скорости от 400 КБ/с, а измеренная скорость
++/// у клиента была около 10 КБ/с, то есть обновление не могло установиться
++/// физически, сколько бы раз он ни пробовал.
+ pub async fn download_update(url: &str, app_handle: &tauri::AppHandle) -> Result<PathBuf> {
+     // SEC-04 defense-in-depth: качаем только с доверенных хостов публикации.
+     if !is_trusted_update_url(url) {
+         return Err(coded_err(ErrorCode::UP002, "Update URL is not from a trusted host"));
+     }
+ 
+-    let client = reqwest::Client::builder()
+-        .timeout(std::time::Duration::from_secs(600))
+-        // SEC-04: reqwest по умолчанию следует до 10 редиректов БЕЗ повторной проверки
+-        // хоста. Валидация исходного url недостаточна: open-redirect на доверенном
+-        // хосте или подменённый Location увели бы загрузку на посторонний сервер.
+-        // checksum-gate ниже это отклонил бы, но слой доверенного хоста должен быть
+-        // полным - re-валидируем КАЖДЫЙ хоп (github.com → githubusercontent.com при
+-        // релизах остаётся легитимным, оба в allowlist).
+-        .redirect(reqwest::redirect::Policy::custom(|attempt| {
+-            if is_trusted_update_url(attempt.url().as_str()) {
+-                attempt.follow()
+-            } else {
+-                attempt.error("update redirect to an untrusted host")
+-            }
+-        }))
+-        .build()?;
+-
+-    let resp = client.get(url).send().await
+-        .map_err(|e| coded_err(ErrorCode::UP002, &format!("Не удалось загрузить обновление (проверьте подключение к интернету): {e}")))?;
+-
+-    if !resp.status().is_success() {
+-        return Err(coded_err(ErrorCode::UP002, &format!("Сервер обновлений вернул ошибку {} — повторите позже.", resp.status())));
+-    }
+-
+-    let total_size = resp.content_length().unwrap_or(0);
+-    let temp_dir = tempfile::Builder::new()
+-        .prefix("aurora-update-")
+-        .tempdir()
++    // Постоянная папка (не случайная временная): повтор и перезапуск приложения
++    // должны находить недокачанный файл на месте.
++    let temp_dir_path = std::env::temp_dir().join("aurora-update");
++    std::fs::create_dir_all(&temp_dir_path)
+         .map_err(|e| coded_err(ErrorCode::UP002, &format!("Failed to create temp dir: {e}")))?;
+-    let temp_dir_path = temp_dir.keep();
+ 
+     // Extract filename from URL — sanitize to a bare basename with a strict
+     // whitelist: a manifest-controlled download_url must never place the .exe
+@@ -196,12 +211,135 @@ pub async fn download_update(url: &str, app_handle: &tauri::AppHandle) -> Result
+     };
+     let dest_path = temp_dir_path.join(filename);
+ 
+-    let mut file = tokio::fs::File::create(&dest_path).await?;
+-    let mut downloaded: u64 = 0;
++    // Имя частичного файла привязано к хешу адреса: новая версия никогда не
++    // допишется поверх байтов предыдущей.
++    let url_hash = hex::encode(sha2::Sha256::digest(url.as_bytes()));
++    let part_path = temp_dir_path.join(format!("{}.{}.part", filename, &url_hash[..16]));
++
++    {
++        let mut set = in_flight_downloads().lock().unwrap_or_else(|e| e.into_inner());
++        if !set.insert(part_path.clone()) {
++            return Err(coded_err(ErrorCode::UP002, "Загрузка обновления уже идёт"));
++        }
++    }
++    let _in_flight_guard = InFlightGuard(part_path.clone());
++
++    // Общего дедлайна нет намеренно: медленная загрузка в сотни мегабайт не
++    // должна обрываться на середине. Зависание ловится таймаутом тишины сокета.
++    // SEC-04: reqwest по умолчанию следует до 10 редиректов БЕЗ повторной проверки
++    // хоста. Валидация исходного url недостаточна: open-redirect на доверенном
++    // хосте или подменённый Location увели бы загрузку на посторонний сервер.
++    // checksum-gate ниже это отклонил бы, но слой доверенного хоста должен быть
++    // полным - re-валидируем КАЖДЫЙ хоп (github.com → githubusercontent.com при
++    // релизах остаётся легитимным, оба в allowlist).
++    let client = reqwest::Client::builder()
++        .connect_timeout(std::time::Duration::from_secs(30))
++        .read_timeout(std::time::Duration::from_secs(60))
++        .redirect(reqwest::redirect::Policy::custom(|attempt| {
++            if is_trusted_update_url(attempt.url().as_str()) {
++                attempt.follow()
++            } else {
++                attempt.error("update redirect to an untrusted host")
++            }
++        }))
++        .build()?;
++
++    const MAX_ATTEMPTS: u32 = 5;
++    let mut last_err = String::new();
++
++    for attempt in 1..=MAX_ATTEMPTS {
++        match download_attempt(&client, url, &part_path, app_handle).await {
++            Ok(downloaded) => {
++                let _ = std::fs::remove_file(&dest_path);
++                if let Err(rename_err) = std::fs::rename(&part_path, &dest_path) {
++                    // На Windows переименование может не пройти даже после удаления
++                    // выше (файл на миг занят проверкой антивируса). Копирование не
++                    // требует атомарности и обычно проходит; если и оно упало —
++                    // отдаём исходную ошибку.
++                    std::fs::copy(&part_path, &dest_path)
++                        .and_then(|_| std::fs::remove_file(&part_path))
++                        .map_err(|copy_err| coded_err(ErrorCode::UP002, &format!(
++                            "Failed to finalize download: {rename_err} (copy fallback also failed: {copy_err})"
++                        )))?;
++                }
++                info!("Update downloaded: {} ({} bytes, attempt {})", dest_path.display(), downloaded, attempt);
++                return Ok(dest_path);
++            }
++            Err(e) => {
++                last_err = e.to_string();
++                info!("UP002: попытка {attempt}/{MAX_ATTEMPTS} не удалась ({last_err}) — продолжим с недокачанного места");
++                if attempt < MAX_ATTEMPTS {
++                    tokio::time::sleep(std::time::Duration::from_secs(2 * attempt as u64)).await;
++                }
++            }
++        }
++    }
++
++    Err(coded_err(ErrorCode::UP002, &format!(
++        "Не удалось загрузить обновление за {MAX_ATTEMPTS} попыток (проверьте подключение к интернету): {last_err}"
++    )))
++}
++
++/// Продолженной (206) загрузке можно верить, только если сервер сообщил полный
++/// размер и он не меньше уже лежащего на диске. Вынесено отдельной функцией,
++/// чтобы проверялась сама логика, а не только обвязка вокруг сети.
++fn validate_resume_total(content_range_total: Option<u64>, existing: u64) -> Option<u64> {
++    content_range_total.filter(|&total| total >= existing)
++}
++
++/// Одна попытка: докачивает в `part_path` через HTTP Range, если там уже есть байты.
++/// Возвращает итоговый объём на диске, когда файл получен целиком.
++async fn download_attempt(
++    client: &reqwest::Client,
++    url: &str,
++    part_path: &std::path::Path,
++    app_handle: &tauri::AppHandle,
++) -> Result<u64> {
++    let existing: u64 = std::fs::metadata(part_path).map(|m| m.len()).unwrap_or(0);
++
++    let mut req = client.get(url);
++    if existing > 0 {
++        req = req.header(reqwest::header::RANGE, format!("bytes={existing}-"));
++    }
++    let resp = req.send().await
++        .map_err(|e| coded_err(ErrorCode::UP002, &format!("Download failed: {e}")))?;
++
++    let status = resp.status();
++    if !status.is_success() {
++        return Err(coded_err(ErrorCode::UP002, &format!("Download returned {status}")));
++    }
++
++    // 206 — сервер принял Range, дописываем; 200 — отдаёт файл целиком, начинаем заново.
++    let resumed = status == reqwest::StatusCode::PARTIAL_CONTENT && existing > 0;
++    let content_range_total = if resumed {
++        resp.headers().get(reqwest::header::CONTENT_RANGE)
++            .and_then(|v| v.to_str().ok())
++            .and_then(|v| v.rsplit('/').next())
++            .and_then(|v| v.parse::<u64>().ok())
++    } else {
++        None
++    };
++    // Ответ 206 без внятного полного размера (или с размером меньше уже
++    // скачанного) доверия не заслуживает: сломанный посредник дал бы ход
++    // загрузки больше 100% и провёл бы усечённый файл мимо проверки ниже.
++    // Сбрасываем частичный файл, чтобы следующая попытка скачала начисто.
++    if resumed && validate_resume_total(content_range_total, existing).is_none() {
++        let _ = tokio::fs::remove_file(part_path).await;
++        return Err(coded_err(ErrorCode::UP002, "Ответ на докачку противоречив — начинаем заново"));
++    }
++    let (mut file, mut downloaded, total_size) = if resumed {
++        let total = content_range_total.expect("проверено выше: Some(total) при total >= existing");
++        let file = tokio::fs::OpenOptions::new().append(true).open(part_path).await?;
++        info!("Докачка обновления с байта {existing} из {total}");
++        (file, existing, total)
++    } else {
++        let file = tokio::fs::File::create(part_path).await?;
++        (file, 0u64, resp.content_length().unwrap_or(0))
++    };
+ 
+     use tokio::io::AsyncWriteExt;
+-    let mut stream = resp.bytes_stream();
+     use futures_util::StreamExt;
++    let mut stream = resp.bytes_stream();
+ 
+     while let Some(chunk) = stream.next().await {
+         let chunk = chunk.map_err(|e| coded_err(ErrorCode::UP002, &format!("Download stream error: {e}")))?;
+@@ -218,8 +356,15 @@ pub async fn download_update(url: &str, app_handle: &tauri::AppHandle) -> Result
+     }
+     file.flush().await?;
+ 
+-    info!("Update downloaded: {} ({} bytes)", dest_path.display(), downloaded);
+-    Ok(dest_path)
++    // Поток может закончиться «чисто», не отдав всех байтов (посредник, сброс
++    // соединения): считаем это обрывом, иначе установили бы усечённый файл.
++    if total_size == 0 {
++        log::warn!("Загрузка завершилась без известного размера — усечение поймает только проверка контрольной суммы");
++    } else if downloaded < total_size {
++        return Err(coded_err(ErrorCode::UP002, &format!("Download incomplete: {downloaded}/{total_size} bytes")));
++    }
++
++    Ok(downloaded)
+ }
+ 
+ // SEC-03/04: реестр установщиков, прошедших проверку контрольной суммы в этом сеансе.
+@@ -470,6 +615,31 @@ use sha2::Digest;
+ mod tests {
+     use super::*;
+ 
++    /// Ответ 206 с отсутствующим, неразбираемым или меньшим, чем уже скачано,
++    /// полным размером не должен использоваться для докачки.
++    #[test]
++    fn resume_rejects_inconsistent_content_range() {
++        assert_eq!(validate_resume_total(None, 100), None, "полный размер не сообщён — докачке верить нельзя");
++        assert_eq!(validate_resume_total(Some(50), 100), None, "полный размер меньше уже скачанного — сломанный посредник");
++        assert_eq!(validate_resume_total(Some(100), 100), Some(100), "на грани, но допустимо");
++        assert_eq!(validate_resume_total(Some(200), 100), Some(200), "обычная докачка");
++    }
++
++    /// Слот параллельной загрузки освобождается при выходе из области видимости —
++    /// иначе после одной неудачной попытки все следующие получали бы отказ.
++    #[test]
++    fn in_flight_slot_is_released() {
++        let part = std::path::PathBuf::from("D:/tmp/aurora-test.part");
++        {
++            let mut set = in_flight_downloads().lock().unwrap_or_else(|e| e.into_inner());
++            assert!(set.insert(part.clone()));
++        }
++        let _guard = InFlightGuard(part.clone());
++        drop(_guard);
++        let set = in_flight_downloads().lock().unwrap_or_else(|e| e.into_inner());
++        assert!(!set.contains(&part), "после освобождения слот должен быть свободен");
++    }
++
+     #[test]
+     fn version_comparison() {
+         assert!(is_newer("0.2.0", "0.1.0"));
+diff --git a/src-tauri/src/lib.rs b/src-tauri/src/lib.rs
+index 783cf0a..41106af 100644
+--- a/src-tauri/src/lib.rs
++++ b/src-tauri/src/lib.rs
+@@ -193,6 +193,89 @@ fn import_license(path: String, app_handle: tauri::AppHandle) -> Result<(), Stri
+     }
+ }
+ 
++/// Запасной путь доставки рабочих материалов кабинета — из файла, а не с сервера.
++///
++/// Нужен клиентам, у которых сеть режет или разбирает соединение (корпоративный
++/// шлюз, проверка защищённых соединений антивирусом): без этого пути продукт у
++/// них не открывается вовсе. На диске материалы лежат зашифрованными ключом
++/// машины, поэтому просто скопировать файл в папку нельзя — шифруем здесь.
++#[tauri::command]
++fn import_cabinet_vault(path: String, app_handle: tauri::AppHandle) -> Result<String, String> {
++    let config_dir = app_handle.path().app_config_dir().map_err(|e| e.to_string())?;
++    let data_dir = app_handle.path().app_data_dir().map_err(|e| e.to_string())?;
++
++    let result = (|| -> anyhow::Result<String> {
++        use anyhow::Context as _;
++        // Имя берём ТОЛЬКО из последнего сегмента пути: защита от «..» и абсолютных путей.
++        let filename = std::path::Path::new(&path)
++            .file_name()
++            .and_then(|n| n.to_str())
++            .ok_or_else(|| anyhow::anyhow!("Не удалось прочитать имя файла"))?
++            .to_ascii_lowercase();
++
++        let stem = filename.strip_suffix(".vault").ok_or_else(|| {
++            anyhow::anyhow!("Нужен файл кабинета с расширением .vault, выбран «{filename}»")
++        })?;
++        if stem.is_empty()
++            || stem.len() > 40
++            || !stem.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
++        {
++            anyhow::bail!("Недопустимое имя файла кабинета: «{filename}»");
++        }
++
++        let raw = std::fs::read(&path)
++            .with_context(|| format!("Не удалось прочитать файл «{filename}»"))?;
++
++        // Ограничение размера: обычный файл кабинета — десятки килобайт,
++        // 200 МБ означает, что выбран не тот файл.
++        const MAX_VAULT_BYTES: usize = 200 * 1024 * 1024;
++        if raw.len() > MAX_VAULT_BYTES {
++            anyhow::bail!("Файл слишком велик для материалов кабинета ({} МБ)", raw.len() / (1024 * 1024));
++        }
++
++        // Проверяем, что это действительно наши материалы: gzip-архив, внутри
++        // которого читается хотя бы одна запись. Иначе пользователь узнал бы об
++        // ошибке только при открытии кабинета, уже без подсказки.
++        {
++            let gz = flate2::read::GzDecoder::new(std::io::Cursor::new(raw.as_slice()));
++            let mut archive = tar::Archive::new(gz);
++            let mut entries = archive
++                .entries()
++                .context("Файл не похож на материалы кабинета: архив не читается")?;
++            match entries.next() {
++                Some(Ok(_)) => {}
++                Some(Err(e)) => anyhow::bail!("Файл повреждён: {e}"),
++                None => anyhow::bail!("Файл пуст — в нём нет материалов кабинета"),
++            }
++        }
++
++        let key = content_updater::derive_local_key(&config_dir)
++            .context("Не удалось получить ключ этой машины")?;
++        let encrypted = crypto::aes::encrypt(&key, &raw).context("Не удалось зашифровать материалы")?;
++
++        let vaults_dir = vault::vaults_dir(&data_dir);
++        std::fs::create_dir_all(&vaults_dir).context("Не удалось создать папку материалов")?;
++        let dest = vaults_dir.join(&filename);
++        std::fs::write(&dest, &encrypted)
++            .with_context(|| format!("Не удалось сохранить материалы в {}", dest.display()))?;
++
++        info!("Материалы кабинета импортированы вручную: {} ({} байт)", filename, raw.len());
++        Ok(filename)
++    })();
++
++    match result {
++        Ok(filename) => {
++            metrics::audit::log_event("vault_import", &filename, true);
++            Ok(format!("Материалы кабинета загружены из файла «{filename}». Откройте кабинет заново."))
++        }
++        Err(e) => {
++            let msg = format!("{e:#}");
++            metrics::audit::log_event("vault_import", &msg, false);
++            Err(msg)
++        }
++    }
++}
++
+ #[tauri::command]
+ async fn check_online_auth(app_handle: tauri::AppHandle) -> Result<online_auth::OnlineAuthStatus, String> {
+     let config_dir = app_handle.path().app_config_dir().map_err(|e| e.to_string())?;
+@@ -462,14 +545,42 @@ async fn open_cabinet(
+ 
+     if !vault_path.exists() {
+         info!("Vault not found locally for {cabinet_id}, attempting server download...");
++        // Причину неудачи держим при себе: без неё пользователь получал голое
++        // «Failed to read vault: <путь>» (VT001) — техническую строку, из которой
++        // не следует ни причина, ни что делать (разбор отказа у клиента 2026-07-26).
++        let mut download_err: Option<String> = None;
++
+         if let (Some(cv), true) = (&online.content_version, online.status == "ok" || online.status == "cached") {
+             let product = online_auth::detect_product();
+             let files = vec![vault_filename.clone()];
+             let checksums = serde_json::json!({});
+             match content_updater::download_updates(&config_dir, &data_dir, product, cv, &files, &checksums, online.vault_versions.as_ref(), Some(&app_handle)).await {
+-                Ok(updated) => info!("Downloaded {} vault files from server", updated.len()),
+-                Err(e) => warn!("Failed to download vault from server: {e}"),
++                Ok(updated) if !updated.is_empty() => info!("Downloaded {} vault files from server", updated.len()),
++                Ok(_) => {
++                    warn!("Vault download returned no files for {cabinet_id}");
++                    download_err = Some("сервер не отдал файл кабинета".to_string());
++                }
++                Err(e) => {
++                    warn!("Failed to download vault from server: {e:#}");
++                    download_err = Some(format!("{e:#}"));
++                }
+             }
++        } else {
++            download_err = Some(format!("сервер лицензий недоступен (состояние связи: {})", online.status));
++        }
++
++        if !vault_path.exists() {
++            let detail = download_err.unwrap_or_else(|| "причина неизвестна".to_string());
++            error!("Кабинет {cabinet_id}: рабочие материалы не доставлены — {detail}");
++            return Err(format!(
++                "Не удалось загрузить рабочие материалы кабинета с сервера.\n\n\
++                 Связь с сервером обрывается при передаче файла, поэтому кабинет не открывается.\n\n\
++                 Что можно сделать:\n\
++                 • проверить подключение к интернету и повторить открытие кабинета;\n\
++                 • если компьютер работает в корпоративной сети с фильтрацией трафика – попросить администратора открыть доступ к серверу программы;\n\
++                 • если не помогает – выгрузить отчёт диагностики в настройках и прислать его в поддержку: рабочие материалы можно передать отдельным файлом.\n\n\
++                 Подробность для поддержки: кабинет {cabinet_id}, {detail}"
++            ));
+         }
+     }
+ 
+@@ -3320,6 +3431,7 @@ fn build_app() -> Result<(), String> {
+             get_cabinets,
+             get_license_status,
+             import_license,
++            import_cabinet_vault,
+             check_online_auth,
+             send_heartbeat,
+             get_instance_id,
+diff --git a/src/routes/settings/+page.svelte b/src/routes/settings/+page.svelte
+index a23c420..dac95a0 100644
+--- a/src/routes/settings/+page.svelte
++++ b/src/routes/settings/+page.svelte
+@@ -131,6 +131,7 @@
+   let usageMetrics = $state(null);
+   /** @type {Array<[string, string, boolean]>} */
+   let vaultStatus = $state([]);
++  let vaultImportStatus = $state('');
+   let diagExporting = $state(false);
+   let diagPath = $state('');
+   /** @type {{status: string, content_version: string|null, expires_at: string|null, machine_id: string}|null} */
+@@ -184,6 +185,26 @@
+     }
+   }
+ 
++  /**
++   * Запасной путь доставки: материалы кабинета берутся из файла, когда сеть
++   * их не пропускает (корпоративный шлюз, проверка соединений антивирусом).
++   */
++  async function importVault() {
++    try {
++      const filePath = await open({
++        title: 'Выберите файл материалов кабинета',
++        filters: [{ name: 'Материалы кабинета', extensions: ['vault'] }],
++        multiple: false,
++      });
++      if (!filePath) return;
++
++      vaultImportStatus = /** @type {string} */ (await invoke('import_cabinet_vault', { path: filePath }));
++      await loadVaultStatus();
++    } catch (err) {
++      vaultImportStatus = 'Не удалось загрузить: ' + err;
++    }
++  }
++
+   async function loadMetrics() {
+     try {
+       usageMetrics = await invoke('get_usage_metrics');
+@@ -765,6 +786,14 @@
+             </div>
+           {/each}
+         </div>
++        <p class="section-desc" style="margin-top: 12px;">
++          Обычно материалы кабинетов приезжают с сервера сами. Если связь их не пропускает
++          (например, в сети организации), запросите файл в поддержке и загрузите вручную.
++        </p>
++        <button class="btn-logs" onclick={importVault}>Загрузить материалы из файла</button>
++        {#if vaultImportStatus}
++          <p class="section-desc" style="margin-top: 8px;">{vaultImportStatus}</p>
++        {/if}
+       </section>
+     {/if}
+ 
