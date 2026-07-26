@@ -49,17 +49,49 @@ def test_interface_declares_canon():
     )
 
 
+def _markup_class_tokens():
+    """Все имена классов, реально применяемые разметкой, как отдельные токены.
+
+    Разбор именно по токенам, а не поиском подстроки: граница слова `\\b` считает
+    класс живым, если он входит частью в дефисное имя, — `class="es-description"`
+    засчитывался за селектор `.description`, и гейт был слеп ровно к тому случаю,
+    ради которого написан (внешний аудит 2026-07-26).
+
+    Учитываются обе формы применения класса в Svelte: атрибут `class="…"` и
+    директива `class:имя={…}`.
+
+    Известная слепая зона: полностью вычисляемое `class={выражение}` — имя
+    собирается в рантайме и статически не разбирается. Такие классы гейт не
+    видит; если селектор меры строки применяется только так, его придётся внести
+    в реестр исключений с обоснованием.
+    """
+    tokens = set()
+    for root, _dirs, files in os.walk(_SRC_DIR):
+        for name in files:
+            if not name.endswith(".svelte"):
+                continue
+            text = _read(os.path.join(root, name))
+            for attr in re.findall(r'class="([^"]*)"', text):
+                for tok in attr.split():
+                    tok = tok.strip()
+                    if tok:
+                        tokens.add(tok)
+            tokens.update(re.findall(r"class:([A-Za-z][\w-]*)", text))
+    return tokens
+
+
 def test_measure_selectors_are_alive():
     """Каждый класс меры строки реально встречается в разметке."""
     selectors = _measure_selectors()
     assert selectors, "список селекторов меры строки пуст"
-    markup = []
-    for root, _dirs, files in os.walk(_SRC_DIR):
-        for name in files:
-            if name.endswith(".svelte"):
-                markup.append(_read(os.path.join(root, name)))
-    blob = "\n".join(markup)
-    dead = [c for c in selectors if not re.search(rf'class="[^"]*\b{re.escape(c)}\b', blob)]
+    tokens = _markup_class_tokens()
+    # страховка от тихого нуля: пустой разбор дал бы «все селекторы мёртвые»
+    # либо, при обратной логике, зелёный на пустом входе
+    assert len(tokens) > 100, (
+        f"из разметки разобрано {len(tokens)} имён классов — каталог src переехал "
+        f"или разбор сломан"
+    )
+    dead = [c for c in selectors if c not in tokens]
     assert not dead, (
         f"мёртвые селекторы меры строки {dead} — класса нет ни в одном компоненте, "
         f"правило создаёт видимость канона"

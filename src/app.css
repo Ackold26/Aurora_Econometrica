@@ -477,7 +477,7 @@ h1, h2, h3, h4, h5, h6,
    Таблицы, списки метрик и короткие подписи сюда НЕ входят — там ширину
    диктует содержимое. */
 .section-desc, .lead, .hint, .why-tip, .step-desc, .field-hint,
-.empty-hint, .banner-text, .card-desc, .state-desc, .description {
+.empty-hint, .banner-text, .card-desc, .state-desc {
   max-inline-size: 68ch;
 }
 
