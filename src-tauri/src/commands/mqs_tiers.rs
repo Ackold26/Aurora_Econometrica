@@ -61,6 +61,17 @@ pub fn mqs_is_weak(score: f64) -> bool {
     matches!(mqs_tier_for_score(score).tier, "weak" | "poor")
 }
 
+/// Средний уровень («Приемлемое») — не слабый и не надёжный: результаты
+/// годятся для ориентировки, но не для точных решений. Заведена 2026-07-27
+/// (внешний аудит, Medium): блок рекомендаций `report.rs` ветвился только по
+/// `mqs_is_weak`/`mqs_is_dependable` — уровень «Приемлемое» не получал НИ
+/// ОДНОЙ строки, а молчание в разделе рекомендаций читается как «замечаний
+/// нет», то есть отсутствие вердикта работало как положительный вердикт.
+/// Три предиката покрывают все пять ступеней канона ровно по одному разу.
+pub fn mqs_is_acceptable(score: f64) -> bool {
+    matches!(mqs_tier_for_score(score).tier, "acceptable")
+}
+
 /// Ярлык, пришедший ИЗВНЕ (например `diagnostics.mqs.tier_label` из payload
 /// бэкенда), принадлежит канону? Заведено 2026-07-26 (внешний аудит седьмой
 /// волны): слой представления доверял полю как есть — непустой строки было
@@ -165,6 +176,29 @@ mod tests {
         assert!(!mqs_is_weak(55.0));
         assert!(mqs_is_weak(54.9));
         assert!(mqs_is_weak(0.0));
+    }
+
+    #[test]
+    fn is_acceptable_covers_only_the_middle_tier() {
+        assert!(!mqs_is_acceptable(70.0));
+        assert!(mqs_is_acceptable(69.9));
+        assert!(mqs_is_acceptable(55.0));
+        assert!(!mqs_is_acceptable(54.9));
+    }
+
+    #[test]
+    fn three_verdict_predicates_partition_all_five_tiers_exactly_once() {
+        // Регресс-тест на дефект "Приемлемое" без единой рекомендации
+        // (2026-07-27): ровно один из трёх предикатов обязан быть true на
+        // любом балле - иначе снова возможна немая середина или двойной вердикт.
+        for score in [95.0, 85.0, 84.0, 70.0, 69.0, 55.0, 54.0, 40.0, 39.0, 0.0] {
+            let flags = [mqs_is_weak(score), mqs_is_acceptable(score), mqs_is_dependable(score)];
+            let true_count = flags.iter().filter(|f| **f).count();
+            assert_eq!(
+                true_count, 1,
+                "балл {score}: ожидался ровно один истинный предикат из weak/acceptable/dependable, получено {true_count}"
+            );
+        }
     }
 
     #[test]
