@@ -339,9 +339,21 @@
     const cabinetId = $activeCabinet?.id;
     if (!cabinetId) return;
     try {
-      const history = /** @type {Array<{role: string, content: string, ts: number}>} */ (await invoke('load_chat_history', { cabinetId }));
+      const history = /** @type {Array<{role: string, content: string, ts: number, isAutoContinue?: boolean, isQuickReply?: boolean}>} */ (await invoke('load_chat_history', { cabinetId }));
       if (history && history.length > 0) {
-        messages.set(history.map(m => ({ role: m.role, content: m.content, ts: m.ts })));
+        // Служебные признаки рендера (метка «Авто-продолжение» / компактный
+        // quick-reply пузырь) обязаны пережить перезагрузку так же, как role/
+        // content/ts — иначе рендер (см. class:quick-reply и {#if msg.isAutoContinue}
+        // ниже) падает в обычный пузырь и пользователь читает сырую промпт-
+        // инструкцию модели. Спред только при true — не засоряем объект лишним
+        // isAutoContinue:false для обычных сообщений.
+        messages.set(history.map(m => ({
+          role: m.role,
+          content: m.content,
+          ts: m.ts,
+          ...(m.isAutoContinue ? { isAutoContinue: true } : {}),
+          ...(m.isQuickReply ? { isQuickReply: true } : {}),
+        })));
         setTimeout(scrollToBottom, 50);
       }
     } catch (err) {
@@ -349,12 +361,12 @@
     }
   }
 
-  /** @param {string} role @param {string} content @param {number} ts */
-  async function saveMsg(role, content, ts) {
+  /** @param {string} role @param {string} content @param {number} ts @param {{isAutoContinue?: boolean, isQuickReply?: boolean}} [flags] */
+  async function saveMsg(role, content, ts, flags = {}) {
     const cabinetId = $activeCabinet?.id;
     if (!cabinetId) return;
     try {
-      await invoke('save_chat_message', { cabinetId, role, content, ts });
+      await invoke('save_chat_message', { cabinetId, role, content, ts, isAutoContinue: flags.isAutoContinue, isQuickReply: flags.isQuickReply });
     } catch { /* non-critical */ }
   }
 
@@ -618,7 +630,7 @@
           const contTs = Date.now();
           const contMsg = 'Продолжай. Не пересказывай сделанное - сразу к следующему шагу.';
           messages.update(m => [...m, { role: 'user', content: contMsg, ts: contTs, isAutoContinue: true }]);
-          saveMsg('user', contMsg, contTs);
+          saveMsg('user', contMsg, contTs, { isAutoContinue: true });
           invoke('send_message', { cabinetId, message: contMsg, suppressExport: true }).catch(() => {
             isLoading.set(false);
             resetProgress();
@@ -731,7 +743,7 @@
       messages.update(msgs => [...msgs, {
         role: 'assistant', content: quick.response, ts: qts, isQuickReply: true,
       }]);
-      saveMsg('assistant', quick.response, qts);
+      saveMsg('assistant', quick.response, qts, { isQuickReply: true });
       scrollToBottom();
       return; // НЕ отправлять в Claude, НЕ ставить isLoading
     }

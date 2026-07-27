@@ -1536,10 +1536,17 @@ fn delete_export_file(cabinet_id: String, filename: String, app_handle: tauri::A
 }
 
 #[tauri::command]
-fn save_chat_message(cabinet_id: String, role: String, content: String, ts: f64) -> Result<(), String> {
+fn save_chat_message(
+    cabinet_id: String,
+    role: String,
+    content: String,
+    ts: f64,
+    is_auto_continue: Option<bool>,
+    is_quick_reply: Option<bool>,
+) -> Result<(), String> {
     session::history::save_message(
         &cabinet_id,
-        session::history::ChatHistoryMessage { role, content, ts },
+        session::history::ChatHistoryMessage { role, content, ts, is_auto_continue, is_quick_reply },
     )
     .map_err(|e| e.to_string())
 }
