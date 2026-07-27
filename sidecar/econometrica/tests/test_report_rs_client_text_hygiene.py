@@ -16,6 +16,19 @@ test_report_text_hygiene.py) — многолистовый Excel-отчёт с�
 unit-тесты в этом же файле строят внутренние JSON-фикстуры и сравнивают
 экспортированные значения ("baseline" как ключ роли, "role" == "baseline")
 — это не клиентский текст, а внутренний контракт данных.
+
+Расширение 2026-07-27 (задача 4, единый источник порогов MQS в Rust):
+  1. П8-3: голый литерал "N/A" в клиентском тексте — англицизм, честное
+     отсутствие пишется по-русски ("н/д").
+  2. Структурная дыра: наивный построчный разбор кавычек (`_join_continued_literals`)
+     не понимал сырые строки Rust (`r"..."`, `r#"..."#`). Доказано боем: для
+     `r#"...со "N/A кавычками" и текст"#` `_string_literals()` отдавал
+     `['клиентский текст со ', ' и текст']` — средний фрагмент между
+     вложенными кавычками ПОЛНОСТЬЮ выпадал из проверки, ни одно правило
+     П8-1..П8-3 не видело текст внутри него. Тело каждой сырой строки теперь
+     маскируется нейтральным символом ДО обычного построчного разбора
+     (не мешает счёту кавычек соседних обычных литералов), а её содержимое
+     проверяется отдельно, целиком, через `_extract_raw_strings()`.
 """
 import os
 import re
@@ -38,6 +51,25 @@ ADSTOCK_WORD_RE = re.compile(r"\badstock\b", re.IGNORECASE)
 # Зеркалит _has_bare_adstock_in_client_text из test_report_text_hygiene.py:
 # "(adstock)" wrapped и "adstock(" formula-контекст — не нарушение.
 _BARE_ADSTOCK_RE = re.compile(r"(?<!\()\badstock\b(?!\))", re.IGNORECASE)
+# П8-3 (2026-07-27): "N/A" — англицизм в клиентском тексте, честное отсутствие
+# по-русски — "н/д" (см. mqs_tiers::resolve_mqs_label и MQS_ABSENT_TEXT).
+NA_LITERAL_RE = re.compile(r"\bN/A\b")
+
+# Сырая строка Rust: `r"..."` (0 решёток) или `r#"..."#`/`r##"..."##`/...
+# (N решёток) — закрывается ПЕРВЫМ `"`, за которым идёт ровно N решёток.
+# Незамкнутая группа `#*` жадная — верно берёт максимум решёток перед
+# открывающей кавычкой, как того требует сама грамматика Rust.
+#
+# Негативный lookbehind ОБЯЗАТЕЛЕН: без него префикс `r"`/`r#"` ловится и
+# ВНУТРИ обычных литералов, если те заканчиваются на букву "r" перед
+# закрывающей кавычкой ("Inter" -> "...te" + "r\"" читается как начало сырой
+# строки). Доказано боем при первом прогоне — 9 ложных совпадений вместо 1
+# реальной сырой строки (see durable-отчёт). Настоящий префикс сырой строки
+# в Rust — токен, ему не предшествует буква/цифра/подчёркивание. Кавычка `"`
+# перед `r` тоже исключена: `"r"` (обычный литерал, содержимое — буква "r",
+# как в таблице транслитерации) иначе читается как старт сырой строки —
+# второй ложный случай, найденный тем же боевым прогоном.
+RAW_STRING_RE = re.compile(r'(?<![A-Za-z0-9_"])r(#{0,8})"(.*?)"\1', re.DOTALL)
 
 
 def _production_source_lines() -> list[str]:
@@ -133,36 +165,104 @@ def _join_continued_literals(pairs):
     return out
 
 
+def _mask_raw_strings(pairs):
+    """Маскирует тело сырых строк Rust и отдаёт его отдельно для проверки.
+
+    Сырые строки (`r"..."`, `r#"..."#`) не подчиняются правилам экранирования
+    обычных строк — символ `"` внутри них не toggle'ит состояние "литерал
+    открыт/закрыт" так, как это предполагает `_join_continued_literals`
+    (посимвольный счёт НЕэкранированных кавычек). Если внутри сырой строки
+    есть вложенная кавычка, наивный разбор рвёт содержимое на куски по этим
+    вложенным кавычкам и часть текста МОЛЧА выпадает из проверки (доказано
+    боем — см. докстринг модуля).
+
+    Возвращает (замаскированные (lineno, line)-пары, [(lineno, содержимое)]).
+    Маскирование заменяет ВЕСЬ матч сырой строки (включая `r`/`#`/кавычки)
+    нейтральным символом, сохраняя переносы строк — число и порядок строк
+    не меняются, обычный конвейер (`_join_continued_literals` + `_string_literals`)
+    после этого сырых кавычек больше не видит.
+    """
+    linenos = [lineno for lineno, _ in pairs]
+    lines = [line for _, line in pairs]
+    text = "".join(lines)
+
+    starts = []
+    pos = 0
+    for line in lines:
+        starts.append(pos)
+        pos += len(line)
+
+    def _lineno_at(idx):
+        result = linenos[0] if linenos else 1
+        for start, ln in zip(starts, linenos):
+            if start <= idx:
+                result = ln
+            else:
+                break
+        return result
+
+    raw_contents = []
+    masked = list(text)
+    for m in RAW_STRING_RE.finditer(text):
+        raw_contents.append((_lineno_at(m.start()), m.group(2)))
+        for i in range(m.start(), m.end()):
+            if masked[i] != "\n":
+                masked[i] = "x"
+    masked_text = "".join(masked)
+    masked_lines = masked_text.splitlines(keepends=True)
+    # Маскирование не должно менять число физических строк — иначе номера
+    # строк у последующих проверок разъедутся с исходником.
+    assert len(masked_lines) == len(pairs), (
+        "маскирование сырых строк изменило число строк report.rs — не должно"
+    )
+    return list(zip(linenos, masked_lines)), raw_contents
+
+
+def _scan_text(lineno, text, hits):
+    """Прогоняет один фрагмент текста (обычный литерал или тело сырой строки)
+    через все правила П8-1..П8-3 и складывает находки в `hits`."""
+    if EM_DASH_RE.search(text):
+        hits["em_dash"].append((lineno, text))
+    # Точное нижнерегистровое совпадение — внутренний data-key
+    # (role == "baseline", ts.get("baseline")), не клиентский текст.
+    if BASELINE_WORD_RE.search(text) and text.strip() != "baseline":
+        hits["baseline"].append((lineno, text))
+    if MEDIA_LATIN_RE.search(text):
+        hits["media_latin"].append((lineno, text))
+    # headword-строка (глоссарий-стиль "Adstock" ровно) — тот же прецедент,
+    # что уже разрешён в HTML-глоссарии.
+    if (
+        ADSTOCK_WORD_RE.search(text)
+        and text.strip() != "Adstock"
+        and _BARE_ADSTOCK_RE.search(text)
+    ):
+        hits["adstock"].append((lineno, text))
+    if NA_LITERAL_RE.search(text):
+        hits["na_literal"].append((lineno, text))
+
+
 def _collect_violations():
-    em_dash_hits, baseline_hits, media_hits, adstock_hits = [], [], [], []
+    hits = {"em_dash": [], "baseline": [], "media_latin": [], "adstock": [], "na_literal": []}
     checked_lines = 0
-    for lineno, line in _join_continued_literals(_production_source_lines()):
+
+    pairs = _production_source_lines()
+    masked_pairs, raw_contents = _mask_raw_strings(pairs)
+
+    for lineno, content in raw_contents:
+        _scan_text(lineno, content, hits)
+
+    for lineno, line in _join_continued_literals(masked_pairs):
         lits = _string_literals(line)
         if not lits:
             continue
         checked_lines += 1
         for lit in lits:
-            if EM_DASH_RE.search(lit):
-                em_dash_hits.append((lineno, lit))
-            # Точное нижнерегистровое совпадение — внутренний data-key
-            # (role == "baseline", ts.get("baseline")), не клиентский текст.
-            if BASELINE_WORD_RE.search(lit) and lit.strip() != "baseline":
-                baseline_hits.append((lineno, lit))
-            if MEDIA_LATIN_RE.search(lit):
-                media_hits.append((lineno, lit))
-            if ADSTOCK_WORD_RE.search(lit):
-                # headword-строка (глоссарий-стиль "Adstock" ровно) —
-                # тот же прецедент, что уже разрешён в HTML-глоссарии.
-                if lit.strip() == "Adstock":
-                    continue
-                if _BARE_ADSTOCK_RE.search(lit):
-                    adstock_hits.append((lineno, lit))
+            _scan_text(lineno, lit, hits)
+
     return {
         "checked_lines": checked_lines,
-        "em_dash": em_dash_hits,
-        "baseline": baseline_hits,
-        "media_latin": media_hits,
-        "adstock": adstock_hits,
+        "raw_strings_checked": len(raw_contents),
+        **hits,
     }
 
 
@@ -215,6 +315,14 @@ def test_rs_report_no_bare_adstock():
     assert not unexpected, f"П8-2: НОВЫЙ голый adstock в report.rs (production): {unexpected}"
 
 
+def test_rs_report_no_na_literal():
+    """П8-3 (2026-07-27): "N/A" — англицизм. Честное отсутствие ярлыка/значения
+    в клиентском тексте пишется по-русски ("н/д"), см. mqs_tiers::resolve_mqs_label
+    и top_ch в build_markdown — оба места переведены с "N/A" на "н/д"."""
+    v = _collect_violations()
+    assert not v["na_literal"], f"П8-3: литерал N/A в report.rs (production): {v['na_literal']}"
+
+
 def test_legitimised_literals_are_all_alive():
     """Узаконенный литерал обязан существовать в файле.
 
@@ -236,6 +344,7 @@ def test_rs_report_coverage_is_reported():
     summary = (
         f"ОХВАТ Rust XLSX (report.rs, production-код до #[cfg(test)]): "
         f"строк со строковыми литералами проверено {v['checked_lines']}; "
+        f"сырых строк (r\"...\"/r#\"...\"#) проверено {v['raw_strings_checked']}; "
         f"узаконенных терминов {len(_LEGITIMISED_LITERALS)} — "
         f"{sorted(_LEGITIMISED_LITERALS)}"
     )
@@ -243,4 +352,9 @@ def test_rs_report_coverage_is_reported():
     assert v["checked_lines"] > 100, (
         "report.rs: строковых литералов почти не найдено — либо файл переехал, "
         "либо проверка сломана (см. _REPORT_RS путь)"
+    )
+    assert v["raw_strings_checked"] >= 1, (
+        "report.rs: ни одной сырой строки не найдено — либо XML-регулярка "
+        "(около строки 1910) переехала/удалена, либо разбор сырых строк сломан "
+        "(защита от тихого нуля новой ветки проверки)"
     )

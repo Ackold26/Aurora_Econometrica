@@ -9,6 +9,7 @@ pub mod content_updater;
 pub mod econometrica;
 pub mod feedback;
 pub mod license;
+pub mod mqs_tiers;
 pub mod online_auth;
 pub mod parser;
 pub mod pptx_processor;

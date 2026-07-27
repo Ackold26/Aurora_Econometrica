@@ -11,6 +11,8 @@ use serde_json::Value;
 use std::io::{Cursor, Read, Write};
 use std::path::{Path, PathBuf};
 
+use crate::commands::mqs_tiers;
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 /// Transliterate Cyrillic to Latin per GOST 7.79-2000 System B, then strip to
@@ -140,8 +142,13 @@ enum MqsCell {
 fn mqs_xlsx_row(mqs: Option<f64>, mqs_label: Option<&str>) -> (MqsCell, &'static str, String) {
     match mqs {
         Some(v) => {
-            let grade = if v >= 80.0 { "Отлично" } else if v >= 60.0 { "Хорошо" } else { "Требует доработки" };
-            (MqsCell::Value(v), grade, format!("MQS Tier: {}", mqs_label.unwrap_or("N/A")))
+            // Единый источник (INV-106 продолжение, 2026-07-27): раньше `grade`
+            // (своя лестница 80/60) и `tier_line` (сырой mqs_label) были ДВУМЯ
+            // независимыми ярлыками для одного и того же балла в одной строке
+            // листа - ровно рецидив L16 внутри одной функции. Теперь оба берут
+            // ОДИН резолвнутый ярлык канона (mqs_tiers).
+            let grade = mqs_tiers::resolve_mqs_label(v, mqs_label);
+            (MqsCell::Value(v), grade, format!("MQS Tier: {grade}"))
         }
         None => (MqsCell::Absent, "", MQS_ABSENT_TEXT.to_string()),
     }
@@ -368,7 +375,7 @@ fn build_markdown(model: &Value, decompose: &Value, optimize: &Value) -> String 
                 })
                 .and_then(|c| c["name"].as_str())
         })
-        .unwrap_or("N/A");
+        .unwrap_or("н/д");
 
     let now = Local::now().format("%d.%m.%Y %H:%M").to_string();
     let mut md = String::with_capacity(4096);
@@ -380,7 +387,10 @@ fn build_markdown(model: &Value, decompose: &Value, optimize: &Value) -> String 
     // ── Executive Summary ────────────────────────────────────
     md.push_str("## EXECUTIVE SUMMARY\n\n");
     match mqs {
-        Some(v) => md.push_str(&format!("- **Качество модели (MQS):** {v:.1} - {}\n", mqs_label.unwrap_or("N/A"))),
+        Some(v) => md.push_str(&format!(
+            "- **Качество модели (MQS):** {v:.1} - {}\n",
+            mqs_tiers::resolve_mqs_label(v, mqs_label)
+        )),
         None => md.push_str(&format!("- **Качество модели (MQS):** {MQS_ABSENT_TEXT}\n")),
     }
     md.push_str(&format!("- **R²:** {r_squared:.4} (объяснённая дисперсия: {:.1}%)\n", r_squared * 100.0));
@@ -399,7 +409,10 @@ fn build_markdown(model: &Value, decompose: &Value, optimize: &Value) -> String 
     match mqs {
         Some(v) => {
             md.push_str(&format!("| MQS Score | {v:.1} |\n"));
-            md.push_str(&format!("| MQS Tier | {} |\n", mqs_label.unwrap_or("N/A")));
+            md.push_str(&format!(
+                "| MQS Tier | {} |\n",
+                mqs_tiers::resolve_mqs_label(v, mqs_label)
+            ));
         }
         None => md.push_str(&format!("| MQS | {MQS_ABSENT_TEXT} |\n")),
     }
@@ -510,12 +523,17 @@ fn build_markdown(model: &Value, decompose: &Value, optimize: &Value) -> String 
     // Вердикт по MQS печатается только когда оценка реально посчитана -
     // при отсутствии (mqs == None) нет основания ни для «требует доработки»,
     // ни для «надёжны» (было: фиктивный 0.0 всегда бил в первую ветку).
+    // Пороги 60/80 заменены на канон MQS (85/70/55/40, mqs_tiers) - раньше
+    // здесь жила третья, независимая лестница вдобавок к grade/tier_line.
+    // "требует доработки" = tier weak/poor (дословно WEAK_TIERS из
+    // utils/optimizer_honesty.py); "надёжны для решений" = tier good/excellent
+    // (дословно mqsIsDependable из src/lib/mqs-tiers.js).
     if let Some(v) = mqs {
-        if v < 60.0 {
-            md.push_str("- [СРЕДНЯЯ] MQS Score ниже 60 - модель требует доработки или дополнительных данных\n");
+        if mqs_tiers::mqs_is_weak(v) {
+            md.push_str("- [СРЕДНЯЯ] MQS Score на уровне «Слабое» или «Ненадёжное» - модель требует доработки или дополнительных данных\n");
         }
-        if v >= 80.0 {
-            md.push_str("- [ВЫСОКАЯ] Высокий MQS Score - результаты модели надёжны для принятия решений\n");
+        if mqs_tiers::mqs_is_dependable(v) {
+            md.push_str("- [ВЫСОКАЯ] MQS Score на уровне «Хорошее» и выше - результаты модели надёжны для принятия решений\n");
         }
     }
     md.push_str(&format!("- [ВЫСОКАЯ] Приоритизировать канал **{top_ch}** - наивысший ROI в миксе\n"));
@@ -1838,8 +1856,15 @@ fn build_xlsx(
         ws.write_with_format(2, 0, "Термин", &header_fmt).map_err(|e| format!("{e}"))?;
         ws.write_with_format(2, 1, "Определение", &header_fmt).map_err(|e| format!("{e}"))?;
 
+        // Текст шкалы MQS собирается из канона (mqs_tiers::mqs_scale_text),
+        // а не пишется числами руками - иначе поведение (grade/tier_line
+        // выше в этом файле) и его описание в глоссарии расходятся молча.
+        let mqs_glossary_text = format!(
+            "Model Quality Score - комплексная оценка качества модели (0-100). {}.",
+            mqs_tiers::mqs_scale_text()
+        );
         let terms: &[(&str, &str)] = &[
-            ("MQS", "Model Quality Score - комплексная оценка качества модели (0-100). >80 = отлично, 60-80 = хорошо, <60 = требует доработки."),
+            ("MQS", mqs_glossary_text.as_str()),
             ("R²", "Коэффициент детерминации - доля дисперсии KPI, объяснённая моделью. 1.0 = идеальная модель."),
             ("MAPE", "Mean Absolute Percentage Error - средняя абсолютная ошибка в %. <10% = отлично."),
             ("R-hat", "Статистика сходимости MCMC. Значение ~1.0 означает, что цепи сошлись. >1.05 = проблема."),
@@ -2046,23 +2071,38 @@ mod tests {
             "MQS отсутствует, но markdown печатает фиктивный 0.0 как приговор модели"
         );
         assert!(
-            !md.contains("MQS Score ниже 60"),
+            !md.contains("MQS Score на уровне «Слабое» или «Ненадёжное»"),
             "MQS отсутствует - рекомендация про низкий балл не должна печататься"
         );
         assert!(
-            !md.contains("Высокий MQS Score"),
+            !md.contains("MQS Score на уровне «Хорошее» и выше"),
             "MQS отсутствует - рекомендация про высокий балл не должна печататься"
         );
     }
 
     #[test]
     fn markdown_mqs_present_shows_real_score() {
+        // "Хорошее" - валидный канон-ярлык (dословно _MQS_TIERS), как реально
+        // присылает бэкенд через utils.diagnostics.mqs_tier_info().
+        let model = json!({"diagnostics": {"mqs": {"score": 70.0, "tier_label": "Хорошее"}}});
+        let md = build_markdown(&model, &json!({}), &json!({}));
+        assert!(md.contains("Качество модели (MQS):** 70.0 - Хорошее"));
+        assert!(md.contains("| MQS Score | 70.0 |"));
+        assert!(md.contains("| MQS Tier | Хорошее |"));
+        assert!(!md.contains(MQS_ABSENT_TEXT));
+    }
+
+    #[test]
+    fn markdown_mqs_alien_label_is_rejected_derived_from_score() {
+        // "Хорошо" - устаревший/чужой ярлык (не "Хорошее" канона _MQS_TIERS).
+        // Задача 2 (2026-07-27): внешний ярлык проверяется по набору канона,
+        // непустой строки недостаточно - значение вне набора отбрасывается,
+        // уровень пересчитывается из посчитанного балла.
         let model = json!({"diagnostics": {"mqs": {"score": 70.0, "tier_label": "Хорошо"}}});
         let md = build_markdown(&model, &json!({}), &json!({}));
-        assert!(md.contains("Качество модели (MQS):** 70.0 - Хорошо"));
-        assert!(md.contains("| MQS Score | 70.0 |"));
-        assert!(md.contains("| MQS Tier | Хорошо |"));
-        assert!(!md.contains(MQS_ABSENT_TEXT));
+        assert!(md.contains("Качество модели (MQS):** 70.0 - Хорошее"));
+        assert!(md.contains("| MQS Tier | Хорошее |"));
+        assert!(!md.contains("- Хорошо\n"), "чужой ярлык не должен доехать до клиента как есть");
     }
 
     #[test]
@@ -2072,7 +2112,10 @@ mod tests {
         let model = json!({"diagnostics": {"mqs": {"score": 0.0, "tier_label": "Ненадёжное"}}});
         let md = build_markdown(&model, &json!({}), &json!({}));
         assert!(md.contains("Качество модели (MQS):** 0.0 - Ненадёжное"));
-        assert!(md.contains("MQS Score ниже 60"), "реальный низкий балл 0 обязан триггерить рекомендацию");
+        assert!(
+            md.contains("MQS Score на уровне «Слабое» или «Ненадёжное»"),
+            "реальный низкий балл 0 (tier poor) обязан триггерить рекомендацию"
+        );
         assert!(!md.contains(MQS_ABSENT_TEXT));
     }
 
@@ -2086,13 +2129,32 @@ mod tests {
 
     #[test]
     fn xlsx_mqs_row_present_is_value_with_grade() {
-        let (cell, grade, tier_line) = mqs_xlsx_row(Some(70.0), Some("Хорошо"));
+        let (cell, grade, tier_line) = mqs_xlsx_row(Some(70.0), Some("Хорошее"));
         match cell {
             MqsCell::Value(v) => assert_eq!(v, 70.0),
             MqsCell::Absent => panic!("оценка присутствует - ожидался MqsCell::Value"),
         }
-        assert_eq!(grade, "Хорошо");
-        assert_eq!(tier_line, "MQS Tier: Хорошо");
+        assert_eq!(grade, "Хорошее");
+        assert_eq!(tier_line, "MQS Tier: Хорошее");
+    }
+
+    #[test]
+    fn xlsx_mqs_row_rejects_alien_label_derives_from_score() {
+        // "Хорошо" не входит в набор канона ("Хорошее") - grade и tier_line
+        // обязаны совпасть и взяться из балла, а не эхом чужого текста.
+        let (_cell, grade, tier_line) = mqs_xlsx_row(Some(70.0), Some("Хорошо"));
+        assert_eq!(grade, "Хорошее");
+        assert_eq!(tier_line, "MQS Tier: Хорошее");
+    }
+
+    #[test]
+    fn xlsx_mqs_row_missing_label_derives_from_score_not_literal_na() {
+        // Балл посчитан, ярлыка от бэкенда нет вовсе (None) - раньше здесь
+        // печаталось "N/A" (англицизм); теперь уровень считается из балла.
+        let (_cell, grade, tier_line) = mqs_xlsx_row(Some(92.0), None);
+        assert_eq!(grade, "Отличное");
+        assert_eq!(tier_line, "MQS Tier: Отличное");
+        assert!(!tier_line.contains("N/A"));
     }
 
     #[test]
@@ -2102,6 +2164,6 @@ mod tests {
             MqsCell::Value(v) => assert_eq!(v, 0.0),
             MqsCell::Absent => panic!("настоящий ноль - валидное значение, не отсутствие"),
         }
-        assert_eq!(grade, "Требует доработки");
+        assert_eq!(grade, "Ненадёжное");
     }
 }
