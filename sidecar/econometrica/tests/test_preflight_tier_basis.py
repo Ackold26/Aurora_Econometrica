@@ -22,7 +22,11 @@ def _call(**kw):
         recommend={'banner_tone': 'good', 'n_obs_tone': 'good'},
         quick_proxy={'tier': 'reliable'},
         prior_predictive=None,
-        recommended_mode='bayesian',
+        # Регресс-находка 2026-07-27: параметр переименован из recommended_mode
+        # в actual_mode - потребитель здесь спрашивает «чем реально пойдёт
+        # обучение», а не «что советует recommend_engine» (см. server.py::
+        # aggregate_preflight_tier docstring).
+        actual_mode='bayesian',
         skip_prior_predictive=False,
     )
     base.update(kw)
@@ -65,7 +69,7 @@ def test_several_sources_may_share_the_verdict():
 
 
 @pytest.mark.parametrize("kwargs,reason", [
-    ({'recommended_mode': 'ols'}, 'engine_not_bayesian'),
+    ({'actual_mode': 'ols'}, 'engine_not_bayesian'),
     ({'skip_prior_predictive': True}, 'disabled_by_user'),
     ({}, 'failed'),
 ])

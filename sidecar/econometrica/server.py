@@ -939,7 +939,7 @@ def aggregate_preflight_tier(
     recommend: dict,
     quick_proxy: dict,
     prior_predictive: dict | None,
-    recommended_mode: str,
+    actual_mode: str,
     skip_prior_predictive: bool,
 ) -> tuple[str, dict]:
     """Худший из уровней + разметка ИСТОЧНИКА, которым он получен.
@@ -959,6 +959,19 @@ def aggregate_preflight_tier(
     класс дефекта, что несчитанная метрика, показанная нулём. Ключи —
     внутренний контракт (английские), клиентские формулировки собирает
     интерфейс (ConfigPanel.svelte::preflightBasisText).
+
+    actual_mode (регресс-находка 2026-07-27, было recommended_mode): движок,
+    которым РЕАЛЬНО пойдёт обучение, а НЕ честная рекомендация recommend_engine
+    по n_obs. Наша же правка default=None (находка 6) честно развела «не задано»
+    и «явный выбор» для recommend_engine — но потребитель здесь спрашивал совсем
+    другое: «этот прогон обучится байесом?». Раньше оба вопроса совпадали
+    случайно (дефолт движка 'bayesian' == честная рекомендация при n<30 была
+    недостижима до находки 6). После находки 6 при n<30 recommend_engine честно
+    советует 'ols', а интерфейс по умолчанию ВСЁ РАВНО обучает Bayesian
+    (ConfigPanel.svelte шлёт modeOverride=null для инженерного дефолта, но
+    train-config.js передаёт в /compute/train mode=engine='bayesian' буквально) —
+    проверка приоров пропадала («неприменима к выбранному способу», хотя способ
+    как раз применим) ровно там, где мало данных и она нужнее всего.
     """
     by_source = {
         # Находка 6 (2026-07-26): 'banner_tone' коротко замыкается в 'good' при
@@ -973,7 +986,7 @@ def aggregate_preflight_tier(
         by_source['prior_predictive'] = _STATUS_TO_TIER.get(
             prior_predictive.get('status'), 'reliable',
         )
-    elif recommended_mode != 'bayesian':
+    elif actual_mode != 'bayesian':
         skipped['prior_predictive'] = 'engine_not_bayesian'
     elif skip_prior_predictive:
         skipped['prior_predictive'] = 'disabled_by_user'
@@ -1044,6 +1057,17 @@ def preflight(req: PreflightRequest):
     recommend = recommend_engine(n_obs, override=mode_override)
     recommended_mode = recommend['recommended']
 
+    # Регресс-находка 2026-07-27: движок, которым РЕАЛЬНО пойдёт обучение, -
+    # отдельный факт от честной рекомендации (recommended_mode). Тот же сырой
+    # вход (mode_override), что и /compute/train резолвит через _validate_mode
+    # с default='bayesian' (server.py:828/1155, не тронуто) - actual_mode
+    # повторяет ИМЕННО эту логику, а не совет по n_obs. До этой правки прогон
+    # с n<30 и байесовским движком по умолчанию (интерфейс шлёт modeOverride=
+    # null, но обучает Bayesian) честно советовал 'ols' (находка 6) и из-за
+    # этого молча терял проверку приоров ровно там, где мало данных и она
+    # нужнее всего - см. aggregate_preflight_tier docstring.
+    actual_mode = mode_override or 'bayesian'
+
     # Step 3: A4 quick proxy на media matrix
     from utils.reliability_quick_proxy import quick_proxy_check
     media_matrix = df[req.media_columns].fillna(0).values.astype(float)
@@ -1051,7 +1075,7 @@ def preflight(req: PreflightRequest):
 
     # Step 4: prior predictive (Bayesian only, optional skip)
     prior_predictive = None
-    if recommended_mode == 'bayesian' and not req.skip_prior_predictive:
+    if actual_mode == 'bayesian' and not req.skip_prior_predictive:
         try:
             from utils.reliability_a4 import prior_predictive_check
             y_obs = df[req.kpi_column].fillna(0).values.astype(float)
@@ -1071,7 +1095,7 @@ def preflight(req: PreflightRequest):
         recommend=recommend,
         quick_proxy=quick_proxy,
         prior_predictive=prior_predictive,
-        recommended_mode=recommended_mode,
+        actual_mode=actual_mode,
         skip_prior_predictive=bool(req.skip_prior_predictive),
     )
 
