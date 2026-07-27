@@ -200,8 +200,15 @@ describe('mqsScaleText', () => {
   it('собирается из порогов и покрывает все пять уровней', () => {
     const s = mqsScaleText();
     for (const t of MQS_TIERS) expect(s).toContain(t.label);
-    expect(s).toContain('≥ 85');
-    expect(s).toContain('< 40');
+    // Целочисленные диапазоны (2026-07-27, единая форма с Rust-зеркалом
+    // mqs_tiers.rs::mqs_scale_text) - без ≤/≥/<, верхняя граница каждого
+    // диапазона на 1 меньше нижней границы следующего уровня.
+    expect(s).toContain('85–100');
+    expect(s).toContain('70–84');
+    expect(s).toContain('55–69');
+    expect(s).toContain('40–54');
+    expect(s).toContain('0–39');
+    expect(s).not.toMatch(/[≤≥<]/);
   });
   it('короткое тире в клиентском тексте', () => {
     expect(mqsScaleText()).not.toMatch(/—/);

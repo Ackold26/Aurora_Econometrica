@@ -212,6 +212,18 @@ app = FastAPI(
     title='Aurora AI Econometrica Sidecar',
     version=VERSION,
     description='Local MMM computation engine (0 tokens)',
+    # default_response_class (2026-07-27): 14 обработчиков возвращают голый
+    # словарь (`return {...}`/`return result`) - FastAPI сериализует их сам,
+    # МИМО локального подкласса JSONResponse выше (тот закрывает только явные
+    # `JSONResponse(content=...)`, коих 62). Без этого параметра голый
+    # словарь идёт через стандартный `actual_response_class` FastAPI
+    # (обычный starlette JSONResponse без дезинфекции) - нечисло (NaN/Inf) из
+    # вырожденной модели валит ответ 500-кой ('Out of range float values are
+    # not JSON compliant'), см. /compute/model_history (история расчётов).
+    # default_response_class закрывает ВСЕ обработчики разом, включая
+    # будущие - без точечных правок каждого места (см. комментарий класса
+    # JSONResponse выше про историю с MQS-нулём).
+    default_response_class=JSONResponse,
 )
 
 
