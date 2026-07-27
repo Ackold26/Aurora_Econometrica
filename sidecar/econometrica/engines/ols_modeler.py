@@ -572,10 +572,27 @@ def recommend_engine(n_obs: int, *, override: str | None = None) -> dict[str, An
     """
     n_obs_tone = _honest_n_obs_tone(n_obs)
     if override in ('bayesian', 'ols'):
+        override_label = 'Bayesian MMM' if override == 'bayesian' else 'OLS'
+        reason = f'Явный выбор пользователя: {override_label}.'
+        # Находка 6 продолжение (2026-07-27): 'reason' теперь доезжает до
+        # клиента (server.py::preflight) всякий раз, когда n_obs_tone не
+        # 'good', - "выбор принят" сам по себе не объясняет вердикт, поэтому
+        # при малом n к тексту добавляется честная причина вместо голой
+        # констатации выбора.
+        if n_obs_tone == 'bad':
+            reason += (
+                f' n={n_obs}: данных недостаточно (нужно n≥20) для надёжной оценки - '
+                f'результаты могут быть ненадёжными вне зависимости от выбранного режима.'
+            )
+        elif n_obs_tone == 'warn':
+            reason += (
+                f' n={n_obs}: пограничная область (n<30) - результаты могут иметь '
+                f'широкие правдоподобные диапазоны.'
+            )
         return {
             'recommended': override,
             'allowed': ['bayesian', 'ols'],
-            'reason': f'User explicit choice: {override}',
+            'reason': reason,
             'banner_tone': 'good',
             'n_obs_tone': n_obs_tone,
             'override_active': True,

@@ -787,14 +787,22 @@ def validate_preview(req: PreviewRequest):
 _VALID_MODES = ('bayesian', 'ols')
 
 
-def _validate_mode(mode: str | None) -> tuple[str | None, dict | None]:
+def _validate_mode(mode: str | None, *, default: str | None = 'bayesian') -> tuple[str | None, dict | None]:
     """Audit H5 (2026-04-26): whitelist mode values + return user-friendly error.
 
     Returns (resolved_mode, error_response).
     error_response is None on success - caller proceeds with resolved_mode.
+
+    default: значение при mode=None. Дефолт 'bayesian' нужен вызывающим,
+    которые РОУТЯТ обучение (train/train_start) - там режим обязан
+    разрешиться во что-то исполнимое. Но когда результат уходит в
+    recommend_engine(override=...) как признак «пользователь выбрал явно»
+    (см. /compute/preflight), звать с default=None - иначе дефолт движка
+    неотличим от настоящего выбора, и recommend_engine никогда не видит
+    None, чтобы дать честную рекомендацию по n_obs.
     """
     if mode is None:
-        return 'bayesian', None
+        return default, None
     normalized = str(mode).strip().lower()
     if normalized not in _VALID_MODES:
         return None, {
@@ -971,8 +979,11 @@ def preflight(req: PreflightRequest):
     import logging as _logging
     _preflight_logger = _logging.getLogger(__name__)
 
-    # Validate mode override first
-    mode_override, mode_err = _validate_mode(req.mode_override)
+    # Validate mode override first. default=None: mode_override уходит в
+    # recommend_engine(override=...) как признак явного выбора пользователя -
+    # дефолт движка 'bayesian' не должен туда доезжать за настоящий выбор
+    # (см. docstring _validate_mode).
+    mode_override, mode_err = _validate_mode(req.mode_override, default=None)
     if mode_err is not None:
         return JSONResponse(content=mode_err)
 
@@ -1037,7 +1048,11 @@ def preflight(req: PreflightRequest):
 
     # Aggregate warnings + recommendation
     all_warnings = []
-    if recommend.get('reason') and recommend['banner_tone'] != 'good':
+    # Находка 6 продолжение (2026-07-27): ветвить по честному n_obs_tone, а не
+    # по banner_tone - тот при override всегда 'good' (см. _honest_n_obs_tone),
+    # поэтому раньше объяснение вердикта «данных недостаточно» глушилось
+    # ровно тогда, когда режим выбран явно, хотя вердикт остаётся плохим.
+    if recommend.get('reason') and recommend.get('n_obs_tone') != 'good':
         all_warnings.append(recommend['reason'])
     all_warnings.extend(quick_proxy.get('warnings', []))
     if prior_predictive and prior_predictive.get('warning'):
@@ -1943,8 +1958,8 @@ def model_history(req: ModelHistoryRequest):
                 # получил бы приговор вместо отметки «не оценивали».
                 'mqs_score': mqs.get('score'),
                 'mqs_label': mqs.get('tier_label', ''),
-                'r_squared': metrics.get('r_squared', diag.get('r_squared', 0)),
-                'mape': metrics.get('mape_pct', diag.get('mape', 0)),
+                'r_squared': metrics.get('r_squared', diag.get('r_squared')),
+                'mape': metrics.get('mape_pct', diag.get('mape')),
                 'n_channels': len(channels),
                 'channels': channels,
                 'config': data.get('config', {}),
