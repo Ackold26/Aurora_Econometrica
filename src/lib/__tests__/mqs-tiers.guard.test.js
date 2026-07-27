@@ -58,15 +58,30 @@ const LEGITIMISED = [
   'Math.abs(mqsA - mqsB) > 10',
 ];
 
-// `mqs >= 80`, `(mqsScore ?? 0) >= 60`, `mqs != null && mqs < 60`.
+// `mqs >= 80`, `(mqsScore ?? 0) >= 60`, `mqs != null && mqs < 60`,
+// `mqs_score >= 80`, `diagnostics.mqs.score >= 80`.
 // Сравниваемое обязано стоять ВПЛОТНУЮ перед оператором: иначе правило ловило
 // соседнюю метрику на той же строке — `mqsIsDependable(mqs) && rHat > 0`
 // засчитывалось за свою шкалу MQS, хотя сравнивается сходимость.
-const CMP_AFTER = /\bmqs[A-Za-z]*\s*(?:\?\?\s*\d+\s*\)?\s*)?(?:>=|<=|>|<)\s*\d{1,3}/i;
+// Идентификатор продолжается через `[A-Za-z0-9_]` (не только буквы — иначе
+// слепо к `mqs_score`) и через цепочку доступа по точке (`mqs.score`,
+// `diagnostics.mqs.score`). Конец идентификатора проверяется предпросмотром
+// `(?![A-Za-z0-9_])`, а не `\b`: `\b` не видит границы между «s» и «_» —
+// оба словесные символы, поэтому старое правило слепло на `mqs_score`.
+const CMP_AFTER = /\bmqs[A-Za-z0-9_]*(?:\.[A-Za-z0-9_]+)*\s*(?:\?\?\s*\d+\s*\)?\s*)?(?:>=|<=|>|<)\s*\d{1,3}/i;
 // `80 <= mqs`
-const CMP_BEFORE = /\d{1,3}\s*(?:>=|<=|>|<)[^\n]{0,20}\bmqs[A-Za-z]*\b/i;
+const CMP_BEFORE = /\d{1,3}\s*(?:>=|<=|>|<)[^\n]{0,20}\bmqs[A-Za-z0-9_]*(?:\.[A-Za-z0-9_]+)*(?![A-Za-z0-9_])/i;
 // `tierUp(mqs, 80, 60)` — пороги аргументами
-const THRESHOLD_ARGS = /\bmqs[A-Za-z]*\b\s*,\s*\d{1,3}\s*,\s*\d{1,3}/i;
+const THRESHOLD_ARGS = /\bmqs[A-Za-z0-9_]*(?:\.[A-Za-z0-9_]+)*(?![A-Za-z0-9_])\s*,\s*\d{1,3}\s*,\s*\d{1,3}/i;
+// Идентификатор, оканчивающийся на `score`/`Score`, сравниваемый со СТАРОЙ
+// лестницей 80/60 (докат L16: `mqs_score >= 80`, `diagnostics.mqs.score >= 60`
+// — поле верное, но мерят его по прежней шкале, не 85/70/55/40). Узко: и
+// хвост идентификатора «score», И порог ровно 80 или 60 — не требует
+// префикса `mqs`, чтобы ловить и `const { score } = mqsView()` дальше по
+// коду без «mqs» в имени. Шире не делать — самостоятельно словил бы чужие
+// метрики со своими интервалами.
+const OLD_SCALE_SCORE_AFTER = /\b[A-Za-z_][A-Za-z0-9_.]*score(?![A-Za-z0-9_])\s*(?:\?\?\s*\d+\s*\)?\s*)?(?:>=|<=|>|<)\s*(?:80|60)(?!\d)/i;
+const OLD_SCALE_SCORE_BEFORE = /(?:80|60)(?!\d)\s*(?:>=|<=|>|<)[^\n]{0,20}\b[A-Za-z_][A-Za-z0-9_.]*score(?![A-Za-z0-9_])/i;
 // «≥ 80 - отлично», «60-80 - хорошо», «40-60 - приемлемо» — шкала словами в тексте
 const SCALE_TEXT = /(?:≥|>=)\s*\d{2}\s*[-–—]?\s*(?:отлич|хорош|приемлем)|\d{2}\s*[-–—]\s*\d{2}\s*[-–—]?\s*(?:отлич|хорош|приемлем)/i;
 
@@ -113,7 +128,14 @@ describe('структурный гард: интерфейс не держит 
         // у запаса данных (Ratio) своя шкала «≥10 отлично», к качеству модели
         // отношения не имеющая. Без этого условия гард ловил бы чужую метрику.
         const scaleHit = SCALE_TEXT.test(ln) && /\bmqs\b|Model Quality/i.test(ln);
-        if (CMP_AFTER.test(ln) || CMP_BEFORE.test(ln) || THRESHOLD_ARGS.test(ln) || scaleHit) {
+        if (
+          CMP_AFTER.test(ln)
+          || CMP_BEFORE.test(ln)
+          || THRESHOLD_ARGS.test(ln)
+          || OLD_SCALE_SCORE_AFTER.test(ln)
+          || OLD_SCALE_SCORE_BEFORE.test(ln)
+          || scaleHit
+        ) {
           offenders.push(`${path.relative(SRC_DIR, f)}:${i + 1}: ${t.slice(0, 110)}`);
         }
       });
