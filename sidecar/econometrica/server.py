@@ -43,8 +43,37 @@ if _sidecar_root not in sys.path:
     sys.path.insert(0, _sidecar_root)
 
 from fastapi import FastAPI, HTTPException, Request, UploadFile, File, Form
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse as _StarletteJSONResponse
 from pydantic import BaseModel, Field, field_validator
+
+from utils.safe_io import sanitize_nonfinite
+
+
+class JSONResponse(_StarletteJSONResponse):
+    """JSONResponse с дезинфекцией NaN/Inf/-Inf → None перед сериализацией.
+
+    Находка non-finite (2026-07-27, побочный эффект тестов A6/A7): /compute/preflight
+    падал 500-кой 'Out of range float values are not JSON compliant: inf' на
+    коллинеарных данных (quick_proxy_check::condition_number = inf) - stdlib json
+    внутри starlette при сборке ответа кидает ValueError. Ловится глобальным
+    _global_exception_handler, но клиент (ConfigPanel.svelte) на этой ошибке
+    fail-open проезжает БЕЗ гейта честности - без единого предупреждения ровно
+    там, где мультиколлинеарность делает предупреждение нужнее всего.
+
+    Аудит (грепом всех JSONResponse(content=...) в этом файле, 2026-07-27):
+    62 вызова, только 2 (train_model, decompose_sales) явно санировали результат
+    через sanitize_nonfinite вручную - 60 были уязвимы к тому же классу дефекта
+    при любом вычислении, дающем inf/NaN (деление на 0, log(0), вырожденная
+    модель). Точечная правка 60 мест повторила бы историю MQS-нуля (см. commit
+    70b5d99 - «закрывался поверхность за поверхностью и трижды возвращался с
+    другой стороны»). Вместо этого - переопределение базового класса ОДИН раз:
+    каждый существующий и будущий `JSONResponse(...)` в server.py дезинфицируется
+    автоматически, без правки вызывающих мест. Два места с ручным
+    sanitize_nonfinite(result) оставлены как есть - двойная санация идемпотентна
+    и безвредна, трогать их не было причины.
+    """
+    def render(self, content: Any) -> bytes:
+        return super().render(sanitize_nonfinite(content))
 
 
 def _friendly_error(e: Exception) -> str:
