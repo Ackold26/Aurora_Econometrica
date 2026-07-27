@@ -104,7 +104,7 @@ fn apply_print_setup(
     ws.set_landscape();
     ws.set_print_fit_to_pages(1, 0); // 1 wide, unlimited tall
     ws.set_margins(0.5, 0.5, 0.75, 0.75, 0.3, 0.3);
-    ws.set_header(format!("&LAurora AI Econometrica - {sheet_name}&R&D"));
+    ws.set_header(format!("&LAurora AI Econometrica – {sheet_name}&R&D"));
     ws.set_footer("&LConfidential | Aurora AI&CPage &P of &N&R&F");
     Ok(())
 }
@@ -381,14 +381,14 @@ fn build_markdown(model: &Value, decompose: &Value, optimize: &Value) -> String 
     let mut md = String::with_capacity(4096);
 
     // ── Title ────────────────────────────────────────────────
-    md.push_str("# Marketing Mix Model - Аналитический отчёт\n\n");
+    md.push_str("# Marketing Mix Model – Аналитический отчёт\n\n");
     md.push_str(&format!("*Сгенерировано: {now}*\n\n---\n\n"));
 
     // ── Executive Summary ────────────────────────────────────
     md.push_str("## EXECUTIVE SUMMARY\n\n");
     match mqs {
         Some(v) => md.push_str(&format!(
-            "- **Качество модели (MQS):** {v:.1} - {}\n",
+            "- **Качество модели (MQS):** {v:.1} – {}\n",
             mqs_tiers::resolve_mqs_label(v, mqs_label)
         )),
         None => md.push_str(&format!("- **Качество модели (MQS):** {MQS_ABSENT_TEXT}\n")),
@@ -800,8 +800,8 @@ fn build_xlsx(
     // back to "Client" so DocProperties title is never malformed.
     let client_label = if project_id.is_empty() { "Client" } else { project_id };
     let props = DocProperties::new()
-        .set_title(format!("Aurora AI MMM - {client_label}"))
-        .set_subject("Marketing Mix Model - аналитический отчёт")
+        .set_title(format!("Aurora AI MMM – {client_label}"))
+        .set_subject("Marketing Mix Model – аналитический отчёт")
         .set_author("Aurora AI Econometrica")
         .set_company("Aurora AI")
         .set_category("Econometrics")
@@ -1089,9 +1089,9 @@ fn build_xlsx(
         let ratio_eff = model["diagnostics"]["metrics"]["ratio"].as_f64();
         if let (Some(_cap), Some(ratio)) = (thinness_cap, ratio_eff) {
             let caveat = if ratio < 2.0 {
-                format!("⚠ Данных критически мало (Ratio {ratio:.1}:1) - высокий риск переобучения, результаты ненадёжны.")
+                format!("⚠ Данных критически мало (Ratio {ratio:.1}:1) – высокий риск переобучения, результаты ненадёжны.")
             } else {
-                format!("⚠ Данных мало (Ratio {ratio:.1}:1 < 4:1) - высокий R² может быть артефактом переобучения. Правдоподобные диапазоны будут широкими.")
+                format!("⚠ Данных мало (Ratio {ratio:.1}:1 < 4:1) – высокий R² может быть артефактом переобучения. Правдоподобные диапазоны будут широкими.")
             };
             ws.write(11, 0, caveat).map_err(|e| format!("{e}"))?;
         }
@@ -1775,7 +1775,7 @@ fn build_xlsx(
             let note_fmt = Format::new()
                 .set_font_color(Color::RGB(0xF59E0B))
                 .set_italic();
-            let note = "⚠ ROAS в native-единицах (TRP/GRP + ₽) - несопоставим между \
+            let note = "⚠ ROAS в native-единицах (TRP/GRP + ₽) – несопоставим между \
                         каналами разных единиц. Укажи CPP в блоке «Проверка» для перевода в ₽.";
             ws.merge_range(
                 note_row, 0,
@@ -1839,7 +1839,7 @@ fn build_xlsx(
         let explainer_row = (n_periods + 5) as u32;
         ws.write_with_format(explainer_row, 0, "Как использовать лист:", &bold).map_err(|e| format!("{e}"))?;
         ws.write(explainer_row + 1, 0, "• Выделите колонки «Период» + нужные → Вставка → Диаграмма → получите график вклада канала по времени.").map_err(|e| format!("{e}"))?;
-        ws.write(explainer_row + 2, 0, "• Базовый спрос - часть KPI без медиа (органический спрос, сезонность, бренд).").map_err(|e| format!("{e}"))?;
+        ws.write(explainer_row + 2, 0, "• Базовый спрос – часть KPI без медиа (органический спрос, сезонность, бренд).").map_err(|e| format!("{e}"))?;
         ws.write(explainer_row + 3, 0, "• Медиа-вклад = сумма по каналам. KPI = Базовый спрос + Медиа-вклад (то что модель объясняет).").map_err(|e| format!("{e}"))?;
 
         // Widths - Данные (A = 1 cm ≈ 5.4 char; D = 2.2 cm ≈ 11.88 char, per Антон)
@@ -1870,16 +1870,16 @@ fn build_xlsx(
         // а не пишется числами руками - иначе поведение (grade/tier_line
         // выше в этом файле) и его описание в глоссарии расходятся молча.
         let mqs_glossary_text = format!(
-            "Model Quality Score - комплексная оценка качества модели (0-100). {}.",
+            "Model Quality Score – комплексная оценка качества модели (0-100). {}.",
             mqs_tiers::mqs_scale_text()
         );
         let terms: &[(&str, &str)] = &[
             ("MQS", mqs_glossary_text.as_str()),
-            ("R²", "Коэффициент детерминации - доля дисперсии KPI, объяснённая моделью. 1.0 = идеальная модель."),
-            ("MAPE", "Mean Absolute Percentage Error - средняя абсолютная ошибка в %. <10% = отлично."),
+            ("R²", "Коэффициент детерминации – доля дисперсии KPI, объяснённая моделью. 1.0 = идеальная модель."),
+            ("MAPE", "Mean Absolute Percentage Error – средняя абсолютная ошибка в %. <10% = отлично."),
             ("R-hat", "Статистика сходимости MCMC. Значение ~1.0 означает, что цепи сошлись. >1.05 = проблема."),
-            ("ROI", "Return on Investment - отношение инкрементального вклада канала к его расходу. ROI 2.0x = каждый рубль приносит 2 рубля."),
-            ("miROAS", "Marginal incremental ROAS - отдача от каждого СЛЕДУЮЩЕГО рубля. Показывает, стоит ли увеличивать расходы на канал."),
+            ("ROI", "Return on Investment – отношение инкрементального вклада канала к его расходу. ROI 2.0x = каждый рубль приносит 2 рубля."),
+            ("miROAS", "Marginal incremental ROAS – отдача от каждого СЛЕДУЮЩЕГО рубля. Показывает, стоит ли увеличивать расходы на канал."),
             ("Adstock", "Эффект запаздывания рекламы. TV-реклама влияет на продажи ещё 2-8 недель после показа."),
             ("Hill function", "Функция насыщения. Моделирует убывающую отдачу: первые рубли эффективнее последних."),
             // B1-fix R-07 (2026-07-03): фактический уровень интервалов движка —
