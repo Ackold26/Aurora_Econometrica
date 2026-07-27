@@ -2,8 +2,11 @@
 Model diagnostics for MMM quality assessment.
 MQS (Model Quality Score), convergence checks, fit metrics.
 """
+import logging
 import numpy as np
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 
 def compute_r_squared(y_true: np.ndarray, y_pred: np.ndarray) -> float:
@@ -129,6 +132,38 @@ def mqs_tier_info(mqs: float) -> dict:
         if mqs >= threshold:
             return {'tier': tier, 'tier_label': label, 'color': color}
     return {'tier': 'poor', 'tier_label': 'Ненадёжное', 'color': '#ef4444'}
+
+
+def resolve_mqs_tier_label(score: float, external_label: str | None) -> str:
+    """Ярлык уровня для показа: внешний — только если он ещё и СОВПАДАЕТ с
+    тем, что канон даёт для этого балла; иначе — производный от балла.
+
+    Находка внешнего аудита (2026-07-27): `aurora_html/sections.py` (два
+    места) проверял(и) только ПРИНАДЛЕЖНОСТЬ пришедшего `mqs_tier_label`
+    набору `MQS_TIER_LABELS`, не сверяя с самим баллом — валидный ярлык
+    канона, но не для ЭТОГО балла (например из старого/частично обновлённого
+    расчёта на диске — `results/model-diagnostics.json` не подписан и уже
+    имеет прецедент внешней точечной правки, см. `tools/recompute_mqs.py`),
+    проходил как есть. `resolve_mqs_tier_label(42.0, 'Отличное')` раньше
+    возвращал `'Отличное'`, хотя канон для 42.0 даёт `'Слабое'`.
+
+    Данные первичны: при расхождении уровень считается ИЗ БАЛЛА. Расхождение
+    не проглатывается молча — уходит в лог (диагностика, НЕ клиентский
+    текст). Единственная точка этой проверки — оба места в sections.py
+    обязаны звать эту функцию, а не дублировать `in MQS_TIER_LABELS` у себя
+    (дубль этой самой проверки и был находкой). Симметричный Rust-фикс —
+    `src-tauri/src/commands/mqs_tiers.rs::resolve_mqs_label`.
+    """
+    canon_label = mqs_tier_info(score)['tier_label']
+    if external_label in MQS_TIER_LABELS:
+        if external_label == canon_label:
+            return external_label
+        logger.warning(
+            'MQS: внешний ярлык %r не соответствует канону для балла %.1f '
+            '(канон: %r) - используется ярлык из балла',
+            external_label, score, canon_label,
+        )
+    return canon_label
 
 
 def model_quality_score(r_squared: float, mape: float, r_hat_max: float,

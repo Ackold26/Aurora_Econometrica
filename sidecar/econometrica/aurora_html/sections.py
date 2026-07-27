@@ -901,11 +901,12 @@ def render_at_a_glance(ctx: dict) -> str:
             # по-английски и сбивала подбор пояснения на «Приемлемо» при
             # отличной модели, потому что ниже стоит .get(..., 'acceptable').
             # Чужой подписи слой представления не ждёт: не узнал — считает сам.
-            from utils.diagnostics import mqs_tier_info, MQS_TIER_LABELS
-            if diag_tier in MQS_TIER_LABELS:
-                tier_label_text = diag_tier
-            else:
-                tier_label_text = mqs_tier_info(mqs_val)['tier_label']
+            # Audit fix (2026-07-27): принадлежности набору тоже мало — ярлык
+            # обязан ещё и СООТВЕТСТВОВАТЬ баллу (валидный ярлык канона, но не
+            # для этого mqs_val, раньше проходил как есть). Проверка вынесена в
+            # SSOT-функцию, а не дублируется здесь и в render_sources ниже.
+            from utils.diagnostics import resolve_mqs_tier_label
+            tier_label_text = resolve_mqs_tier_label(mqs_val, diag_tier)
             # Support text per tier
             support_key = {
                 'Отличное': 'f5_mqs_support_excellent',
@@ -1773,19 +1774,22 @@ def render_sources(ctx: dict) -> str:
     # той же страницы говорили «Отличное». Ярлык принимается только из набора
     # канона; иначе уровень выводится из посчитанного балла, а при его отсутствии
     # ярлыка нет вовсе (карточка ниже рисует честное отсутствие).
-    from utils.diagnostics import mqs_tier_info, MQS_TIER_LABELS
+    # Audit fix (2026-07-27): принадлежности набору тоже мало — ярлык обязан ещё
+    # и СООТВЕТСТВОВАТЬ баллу (SSOT-проверка вынесена в resolve_mqs_tier_label,
+    # используется здесь и в findings выше — не дублируется). Заодно: раньше
+    # проверка членства шла ДО проверки самого балла, поэтому валидный ярлык
+    # канона без валидного балла тоже проходил как есть — честного отсутствия
+    # не получалось, хотя комментарий выше его обещал. Балл парсится первым.
+    from utils.diagnostics import resolve_mqs_tier_label
     _diag_tier = diag.get("mqs_tier_label")
-    if _diag_tier in MQS_TIER_LABELS:
-        mqs_tier = _diag_tier
+    try:
+        _mqs_num = float(mqs) if mqs is not None else None
+    except (TypeError, ValueError):
+        _mqs_num = None
+    if _mqs_num is not None and math.isfinite(_mqs_num):
+        mqs_tier = resolve_mqs_tier_label(_mqs_num, _diag_tier)
     else:
-        try:
-            _mqs_num = float(mqs) if mqs is not None else None
-        except (TypeError, ValueError):
-            _mqs_num = None
-        if _mqs_num is not None and math.isfinite(_mqs_num):
-            mqs_tier = mqs_tier_info(_mqs_num)["tier_label"]
-        else:
-            mqs_tier = ""
+        mqs_tier = ""
     try:
         mqs_display = f"{int(round(float(mqs)))}" if mqs is not None else None
     except (TypeError, ValueError):

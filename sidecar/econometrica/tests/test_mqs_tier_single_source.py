@@ -17,7 +17,7 @@ import os
 import pytest
 
 from aurora_pptx.builder import AuroraPPTXBuilder
-from utils.diagnostics import mqs_tier_info
+from utils.diagnostics import mqs_tier_info, resolve_mqs_tier_label
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _FIXTURE = os.path.join(_HERE, "fixtures", "kagocel_builder_payload.json")
@@ -154,4 +154,58 @@ def test_alien_tier_label_never_reaches_client(alien):
     )
     assert mqs_tier_info(92)["tier_label"] in html, (
         "не показан уровень из единого источника при неизвестном ярлыке"
+    )
+
+
+# ─── Ярлык из набора канона, но НЕ для этого балла ───────────────────────────
+# Внешний аудит, High, 2026-07-27: `test_alien_tier_label_never_reaches_client`
+# выше проверяет ярлык, которого в канone нет вовсе (проверка «непустоты» —
+# фикс 2026-07-26). Не проверялось иное: ярлык, который канону ПРИНАДЛЕЖИТ, но
+# не соответствует посчитанному баллу (например от старого/частично обновлённого
+# расчёта на диске — `results/model-diagnostics.json` не подписан, и в репо уже
+# есть прецедент внешней точечной правки этого файла, `tools/recompute_mqs.py`).
+# Раньше `resolve_mqs_tier_label(42.0, 'Отличное')` вернул бы 'Отличное' (было:
+# такой функции не было вовсе — проверка на членство дублировалась в двух местах
+# sections.py). Данные первичны: при расхождении уровень считается из балла.
+
+def test_resolve_mqs_tier_label_matched_label_is_used():
+    """Ярлык согласован с баллом — берётся как есть."""
+    assert resolve_mqs_tier_label(70.0, "Хорошее") == "Хорошее"
+
+
+def test_resolve_mqs_tier_label_canon_but_mismatched_is_rejected(caplog):
+    """Ярлык принадлежит канону, но не для ЭТОГО балла — уровень из балла,
+    расхождение видно в логе (диагностика), не в клиентском тексте."""
+    import logging as _logging
+
+    with caplog.at_level(_logging.WARNING, logger="utils.diagnostics"):
+        result = resolve_mqs_tier_label(42.0, "Отличное")
+
+    assert result == mqs_tier_info(42.0)["tier_label"] == "Слабое", (
+        "балл 42.0 (tier weak) обязан дать «Слабое» из канона, а не чужое «Отличное»"
+    )
+    assert any("42.0" in r.message and "Отличное" in r.message for r in caplog.records), (
+        "расхождение обязано уйти в лог диагностики, а не проглатываться молча"
+    )
+
+
+def test_resolve_mqs_tier_label_outside_canon_falls_back_as_before():
+    """Ярлык вне набора канона — поведение как раньше (без изменений)."""
+    assert resolve_mqs_tier_label(70.0, "excellent") == "Хорошее"
+    assert resolve_mqs_tier_label(70.0, None) == "Хорошее"
+
+
+def test_findings_card_rejects_canon_label_mismatched_with_score():
+    """Интеграционно: карточка findings берёт уровень из балла, когда пришедший
+    ярлык из канона, но противоречит баллу — не эхом чужого текста."""
+    from aurora_html.sections import render_at_a_glance
+
+    p = _payload_with_score(42)
+    p["diagnostics"]["mqs_tier_label"] = "Отличное"  # канон-ярлык, но не для 42
+    html = render_at_a_glance(_html_ctx(p))
+
+    assert "Слабое" in html, "уровень 42/100 обязан читаться как «Слабое» (канон)"
+    assert "Отличное" not in html, (
+        "чужой (пусть и канонический) ярлык «Отличное» не должен доехать до "
+        "клиента при балле 42 - карточка обязана посчитать уровень сама"
     )
