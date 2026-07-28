@@ -2096,7 +2096,7 @@ mod tests {
         // присылает бэкенд через utils.diagnostics.mqs_tier_info().
         let model = json!({"diagnostics": {"mqs": {"score": 70.0, "tier_label": "Хорошее"}}});
         let md = build_markdown(&model, &json!({}), &json!({}));
-        assert!(md.contains("Качество модели (MQS):** 70.0 - Хорошее"));
+        assert!(md.contains("Качество модели (MQS):** 70.0 – Хорошее"));
         assert!(md.contains("| MQS Score | 70.0 |"));
         assert!(md.contains("| MQS Tier | Хорошее |"));
         assert!(!md.contains(MQS_ABSENT_TEXT));
@@ -2110,7 +2110,7 @@ mod tests {
         // уровень пересчитывается из посчитанного балла.
         let model = json!({"diagnostics": {"mqs": {"score": 70.0, "tier_label": "Хорошо"}}});
         let md = build_markdown(&model, &json!({}), &json!({}));
-        assert!(md.contains("Качество модели (MQS):** 70.0 - Хорошее"));
+        assert!(md.contains("Качество модели (MQS):** 70.0 – Хорошее"));
         assert!(md.contains("| MQS Tier | Хорошее |"));
         assert!(!md.contains("- Хорошо\n"), "чужой ярлык не должен доехать до клиента как есть");
     }
@@ -2121,7 +2121,7 @@ mod tests {
         // валиден и обязан идти в отчёт числом, с полагающейся рекомендацией.
         let model = json!({"diagnostics": {"mqs": {"score": 0.0, "tier_label": "Ненадёжное"}}});
         let md = build_markdown(&model, &json!({}), &json!({}));
-        assert!(md.contains("Качество модели (MQS):** 0.0 - Ненадёжное"));
+        assert!(md.contains("Качество модели (MQS):** 0.0 – Ненадёжное"));
         assert!(
             md.contains("MQS Score на уровне «Слабое» или «Ненадёжное»"),
             "реальный низкий балл 0 (tier poor) обязан триггерить рекомендацию"
