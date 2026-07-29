@@ -4,7 +4,7 @@ use anyhow::Result;
 pub fn cleanup_stale_sessions() -> Result<()> {
     // CPD-30: per-app каталог (см. durable_store) — тот же вызов, что SessionManager::new()
     // (session/manager.rs), иначе очистка на старте не находила бы то, что создал менеджер.
-    let sessions_dir = crate::durable_store::app_state_dir("sessions")?;
+    let sessions_dir = crate::durable_store::app_state_dir(crate::durable_store::SESSIONS_SUB)?;
 
     if !sessions_dir.exists() {
         return Ok(());

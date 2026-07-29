@@ -56,11 +56,27 @@ fn base_dir() -> PathBuf {
         .unwrap_or_else(|| local_app_data().join(env!("CARGO_PKG_NAME")))
 }
 
+/// Имя подкаталога сессий — единственный источник правды для `session/manager.rs` и
+/// `session/cleanup.rs` (testleak-фикс, 2026-07-29): раньше оба места писали независимый
+/// строковый литерал `"sessions"`, которые могли незаметно разойтись; теперь оба ссылаются на
+/// эту константу — расхождение стало ошибкой компиляции, а не тихим дефектом. Гейт
+/// `session::tests::manager_and_cleanup_reference_the_same_sessions_constant`
+/// (`session/mod.rs`) сканирует исходники и красит, если кто-то вернётся к литералу.
+pub const SESSIONS_SUB: &str = "sessions";
+
+/// Путь, который вернёт `app_state_dir(sub)`, — БЕЗ создания каталогов и БЕЗ миграции. Чистая
+/// функция (никакого I/O): читает `BASE_DIR`, если он уже инициализирован, иначе считает тот
+/// же фолбэк, что и `base_dir()`. Существует, чтобы тесты могли резолвить путь, не трогая
+/// диск и не завися от того, вызывал ли кто-то `init()` в этом процессе.
+pub fn resolve_path(sub: &str) -> PathBuf {
+    if sub.is_empty() { base_dir() } else { base_dir().join(sub) }
+}
+
 /// Per-app каталог durable-состояния с one-shot миграцией из общего legacy `AIAgency\<sub>`.
 /// `sub` — подкаталог (`"history"`, `"metrics"`, `"sessions"`); пустая строка — сам каталог
 /// приложения (для файлов, лежавших прямо в legacy-корне `AIAgency\`, например `audit.log`).
 pub fn app_state_dir(sub: &str) -> Result<PathBuf> {
-    let dir = if sub.is_empty() { base_dir() } else { base_dir().join(sub) };
+    let dir = resolve_path(sub);
     let legacy = if sub.is_empty() {
         local_app_data().join("AIAgency")
     } else {

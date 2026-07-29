@@ -36,7 +36,7 @@ impl SessionManager {
         // сессии) он не трогает (копирует только файлы верхнего уровня legacy-каталога,
         // которых в sessions\ никогда не было), так что вызов — просто per-app путь с
         // бесплатным маркером «сканировать больше не надо».
-        let sessions_root = crate::durable_store::app_state_dir("sessions")?;
+        let sessions_root = crate::durable_store::app_state_dir(crate::durable_store::SESSIONS_SUB)?;
 
         // Restrict directory access to current user only (prevent other users from reading decrypted vaults)
         if let Ok(username) = std::env::var("USERNAME") {
@@ -538,23 +538,10 @@ fn secure_delete_dir(dir: &Path) -> Result<()> {
     Ok(())
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    /// CPD-30: SessionManager и cleanup_stale_sessions() обязаны указывать на ОДИН и тот же
-    /// каталог — иначе очистка на старте не найдёт то, что создал (и не удалил на close_session)
-    /// менеджер, и leftover-директории с расшифрованными vault'ами копятся вечно.
-    #[test]
-    fn new_resolves_same_root_as_durable_store_sessions() {
-        let mgr = SessionManager::new().expect("SessionManager::new() обязан успешно отработать");
-        assert!(mgr.sessions_root.exists(), "sessions_root обязан существовать (create_dir_all внутри app_state_dir) после new()");
-
-        let cleanup_target = crate::durable_store::app_state_dir("sessions")
-            .expect("app_state_dir(\"sessions\") — тот же вызов, что использует cleanup_stale_sessions()");
-        assert_eq!(
-            mgr.sessions_root, cleanup_target,
-            "manager и cleanup обязаны резолвить один и тот же каталог"
-        );
-    }
-}
+// testleak-фикс (2026-07-29): тест-инвариант "manager и cleanup резолвят один каталог" раньше
+// жил здесь и вызывал настоящий SessionManager::new() — тот резолвит durable_store::app_state_dir,
+// который в тестовом окружении (durable_store::init() тестами не вызывается) уходит в фолбэк
+// по CARGO_PKG_NAME — РЕАЛЬНЫЙ каталог профиля разработчика, не временный; create_dir_all внутри
+// app_state_dir создавал там настоящие директории (найдено при приёмке CPD-30). Инвариант
+// перенесён в `session/mod.rs` — сканирование исходников на использование общей константы
+// `durable_store::SESSIONS_SUB`, без единого обращения к диску.
