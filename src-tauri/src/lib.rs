@@ -3540,6 +3540,17 @@ pub fn run() {
     commands::diagnostics::mark_app_start();
 
     // One-time data migration for identifier rename (ROSST → Aurora AI v0.8.0)
+    // 🔴 МИНА — НЕ переводить на `AURORA_APP_IDENTIFIER` без решения владельца (Р-1, 2026-07-30).
+    // Переменной `TAURI_ENV_IDENTIFIER` не существует (CPD-33), поэтому `tauri_id` ВСЕГДА равен
+    // запасному "com.aurora.agency". Из-за этого `migrate_if_needed` всё время отрабатывает ЧУЖУЮ
+    // пару таблицы IDENTIFIER_MIGRATIONS (com.aiagency.desktop → com.aurora.agency), а заявленные
+    // переносы вида com.rosst.legal → com.aurora.legal не выполнялись НИ РАЗУ ни у одного клиента.
+    // Почему это мина: рядом теперь стоит починенная переменная под новым именем
+    // (AURORA_APP_IDENTIFIER, кладёт build.rs), и «унификация имён» выглядит естественным шагом —
+    // но она разом ОЖИВИТ спящий перенос license.json и vault_salt.bin у всех продуктов линейки.
+    // 🔴 Удалять вызов тоже нельзя: для офлайн-клиента, ставящего новую версию поверх очень старой,
+    // это необратимое изменение поведения. Сначала зонд — что реально установлено у пилотных
+    // клиентов и была ли повторная выдача лицензий (папка `2_Выдача_лицензий`).
     let tauri_id = option_env!("TAURI_ENV_IDENTIFIER").unwrap_or("com.aurora.agency");
     commands::data_migration::migrate_if_needed(tauri_id);
 
