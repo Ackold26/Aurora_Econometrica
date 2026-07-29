@@ -113,15 +113,30 @@ fn templates_dir() -> PathBuf {
     }
 }
 
-/// Get campaigns directory for a brand. Uses "default" brand for non-Creative-Hub products.
-pub fn campaigns_dir(brand_id: &str) -> PathBuf {
+/// Корень кампаний — ЕДИНСТВЕННЫЙ источник пути для всех потребителей.
+///
+/// CPD-31 (2026-07-29): заведён ПРЕВЕНТИВНО, до какого-либо переезда каталога — путь
+/// НЕ меняется этой правкой (переезд на общий корень результатов, как в Docs Lab,
+/// INV-82 — отдельное решение владельца, не принято). Живой случай в Docs Lab:
+/// `campaigns_dir` переехал, а `fix_interrupted_campaigns` осталась сканировать старый
+/// `Desktop\AIAgency\campaigns` — смотрела туда, где кампаний уже нет, и тихо выходила
+/// по `if !campaigns_root.exists()`. Кампании, зависшие в статусе «running» после
+/// аварийного завершения, не помечались «прерванными» НИКОГДА. Здесь оба потребителя
+/// уже согласованы (стоят на одном и том же пути) — но были СОГЛАСОВАНЫ НЕЗАВИСИМО,
+/// двумя копиями одного и того же литерала; эта функция убирает копию, чтобы будущий
+/// переезд не смог развести их молча.
+pub fn campaigns_root() -> PathBuf {
     let user_profile = std::env::var("USERPROFILE")
         .unwrap_or_else(|_| "C:\\Users\\Default".to_string());
     PathBuf::from(&user_profile)
         .join("Desktop")
         .join("AIAgency")
         .join("campaigns")
-        .join(brand_id)
+}
+
+/// Get campaigns directory for a brand. Uses "default" brand for non-Creative-Hub products.
+pub fn campaigns_dir(brand_id: &str) -> PathBuf {
+    campaigns_root().join(brand_id)
 }
 
 /// Ensure the "default" brand directory exists for products without Brand Hub.
@@ -631,11 +646,10 @@ pub fn campaign_open_exports(brand_id: String, campaign_id: String) -> Result<()
 
 /// Scan for campaigns stuck in "running" status (app crashed) and set to "interrupted".
 pub fn fix_interrupted_campaigns() {
-    let user_profile = std::env::var("USERPROFILE").unwrap_or_default();
-    let campaigns_root = PathBuf::from(&user_profile)
-        .join("Desktop")
-        .join("AIAgency")
-        .join("campaigns");
+    // Путь берётся из общего источника, а не собирается заново — CPD-31: если корень
+    // когда-нибудь переедет (как уже случилось в Docs Lab, INV-82), обе функции
+    // обязаны узнать об этом одновременно, а не молча разойтись.
+    let campaigns_root = campaigns_root();
     if !campaigns_root.exists() {
         return;
     }
@@ -670,6 +684,45 @@ mod tests {
     fn default_campaign_has_8_steps() {
         let steps = default_steps();
         assert_eq!(steps.len(), 8);
+    }
+
+    /// CPD-31: единственный источник пути (campaigns_root) — превентивно, до переезда.
+    /// Живой прецедент — Docs Lab (dd4c652): campaigns_dir переехал на общий корень
+    /// результатов, а fix_interrupted_campaigns осталась сканировать старый путь —
+    /// сканировала пустоту и выходила молча, кампании в статусе «running» никогда не
+    /// помечались «прерванными». Здесь оба потребителя пока согласованы (общий старый
+    /// путь), но были согласованы НЕЗАВИСИМО — сторож ловит будущее расхождение.
+    #[test]
+    fn campaigns_dir_lives_under_the_root_that_recovery_scans() {
+        let root = campaigns_root();
+        let brand_dir = campaigns_dir("default");
+        assert!(
+            brand_dir.starts_with(&root),
+            "каталог бренда {} обязан лежать под корнем {}, который сканирует fix_interrupted_campaigns",
+            brand_dir.display(),
+            root.display()
+        );
+    }
+
+    /// Вторая половина того же сторожа: путь обязан собираться РОВНО В ОДНОМ месте —
+    /// внутри campaigns_root(). Не «нигде», как в Docs Lab (там корень уже переехал на
+    /// общий Aurora_AI, и старое имя каталога пропало из модуля целиком) — здесь путь
+    /// этой правкой НЕ переезжает (CPD-31 — только подготовка, решение о переезде не
+    /// принято), поэтому campaigns_root() легитимно продолжает строить прежний путь,
+    /// но ровно один раз. Проверка идёт по ИСХОДНИКУ, потому что сравнение значений
+    /// выше не увидит второй, независимый источник — сравниваются РЕЗУЛЬТАТЫ, а не то,
+    /// откуда они взялись.
+    #[test]
+    fn campaigns_path_built_in_exactly_one_place() {
+        let src = include_str!("campaign.rs");
+        let marker = concat!(".join(", "\"", "AIAgency", "\"", ")");
+        let occurrences = src.matches(marker).count();
+        assert_eq!(
+            occurrences, 1,
+            "путь до общего каталога кампаний должен собираться РОВНО в одном месте \
+             (внутри campaigns_root), а найдено вхождений: {occurrences}. Второй независимый \
+             источник развалится молча при будущем переезде корня, как это уже было в Docs Lab"
+        );
     }
 
     #[test]
