@@ -1,5 +1,6 @@
 pub mod commands;
 pub mod crypto;
+pub mod durable_store;
 pub mod econ_sidecar;
 pub mod errors;
 pub mod metrics;
@@ -3250,6 +3251,16 @@ fn build_app() -> Result<(), String> {
         .setup(|app| {
             let local_data_dir = app.path().app_local_data_dir().ok();
 
+            // CPD-30: страховочный повторный init() — обычно уже отработал раньше, в run()
+            // (см. LOCALAPPDATA+TAURI_ENV_IDENTIFIER там), до cleanup_stale_sessions() и
+            // SessionManager::new() в build_app(). OnceLock::set() второй раз молча не сработает,
+            // если первый уже прошёл; если LOCALAPPDATA был недоступен там — сработает здесь через
+            // штатный app_local_data_dir(). Без ни одного из двух — фолбэк по CARGO_PKG_NAME (см.
+            // durable_store::base_dir()), тоже per-app, но не под каталогом, что чистит деинсталлятор.
+            if let Some(ref ldd) = local_data_dir {
+                durable_store::init(ldd.clone());
+            }
+
             // One-time migration: content_version.txt → vault-versions.json
             if let (Some(config_dir), Some(data_dir)) = (
                 app.path().app_config_dir().ok(),
@@ -3531,6 +3542,18 @@ pub fn run() {
     // One-time data migration for identifier rename (ROSST → Aurora AI v0.8.0)
     let tauri_id = option_env!("TAURI_ENV_IDENTIFIER").unwrap_or("com.aurora.agency");
     commands::data_migration::migrate_if_needed(tauri_id);
+
+    // CPD-30: инициализация per-app базы durable_store ДО build_app() — cleanup_stale_sessions()
+    // и SessionManager::new() (session/{cleanup,manager}.rs) вызываются раньше .setup() hook,
+    // где обычно становится доступен app.path().app_local_data_dir(). Тот же приём, что и
+    // migrate_if_needed() выше: %LOCALAPPDATA%\<identifier> — ровно то значение, что вернул бы
+    // app_local_data_dir() (тот же identifier, та же база), просто вычисленное вручную из
+    // TAURI_ENV_IDENTIFIER без ожидания AppHandle. Без этого durable_store ушёл бы в фолбэк по
+    // CARGO_PKG_NAME (см. durable_store::base_dir()) — тоже per-app, но не под каталогом, который
+    // чистит деинсталлятор.
+    if let Some(local_app_data) = std::env::var_os("LOCALAPPDATA") {
+        durable_store::init(std::path::PathBuf::from(local_app_data).join(tauri_id));
+    }
 
     // Fix interrupted pipelines from previous session
     commands::campaign::fix_interrupted_campaigns();

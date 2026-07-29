@@ -21,13 +21,8 @@ pub struct ChatHistoryMessage {
 }
 
 fn history_dir() -> Result<PathBuf> {
-    let local_app_data = std::env::var("LOCALAPPDATA")
-        .unwrap_or_else(|_| "C:\\Users\\Default\\AppData\\Local".to_string());
-    let dir = PathBuf::from(&local_app_data)
-        .join("AIAgency")
-        .join("history");
-    std::fs::create_dir_all(&dir).context("Failed to create history directory")?;
-    Ok(dir)
+    // CPD-30: per-app каталог с одноразовым переносом legacy AIAgency\history — см. durable_store.
+    crate::durable_store::app_state_dir("history")
 }
 
 fn history_path(cabinet_id: &str) -> Result<PathBuf> {
