@@ -27,13 +27,16 @@ pub struct SessionManager {
 
 impl SessionManager {
     pub fn new() -> Result<Self> {
-        let local_app_data = std::env::var("LOCALAPPDATA")
-            .unwrap_or_else(|_| "C:\\Users\\Default\\AppData\\Local".to_string());
-        let sessions_root = PathBuf::from(&local_app_data)
-            .join("AIAgency")
-            .join("sessions");
-        std::fs::create_dir_all(&sessions_root)
-            .context("Failed to create sessions directory")?;
+        // CPD-30 (2026-07-29): per-app каталог — до этого все Aurora-продукты машины
+        // расшифровывали vault'ы во ОБЩИЙ AIAgency\sessions, и cleanup_stale_sessions()
+        // (см. session/cleanup.rs) при старте одного продукта могла снести ЖИВУЮ, ещё
+        // открытую сессию другого продукта. Каталог с расшифрованными vault'ами — эфемерный
+        // рабочий кэш (пересоздаётся на каждое открытие кабинета), переносить содержимое не
+        // нужно; durable_store::app_state_dir сюда всё равно уместен — поддиректории (сами
+        // сессии) он не трогает (копирует только файлы верхнего уровня legacy-каталога,
+        // которых в sessions\ никогда не было), так что вызов — просто per-app путь с
+        // бесплатным маркером «сканировать больше не надо».
+        let sessions_root = crate::durable_store::app_state_dir("sessions")?;
 
         // Restrict directory access to current user only (prevent other users from reading decrypted vaults)
         if let Ok(username) = std::env::var("USERNAME") {
@@ -533,4 +536,25 @@ fn secure_delete_dir(dir: &Path) -> Result<()> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// CPD-30: SessionManager и cleanup_stale_sessions() обязаны указывать на ОДИН и тот же
+    /// каталог — иначе очистка на старте не найдёт то, что создал (и не удалил на close_session)
+    /// менеджер, и leftover-директории с расшифрованными vault'ами копятся вечно.
+    #[test]
+    fn new_resolves_same_root_as_durable_store_sessions() {
+        let mgr = SessionManager::new().expect("SessionManager::new() обязан успешно отработать");
+        assert!(mgr.sessions_root.exists(), "sessions_root обязан существовать (create_dir_all внутри app_state_dir) после new()");
+
+        let cleanup_target = crate::durable_store::app_state_dir("sessions")
+            .expect("app_state_dir(\"sessions\") — тот же вызов, что использует cleanup_stale_sessions()");
+        assert_eq!(
+            mgr.sessions_root, cleanup_target,
+            "manager и cleanup обязаны резолвить один и тот же каталог"
+        );
+    }
 }

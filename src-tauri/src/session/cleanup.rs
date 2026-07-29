@@ -1,13 +1,10 @@
 use anyhow::Result;
-use std::path::PathBuf;
 
 /// Clean up any leftover session directories from previous runs (crash recovery).
 pub fn cleanup_stale_sessions() -> Result<()> {
-    let local_app_data = std::env::var("LOCALAPPDATA")
-        .unwrap_or_else(|_| "C:\\Users\\Default\\AppData\\Local".to_string());
-    let sessions_dir = PathBuf::from(&local_app_data)
-        .join("AIAgency")
-        .join("sessions");
+    // CPD-30: per-app каталог (см. durable_store) — тот же вызов, что SessionManager::new()
+    // (session/manager.rs), иначе очистка на старте не находила бы то, что создал менеджер.
+    let sessions_dir = crate::durable_store::app_state_dir("sessions")?;
 
     if !sessions_dir.exists() {
         return Ok(());
