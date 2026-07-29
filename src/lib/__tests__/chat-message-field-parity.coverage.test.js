@@ -52,9 +52,22 @@ function toSnakeCase(camel) {
 describe('охват: паритет полей сообщения чата — фронт (ChatMsg) ↔ хранение (ChatHistoryMessage)', () => {
   it('каждое поле ChatMsg либо сохраняется в history.rs, либо занесено в EPHEMERAL_FIELDS', () => {
     const storeSrc = fs.readFileSync(STORE_JS, 'utf8');
-    const typedefMatch = storeSrc.match(/@typedef\s+\{\{([^}]*)\}\}\s+ChatMsg/);
-    expect(typedefMatch, 'typedef ChatMsg не найден в store.js — разметка переехала').toBeTruthy();
-    const frontendFields = [...typedefMatch[1].matchAll(/(\w+)\??:/g)].map((m) => m[1]);
+    // Имя типа сверяется С ГРАНИЦЕЙ имени. Без границы выражение цепляется за
+    // ChatMsgCore / ChatMsgBase и молча сверяет набор полей ЧУЖОГО (базового)
+    // типа, а поля самого ChatMsg, добавленные через пересечение, не проверяет
+    // вовсе. Проверено мутационно 2026-07-29 (Docs Lab): разбиение
+    // `@typedef {{role, content, ts}} ChatMsgCore` +
+    // `@typedef {ChatMsgCore & {…, isPinned}} ChatMsg` давало ЗЕЛЁНЫЙ гейт при
+    // поле isPinned без пары в history.rs. Разбиение с непрефиксным именем
+    // (BaseMsg) краснело и до правки — дыра была ровно в префиксе имени.
+    const declarations = [...storeSrc.matchAll(/@typedef\s+([^\n]+?)\s+ChatMsg(?![A-Za-z0-9_$])/g)];
+    expect(declarations.length, 'объявление типа ChatMsg не найдено в store.js (или их несколько) — разметка переехала').toBe(1);
+    const inlineForm = declarations[0][1].match(/^\{\{(.*)\}\}$/s);
+    expect(
+      inlineForm,
+      `тип ChatMsg объявлен составным: ${declarations[0][1]} — гейт разбирает только инлайн-объект {{…}}, поля из частей типа остались бы несверенными; расширь гейт до составных объявлений`,
+    ).toBeTruthy();
+    const frontendFields = [...inlineForm[1].matchAll(/(\w+)\??:/g)].map((m) => m[1]);
     expect(frontendFields.length, 'typedef ChatMsg найден, но полей не распознано — регекс смотрит не туда').toBeGreaterThan(0);
 
     const historySrc = fs.readFileSync(HISTORY_RS, 'utf8');
