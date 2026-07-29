@@ -21,13 +21,10 @@ pub struct CabinetRatingSummary {
 }
 
 fn ratings_path() -> Result<PathBuf> {
-    let local_app_data = std::env::var("LOCALAPPDATA")
-        .unwrap_or_else(|_| "C:\\Users\\Default\\AppData\\Local".to_string());
-    let dir = PathBuf::from(&local_app_data)
-        .join("AIAgency")
-        .join("metrics");
-    std::fs::create_dir_all(&dir).context("Failed to create metrics directory")?;
-    Ok(dir.join("ratings.json"))
+    // CPD-30: per-app каталог с одноразовым переносом legacy AIAgency\metrics — тот же подкаталог,
+    // что и usage.json (collector.rs), см. durable_store (повторный вызов app_state_dir("metrics")
+    // дёшев — маркер уже стоит).
+    Ok(crate::durable_store::app_state_dir("metrics")?.join("ratings.json"))
 }
 
 fn load_ratings() -> Result<Vec<ResponseRating>> {

@@ -38,12 +38,13 @@ pub fn log_event(event: &str, details: &str, success: bool) {
 }
 
 fn append_to_file(event: &str, details: &str, success: bool, timestamp: &str) -> std::io::Result<()> {
-    let app_data = std::env::var("LOCALAPPDATA").unwrap_or_default();
-    if app_data.is_empty() {
-        return Ok(());
-    }
-    let audit_dir = std::path::PathBuf::from(app_data).join("AIAgency");
-    std::fs::create_dir_all(&audit_dir)?;
+    // CPD-30: per-app каталог с одноразовым переносом legacy AIAgency\audit.log (лежал прямо в
+    // корне legacy-каталога, sub="" — см. durable_store). Ошибка init/переноса здесь best-effort,
+    // как и раньше был best-effort весь append_to_file (см. вызывающий log_event: `let _ =`).
+    let audit_dir = match crate::durable_store::app_state_dir("") {
+        Ok(d) => d,
+        Err(_) => return Ok(()),
+    };
     let audit_file = audit_dir.join("audit.log");
 
     use std::io::Write;

@@ -40,13 +40,8 @@ impl Default for UsageMetrics {
 }
 
 fn metrics_path() -> Result<PathBuf> {
-    let local_app_data = std::env::var("LOCALAPPDATA")
-        .unwrap_or_else(|_| "C:\\Users\\Default\\AppData\\Local".to_string());
-    let dir = PathBuf::from(&local_app_data)
-        .join("AIAgency")
-        .join("metrics");
-    std::fs::create_dir_all(&dir).context("Failed to create metrics directory")?;
-    Ok(dir.join("usage.json"))
+    // CPD-30: per-app каталог с одноразовым переносом legacy AIAgency\metrics — см. durable_store.
+    Ok(crate::durable_store::app_state_dir("metrics")?.join("usage.json"))
 }
 
 fn now_iso() -> String {
