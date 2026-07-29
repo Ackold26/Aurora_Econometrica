@@ -267,6 +267,64 @@ mod tests {
         std::fs::write(dir.join(name), content).unwrap();
     }
 
+    /// 🔴 Внешний аудит 2026-07-29, вторая волна (Critical). Идентификатор приложения, вшитый
+    /// в бинарь, обязан совпадать с тем, что стоит в `tauri.conf.json`. Прежняя правка читала
+    /// `option_env!("TAURI_ENV_IDENTIFIER")` — переменную, которую НЕ выставляет никто, поэтому
+    /// условие инициализации не выполнялось ни разу, и состояние молча уходило в запасной
+    /// каталог по имени пакета (`%LOCALAPPDATA%\aurora-econometrica-gui` вместо
+    /// `…\com.aurora.econometrica`).
+    ///
+    /// Сторож намеренно сверяет ЗНАЧЕНИЕ, а не наличие имени переменной в исходнике: проверка
+    /// «имя упоминается» зеленела бы ровно в том случае, ради которого её заводят, — когда
+    /// значение не доехало. `env!` (а не `option_env!`) выбран сознательно: если `build.rs`
+    /// перестанет класть идентификатор, сборка упадёт на компиляции, а не подсунет молчаливый
+    /// запасной путь.
+    ///
+    /// Тест прогоняется через обычный `cargo test` (без `--config tauri.local.conf.json`),
+    /// поэтому сверяет базовую облачную редакцию — `TAURI_CONFIG`-оверлей локальной редакции
+    /// этим тестом не покрыт (см. комментарий в `build.rs`).
+    #[test]
+    fn build_identifier_matches_tauri_conf() {
+        let embedded = env!("AURORA_APP_IDENTIFIER");
+        let conf = include_str!("../tauri.conf.json");
+
+        let from_conf = conf
+            .lines()
+            .find_map(|line| {
+                let (key, rest) = line.split_once(':')?;
+                if key.trim().trim_matches('"') != "identifier" {
+                    return None;
+                }
+                Some(rest.trim().trim_end_matches(',').trim().trim_matches('"'))
+            })
+            .expect("в tauri.conf.json не найдено поле identifier — разметка конфигурации переехала");
+
+        assert!(!from_conf.is_empty(), "identifier в tauri.conf.json пуст");
+        assert_eq!(
+            embedded, from_conf,
+            "идентификатор в бинаре разошёлся с tauri.conf.json: состояние уйдёт не в тот каталог \
+             приложения, а деинсталлятор его не вычистит"
+        );
+    }
+
+    /// Отображение `sub → каталог` и `sub → legacy-каталог` (внешний аудит, Medium: подмена
+    /// этой строки не красила ничего). Тест не трогает диск и не зависит от того, вызывал ли
+    /// кто-то `init()` в этом процессе, — сверяются только хвосты пути.
+    #[test]
+    fn resolve_maps_sub_to_subdirectory_of_base() {
+        let base = base_dir();
+        assert_eq!(resolve_path(""), base, "пустой sub — это сам каталог приложения");
+        assert_eq!(
+            resolve_path("history"),
+            base.join("history"),
+            "sub обязан становиться подкаталогом базы"
+        );
+        assert!(
+            resolve_path("history").starts_with(&base),
+            "резолв увёл путь за пределы базы"
+        );
+    }
+
     /// Конкретно-типизированная обёртка над `std::fs::copy` — generic fn-item напрямую как
     /// `impl Fn(&Path, &Path) -> ...` не проходит из-за HRTB-инференции лайфтаймов.
     fn real_copy(s: &Path, d: &Path) -> std::io::Result<u64> {

@@ -3545,24 +3545,33 @@ pub fn run() {
 
     // CPD-30: инициализация per-app базы durable_store ДО build_app() — cleanup_stale_sessions()
     // и SessionManager::new() (session/{cleanup,manager}.rs) вызываются раньше .setup() hook,
-    // где обычно становится доступен app.path().app_local_data_dir(). Тот же приём, что и
-    // migrate_if_needed() выше: %LOCALAPPDATA%\<identifier> — ровно то значение, что вернул бы
-    // app_local_data_dir() (тот же identifier, та же база), просто вычисленное вручную из
-    // TAURI_ENV_IDENTIFIER без ожидания AppHandle. Без этого durable_store ушёл бы в фолбэк по
-    // CARGO_PKG_NAME (см. durable_store::base_dir()) — тоже per-app, но не под каталогом, который
-    // чистит деинсталлятор.
+    // где обычно становится доступен app.path().app_local_data_dir().
+    // %LOCALAPPDATA%\<identifier> — ровно то значение, что вернул бы app_local_data_dir() (тот же
+    // идентификатор, та же база), просто вычисленное вручную, без ожидания AppHandle. Без этого
+    // durable_store ушёл бы в фолбэк по CARGO_PKG_NAME (см. durable_store::base_dir()) — тоже
+    // per-app, но не под каталогом, который чистит деинсталлятор.
     // 🔴 Внешний аудит 2026-07-29 (Critical): база инициализируется ТОЛЬКО когда идентификатор
     // пришёл из переменной сборки. Прежде здесь стоял `tauri_id`, у которого ОБЩИЙ фолбэк
     // "com.aurora.agency": при сборке без tauri CLI (прямой `cargo build`, сборка в CI без
     // tauri-cli) ВСЕ продукты линейки получали ОДНУ базу — и CPD-30 воспроизводился в новом
     // каталоге, уже с маркером и перенесённой историей, то есть тише прежнего. Страховочный
     // init в `.setup()` не спасал: OnceLock уже установлен здесь.
-    // Без init сработает фолбэк durable_store по CARGO_PKG_NAME — он различает продукты
-    // (имя пакета своё у каждого форка), хотя и лежит вне каталога, что чистит деинсталлятор.
-    if let (Some(local_app_data), Some(build_identifier)) = (
-        std::env::var_os("LOCALAPPDATA"),
-        option_env!("TAURI_ENV_IDENTIFIER"),
-    ) {
+    //
+    // 🔴 Вторая волна того же аудита: у той правки условие не выполнялось НИКОГДА.
+    // `TAURI_ENV_IDENTIFIER` не выставляет никто — ни сборщик Tauri (он задаёт TAURI_ENV_ARCH,
+    // _DEBUG, _FAMILY, _PLATFORM, _PLATFORM_TYPE, _PLATFORM_VERSION, _TARGET_TRIPLE и только их),
+    // ни `build.rs`, ни задание сборки. Значит `durable_store::init` не вызывался ни разу, и всё
+    // состояние уходило в запасной каталог по имени пакета — доказано на диске: каталог
+    // `%LOCALAPPDATA%\aurora-econometrica-gui` с перенесённой историей вместо
+    // `…\com.aurora.econometrica`. Коллизии продуктов там нет (имя пакета своё у каждого форка),
+    // но каталог не тот, где лежат остальные данные приложения, и его не чистит деинсталлятор —
+    // то есть заявленное в этом самом комментарии не выполнялось. Теперь идентификатор кладёт в
+    // бинарь наш `build.rs` (читает `tauri.conf.json`, а для локальной редакции — оверлей
+    // `TAURI_CONFIG` из `tauri.local.conf.json`), под собственным именем — чтобы его снова не
+    // приняли за переменную, которую якобы выставляет кто-то снаружи. Сторож —
+    // `durable_store::tests::build_identifier_matches_tauri_conf`.
+    if let Some(local_app_data) = std::env::var_os("LOCALAPPDATA") {
+        let build_identifier = env!("AURORA_APP_IDENTIFIER");
         durable_store::init(std::path::PathBuf::from(local_app_data).join(build_identifier));
     }
 
