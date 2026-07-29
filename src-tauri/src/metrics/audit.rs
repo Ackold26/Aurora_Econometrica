@@ -46,6 +46,9 @@ fn append_to_file(event: &str, details: &str, success: bool, timestamp: &str) ->
         Err(_) => return Ok(()),
     };
     let audit_file = audit_dir.join("audit.log");
+    // 🔴 Внешний аудит 2026-07-29 (High): ротация возвращена из донора — без неё audit.log рос
+    // без предела (см. durable_store::rotate_if_large).
+    crate::durable_store::rotate_if_large(&audit_file, 5 * 1024 * 1024);
 
     use std::io::Write;
     let mut file = std::fs::OpenOptions::new()

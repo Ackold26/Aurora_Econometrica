@@ -196,6 +196,68 @@ fn migration_stamp() -> String {
     )
 }
 
+// 🔴 Внешний аудит 2026-07-29 (High): три функции ниже возвращены из донора-эталона
+// (`ROSST_AI_Media/src-tauri/src/durable_store.rs`, продукт Smart Analytica) — при переносе
+// состояния в per-app каталог сюда перенесли только миграционную логику (`migrate_into` выше), а
+// эти защитные примитивы забыли. Без них: `save_message`/`save_to_disk`/`save_ratings` писали
+// напрямую в целевой файл — обрыв процесса на середине записи оставлял усечённый JSON; чтение
+// битого JSON падало на `unwrap_or_else`/`unwrap_or_default()` без следа — файл истории/метрик
+// молча превращался в пустой список, и следующее же сохранение стирало оригинал НАВСЕГДА (тот же
+// класс отказа, что и у `migrate_into` при обрыве переноса, только не при переносе, а при обычной
+// работе); `audit.log` рос без предела.
+
+/// Атомарная запись: tmp в том же каталоге → rename (краш на середине не бьёт целевой файл).
+pub fn write_atomic(path: &Path, bytes: &[u8]) -> Result<()> {
+    let tmp = path.with_extension("tmp.write");
+    std::fs::write(&tmp, bytes).with_context(|| format!("не записать {}", tmp.display()))?;
+    if let Err(e) = std::fs::rename(&tmp, path) {
+        // Windows: rename поверх существующего иногда требует удаления цели
+        let _ = std::fs::remove_file(path);
+        std::fs::rename(&tmp, path).with_context(|| format!("не заменить {}: {e}", path.display()))?;
+    }
+    Ok(())
+}
+
+/// Прочитать JSON; битый файл НЕ теряется молча — уводится в `<имя>.corrupt.bak` с warn.
+pub fn read_json_or_quarantine<T: serde::de::DeserializeOwned>(path: &Path) -> Option<T> {
+    if !path.exists() {
+        return None;
+    }
+    let content = match std::fs::read_to_string(path) {
+        Ok(c) => c,
+        Err(e) => {
+            warn!("durable_store: не прочитан {}: {e}", path.display());
+            return None;
+        }
+    };
+    match serde_json::from_str::<T>(&content) {
+        Ok(v) => Some(v),
+        Err(e) => {
+            let bak = path.with_extension("corrupt.bak");
+            let _ = std::fs::rename(path, &bak);
+            warn!(
+                "durable_store: битый JSON {} → карантин {} ({e})",
+                path.display(),
+                bak.display()
+            );
+            None
+        }
+    }
+}
+
+/// Ротация лог-файла: при превышении лимита текущий уходит в `<имя>.1` (одно поколение).
+pub fn rotate_if_large(path: &Path, max_bytes: u64) {
+    if let Ok(md) = std::fs::metadata(path) {
+        if md.len() > max_bytes {
+            let rolled = path.with_extension("log.1");
+            let _ = std::fs::remove_file(&rolled);
+            if std::fs::rename(path, &rolled).is_ok() {
+                info!("durable_store: ротация {} (> {} байт)", path.display(), max_bytes);
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -392,5 +454,78 @@ mod tests {
 
         assert_eq!(std::fs::read_to_string(new_dir.join("audit.log")).unwrap(), "log-line-1\n");
         assert!(new_dir.join(MIGRATION_MARKER).exists());
+    }
+
+    // ── Внешний аудит 2026-07-29 (High): три защитных примитива, возвращённые из донора выше
+    // (write_atomic / read_json_or_quarantine / rotate_if_large).
+
+    /// Бюллет 3 задачи: после атомарной записи в целевом файле лежит ЦЕЛИКОМ новое содержимое,
+    /// а временный файл (`<имя>.tmp.write`) не остаётся.
+    #[test]
+    fn atomic_write_replaces_existing_and_leaves_no_tmp_file() {
+        let dir = std::env::temp_dir().join(format!("ds_test_atomic_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let f = dir.join("x.json");
+        write_atomic(&f, b"[1]").unwrap();
+        write_atomic(&f, b"[1,2]").unwrap();
+        assert_eq!(std::fs::read_to_string(&f).unwrap(), "[1,2]", "содержимое обязано быть целиком новым");
+        assert!(!f.with_extension("tmp.write").exists(), "временный файл не должен остаться после rename");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Бюллет 1 задачи (на уровне примитива): битый JSON не подменяется молча пустым значением —
+    /// уходит в карантин `.corrupt.bak`.
+    #[test]
+    fn corrupt_json_goes_to_quarantine_not_silence() {
+        let dir = std::env::temp_dir().join(format!("ds_test_q_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let f = dir.join("h.json");
+        std::fs::write(&f, "{битый").unwrap();
+        let r: Option<Vec<u32>> = read_json_or_quarantine(&f);
+        assert!(r.is_none());
+        assert!(!f.exists(), "битый файл должен уйти в карантин");
+        assert!(f.with_extension("corrupt.bak").exists(), "карантин-копия обязана существовать");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Бюллет 2 задачи: после карантина исходное содержимое битого файла сохранено дословно —
+    /// данные клиента не уничтожены, их можно восстановить вручную из `.corrupt.bak`.
+    #[test]
+    fn quarantine_preserves_original_corrupt_content() {
+        let dir = std::env::temp_dir().join(format!("ds_test_qc_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let f = dir.join("h.json");
+        let garbage = "{битый json, не список сообщений клиента";
+        std::fs::write(&f, garbage).unwrap();
+        let r: Option<Vec<u32>> = read_json_or_quarantine(&f);
+        assert!(r.is_none());
+        assert_eq!(
+            std::fs::read_to_string(f.with_extension("corrupt.bak")).unwrap(),
+            garbage,
+            "карантинная копия обязана содержать ИСХОДНЫЕ байты без искажения"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Бюллет 4 задачи: ротация срабатывает при превышении порога и не теряет содержимое —
+    /// текущий файл уходит в `<имя>.1` целиком, а не обрезается и не отбрасывается.
+    #[test]
+    fn rotate_rolls_over_and_preserves_content() {
+        let dir = std::env::temp_dir().join(format!("ds_test_r_{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let f = dir.join("a.log");
+        let content = vec![b'x'; 100];
+        std::fs::write(&f, &content).unwrap();
+        rotate_if_large(&f, 10);
+        assert!(!f.exists(), "текущий путь обязан освободиться для нового лога");
+        assert_eq!(
+            std::fs::read(f.with_extension("log.1")).unwrap(), content,
+            "содержимое ротированного файла обязано остаться полным — не потеряны свежие записи"
+        );
+        // Ниже порога — ротации не происходит (файла для сравнения ещё нет).
+        std::fs::write(&f, vec![b'y'; 5]).unwrap();
+        rotate_if_large(&f, 10);
+        assert!(f.exists(), "файл ниже порога не должен ротироваться");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

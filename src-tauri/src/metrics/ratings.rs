@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use log::{debug, warn};
+use log::debug;
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
@@ -29,21 +29,17 @@ fn ratings_path() -> Result<PathBuf> {
 
 fn load_ratings() -> Result<Vec<ResponseRating>> {
     let path = ratings_path()?;
-    if !path.exists() {
-        return Ok(vec![]);
-    }
-    let content = std::fs::read_to_string(&path)?;
-    let ratings: Vec<ResponseRating> = serde_json::from_str(&content).unwrap_or_else(|e| {
-        warn!("Failed to parse ratings: {e}");
-        vec![]
-    });
-    Ok(ratings)
+    // 🔴 Внешний аудит 2026-07-29 (High): битый JSON уходит в карантин, а не молча в vec![] —
+    // см. durable_store::read_json_or_quarantine (донор).
+    Ok(crate::durable_store::read_json_or_quarantine(&path).unwrap_or_default())
 }
 
 fn save_ratings(ratings: &[ResponseRating]) -> Result<()> {
     let path = ratings_path()?;
     let json = serde_json::to_string_pretty(ratings)?;
-    std::fs::write(&path, json).context("Failed to write ratings")?;
+    // 🔴 Внешний аудит 2026-07-29 (High): атомарная запись (tmp + rename) вместо прямой —
+    // см. durable_store::write_atomic (донор).
+    crate::durable_store::write_atomic(&path, json.as_bytes()).context("Failed to write ratings")?;
     Ok(())
 }
 

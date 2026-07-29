@@ -1,5 +1,5 @@
 use anyhow::{Context, Result};
-use log::{debug, info, warn};
+use log::{debug, info};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -68,21 +68,17 @@ where
 
 fn load_from_disk() -> Result<UsageMetrics> {
     let path = metrics_path()?;
-    if !path.exists() {
-        return Ok(UsageMetrics::default());
-    }
-    let content = std::fs::read_to_string(&path)?;
-    let metrics: UsageMetrics = serde_json::from_str(&content).unwrap_or_else(|e| {
-        warn!("Failed to parse metrics file: {e}, starting fresh");
-        UsageMetrics::default()
-    });
-    Ok(metrics)
+    // 🔴 Внешний аудит 2026-07-29 (High): битый JSON уходит в карантин, а не молча в default() —
+    // см. durable_store::read_json_or_quarantine (донор).
+    Ok(crate::durable_store::read_json_or_quarantine(&path).unwrap_or_default())
 }
 
 fn save_to_disk(metrics: &UsageMetrics) -> Result<()> {
     let path = metrics_path()?;
     let json = serde_json::to_string_pretty(metrics)?;
-    std::fs::write(&path, json).context("Failed to write metrics")?;
+    // 🔴 Внешний аудит 2026-07-29 (High): атомарная запись (tmp + rename) вместо прямой —
+    // см. durable_store::write_atomic (донор).
+    crate::durable_store::write_atomic(&path, json.as_bytes()).context("Failed to write metrics")?;
     Ok(())
 }
 

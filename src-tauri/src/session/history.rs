@@ -1,7 +1,14 @@
 use anyhow::{Context, Result};
-use log::{debug, info, warn};
+use log::{debug, info};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
+
+/// 🔴 Внешний аудит 2026-07-29 (High): сериализует конкурентные `save_message` — без этого два
+/// одновременных сохранения одного кабинета (стриминг ответа + реплика пользователя) читают одно
+/// и то же N сообщений и оба пишут N+1 — одно сообщение молча теряется (классическая гонка
+/// read-modify-write). Образец — Aurora Creative Hub (`session/history.rs::WRITE_LOCK`).
+static WRITE_LOCK: std::sync::LazyLock<std::sync::Mutex<()>> =
+    std::sync::LazyLock::new(|| std::sync::Mutex::new(()));
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -32,6 +39,9 @@ fn history_path(cabinet_id: &str) -> Result<PathBuf> {
 }
 
 pub fn save_message(cabinet_id: &str, msg: ChatHistoryMessage) -> Result<()> {
+    // 🔴 Внешний аудит 2026-07-29 (High): держим лок на ВЕСЬ цикл чтение→изменение→запись —
+    // иначе два одновременных вызова читают одну и ту же историю и оба пишут поверх друг друга.
+    let _guard = WRITE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
     let path = history_path(cabinet_id)?;
     let mut messages = load_history_inner(&path);
     messages.push(msg);
@@ -42,7 +52,9 @@ pub fn save_message(cabinet_id: &str, msg: ChatHistoryMessage) -> Result<()> {
     }
 
     let json = serde_json::to_string_pretty(&messages)?;
-    std::fs::write(&path, json).context("Failed to write history")?;
+    // 🔴 Внешний аудит 2026-07-29 (High): атомарная запись (tmp + rename) — см. durable_store
+    // (донор): прямая запись при обрыве процесса оставляла усечённый JSON.
+    crate::durable_store::write_atomic(&path, json.as_bytes()).context("Failed to write history")?;
     debug!("Saved history for {cabinet_id}: {} messages", messages.len());
     Ok(())
 }
@@ -53,21 +65,9 @@ pub fn load_history(cabinet_id: &str) -> Result<Vec<ChatHistoryMessage>> {
 }
 
 fn load_history_inner(path: &PathBuf) -> Vec<ChatHistoryMessage> {
-    if !path.exists() {
-        return vec![];
-    }
-    match std::fs::read_to_string(path) {
-        Ok(content) => {
-            serde_json::from_str(&content).unwrap_or_else(|e| {
-                warn!("Failed to parse history file: {e}");
-                vec![]
-            })
-        }
-        Err(e) => {
-            warn!("Failed to read history file: {e}");
-            vec![]
-        }
-    }
+    // 🔴 Внешний аудит 2026-07-29 (High): битый JSON уходит в карантин `.corrupt.bak`, а не
+    // подменяется молча пустым списком — см. durable_store::read_json_or_quarantine (донор).
+    crate::durable_store::read_json_or_quarantine(path).unwrap_or_default()
 }
 
 pub fn clear_history(cabinet_id: &str) -> Result<()> {
@@ -169,5 +169,86 @@ mod tests {
         assert_eq!(messages.len(), 1, "старый файл истории обязан прочитаться, а не превратиться в пустой vec![]");
         assert_eq!(messages[0].content, "Старое сообщение без флагов");
         assert_eq!(messages[0].is_auto_continue, None);
+    }
+
+    /// 🔴 Внешний аудит 2026-07-29 (High), бюллет 1: битый файл истории уходит в карантин
+    /// `.corrupt.bak`, а не подменяется молча пустым списком. `load_history_inner` по-прежнему
+    /// отдаёт `vec![]` (показывать в интерфейсе битые байты нечем), но исходный файл при этом
+    /// НЕ остаётся на месте молча — он уводится в сторону с warn-логом, и следующее сохранение
+    /// пишет НОВЫЙ файл, а не затирает нечитаемый оригинал.
+    #[test]
+    fn corrupt_history_file_is_quarantined_not_silently_emptied() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("broken-cabinet.json");
+        let garbage = "{битый json, не список сообщений клиента";
+        std::fs::write(&path, garbage).unwrap();
+
+        let messages = load_history_inner(&path);
+        assert!(messages.is_empty(), "битый файл не парсится ни во что осмысленное");
+        assert!(!path.exists(), "битый файл обязан уйти из исходного места в карантин");
+        assert!(path.with_extension("corrupt.bak").exists(), "карантинная копия обязана существовать");
+    }
+
+    /// 🔴 Внешний аудит 2026-07-29 (High), бюллет 2: после карантина исходное содержимое битого
+    /// файла истории сохранено дословно — данные клиента не уничтожены, их можно восстановить
+    /// вручную из `.corrupt.bak`.
+    #[test]
+    fn quarantined_history_file_preserves_original_content() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("broken-cabinet-2.json");
+        let garbage = "{ещё один битый файл истории, тут была переписка клиента";
+        std::fs::write(&path, garbage).unwrap();
+
+        let _ = load_history_inner(&path);
+
+        assert_eq!(
+            std::fs::read_to_string(path.with_extension("corrupt.bak")).unwrap(),
+            garbage,
+            "карантинная копия обязана содержать ИСХОДНЫЕ байты без искажения"
+        );
+    }
+
+    /// 🔴 Внешний аудит 2026-07-29 (High), пункт 3 задачи: `save_message` без WRITE_LOCK — это
+    /// read-modify-write без сериализации: два одновременных сохранения читают одно и то же N
+    /// сообщений и оба пишут N+1, одно теряется. Гоняем реальные потоки на РЕАЛЬНОМ пути
+    /// (history_path через crate::durable_store — уникальный cabinet_id не пересекается с
+    /// другими тестами) и проверяем, что ни одно сообщение не потеряно.
+    #[test]
+    fn concurrent_save_message_does_not_lose_writes() {
+        let cabinet_id = format!("concurrency-test-{}", std::process::id());
+        let _ = clear_history(&cabinet_id);
+
+        const THREADS: usize = 30;
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(THREADS));
+        let handles: Vec<_> = (0..THREADS)
+            .map(|i| {
+                let barrier = barrier.clone();
+                let cabinet_id = cabinet_id.clone();
+                std::thread::spawn(move || {
+                    barrier.wait();
+                    save_message(
+                        &cabinet_id,
+                        ChatHistoryMessage {
+                            role: "user".to_string(),
+                            content: format!("msg-{i}"),
+                            ts: i as f64,
+                            is_auto_continue: None,
+                            is_quick_reply: None,
+                        },
+                    )
+                    .unwrap();
+                })
+            })
+            .collect();
+        for h in handles {
+            h.join().unwrap();
+        }
+
+        let saved = load_history(&cabinet_id).unwrap();
+        assert_eq!(
+            saved.len(), THREADS,
+            "конкурентные save_message не должны терять сообщения (гонка read-modify-write без WRITE_LOCK)"
+        );
+        let _ = clear_history(&cabinet_id);
     }
 }
