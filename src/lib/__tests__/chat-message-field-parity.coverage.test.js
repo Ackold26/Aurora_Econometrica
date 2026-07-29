@@ -33,6 +33,7 @@ import path from 'node:path';
 
 const STORE_JS = path.join(process.cwd(), 'src/lib/store.js');
 const HISTORY_RS = path.join(process.cwd(), 'src-tauri/src/session/history.rs');
+const CHAT_PANEL = path.join(process.cwd(), 'src/lib/components/ChatPanel.svelte');
 
 /**
  * Поля фронта, которые сознательно НЕ персистентны — с обоснованием по
@@ -89,5 +90,39 @@ describe('охват: паритет полей сообщения чата — 
     // не проверив ничего реального — это красный, не зелёный.
     expect(compared, `сверено 0 полей (${frontendFields.length} найдено в typedef, все — в EPHEMERAL_FIELDS) — гейт ничего не проверил`).toBeGreaterThan(0);
     expect(missing, `поля фронта без пары в history.rs и без записи в EPHEMERAL_FIELDS: ${missing.join(', ')}`).toEqual([]);
+  });
+  it('каждое персистентное поле реально ЕДЕТ: передаётся в сохранение и восстанавливается при загрузке', () => {
+    // Объявление поля в обоих типах ещё не значит, что оно доезжает. Поле может
+    // стоять и во фронтовом типе, и в структуре хранения — и не попасть в
+    // аргументы команды сохранения или в разбор загруженной истории. Сверка
+    // только объявлений такой разрыв не видит, а пользователь теряет признак
+    // ровно так же, как при отсутствии поля в хранении (CPD-29).
+    const storeSrc = fs.readFileSync(STORE_JS, 'utf8');
+    const declarations = [...storeSrc.matchAll(/@typedef\s+([^\n]+?)\s+ChatMsg(?![A-Za-z0-9_$])/g)];
+    expect(declarations.length, 'объявление типа ChatMsg не найдено в store.js (или их несколько) — разметка переехала').toBe(1);
+    const inlineForm = declarations[0][1].match(/^\{\{(.*)\}\}$/s);
+    expect(inlineForm, `тип ChatMsg объявлен составным: ${declarations[0][1]} — гейт разбирает только инлайн-объект {{…}}`).toBeTruthy();
+    const frontendFields = [...inlineForm[1].matchAll(/(\w+)\??:/g)].map((m) => m[1]);
+
+    const panelSrc = fs.readFileSync(CHAT_PANEL, 'utf8');
+    const saveCall = panelSrc.match(/invoke\(\s*['"]save_chat_message['"][\s\S]{0,800}?\)\s*;/);
+    expect(saveCall, 'вызов save_chat_message не найден в ChatPanel.svelte — разметка переехала').toBeTruthy();
+    const restoreBlock = panelSrc.match(/messages\.set\(\s*history\.map\([\s\S]{0,900}?\)\s*\)\s*;/);
+    expect(restoreBlock, 'восстановление истории (messages.set(history.map(…))) не найдено в ChatPanel.svelte — разметка переехала').toBeTruthy();
+
+    let checked = 0;
+    const notSent = [];
+    const notRestored = [];
+    for (const field of frontendFields) {
+      if (Object.prototype.hasOwnProperty.call(EPHEMERAL_FIELDS, field)) continue;
+      checked++;
+      if (!saveCall[0].includes(field)) notSent.push(field);
+      if (!restoreBlock[0].includes(field)) notRestored.push(field);
+    }
+
+    // Та же страховка от тихого нуля, что и в сверке объявлений.
+    expect(checked, `проверено 0 полей на транспорт (${frontendFields.length} в typedef) — гейт ничего не проверил`).toBeGreaterThan(0);
+    expect(notSent, `поля объявлены и хранятся, но НЕ передаются в save_chat_message: ${notSent.join(', ')} — после перезагрузки пропадут молча`).toEqual([]);
+    expect(notRestored, `поля объявлены и хранятся, но НЕ восстанавливаются при загрузке истории: ${notRestored.join(', ')} — в файле они есть, до пользователя не доедут`).toEqual([]);
   });
 });
