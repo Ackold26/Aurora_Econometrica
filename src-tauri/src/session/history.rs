@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 use log::{debug, info};
 use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 /// 🔴 Внешний аудит 2026-07-29 (High): сериализует конкурентные `save_message` — без этого два
 /// одновременных сохранения одного кабинета (стриминг ответа + реплика пользователя) читают одно
@@ -39,11 +39,19 @@ fn history_path(cabinet_id: &str) -> Result<PathBuf> {
 }
 
 pub fn save_message(cabinet_id: &str, msg: ChatHistoryMessage) -> Result<()> {
+    let path = history_path(cabinet_id)?;
+    save_message_at(&path, msg)
+}
+
+/// Ядро сохранения — тестируемое явным путём, без обращения к per-app каталогу/BASE_DIR
+/// (по образцу `durable_store::migrate_into`: логика отделена от резолва реального пути,
+/// чтобы тест не мог случайно задеть живой `%LOCALAPPDATA%`). `save_message` (выше) — единственный
+/// вызывающий с реальным путём через `history_path`.
+fn save_message_at(path: &Path, msg: ChatHistoryMessage) -> Result<()> {
     // 🔴 Внешний аудит 2026-07-29 (High): держим лок на ВЕСЬ цикл чтение→изменение→запись —
     // иначе два одновременных вызова читают одну и ту же историю и оба пишут поверх друг друга.
     let _guard = WRITE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
-    let path = history_path(cabinet_id)?;
-    let mut messages = load_history_inner(&path);
+    let mut messages = load_history_inner(path);
     messages.push(msg);
 
     // Cap history at 500 messages per cabinet
@@ -54,8 +62,8 @@ pub fn save_message(cabinet_id: &str, msg: ChatHistoryMessage) -> Result<()> {
     let json = serde_json::to_string_pretty(&messages)?;
     // 🔴 Внешний аудит 2026-07-29 (High): атомарная запись (tmp + rename) — см. durable_store
     // (донор): прямая запись при обрыве процесса оставляла усечённый JSON.
-    crate::durable_store::write_atomic(&path, json.as_bytes()).context("Failed to write history")?;
-    debug!("Saved history for {cabinet_id}: {} messages", messages.len());
+    crate::durable_store::write_atomic(path, json.as_bytes()).context("Failed to write history")?;
+    debug!("Saved history at {}: {} messages", path.display(), messages.len());
     Ok(())
 }
 
@@ -64,7 +72,7 @@ pub fn load_history(cabinet_id: &str) -> Result<Vec<ChatHistoryMessage>> {
     Ok(load_history_inner(&path))
 }
 
-fn load_history_inner(path: &PathBuf) -> Vec<ChatHistoryMessage> {
+fn load_history_inner(path: &Path) -> Vec<ChatHistoryMessage> {
     // 🔴 Внешний аудит 2026-07-29 (High): битый JSON уходит в карантин `.corrupt.bak`, а не
     // подменяется молча пустым списком — см. durable_store::read_json_or_quarantine (донор).
     crate::durable_store::read_json_or_quarantine(path).unwrap_or_default()
@@ -210,24 +218,32 @@ mod tests {
 
     /// 🔴 Внешний аудит 2026-07-29 (High), пункт 3 задачи: `save_message` без WRITE_LOCK — это
     /// read-modify-write без сериализации: два одновременных сохранения читают одно и то же N
-    /// сообщений и оба пишут N+1, одно теряется. Гоняем реальные потоки на РЕАЛЬНОМ пути
-    /// (history_path через crate::durable_store — уникальный cabinet_id не пересекается с
-    /// другими тестами) и проверяем, что ни одно сообщение не потеряно.
+    /// сообщений и оба пишут N+1, одно теряется.
+    ///
+    /// 🔴 Правка после находки team-lead (2026-07-29): первая версия этого теста гоняла потоки
+    /// через ПУБЛИЧНЫЙ `save_message`/`load_history` — те резолвят путь через `history_path` →
+    /// `history_dir` → `crate::durable_store::app_state_dir("history")`, а это РЕАЛЬНЫЙ
+    /// `%LOCALAPPDATA%` (в тестовом процессе `durable_store::init()` не вызывается, значит
+    /// действует боевой фолбэк `local_app_data().join(CARGO_PKG_NAME)`). Тест невольно запускал
+    /// настоящую one-shot миграцию legacy→per-app и копировал реальные файлы клиента. Здесь —
+    /// только `save_message_at`/`load_history_inner` с явным путём во `tempfile::tempdir()`,
+    /// как и `migrate_into`-тесты в durable_store.rs: WRITE_LOCK — тот же самый глобальный
+    /// мьютекс (он не зависит от пути), так что защита проверяется без риска задеть профиль.
     #[test]
     fn concurrent_save_message_does_not_lose_writes() {
-        let cabinet_id = format!("concurrency-test-{}", std::process::id());
-        let _ = clear_history(&cabinet_id);
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("concurrency-test.json");
 
         const THREADS: usize = 30;
         let barrier = std::sync::Arc::new(std::sync::Barrier::new(THREADS));
         let handles: Vec<_> = (0..THREADS)
             .map(|i| {
                 let barrier = barrier.clone();
-                let cabinet_id = cabinet_id.clone();
+                let path = path.clone();
                 std::thread::spawn(move || {
                     barrier.wait();
-                    save_message(
-                        &cabinet_id,
+                    save_message_at(
+                        &path,
                         ChatHistoryMessage {
                             role: "user".to_string(),
                             content: format!("msg-{i}"),
@@ -244,11 +260,10 @@ mod tests {
             h.join().unwrap();
         }
 
-        let saved = load_history(&cabinet_id).unwrap();
+        let saved = load_history_inner(&path);
         assert_eq!(
             saved.len(), THREADS,
             "конкурентные save_message не должны терять сообщения (гонка read-modify-write без WRITE_LOCK)"
         );
-        let _ = clear_history(&cabinet_id);
     }
 }
