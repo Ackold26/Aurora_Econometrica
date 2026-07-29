@@ -133,9 +133,25 @@ fn migrate_into(
                     // Свежая история продукта важнее legacy-копии — не перезаписываем.
                     continue;
                 }
-                match copier(&src, &dst) {
+                // 🔴 Внешний аудит 2026-07-29 (High): копируем во ВРЕМЕННЫЙ файл рядом и
+                // переименовываем. Прямая запись в `dst` при обрыве (питание, полный диск)
+                // оставляла усечённый файл, а проверка `dst.exists()` выше пропускала его
+                // НАВСЕГДА — маркер записывался, legacy-оригинал больше не читался, и клиент
+                // получал обрезанную историю без единого признака сбоя. Переименование в
+                // пределах одного каталога атомарно, поэтому промежуточного состояния нет.
+                let staging = dir.join(format!(
+                    "{}.legacy-migrating",
+                    name.to_string_lossy()
+                ));
+                let _ = std::fs::remove_file(&staging); // хвост прошлого оборванного захода
+                match copier(&src, &staging).and_then(|written| {
+                    std::fs::rename(&staging, &dst).map(|_| written)
+                }) {
                     Ok(_) => copied += 1,
-                    Err(err) => failed.push(format!("{}: {err}", name.to_string_lossy())),
+                    Err(err) => {
+                        let _ = std::fs::remove_file(&staging);
+                        failed.push(format!("{}: {err}", name.to_string_lossy()));
+                    }
                 }
             }
         }
@@ -181,6 +197,48 @@ mod tests {
     /// `impl Fn(&Path, &Path) -> ...` не проходит из-за HRTB-инференции лайфтаймов.
     fn real_copy(s: &Path, d: &Path) -> std::io::Result<u64> {
         std::fs::copy(s, d)
+    }
+
+    /// 🔴 Регресс внешнего аудита 2026-07-29 (High): обрыв ВНУТРИ копирования не должен
+    /// оставлять усечённый файл в целевом каталоге. Прежде копирование шло прямо в цель, и
+    /// оборванный файл на следующем запуске выглядел как уже перенесённый (`dst.exists()` →
+    /// пропуск НАВСЕГДА), маркер записывался, legacy-оригинал больше не читался — клиент
+    /// получал обрезанную историю без единого признака сбоя.
+    #[test]
+    fn interrupted_copy_leaves_no_truncated_file_and_resumes_next_run() {
+        let tmp = tempfile::tempdir().unwrap();
+        let legacy = tmp.path().join("legacy");
+        let new_dir = tmp.path().join("new");
+        write_file(&legacy, "history.json", "полное содержимое истории клиента");
+
+        // Первый заход: копирование записывает ЧАСТЬ и падает — ровно как обрыв питания.
+        fn truncating_copy(s: &Path, d: &Path) -> std::io::Result<u64> {
+            let content = std::fs::read(s)?;
+            std::fs::write(d, &content[..content.len() / 2])?;
+            Err(std::io::Error::new(
+                std::io::ErrorKind::WriteZero,
+                "обрыв на середине копирования",
+            ))
+        }
+        migrate_into(&new_dir, &legacy, "history", truncating_copy).unwrap();
+        assert!(
+            !new_dir.join("history.json").exists(),
+            "усечённого файла в целевом каталоге быть не должно — иначе следующий запуск примет \
+             его за перенесённый и пропустит навсегда"
+        );
+        assert!(
+            !new_dir.join(MIGRATION_MARKER).exists(),
+            "маркера после отказа копирования быть не должно"
+        );
+
+        // Второй заход: копирование исправно — файл обязан доехать ЦЕЛИКОМ.
+        migrate_into(&new_dir, &legacy, "history", real_copy).unwrap();
+        assert_eq!(
+            std::fs::read_to_string(new_dir.join("history.json")).unwrap(),
+            "полное содержимое истории клиента",
+            "после дозавершения в целевом каталоге обязан лежать ПОЛНЫЙ файл"
+        );
+        assert!(new_dir.join(MIGRATION_MARKER).exists());
     }
 
     /// (а) Перенос при пустом новом каталоге переносит файлы.

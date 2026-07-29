@@ -110,14 +110,30 @@ describe('охват: паритет полей сообщения чата — 
     const restoreBlock = panelSrc.match(/messages\.set\(\s*history\.map\([\s\S]{0,900}?\)\s*\)\s*;/);
     expect(restoreBlock, 'восстановление истории (messages.set(history.map(…))) не найдено в ChatPanel.svelte — разметка переехала').toBeTruthy();
 
+    // 🔴 Внешний аудит 2026-07-29 (High): проверка поиском ПОДСТРОКИ удовлетворялась
+    // (а) упоминанием имени в комментарии внутри окна («// TODO: isPinned пока не
+    // восстанавливаем» делало гейт зелёным при невосстанавливаемом поле) и (б) совпадением
+    // с ФРАГМЕНТОМ другого идентификатора (поле `attachments` считалось переданным, если в
+    // вызове стоял ключ `attachmentsMeta`). Комментарии вырезаем, имя ищем с границами.
+      // Якорь `$` здесь НЕ ставится намеренно: файлы хранятся с переводом строки Windows,
+      // и после split('\n') строка оканчивается на \r, который точка в JS не берёт — с якорем
+      // выражение не срабатывало вовсе, комментарии оставались в окне, и проверка была
+      // ложно-зелёной (поймано при доказательстве красноты 2026-07-29).
+    const stripComments = (/** @type {string} */ src) =>
+      src.split('\n').map((line) => line.replace(/\/\/.*/, '')).join('\n');
+    const saveWindow = stripComments(saveCall[0]);
+    const restoreWindow = stripComments(restoreBlock[0]);
+    const mentions = (/** @type {string} */ window, /** @type {string} */ field) =>
+      new RegExp(`(^|[^A-Za-z0-9_$])${field}([^A-Za-z0-9_$]|$)`).test(window);
+
     let checked = 0;
     const notSent = [];
     const notRestored = [];
     for (const field of frontendFields) {
       if (Object.prototype.hasOwnProperty.call(EPHEMERAL_FIELDS, field)) continue;
       checked++;
-      if (!saveCall[0].includes(field)) notSent.push(field);
-      if (!restoreBlock[0].includes(field)) notRestored.push(field);
+      if (!mentions(saveWindow, field)) notSent.push(field);
+      if (!mentions(restoreWindow, field)) notRestored.push(field);
     }
 
     // Та же страховка от тихого нуля, что и в сверке объявлений.

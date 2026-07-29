@@ -694,13 +694,35 @@ mod tests {
     /// путь), но были согласованы НЕЗАВИСИМО — сторож ловит будущее расхождение.
     #[test]
     fn campaigns_dir_lives_under_the_root_that_recovery_scans() {
+        // 🔴 Внешний аудит 2026-07-29 (High): прежняя версия этого теста была ТАВТОЛОГИЕЙ —
+        // `root.join(x).starts_with(root)` истинно всегда, а сам код восстановления тест не
+        // читал вовсе. Имя утверждало то, чего проверка не делала: подмена пути внутри
+        // `fix_interrupted_campaigns` оставляла сторож зелёным, и исходный дефект возвращался.
+        // Теперь проверяется главное — что восстановление берёт корень из общей функции.
         let root = campaigns_root();
         let brand_dir = campaigns_dir("default");
         assert!(
             brand_dir.starts_with(&root),
-            "каталог бренда {} обязан лежать под корнем {}, который сканирует fix_interrupted_campaigns",
+            "каталог бренда {} обязан лежать под корнем {}",
             brand_dir.display(),
             root.display()
+        );
+
+        let src = include_str!("campaign.rs");
+        let recovery_start = src
+            .find("pub fn fix_interrupted_campaigns")
+            .expect("функция восстановления не найдена — разметка модуля переехала");
+        let recovery_body = &src[recovery_start..(recovery_start + 900).min(src.len())];
+        let recovery_code: String = recovery_body
+            .lines()
+            .map(|line| line.trim_start())
+            .filter(|line| !line.starts_with("//"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            recovery_code.contains("campaigns_root()"),
+            "fix_interrupted_campaigns обязана брать корень из campaigns_root(), а не собирать \
+             путь заново — иначе переезд корня разведёт запись и восстановление молча"
         );
     }
 
