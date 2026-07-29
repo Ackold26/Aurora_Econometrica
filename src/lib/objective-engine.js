@@ -171,13 +171,13 @@ export function recomputeResultAfterObjective(result) {
   if (ratio < 2 && nPredictors > 0) {
     issues.push({
       type: 'insufficient_data',
-      message: `Ratio данных ${ratio.toFixed(1)}:1 - критически мало (минимум 4:1). Нужно больше наблюдений или меньше переменных`,
+      message: `Ratio данных ${ratio.toFixed(1)}:1 – критически мало (минимум 4:1). Нужно больше наблюдений или меньше переменных`,
       severity: 'critical',
     });
   } else if (ratio < 4 && nPredictors > 0) {
     warnings.push({
       type: 'insufficient_data',
-      message: `Ratio данных ${ratio.toFixed(1)}:1 - ниже рекомендуемых 4:1. Модель запустится, но с широкими правдоподобными диапазонами`,
+      message: `Ratio данных ${ratio.toFixed(1)}:1 – ниже рекомендуемых 4:1. Модель запустится, но с широкими правдоподобными диапазонами`,
       severity: 'warning',
     });
   }
@@ -222,7 +222,7 @@ export function describeObjective(objective) {
     case 'effectiveness':
       return 'Оставлены физические метрики (показы/клики), исключены бюджеты.';
     case 'manual':
-      return 'Все метрики оставлены - выбирайте сами в таблице ролей ниже.';
+      return 'Все метрики оставлены – выбирайте сами в таблице ролей ниже.';
     default:
       return '';
   }

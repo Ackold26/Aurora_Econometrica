@@ -46,6 +46,43 @@ CSS-класс ('baseline' как имя переменной, 'media-table' к�
 координатора). Ручная проверка на контрольных примерах (ConfigPanel.svelte)
 подтвердила: 0 идентификаторов/импортов поймано, извлечение совпало 1:1 с
 независимым внешним аудитом (41 хит em-dash в 18 файлах).
+
+Фаза 5 (2026-07-29): закрыта дыра охвата ФАЙЛОВОГО ТИПА — _iter_svelte_files()
+брал только *.svelte, и src/**/*.js (бизнес-логика, не разметка — главный
+источник insights-rules.js с сотнями сообщений выводов MMM) не проверялся
+НИКЕМ вообще, включая П8-1. Собственный замер на момент правки: 370
+точечных находок (em-dash + дефис-между-пробелами) в 15 production-файлах,
+исправлены до внесения гейта (durable-отчёт: exec_econ_typography_report.md).
+
+Заодно заведено П8-4 (дефис-минус между пробелами вместо короткого тире «–») —
+для .js этой проверки не было вовсе ни здесь, ни где-либо на фронтенде (была
+только в test_report_rs_client_text_hygiene.py для report.rs). Тот же корень,
+что уже описан там: признак поиска (только длинное тире) не совпадал с
+классом дефекта (неверный знак тире вообще).
+
+Литералы .js НЕ извлекаются регэкспом backtick-в-backtick (как
+extract_script_literals выше) — сознательно другая механика. Причина: в этом
+файле есть строки с ВЛОЖЕННЫМ template literal внутри ${...}-интерполяции
+(`` `текст ${cond ? `внутренний ${x} литерал` : 'иначе'} текст` ``,
+insights-rules.js:626 и рядом) — нежадный `` `((?:[^`\\]|\\.)*)` `` останавливается
+на ПЕРВОЙ внутренней открывающей кавычке чужого вложенного литерала, а не на
+своей закрывающей, и рвёт один логический литерал на мусорные фрагменты
+(доказано боем при замере: JS-арифметика `${x - 4}` внутри вложенного
+тернарника утекала как «находка» П8-4, хотя это код, не текст). Вместо
+литерал-экстракции здесь построчный скан ПОСЛЕ вычитания комментариев (та же
+эвристика, что в _strip_script_line_comments/_BLOCK_COMMENT_RE выше) с
+подсчётом глубины скобок ТОЛЬКО для ${...} (_interp_spans — держит границу
+интерполяции, не границу литерала целиком, поэтому вложенные backtick её не
+путают) — совпадение внутри такого диапазона размечается как код и в П8-1/
+П8-4 не идёт. Компромисс лёгкого инструмента: логический литерал, перенесённый
+через физическую СТРОКУ (не через `+`-конкатенацию отдельными строками — та
+уже ловится, у каждой свой физический перенос), вне охвата — на практике в
+этом файле такого не встретилось (все найденные клиентские сообщения умещены
+в одну физическую строку), задокументировано, не замаскировано.
+
+Обе проверки (П8-1 и П8-4) для .js, как и П8-2 выше, ограничены строками с
+кириллицей — без неё строка почти всегда код (арифметика, regex, ключи), а
+не клиентский текст; тот же выбор координатора, что и для П8-2.
 """
 import os
 import re
@@ -367,4 +404,199 @@ def test_svelte_coverage_is_reported():
     assert v["script_literals_total"] > 1000, (
         "src/**/*.svelte: строковых литералов в <script> почти не найдено — "
         "либо структура репозитория изменилась, либо extract_script_literals сломан"
+    )
+
+
+# ══════════════════════════════════════════════════════════════════════════
+# Фаза 5 (2026-07-29): охват src/**/*.js — П8-1 (em-dash) + П8-4 (дефис-минус
+# между пробелами вместо короткого тире «–»). См. докстринг модуля выше для
+# обоснования механики (построчный скан + _interp_spans, не литерал-экстракция).
+# ══════════════════════════════════════════════════════════════════════════
+
+SPACED_HYPHEN_RE = re.compile(r"(?<=\S) - (?=\S)")
+
+# Каталоги тестовой обвязки разработчика — не клиентский код, вне охвата (тот
+# же принцип, что "код до #[cfg(test)]" в test_report_rs_client_text_hygiene.py).
+_JS_TEST_DIR_SEGMENTS = {"__tests__", "tests"}
+
+
+def _iter_js_files():
+    for dirpath, dirnames, filenames in os.walk(_SRC_ROOT):
+        dirnames[:] = [d for d in dirnames if d not in ("node_modules", ".svelte-kit")]
+        rel_dir = os.path.relpath(dirpath, _SRC_ROOT).replace(os.sep, "/")
+        parts = set(rel_dir.split("/"))
+        if parts & _JS_TEST_DIR_SEGMENTS:
+            continue
+        for name in filenames:
+            if name.endswith(".js") and not name.endswith(".test.js"):
+                yield os.path.join(dirpath, name)
+
+
+def _interp_spans(text):
+    """Диапазоны ${...} в JS-тексте — счётчик глубины фигурных скобок, НЕ
+    regex-разбор границ template literal целиком (см. докстринг модуля: тот
+    подход рвётся на вложенном backtick внутри интерполяции). Работает и на
+    вложенных ${...}, и на объектных литералах внутри интерполяции
+    (`${{a: 1}}`-подобных) — считает любые { } после `${`."""
+    spans = []
+    i, n = 0, len(text)
+    while i < n:
+        if text[i] == "$" and i + 1 < n and text[i + 1] == "{":
+            depth = 1
+            j = i + 2
+            while j < n and depth > 0:
+                if text[j] == "{":
+                    depth += 1
+                elif text[j] == "}":
+                    depth -= 1
+                j += 1
+            spans.append((i, j))
+            i = j
+        else:
+            i += 1
+    return spans
+
+
+# Узаконенные строки (по ТЕКСТУ, не по номеру строки — та же причина, что у
+# всех реестров выше: номера сползают при правках). Обе записи — реальные
+# строки с кириллицей и дефисом/тире, но НЕ клиентский текст:
+_LEGITIMISED_JS_LITERALS = {
+    "защита от ROI-артефакта": (
+        "project-state.js: тело console.warn() — уходит в devtools-консоль "
+        "разработчика, пользователь этот текст не видит ни при каких условиях"
+    ),
+    '"delta_pct":<число: + увеличить, - уменьшить>': (
+        "scenario-advisor.js (buildScenarioParsePrompt): элемент JSON-schema "
+        "инструкции, уходит в промпт для Claude (описание формата ответа "
+        "модели) — не клиентский текст, пользователь его не видит"
+    ),
+}
+
+
+def _collect_js_violations():
+    em, hyphen = [], []
+    scanned = 0
+    raw_em_occurrences = 0
+    raw_hyphen_occurrences = 0
+    for path in _iter_js_files():
+        scanned += 1
+        try:
+            with open(path, encoding="utf-8") as f:
+                content = f.read()
+        except Exception:
+            continue
+        rel = _relpath(path)
+        # Вычитание комментариев — та же механика, что для <script>-блока
+        # .svelte выше (переиспользуем _BLOCK_COMMENT_RE/_strip_script_line_comments:
+        # общая JS-грамматика, файл .js не отличается от содержимого <script>).
+        code = _BLOCK_COMMENT_RE.sub(" ", content)
+        code = _strip_script_line_comments(code)
+        for lineno, line in enumerate(code.split("\n"), start=1):
+            raw_em_occurrences += len(EM_DASH_RE.findall(line))
+            raw_hyphen_occurrences += len(SPACED_HYPHEN_RE.findall(line))
+            if not CYRILLIC_RE.search(line):
+                continue
+            spans = _interp_spans(line)
+
+            def _in_interp(pos, _spans=spans):
+                return any(s <= pos < e for s, e in _spans)
+
+            legit = next((k for k in _LEGITIMISED_JS_LITERALS if k in line), None)
+            for m in EM_DASH_RE.finditer(line):
+                if _in_interp(m.start()):
+                    continue
+                if legit:
+                    continue
+                em.append((rel, lineno, line.strip()[:140]))
+            for m in SPACED_HYPHEN_RE.finditer(line):
+                if _in_interp(m.start()):
+                    continue
+                if legit:
+                    continue
+                hyphen.append((rel, lineno, line.strip()[:140]))
+    return {
+        "scanned": scanned,
+        "raw_em_occurrences": raw_em_occurrences,
+        "raw_hyphen_occurrences": raw_hyphen_occurrences,
+        "em_dash": em,
+        "spaced_hyphen": hyphen,
+    }
+
+
+def test_js_no_em_dash():
+    v = _collect_js_violations()
+    assert not v["em_dash"], (
+        f"П8-1: em-dash «—» в клиентском тексте src/**/*.js (не .svelte): {v['em_dash'][:10]}"
+    )
+
+
+def test_js_no_spaced_hyphen_as_dash():
+    """П8-4: дефис-минус между пробелами вместо короткого тире «–» — та же
+    проверка, что для report.rs (test_rs_report_no_spaced_hyphen_as_dash), но
+    для .js фронтенда, где её не было вовсе."""
+    v = _collect_js_violations()
+    assert not v["spaced_hyphen"], (
+        f"П8-4: дефис между пробелами вместо короткого тире «–» в src/**/*.js: {v['spaced_hyphen'][:10]}"
+    )
+
+
+def test_js_legitimised_literals_are_alive():
+    """Запись реестра обязана иметь живой повод, иначе исключение переживает
+    свою причину и молча прикрывает будущее нарушение с тем же текстом."""
+    v = _collect_js_violations()
+    # Пересобираем raw-совпадения БЕЗ фильтра по реестру, чтобы проверить,
+    # какие строки реестр вообще мог бы накрыть (тот же скан, без `if legit`).
+    present = set()
+    for path in _iter_js_files():
+        try:
+            with open(path, encoding="utf-8") as f:
+                content = f.read()
+        except Exception:
+            continue
+        code = _strip_script_line_comments(_BLOCK_COMMENT_RE.sub(" ", content))
+        for key in _LEGITIMISED_JS_LITERALS:
+            if key in code:
+                present.add(key)
+    dead = sorted(set(_LEGITIMISED_JS_LITERALS) - present)
+    assert not dead, (
+        f"узаконенные литералы .js больше не встречаются {dead} — "
+        f"повод исчез, удалить запись из _LEGITIMISED_JS_LITERALS"
+    )
+
+
+def test_js_coverage_is_reported():
+    """Печатает и проверяет ФАКТ охвата — числом, не на глаз.
+
+    🔴 Страховка от тихого нуля (тот же приём, что rawDashOccurrences в
+    Aurora_Creative_Hub/client-typography.coverage.test.js и checked_lines в
+    test_report_rs_client_text_hygiene.py): raw_em_occurrences/raw_hyphen_occurrences
+    считаются ДО фильтра по кириллице и ДО реестра исключений — если оба нуля,
+    сканер смотрит не туда (маска расширений устарела, каталог переехал, регэксп
+    сломан), а НЕ «в коде нет дефисов». Реестр из двух записей теоретически МОГ
+    БЫ закрыть все текущие находки (assert выше стал бы зелёным «сверено 0») —
+    эта проверка не даёт такому зелёному пройти незамеченным: raw-счётчики не
+    ходят через реестр вообще, поэтому broad-реестр их не занулит.
+    """
+    v = _collect_js_violations()
+    summary = (
+        f"ОХВАТ src/**/*.js (без __tests__/tests/*.test.js): "
+        f"файлов просканировано {v['scanned']}; "
+        f"raw-вхождений «—» до фильтра {v['raw_em_occurrences']}, "
+        f"raw-вхождений дефис-между-пробелами до фильтра {v['raw_hyphen_occurrences']}; "
+        f"узаконенных строк {len(_LEGITIMISED_JS_LITERALS)}"
+    )
+    print(summary)
+    assert v["scanned"] > 50, (
+        "src/**/*.js: почти не нашли файлов — либо структура репозитория "
+        "изменилась (каталог src переехал), либо маска расширений устарела "
+        "(см. _iter_js_files)"
+    )
+    assert v["raw_em_occurrences"] > 0, (
+        "src/**/*.js: ни одного «—» не найдено НИГДЕ (до фильтра по кириллице) — "
+        "сканер смотрит не туда, а не «в коде нет длинных тире»"
+    )
+    assert v["raw_hyphen_occurrences"] > 0, (
+        "src/**/*.js: ни одного дефиса-между-пробелами не найдено НИГДЕ (до "
+        "фильтра по кириллице) — сканер смотрит не туда (SPACED_HYPHEN_RE или "
+        "маска расширений сломаны), а не «в коде нет таких дефисов»"
     )

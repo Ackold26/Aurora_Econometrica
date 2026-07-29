@@ -66,7 +66,7 @@ export function buildExpressPlan({
     return out;
   }
   if (validateResult.status === 'error') {
-    out.reason = 'валидация нашла критичные проблемы данных — нужен штатный путь';
+    out.reason = 'валидация нашла критичные проблемы данных – нужен штатный путь';
     return out;
   }
   if (!currentKPI || kpiUnavailable) {
@@ -74,7 +74,7 @@ export function buildExpressPlan({
     return out;
   }
   if (kpiKind !== 'monetary') {
-    out.reason = 'KPI в штуках требует цену единицы — нужен штатный путь';
+    out.reason = 'KPI в штуках требует цену единицы – нужен штатный путь';
     return out;
   }
   const cols = Array.isArray(validateResult.columns) ? validateResult.columns : [];
@@ -82,7 +82,7 @@ export function buildExpressPlan({
     .filter((/** @type {any} */ c) => c?.role === 'media')
     .map((/** @type {any} */ c) => String(c.name));
   if (media.length < 2) {
-    out.reason = 'меньше двух медиа-каналов — MMM не собрать';
+    out.reason = 'меньше двух медиа-каналов – MMM не собрать';
     return out;
   }
   // ПАРЫ (2026-07-05): канал может нести бюджет ₽ И натуральный Media KPI
@@ -114,7 +114,7 @@ export function buildExpressPlan({
     }
   }
   if (orphanPhysical.length > 0) {
-    out.reason = `каналы в физических единицах (${orphanPhysical.join(', ')}) требуют цену единицы — нужен штатный путь`;
+    out.reason = `каналы в физических единицах (${orphanPhysical.join(', ')}) требуют цену единицы – нужен штатный путь`;
     return out;
   }
   out.mediaChannels = Object.keys(out.uniform);

@@ -82,7 +82,7 @@ export function formatProfileAnswer(profile) {
   const filled = [profile.industry, profile.description, Object.keys(tov).length > 0,
     (profile.markers || []).length > 0, (profile.values || []).length > 0,
     (profile.competitors || []).length > 0].filter(Boolean).length;
-  const richness = filled >= 5 ? 'Отличный профиль - данные детальные!' : filled >= 3 ? 'Хороший профиль.' : 'Профиль пока базовый - добавьте больше данных для точных рекомендаций.';
+  const richness = filled >= 5 ? 'Отличный профиль – данные детальные!' : filled >= 3 ? 'Хороший профиль.' : 'Профиль пока базовый – добавьте больше данных для точных рекомендаций.';
 
   const parts = [`## ${profile.name}\n`, `*${richness}*\n`];
 
@@ -139,9 +139,9 @@ export function formatStatsAnswer(stats, brandName) {
   // Proactive insight based on data shape
   let insight = '';
   if (stats.vectors > 0 && stats.raw_data_files === 0) {
-    insight = '\n\n> 💡 **Совет:** подключите парсер данных - отзывы клиентов из соцсетей и маркетплейсов значительно обогатят базу знаний бренда.';
+    insight = '\n\n> 💡 **Совет:** подключите парсер данных – отзывы клиентов из соцсетей и маркетплейсов значительно обогатят базу знаний бренда.';
   } else if (stats.raw_data_files > 5) {
-    insight = '\n\n> 💡 База обогащена данными парсинга - попробуйте спросить «что говорят клиенты?» для анализа отзывов.';
+    insight = '\n\n> 💡 База обогащена данными парсинга – попробуйте спросить «что говорят клиенты?» для анализа отзывов.';
   }
 
   return {
@@ -209,7 +209,7 @@ export function formatSearchAnswer(searchResult, question) {
 export function formatHistoryAnswer(historyResults) {
   if (!historyResults || historyResults.length === 0) {
     return {
-      answer: `В истории кабинетов пока пусто.\n\nИстория появится автоматически, когда вы начнёте работать с кабинетами - каждый результат сохраняется.`,
+      answer: `В истории кабинетов пока пусто.\n\nИстория появится автоматически, когда вы начнёте работать с кабинетами – каждый результат сохраняется.`,
       chart: null,
       sources: [],
       suggestions: ['Покажи профиль бренда', 'Какие данные есть?'],
@@ -253,7 +253,7 @@ export function formatComparisonAnswer(profile, searchResult, competitorName) {
       parts.push(`- ${excerpt}`);
     });
   } else {
-    parts.push(`\nВ базе пока нет упоминаний **${comp?.name || competitorName}**. Загрузите аналитические отчёты - и я смогу провести полное сравнение.`);
+    parts.push(`\nВ базе пока нет упоминаний **${comp?.name || competitorName}**. Загрузите аналитические отчёты – и я смогу провести полное сравнение.`);
   }
 
   return {
@@ -277,7 +277,7 @@ export function formatGreetingAnswer(brandName) {
   const greeting = greetings[Math.floor(Math.random() * greetings.length)];
 
   return {
-    answer: `${greeting}\n\nЯ знаю о:\n- 🎤 Тоне голоса, маркерах и стоп-словах\n- 📊 Статистике и объёме данных\n- 🔍 Содержимом документов и отзывов\n- 📜 Результатах работы кабинетов\n- ⚔️ Конкурентах и сравнениях\n\nПросто спросите - или выберите подсказку ниже.`,
+    answer: `${greeting}\n\nЯ знаю о:\n- 🎤 Тоне голоса, маркерах и стоп-словах\n- 📊 Статистике и объёме данных\n- 🔍 Содержимом документов и отзывов\n- 📜 Результатах работы кабинетов\n- ⚔️ Конкурентах и сравнениях\n\nПросто спросите – или выберите подсказку ниже.`,
     chart: null,
     sources: [],
     suggestions: ['Какой тон голоса?', 'Сколько данных в Brand Hub?', 'Покажи профиль бренда'],
