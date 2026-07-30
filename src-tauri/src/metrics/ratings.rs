@@ -3,6 +3,14 @@ use log::{debug, warn};
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
 
+/// 🔴 Внешний аудит 2026-07-30 (High): сериализует конкурентные `rate_response` ВНУТРИ процесса —
+/// без этого две оценки подряд (клиент быстро жмёт «палец» на двух ответах) читают один и тот же
+/// список из N штук и обе пишут N+1: одна оценка молча теряется. Тот же корень и тот же приём, что
+/// у истории переписки (`session/history.rs::WRITE_LOCK`) — цикл чтения-изменения-записи обязан
+/// быть неделимым.
+static WRITE_LOCK: std::sync::LazyLock<std::sync::Mutex<()>> =
+    std::sync::LazyLock::new(|| std::sync::Mutex::new(()));
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ResponseRating {
     pub cabinet_id: String,
@@ -57,7 +65,18 @@ pub fn rate_response(rating: ResponseRating) -> Result<()> {
 /// Цикл «прочитал → добавил → записал» под ЯВНЫМ путём — по той же причине, что и у счётчиков
 /// (поправка M04): отказ чтения обязан прервать запись, иначе поверх нечитаемого файла лягут
 /// ОДНА новая оценка и пустота вместо всех прежних.
+///
+/// 🔴 Внешний аудит 2026-07-30 (High), находка 1: этот цикл был вообще НЕ сериализован — ни
+/// мьютексом внутри процесса, ни замком между процессами, — хотя это ровно тот же
+/// read-modify-write, из-за которого правили историю переписки. Оценка клиента терялась без следа
+/// и без сообщения. Теперь тот же контракт C4, что у истории: файловый замок + мьютекс на цикл.
 fn rate_response_at(path: &std::path::Path, rating: ResponseRating) -> Result<()> {
+    // 🔴 Порядок захвата ЕДИНЫЙ во всём продукте (замок → мьютекс, поправка F-16): файловый замок
+    // ждём СНАРУЖИ мьютекса, иначе ожидание чужого процесса заморозило бы все оценки этого. При
+    // едином порядке взаимной блокировки быть не может.
+    let file_lock = crate::metrics::acquire_state_lock(path)?;
+    let _guard = WRITE_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+
     let mut ratings = load_ratings_for_update(path)?;
     debug!("Rating saved: cabinet={}, rating={}", rating.cabinet_id, rating.rating);
     ratings.push(rating);
@@ -66,6 +85,7 @@ fn rate_response_at(path: &std::path::Path, rating: ResponseRating) -> Result<()
         ratings = ratings.split_off(ratings.len() - 2000);
     }
     save_ratings_at(path, &ratings)?;
+    drop(file_lock);
     Ok(())
 }
 
@@ -168,6 +188,119 @@ mod tests {
         assert_eq!(saved.len(), 2, "вторая оценка обязана ДОБАВИТЬСЯ, а не затереть первую");
         assert_eq!(saved[0].rating, 1);
         assert_eq!(saved[1].rating, -1);
+    }
+
+    /// 🔴 Сторож находки 1 (High, 2026-07-30): цикл «прочитал → добавил → записал» обязан быть
+    /// НЕДЕЛИМЫМ. Без сериализации потоки читают один и тот же список из N оценок и все пишут N+1 —
+    /// в файле остаётся горстка вместо всех, и клиент об этом не узнаёт.
+    ///
+    /// Инвариант сформулирован как у истории переписки: НИ ОДНА принятая оценка не теряется, а
+    /// отказ по занятому замку виден и повторяем — поток ведёт себя как интерфейс, повторяя
+    /// отправку. Залпа из десятка оценок в продукте не бывает (клиент жмёт «палец» руками), залп
+    /// здесь — только чтобы гонка проявилась гарантированно, а не по удаче.
+    #[test]
+    fn concurrent_ratings_do_not_lose_any_of_them() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("ratings.json");
+
+        const THREADS: usize = 12;
+        /// Сколько раз поток повторяет отправку, получив отказ по занятому замку.
+        const RETRIES: usize = 40;
+
+        let barrier = std::sync::Arc::new(std::sync::Barrier::new(THREADS));
+        let handles: Vec<_> = (0..THREADS)
+            .map(|i| {
+                let barrier = barrier.clone();
+                let path = path.clone();
+                std::thread::spawn(move || {
+                    barrier.wait();
+                    let mut last: Option<String> = None;
+                    for _ in 0..RETRIES {
+                        match rate_response_at(
+                            &path,
+                            thumbs(if i % 2 == 0 { 1 } else { -1 }, &format!("ts-{i}")),
+                        ) {
+                            Ok(()) => return,
+                            Err(e) => last = Some(format!("{e:#}")),
+                        }
+                    }
+                    panic!(
+                        "оценка ts-{i} не сохранена за {RETRIES} повторов — замок не освобождается \
+                         вовсе, это уже не конкуренция: {}",
+                        last.unwrap_or_default()
+                    );
+                })
+            })
+            .collect();
+        for h in handles {
+            h.join().unwrap();
+        }
+
+        let saved = load_ratings_at(&path).expect("после конкурентных записей файл читается");
+        assert_eq!(
+            saved.len(),
+            THREADS,
+            "конкурентные оценки не имеют права теряться: каждая либо записана, либо отклонена с \
+             ошибкой и повторена — молча пропасть не может"
+        );
+        let mut seen: Vec<&str> = saved.iter().map(|r| r.timestamp.as_str()).collect();
+        seen.sort();
+        seen.dedup();
+        assert_eq!(
+            seen.len(),
+            THREADS,
+            "каждая из {THREADS} оценок обязана попасть в файл РОВНО один раз — повтор после отказа \
+             не имеет права породить дубль"
+        );
+    }
+
+    /// 🔴 Сторож находки 1, вторая сторона: замок оценок занят ДРУГИМ владельцем (второе окно
+    /// продукта) — запись возвращает ошибку, а файл остаётся байт в байт прежним. Замок берётся из
+    /// того же процесса другим дескриптором: для `share_mode(0)` это неотличимо от чужого процесса.
+    ///
+    /// 🔴 Сверяется ПРИЧИНА отказа (речь о замке), а не голый `is_err()`: без этого сторож остался
+    /// бы зелёным и при полностью снятой защите — тогда отказ приходил бы откуда угодно позже. И
+    /// проверяется, что отказ наступает по ИСЧЕРПАНИИ повторов, а не мгновенно: реальный конфликт
+    /// длится единицы миллисекунд и обязан разрешаться ожиданием.
+    #[cfg(windows)]
+    #[test]
+    fn rating_refuses_when_lock_is_held_by_another_owner() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("ratings.json");
+        rate_response_at(&path, thumbs(1, "2026-07-30T10:00:00Z")).unwrap();
+        let before = std::fs::read_to_string(&path).unwrap();
+
+        let held = crate::session::manager::open_session_lock(&crate::metrics::state_lock_path(&path))
+            .unwrap();
+
+        let started = std::time::Instant::now();
+        let outcome = rate_response_at(&path, thumbs(-1, "2026-07-30T11:00:00Z"));
+        let waited = started.elapsed();
+
+        let err = outcome.expect_err(
+            "занятый замок обязан дать ОШИБКУ, а не запись мимо блокировки: она уничтожила бы \
+             оценки, добавленные другим окном",
+        );
+        let text = format!("{err:#}");
+        assert!(
+            text.contains("замок") && text.contains("занят"),
+            "отказ обязан прийти ИМЕННО от замка (иначе сторож зелёный по неверной причине): {text}"
+        );
+        assert!(
+            waited >= crate::durable_store::STATE_RETRY_PAUSE
+                * (crate::durable_store::STATE_RETRY_ATTEMPTS - 1),
+            "отказ обязан наступать по исчерпании повторов, а не мгновенно. Ждали {waited:?}"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            before,
+            "файл оценок обязан остаться байт в байт прежним — вторая запись не состоялась"
+        );
+
+        drop(held);
+        rate_response_at(&path, thumbs(-1, "2026-07-30T11:00:00Z"))
+            .expect("после освобождения замка запись обязана пройти");
+        assert_eq!(load_ratings_at(&path).unwrap().len(), 2);
     }
 
     #[test]

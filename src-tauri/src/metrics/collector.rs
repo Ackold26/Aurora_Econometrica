@@ -48,7 +48,19 @@ fn now_iso() -> String {
     chrono::Local::now().format("%Y-%m-%dT%H:%M:%S").to_string()
 }
 
-/// Thread-safe global metrics state
+/// Внутрипроцессная сериализация цикла изменения счётчиков + СНИМОК последнего известного
+/// состояния.
+///
+/// 🔴 Внешний аудит 2026-07-30 (High), находка 2 — читать внимательно, здесь была потеря данных
+/// клиента. Значение в этом кэше НЕ ЯВЛЯЕТСЯ и не имеет права стать источником для ЗАПИСИ.
+/// Раньше файл читался ОДИН раз за процесс (`if guard.is_none()`), а дальше на диск летело
+/// закэшированное: окно A закэшировало 42, клиент в окне B довёл счётчик до 100, окно A записало
+/// любую метрику — и на диске оказывалось 43, вся работа клиента во втором окне откатывалась.
+/// Тем же корнем защита C1 (отказ чтения прерывает запись) работала только на ПЕРВОМ вызове.
+/// Теперь единственный источник для записи — ДИСК, перечитываемый под замком на каждом цикле
+/// (`with_metrics_at`), а здесь остаётся снимок «что мы записали последним»: он годится только
+/// для показа и сбрасывается при `reset_metrics`. Сам мьютекс продолжает делать полезное — он
+/// сериализует цикл внутри процесса (межпроцессная сторона — файловый замок).
 static METRICS: std::sync::LazyLock<Mutex<Option<UsageMetrics>>> =
     std::sync::LazyLock::new(|| Mutex::new(None));
 
@@ -67,17 +79,30 @@ where
 /// обёртки, глотающей отказ, поверх нечитаемого файла писались бы НУЛИ — накопленные счётчики
 /// клиента обнулялись бы молча, тем же корнем, что и переписка. Путь вынесен под явный ровно
 /// затем, чтобы это можно было доказать сторожем, не трогая профиль пользователя.
+/// 🔴 Внешний аудит 2026-07-30 (High), находка 2: тот же контракт C4, что у истории переписки, —
+/// цикл сериализован мьютексом внутри процесса и файловым замком между процессами, а ЗНАЧЕНИЕ
+/// перечитывается с диска на КАЖДОМ цикле. Прежний `if guard.is_none()` читал файл один раз за
+/// процесс: дальше писалось закэшированное (откат чужой работы, см. докстринг `METRICS`), а
+/// проверка C1 «отказ чтения прерывает запись» срабатывала только на первом вызове.
 fn with_metrics_at<F, R>(path: &std::path::Path, f: F) -> Result<R>
 where
     F: FnOnce(&mut UsageMetrics) -> R,
 {
+    // Порядок захвата ЕДИНЫЙ во всём продукте (замок → мьютекс, поправка F-16): файловый замок
+    // ждём СНАРУЖИ мьютекса, чтобы ожидание чужого процесса не морозило этот.
+    let file_lock = crate::metrics::acquire_state_lock(path)?;
     let mut guard = METRICS.lock().unwrap_or_else(|e| e.into_inner());
-    if guard.is_none() {
-        *guard = Some(load_metrics_for_update(path)?);
-    }
-    let metrics = guard.as_mut().unwrap();
-    let result = f(metrics);
-    save_metrics_at(path, metrics)?;
+
+    // 🔴 Источник для записи — ДИСК, а не кэш, и перечитывается он под замком КАЖДЫЙ раз: только
+    // так вклад другого окна доживает до записи, а отказ чтения (C1) прерывает КАЖДЫЙ цикл, а не
+    // один первый.
+    let mut metrics = load_metrics_for_update(path)?;
+    let result = f(&mut metrics);
+    save_metrics_at(path, &metrics)?;
+    // Снимок обновляется ТОЛЬКО после успешной записи — иначе в памяти осело бы то, чего на диске
+    // нет.
+    *guard = Some(metrics);
+    drop(file_lock);
     Ok(result)
 }
 
@@ -236,14 +261,138 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let path = tmp.path().join("usage.json");
 
-        // Глобальное состояние METRICS общее на процесс, поэтому сверяется не абсолютное
-        // значение, а ПРИРОСТ — тест не зависит от того, что делали соседние тесты.
+        // Сверяется не абсолютное значение, а ПРИРОСТ — тест не зависит от того, что делали
+        // соседние тесты. (До правки 2026-07-30 это было обязательным: цикл писал закэшированное
+        // на процесс значение. Теперь значение читается с диска в своей временной папке, но
+        // проверка приростом оставлена — она измеряет ровно то, ради чего написана.)
         let before = with_metrics_at(&path, |m| m.total_exports).unwrap();
         with_metrics_at(&path, |m| m.total_exports += 1).unwrap();
         let after = with_metrics_at(&path, |m| m.total_exports).unwrap();
 
         assert_eq!(after, before + 1, "на читаемом файле цикл обязан записывать изменения");
         assert!(path.exists(), "файл счётчиков обязан появиться на диске");
+    }
+
+    /// 🔴 Сторож находки 2 (High, 2026-07-30): кэш НЕ ЯВЛЯЕТСЯ источником для записи. Сценарий
+    /// дословно тот, что теряет данные клиента: окно A выполнило цикл (прежний код ровно здесь
+    /// читал файл первый и последний раз), окно B довело счётчики на диске до своих значений,
+    /// окно A записало ещё одну метрику. Итог обязан содержать ОБА вклада; прежний код записал бы
+    /// закэшированное и откатил бы всю работу второго окна.
+    #[test]
+    fn metrics_cycle_rereads_from_disk_and_does_not_roll_back_another_window() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("usage.json");
+
+        with_metrics_at(&path, |m| m.total_exports += 1).unwrap();
+
+        // Второе окно — другой процесс: оно пишет на ДИСК, мимо кэша первого.
+        let mut from_other_window = UsageMetrics::default();
+        from_other_window.total_messages = 100;
+        from_other_window.total_exports = 7;
+        save_metrics_at(&path, &from_other_window).unwrap();
+
+        with_metrics_at(&path, |m| m.total_exports += 1).unwrap();
+
+        let on_disk = load_metrics_at(&path).unwrap();
+        assert_eq!(
+            on_disk.total_messages, 100,
+            "вклад второго окна обязан дожить до записи: запись закэшированного откатывает всю \
+             статистику, накопленную клиентом в другом окне"
+        );
+        assert_eq!(
+            on_disk.total_exports, 8,
+            "изменение обязано лечь ПОВЕРХ прочитанного с диска (7 + 1), а не поверх кэша"
+        );
+    }
+
+    /// 🔴 Сторож находки 2, вторая сторона: защита C1 (отказ чтения прерывает запись) обязана
+    /// работать на КАЖДОМ цикле, а не только на первом. Прежний код после первого вызова файл не
+    /// читал вовсе, поэтому проверять было нечего.
+    ///
+    /// 🔴 Сверяется ПРИЧИНА отказа, и это здесь принципиально: монопольно занятый файл валит и
+    /// запись тоже, поэтому голый `is_err()` был бы зелёным и с прежним кодом — ошибка пришла бы
+    /// от замены файла («не заменить …»), а не от чтения. Вопрос-детектор: «покраснел бы сторож,
+    /// если бы правки не было?» — только с этой проверкой.
+    #[cfg(windows)]
+    #[test]
+    fn metrics_cycle_refuses_on_unreadable_file_even_after_the_first_cycle() {
+        use std::os::windows::fs::OpenOptionsExt;
+
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("usage.json");
+
+        // Первый цикл проходит и наполняет кэш — именно после него прежний код переставал читать.
+        with_metrics_at(&path, |m| m.total_exports += 1).unwrap();
+        let before = std::fs::read_to_string(&path).unwrap();
+
+        let held = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .share_mode(0)
+            .open(&path)
+            .unwrap();
+
+        let err = with_metrics_at(&path, |m| m.total_exports += 1).expect_err(
+            "нечитаемый файл счётчиков обязан прервать ЛЮБОЙ цикл: запись поверх него уничтожила \
+             бы накопленную статистику клиента",
+        );
+        let text = format!("{err:#}");
+        assert!(
+            text.contains("не удалось прочитать"),
+            "отказ обязан прийти из ЧТЕНИЯ этого цикла, а не позже от замены занятого файла: {text}"
+        );
+
+        drop(held);
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            before,
+            "файл счётчиков обязан остаться нетронутым"
+        );
+    }
+
+    /// 🔴 Сторож находки 2, межпроцессная сторона: замок счётчиков занят ДРУГИМ владельцем (второе
+    /// окно продукта) — цикл возвращает ошибку, а файл остаётся байт в байт прежним. Замок берётся
+    /// из того же процесса другим дескриптором: для `share_mode(0)` это неотличимо от чужого
+    /// процесса. Сверяется ПРИЧИНА (речь о замке) и то, что отказ наступает по исчерпании
+    /// повторов, а не мгновенно.
+    #[cfg(windows)]
+    #[test]
+    fn metrics_cycle_refuses_when_lock_is_held_by_another_owner() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("usage.json");
+        with_metrics_at(&path, |m| m.total_exports += 1).unwrap();
+        let before = std::fs::read_to_string(&path).unwrap();
+
+        let held = crate::session::manager::open_session_lock(&crate::metrics::state_lock_path(&path))
+            .unwrap();
+
+        let started = std::time::Instant::now();
+        let outcome = with_metrics_at(&path, |m| m.total_exports += 1);
+        let waited = started.elapsed();
+
+        let err = outcome.expect_err(
+            "занятый замок обязан дать ОШИБКУ, а не запись мимо блокировки: она откатила бы \
+             счётчики, накопленные другим окном",
+        );
+        let text = format!("{err:#}");
+        assert!(
+            text.contains("замок") && text.contains("занят"),
+            "отказ обязан прийти ИМЕННО от замка (иначе сторож зелёный по неверной причине): {text}"
+        );
+        assert!(
+            waited >= crate::durable_store::STATE_RETRY_PAUSE
+                * (crate::durable_store::STATE_RETRY_ATTEMPTS - 1),
+            "отказ обязан наступать по исчерпании повторов, а не мгновенно. Ждали {waited:?}"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&path).unwrap(),
+            before,
+            "файл счётчиков обязан остаться байт в байт прежним — запись не состоялась"
+        );
+
+        drop(held);
+        with_metrics_at(&path, |m| m.total_exports += 1)
+            .expect("после освобождения замка цикл обязан пройти");
     }
 
     #[test]

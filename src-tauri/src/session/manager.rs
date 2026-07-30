@@ -616,21 +616,60 @@ pub(crate) enum WipeOutcome {
 /// (`session/cleanup.rs`) сносила осиротевшие каталоги обычным `remove_dir_all`, то есть ровно в
 /// том единственном случае, когда на диске остались расшифрованные файлы клиента (аварийное
 /// завершение), они стирались БЕЗ затирания.
+/// 🔴 Внешний аудит 2026-07-30 (High, M20 доехала не полностью): проход БОЛЬШЕ НЕ прерывается
+/// первой ошибкой. Прежние `entry?` / `secure_delete_file(path)?` / `remove_dir(path)?` означали,
+/// что один занятый файл (индексатор, антивирус, второе окно) оставлял ВЕСЬ остаток каталога с
+/// расшифрованными файлами клиента нетронутым, а вызывающий получал ошибку без указания, сколько
+/// успело удалиться. Теперь отказ по одной записи считается и не мешает остальным.
+///
+/// 🔴 Два РАЗНЫХ факта разведены намеренно: «файл удалён, но НЕ затёрт» (`WipeOutcome::Incomplete`
+/// — каталог всё же снесён, данные восстановимы) и «запись не удалена вовсе» (каталог остался на
+/// диске, проход обязан признать отказ — `Err`). Свести их в один счётчик нельзя: тогда каталог с
+/// неудалимым файлом числился бы снесённым, и правка против ложного успеха сама создала бы ложный
+/// успех. Вызывающий (`session/cleanup.rs::sweep_dir`) на этом различии и построен: `Ok` —
+/// `removed`, `Err` — `failed`.
 pub(crate) fn secure_delete_dir(dir: &Path) -> Result<WipeOutcome> {
     if !dir.exists() {
         return Ok(WipeOutcome::Complete);
     }
     let mut outcome = WipeOutcome::Complete;
+    let mut not_removed = 0usize;
     for entry in walkdir::WalkDir::new(dir).contents_first(true) {
-        let entry = entry?;
+        let entry = match entry {
+            Ok(e) => e,
+            Err(e) => {
+                warn!("Очистка {}: запись обхода пропущена — {e}", dir.display());
+                not_removed += 1;
+                continue;
+            }
+        };
         let path = entry.path();
         if path.is_file() {
-            if secure_delete_file(path)? == WipeOutcome::Incomplete {
-                outcome = WipeOutcome::Incomplete;
+            match secure_delete_file(path) {
+                Ok(WipeOutcome::Complete) => {}
+                Ok(WipeOutcome::Incomplete) => outcome = WipeOutcome::Incomplete,
+                Err(e) => {
+                    warn!("Очистка: файл не удалён {} — {e}", path.display());
+                    not_removed += 1;
+                }
             }
         } else if path.is_dir() {
-            std::fs::remove_dir(path)?;
+            if let Err(e) = std::fs::remove_dir(path) {
+                warn!("Очистка: каталог не удалён {} — {e}", path.display());
+                not_removed += 1;
+            }
         }
+    }
+    if not_removed > 0 {
+        anyhow::bail!(
+            "очистка {} неполная: {} запис(ей) остались на диске, затирание остального {}",
+            dir.display(),
+            not_removed,
+            match outcome {
+                WipeOutcome::Complete => "выполнено",
+                WipeOutcome::Incomplete => "ТОЖЕ неполное",
+            }
+        );
     }
     Ok(outcome)
 }
@@ -696,3 +735,88 @@ fn overwrite_with_zeros(path: &Path) -> std::io::Result<()> {
 // app_state_dir создавал там настоящие директории (найдено при приёмке CPD-30). Инвариант
 // перенесён в `session/mod.rs` — сканирование исходников на использование общей константы
 // `durable_store::SESSIONS_SUB`, без единого обращения к диску.
+
+#[cfg(test)]
+mod wipe_tests {
+    use super::*;
+
+    /// 🔴 Сторож находки внешнего аудита 2026-07-30 (High): один неудалимый файл НЕ имеет права
+    /// прерывать проход. Прежний `let entry = entry?` / `secure_delete_file(path)?` бросал остаток
+    /// каталога — а там лежат РАСШИФРОВАННЫЕ файлы кабинета, и остаются они лежать после того, как
+    /// продукт уже посчитал сессию закрытой.
+    ///
+    /// Проверяются оба следствия сразу: остальные файлы всё-таки удалены (обход продолжился) И
+    /// проход признан НЕПОЛНЫМ с называнием причины (иначе очистка рапортовала бы успех поверх
+    /// оставшихся данных клиента).
+    ///
+    /// 🔴 Имя занятого файла начинается с цифры намеренно: NTFS отдаёт записи каталога в порядке
+    /// имён, значит он встретится ПЕРВЫМ. Иначе прежний код успел бы снести остальные до отказа, и
+    /// сторож был бы зелёным по случайности расположения, а не по существу.
+    #[cfg(windows)]
+    #[test]
+    fn one_undeletable_file_does_not_abort_the_rest_of_the_sweep() {
+        use std::os::windows::fs::OpenOptionsExt;
+
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path().join("econometrist_session");
+        let nested = dir.join("z-sub");
+        std::fs::create_dir_all(&nested).unwrap();
+
+        let stuck = dir.join("0-stuck.json");
+        std::fs::write(&stuck, "расшифрованные данные кабинета").unwrap();
+        let siblings = [dir.join("a.json"), dir.join("b.json"), nested.join("inner.json")];
+        for f in &siblings {
+            std::fs::write(f, "расшифрованные данные кабинета").unwrap();
+        }
+
+        // Монопольное открытие: ни перезаписать, ни удалить — так файл держит чужой процесс.
+        let held = std::fs::OpenOptions::new()
+            .read(true)
+            .write(true)
+            .share_mode(0)
+            .open(&stuck)
+            .unwrap();
+
+        let outcome = secure_delete_dir(&dir);
+
+        for f in &siblings {
+            assert!(
+                !f.exists(),
+                "обход обязан продолжиться после неудалимого файла: {} остался на диске, а это \
+                 расшифрованные данные клиента",
+                f.display()
+            );
+        }
+        assert!(!nested.exists(), "пустой подкаталог обязан быть снесён после своих файлов");
+
+        let err = outcome.expect_err(
+            "каталог с неудалимым файлом обязан давать НЕПОЛНЫЙ проход: иначе очистка рапортует \
+             успех, а расшифрованные файлы кабинета остаются на диске",
+        );
+        let text = format!("{err:#}");
+        assert!(
+            text.contains("неполная"),
+            "отказ обязан называть причину — неполноту прохода: {text}"
+        );
+
+        drop(held);
+        assert!(stuck.exists(), "занятый файл действительно остался — сценарий воспроизведён");
+    }
+
+    /// Негативный контроль к сторожу выше: без помех проход сносит каталог целиком и сообщает о
+    /// ПОЛНОМ затирании. Без этого случая «неполный проход» удовлетворялся бы отказом всегда.
+    #[test]
+    fn clean_sweep_removes_everything_and_reports_complete_wipe() {
+        let tmp = tempfile::tempdir().unwrap();
+        let dir = tmp.path().join("econometrist_session");
+        let nested = dir.join("sub");
+        std::fs::create_dir_all(&nested).unwrap();
+        std::fs::write(dir.join("a.json"), "данные").unwrap();
+        std::fs::write(nested.join("inner.json"), "данные").unwrap();
+
+        let outcome = secure_delete_dir(&dir).expect("без помех проход обязан пройти");
+
+        assert_eq!(outcome, WipeOutcome::Complete);
+        assert!(!dir.exists(), "каталог сессии обязан быть снесён целиком");
+    }
+}
