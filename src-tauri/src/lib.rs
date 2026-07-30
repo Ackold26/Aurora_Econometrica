@@ -3259,6 +3259,25 @@ fn build_app() -> Result<(), String> {
             // durable_store::base_dir()), тоже per-app, но не под каталогом, что чистит деинсталлятор.
             if let Some(ref ldd) = local_data_dir {
                 durable_store::init(ldd.clone());
+
+                // 🔴 Батч C (C10, Medium): единственный ВНЕШНИЙ источник правды об идентификаторе
+                // — `app_local_data_dir()` — до сих пор молча выбрасывался: `durable_store::init`
+                // уже отработал в `run()`, второй `OnceLock::set` ничего не делает. А сторож
+                // `build_identifier_matches_tauri_conf` живёт в системе координат самого дефекта:
+                // он сверяет значение СВОИМ разбором `tauri.conf.json`, тем же приёмом, что и
+                // `build.rs`, — ошибись разбор одинаково в обоих местах, тест зелёный, а состояние
+                // уходит в каталог, которого Tauri не знает (content-packs и claude-runtime при
+                // этом остаются в настоящем). Сверяем факт с фактом.
+                // 🔴 Здесь же покрывается ЛОКАЛЬНАЯ редакция (`com.aurora.econometrica.local`,
+                // оверлей `TAURI_CONFIG`): `app_local_data_dir()` считает каталог по СЛИТОЙ
+                // конфигурации, то есть отвалившийся разбор оверлея в `build.rs` виден именно
+                // отсюда. Ронять на клиенте нельзя: расхождение — не повод не запускать продукт,
+                // но оно обязано быть видно в журнале.
+                if let Some(mismatch) =
+                    durable_store::describe_base_mismatch(ldd, &durable_store::resolve_path(""))
+                {
+                    warn!("durable_store: {mismatch}");
+                }
             }
 
             // One-time migration: content_version.txt → vault-versions.json

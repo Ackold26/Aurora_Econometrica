@@ -49,6 +49,12 @@ fn main() {
 
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=tauri.conf.json");
+    // 🔴 Батч C (C10): оверлей локальной редакции читает СТОРОЖ
+    // `durable_store::tests::build_identifier_matches_tauri_conf` через `include_str!`. Без этой
+    // строки правка `tauri.local.conf.json` не пересобирала бы крейт, и сторож сверял бы
+    // устаревший текст — то есть молчал бы ровно тогда, когда идентификатор локальной редакции
+    // разъехался.
+    println!("cargo:rerun-if-changed=tauri.local.conf.json");
     println!("cargo:rerun-if-env-changed=TAURI_CONFIG");
 }
 
