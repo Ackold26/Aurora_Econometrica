@@ -27,7 +27,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::Result;
 use aurora_gateway::cloud::{
-    cabinets_mismatch_text, check_cabinets_version, decide_ticket, missing_exports_text,
+    cabinets_mismatch_text, inputs_fingerprint, check_cabinets_version, decide_ticket, missing_exports_text,
     CabinetsVersionCheck, CloudClient, DeviceIdentity, IdentityStore, InputFile, JobRequest,
     TicketDecision, TicketProblem,
 };
@@ -296,6 +296,49 @@ fn oversized_warning(name: &str) -> SkippedInput {
     }
 }
 
+/// Что лежит во «Входящих» — по метаданным, без чтения содержимого.
+///
+/// 🔴 Именно «без чтения» и есть смысл: сверять набор, читая тридцать мегабайт,
+/// значило бы съесть ту экономию, ради которой сверка и делается.
+fn inbox_signature(work_dir: &Path) -> Vec<(String, u64, u64)> {
+    let inbox = work_dir.join("inbox");
+    let Ok(entries) = std::fs::read_dir(&inbox) else {
+        return Vec::new();
+    };
+    let mut items = Vec::new();
+    for entry in entries.filter_map(|e| e.ok()).filter(|e| e.path().is_file()) {
+        let Some(name) = entry.file_name().to_str().map(|s| s.to_string()) else {
+            // Нечитаемое имя — повод пойти обычным путём: там оно будет названо
+            // человеку, а здесь молчаливое совпадение отпечатков скрыло бы файл.
+            return Vec::new();
+        };
+        let Ok(meta) = entry.metadata() else {
+            return Vec::new();
+        };
+        let modified = meta
+            .modified()
+            .ok()
+            .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        items.push((name, meta.len(), modified));
+    }
+    items
+}
+
+/// Какой набор вложений уже уехал в этот диалог: метка диалога → отпечаток.
+///
+/// 🔴 Живёт в памяти процесса намеренно. После перезапуска программы отпечатка
+/// нет, и файлы уедут заново — сторона безопасная. Помнить дольше, чем живёт
+/// рабочая папка на сервере, значило бы однажды сказать «вложения уже там», когда
+/// их там нет, и работа пошла бы по пустой папке.
+fn sent_inputs() -> &'static std::sync::Mutex<std::collections::HashMap<String, String>> {
+    static R: std::sync::OnceLock<
+        std::sync::Mutex<std::collections::HashMap<String, String>>,
+    > = std::sync::OnceLock::new();
+    R.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
+}
+
 /// Общий потолок вложений исчерпан: сам файл при этом может быть крошечным.
 fn total_limit_warning(name: &str) -> SkippedInput {
     SkippedInput {
@@ -541,7 +584,26 @@ async fn execute(
     // ответ по старой методологии.
     warn_on_cabinets_mismatch(&client, &app_handle, &cabinet_id).await;
 
-    let (inputs, skipped) = collect_inputs(work_dir, &cabinet_id);
+    // 🔴 Отпечаток набора считается ДО чтения файлов — в этом вся экономия.
+    // Прежде все вложения уезжали на КАЖДЫЙ вопрос диалога: двадцать вопросов
+    // при тридцати мегабайтах давали около шестисот мегабайт выгрузки. Теперь
+    // папка сверяется по метаданным (имя, размер, время правки), и если она не
+    // менялась, файлы не читаются и не отправляются вовсе — серверу уходит
+    // признак «вложения этого диалога уже на месте».
+    let signature = inbox_signature(work_dir);
+    let unchanged = !signature.is_empty()
+        && sent_inputs()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(&label)
+            .is_some_and(|known| known == &inputs_fingerprint(&signature));
+
+    let (inputs, skipped) = if unchanged {
+        info!("Вложения диалога уже на сервере [{cabinet_id}]: файлы не перечитываются");
+        (Vec::new(), Vec::new())
+    } else {
+        collect_inputs(work_dir, &cabinet_id)
+    };
     // 🔴 Недоставленное вложение ПРЕКРАЩАЕТ работу — инвариант ADR-048, и он же
     // на сервере. Прежде файл за потолком просто пропускался: разбор шёл без
     // данных, которые человек считает учтёнными, и выдавался за законченный.
@@ -578,6 +640,7 @@ async fn execute(
         // и обрыв связи после постановки перестаёт быть потерянной работой.
         idempotency_key: format!("{label}-{}", short_stamp()),
         inputs: &inputs,
+        keep_inputs: unchanged,
     };
 
     let mut shown = String::new();
@@ -668,6 +731,22 @@ async fn execute(
             warn!("шлюз: внутренняя диагностика узла (пользователю не показана): {internal}");
         }
         anyhow::bail!("[TC-GW-SRV] {text}");
+    }
+
+    // 🔴 Отпечаток запоминается ТОЛЬКО после успешной работы и только если файлы
+    // в этот раз действительно уехали: запомнить раньше — значит однажды сказать
+    // «вложения уже на сервере» про набор, который туда не доехал. И наоборот:
+    // работа с ПУСТЫМ набором заставляет сервер очистить «Входящие», поэтому
+    // память о прежнем наборе становится ложью и снимается.
+    {
+        let mut sent = sent_inputs().lock().unwrap_or_else(|e| e.into_inner());
+        if unchanged {
+            // Набор не менялся — помним прежнее.
+        } else if inputs.is_empty() {
+            sent.remove(&label);
+        } else {
+            sent.insert(label.clone(), inputs_fingerprint(&signature));
+        }
     }
 
     let mut text = state.text.clone();
@@ -1050,6 +1129,50 @@ mod tests {
         let (files, skipped) = collect_inputs(tmp.path(), "econometrist");
         assert!(files.len() < 4, "сумма вложений потолок не переросла: {} файлов", files.len());
         assert!(!skipped.is_empty(), "о неуехавшем обязано быть сказано");
+    }
+
+    #[test]
+    fn inbox_signature_sees_the_folder_without_reading_it() {
+        // 🔴 Подпись набора решает, отправлять ли файлы заново. Пропустит
+        // изменение — работа пойдёт по устаревшему набору, а выглядеть будет
+        // законченной. Читать содержимое при этом нельзя: ради экономии всё и
+        // затевалось.
+        let tmp = work_dir_with_inbox();
+        let inbox = tmp.path().join("inbox");
+        std::fs::write(inbox.join("данные.csv"), b"a,b,c").unwrap();
+        let first = inbox_signature(tmp.path());
+        assert_eq!(first.len(), 1, "файл не попал в подпись: {first:?}");
+        assert_eq!(first[0].1, 5, "размер в подписи не с диска");
+
+        // Тот же состав — тот же отпечаток.
+        assert_eq!(
+            inputs_fingerprint(&first),
+            inputs_fingerprint(&inbox_signature(tmp.path())),
+            "подпись неустойчива: файлы уезжали бы на каждый вопрос"
+        );
+
+        std::fs::write(inbox.join("ещё.txt"), b"x").unwrap();
+        assert_ne!(
+            inputs_fingerprint(&first),
+            inputs_fingerprint(&inbox_signature(tmp.path())),
+            "добавленный файл не изменил подпись — он не уедет на сервер"
+        );
+    }
+
+    #[test]
+    fn missing_or_unreadable_inbox_gives_no_signature() {
+        // Пустая подпись означает «идти обычным путём»: признак «вложения уже на
+        // сервере» ставить не по чему, и работа не пойдёт по пустой папке.
+        let tmp = tempfile::TempDir::new().unwrap();
+        assert!(
+            inbox_signature(tmp.path()).is_empty(),
+            "папки «Входящих» нет, а подпись выдана"
+        );
+        let with_inbox = work_dir_with_inbox();
+        assert!(
+            inbox_signature(with_inbox.path()).is_empty(),
+            "пустая папка обязана давать пустую подпись"
+        );
     }
 
     #[test]
