@@ -436,6 +436,33 @@ function verifyGatewaySource(source) {
   info(`крейт шлюза проверен: ${crateDir} (продукт берёт ${used.size} имён, все на месте)`);
 }
 
+/**
+ * Проверка типов фронта. 🔴 Отдельным шагом гейта, потому что её отсутствие уже
+ * стоило дефекта: событие расхождения версий методики показывалось видом
+ * «предупреждение», которого не существовало ни в типах, ни в стилях, — оба
+ * продукта уехали с ошибкой проверки типов, а облачный гейт остался зелёным,
+ * поскольку смотрел только на Rust. Порог — ошибки: предупреждений в дереве
+ * сотни, и краснеть на них значило бы приучить обходить гейт.
+ */
+function checkFrontendTypes() {
+  info('проверяю типы фронта (svelte-check)');
+  const res = spawnSync('npx', ['svelte-check', '--threshold', 'error', '--output', 'human'], {
+    cwd: ROOT,
+    encoding: 'utf8',
+    shell: process.platform === 'win32',
+  });
+  const out = `${res.stdout || ''}${res.stderr || ''}`;
+  const found = out.match(/found (\d+) errors?/);
+  if (res.status !== 0 || (found && Number(found[1]) > 0)) {
+    console.error(out.split(String.fromCharCode(10)).slice(-25).join(String.fromCharCode(10)));
+    fail(
+      'проверка типов фронта нашла ошибки',
+      'почините их и повторите — облачный путь трогает слушатели событий, а они живут во фронте',
+    );
+  }
+  info('типы фронта в порядке');
+}
+
 /** Базовый манифест + фрагмент. Якоря обязательны: их отсутствие — отказ, не тихая сборка. */
 function composeManifest(base, fragment) {
   // 🔴 Переносы строк приводятся к одному виду ДО склейки. Базовый манифест и
@@ -608,6 +635,7 @@ async function main() {
     ];
   }
 
+  if (testOnly) checkFrontendTypes();
   writeFileSync(MANIFEST, composed, 'utf8');
   info(
     checkOnly

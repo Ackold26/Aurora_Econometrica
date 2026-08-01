@@ -469,6 +469,16 @@
           // Только снимаем safety timeout (Claude ответил - значит жив).
           clearTimeout(safetyTimer);
           statusText = '';
+        } else if (data.type === 'system' && data.subtype === 'cloud_wait_cancelled') {
+          // 🔴 Отклик на «Остановить» обязан быть НЕМЕДЛЕННЫМ. Событие уже
+          // отправлялось, но его никто не читал: единственный видимый признак
+          // приходил позже, с завершением захода ленты, - до минуты тишины,
+          // в которую человек успевает решить, что кнопка не работает.
+          clearTimeout(safetyTimer);
+          statusText = '';
+          messages.update(msgs => [...msgs, {
+            role: 'system', content: data.message || 'Работа остановлена на сервере.', ts: Date.now(),
+          }]);
         } else if (data.type === 'system' && data.subtype === 'resume_fallback') {
           // Phase 1.3: уведомление о потере контекста
           messages.update(msgs => [...msgs, {

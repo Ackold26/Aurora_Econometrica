@@ -1,6 +1,6 @@
 import { writable } from 'svelte/store';
 
-/** @type {import('svelte/store').Writable<Array<{id: number, message: string, type: 'success'|'error'|'info', duration: number}>>} */
+/** @type {import('svelte/store').Writable<Array<{id: number, message: string, type: 'success'|'error'|'warning'|'info', duration: number}>>} */
 export const toasts = writable([]);
 
 let nextId = 0;
@@ -8,7 +8,7 @@ let nextId = 0;
 /**
  * Show a toast notification.
  * @param {string} message
- * @param {'success'|'error'|'info'} [type='info']
+ * @param {'success'|'error'|'warning'|'info'} [type='info']
  * @param {number} [duration=3000]
  */
 export function toast(message, type = 'info', duration = 3000) {
