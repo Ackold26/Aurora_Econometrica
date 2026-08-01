@@ -145,6 +145,8 @@
   let unlistenStream;
   /** @type {(() => void)|undefined} */
   let unlistenDone;
+  /** @type {(() => void)|undefined} */
+  let unlistenAttachmentsSkipped;
   /** @type {ReturnType<typeof setTimeout>|undefined} */
   let statusTimeout;
   /** @type {number|null} */
@@ -565,6 +567,22 @@
       if (isNearBottom()) scrollToBottom();
     });
 
+    // 🔴 Тонкая поставка ТЕПЕРЬ передаёт файлы «Входящих» на сервер (контракт v1,
+    // ADR-048). Если какой-то файл не уехал — велик, не прочитался, — человек обязан
+    // это увидеть: иначе он считает данные учтёнными, а разбор идёт без них. Прежде
+    // событие слал только продукт, слушателя не было вовсе, и предупреждение
+    // пропадало — ровно та молчаливая потеря, против которой оно и писано.
+    unlistenAttachmentsSkipped = await listen(`inbox-attachments-skipped-${cabinetId}`, (event) => {
+      const data = typeof event.payload === 'string' ? JSON.parse(event.payload) : event.payload;
+      const reason = typeof data?.reason === 'string' ? data.reason : '';
+      const action = typeof data?.action === 'string' ? data.action : '';
+      const head = reason
+        ? `В работу не уехало: ${reason}.`
+        : 'Один из файлов «Входящих» в работу не уехал.';
+      const tail = action ? ` Что делать: ${action}` : '';
+      toast(`${head}${tail}`, 'info', 8000);
+    });
+
     unlistenDone = await listen(`claude-done-${cabinetId}`, () => {
       if (cancelled) {
         cancelled = false;
@@ -647,6 +665,7 @@
     asyncCleanup = () => {
       unlistenStream?.();
       unlistenDone?.();
+      unlistenAttachmentsSkipped?.();
       unsubCmds?.();
       clearTimeout(statusTimeout);
       clearTimeout(safetyTimer);

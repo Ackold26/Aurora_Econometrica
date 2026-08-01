@@ -463,6 +463,16 @@ async fn execute(
     // ради которого правило и вводилось.
     if work.cancelled() {
         info!("Работа остановлена пользователем [{cabinet_id}]");
+        // 🔴 Сигнал завершения шлётся и при отмене. Интерфейс держит признак
+        // «остановлено» до него: без сигнала признак висит, и СЛЕДУЮЩИЙ ответ
+        // съедается им — не попадает ни в чат, ни в историю. Отчёт при этом не
+        // сохраняем: работы, которую пользователь остановил, в файлах быть не должно.
+        if !suppress_done {
+            let _ = app_handle.emit(
+                &format!("claude-done-{cabinet_id}"),
+                serde_json::json!({ "exit_code": 0, "cancelled": true }),
+            );
+        }
         return Ok((None, shown));
     }
     let state = match outcome {
@@ -494,6 +504,12 @@ async fn execute(
         // Пользователь остановил работу. Отчёт НЕ сохраняем и метку НЕ возвращаем:
         // следующий вопрос обязан начать новый диалог, а не продолжить отменённый.
         info!("Задание остановлено пользователем [{cabinet_id}]");
+        if !suppress_done {
+            let _ = app_handle.emit(
+                &format!("claude-done-{cabinet_id}"),
+                serde_json::json!({ "exit_code": 0, "cancelled": true }),
+            );
+        }
         return Ok((None, state.text));
     }
     if !state.is_success() {
