@@ -27,7 +27,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::Result;
 use aurora_gateway::cloud::{
-    decide_ticket, CloudClient, DeviceIdentity, IdentityStore, InputFile, JobRequest, TicketDecision,
+    cabinets_mismatch_text, check_cabinets_version, decide_ticket, missing_exports_text,
+    CabinetsVersionCheck, CloudClient, DeviceIdentity, IdentityStore, InputFile, JobRequest,
+    TicketDecision, TicketProblem,
 };
 use log::{debug, info, warn};
 use tauri::{Emitter, Manager};
@@ -285,6 +287,26 @@ fn refusal_for_skipped(skipped: &[SkippedInput]) -> Option<String> {
     ))
 }
 
+/// Файл слишком велик сам по себе.
+fn oversized_warning(name: &str) -> SkippedInput {
+    SkippedInput {
+        name: name.to_string(),
+        reason: format!("файл «{name}» слишком велик"),
+        action: "Уберите его из «Входящих» или замените файлом поменьше.".to_string(),
+    }
+}
+
+/// Общий потолок вложений исчерпан: сам файл при этом может быть крошечным.
+fn total_limit_warning(name: &str) -> SkippedInput {
+    SkippedInput {
+        name: name.to_string(),
+        reason: format!(
+            "файл «{name}» не уместился: вложения во «Входящих» в сумме слишком велики"
+        ),
+        action: "Уберите из «Входящих» лишние файлы – всего за раз уезжает до 48 МБ.".to_string(),
+    }
+}
+
 /// Собрать файлы «Входящих», которые уедут в работу.
 ///
 /// Чистая функция намеренно: событий не шлёт и окна не требует, поэтому
@@ -338,13 +360,18 @@ fn collect_inputs(work_dir: &Path, cabinet_id: &str) -> (Vec<InputFile>, Vec<Ski
                 continue;
             }
         };
-        if size > INPUT_FILE_LIMIT as u64 || total as u64 + size > INPUTS_TOTAL_LIMIT as u64 {
+        // 🔴 Два разных случая — два разных текста. Прежде оба звучали как «файл
+        // слишком велик», и при исчерпанном ОБЩЕМ потолке назывался последний по
+        // обходу файл, хотя виноваты предыдущие: человек уменьшал стограммовую
+        // таблицу, а мешали два двадцатичетырёхмегабайтных соседа.
+        if size > INPUT_FILE_LIMIT as u64 {
             warn!("Файл «{name}» не уедет [{cabinet_id}]: {size} байт");
-            skipped.push(SkippedInput {
-                name: name.clone(),
-                reason: format!("файл «{name}» слишком велик"),
-                action: "Уберите его из «Входящих» или замените файлом поменьше.".to_string(),
-            });
+            skipped.push(oversized_warning(&name));
+            continue;
+        }
+        if total as u64 + size > INPUTS_TOTAL_LIMIT as u64 {
+            warn!("Файл «{name}» не уедет [{cabinet_id}]: общий потолок вложений исчерпан");
+            skipped.push(total_limit_warning(&name));
             continue;
         }
         let bytes = match std::fs::read(&path) {
@@ -360,13 +387,14 @@ fn collect_inputs(work_dir: &Path, cabinet_id: &str) -> (Vec<InputFile>, Vec<Ski
             }
         };
         // Файл мог вырасти между сверкой и чтением: потолок держится по факту.
-        if bytes.len() > INPUT_FILE_LIMIT || total + bytes.len() > INPUTS_TOTAL_LIMIT {
+        if bytes.len() > INPUT_FILE_LIMIT {
             warn!("Файл «{name}» вырос между сверкой и чтением [{cabinet_id}]");
-            skipped.push(SkippedInput {
-                name: name.clone(),
-                reason: format!("файл «{name}» слишком велик"),
-                action: "Уберите его из «Входящих» или замените файлом поменьше.".to_string(),
-            });
+            skipped.push(oversized_warning(&name));
+            continue;
+        }
+        if total + bytes.len() > INPUTS_TOTAL_LIMIT {
+            warn!("Файл «{name}» вырос между сверкой и чтением [{cabinet_id}]: общий потолок");
+            skipped.push(total_limit_warning(&name));
             continue;
         }
         total += bytes.len();
@@ -410,10 +438,12 @@ fn identity_for(app_handle: &tauri::AppHandle) -> Result<DeviceIdentity> {
         TicketDecision::UseSaved => saved.expect("годный билет обязан быть на месте"),
         TicketDecision::ForgetAndRefresh(problem) => {
             info!("Сохранённый билет негоден ({problem:?}) — беру заново");
-            // Негодный билет убираем: иначе он останется лежать и будет мешать
-            // при каждом следующем запуске, если взять новый не вышло.
-            let _ = store.forget_ticket();
-            refresh_ticket(app_handle, &store)?
+            // 🔴 Новый билет берётся ДО того, как убран старый: сохранение
+            // перезаписывает файл, поэтому отдельное удаление ничего не решало,
+            // а вредило. Прежде старый стирался первым, и любая неудача
+            // пересборки оставляла программу вовсе без доступа — в том числе
+            // когда «негоден» решили сбитые вперёд часы, а билет был настоящим.
+            refresh_ticket(app_handle, &store).map_err(|e| clock_hint(e, problem))?
         }
         TicketDecision::Refresh => refresh_ticket(app_handle, &store)?,
     };
@@ -428,6 +458,24 @@ fn identity_for(app_handle: &tauri::AppHandle) -> Result<DeviceIdentity> {
              Подробность для поддержки: {e}"
         )
     })
+}
+
+/// Дополнить отказ подсказкой про часы, если билет забракован по СРОКУ.
+///
+/// 🔴 Часы, сбитые ВПЕРЁД, делают годный билет «просроченным» для программы, и
+/// человек начинает чинить лицензию – то есть не то. Про расхождение часов
+/// говорит сервер (`request_time_skew`), но в этой ветке до сервера дело не
+/// дошло: билет собрать не удалось, и без подсказки причина осталась бы
+/// ненайденной. Обратный знак (часы в прошлом) закрыт отдельно отметкой
+/// «время неизвестно».
+fn clock_hint(error: anyhow::Error, problem: TicketProblem) -> anyhow::Error {
+    if !matches!(problem, TicketProblem::Expired) {
+        return error;
+    }
+    anyhow::anyhow!(
+        "{error}\n\nЕсли лицензия действует, проверьте часы компьютера: при сбитой дате \
+         программа считает срок вышедшим. Включите синхронизацию времени и повторите."
+    )
 }
 
 /// Взять билет из ответа лицензионного входа и сохранить его.
@@ -488,7 +536,26 @@ async fn execute(
         );
     }
 
+    // Сверка методологии: серверный набор кабинетов обязан совпадать с тем, под
+    // который выдана лицензия. Расхождение — видимое предупреждение, а не тихий
+    // ответ по старой методологии.
+    warn_on_cabinets_mismatch(&client, &app_handle, &cabinet_id).await;
+
     let (inputs, skipped) = collect_inputs(work_dir, &cabinet_id);
+    // 🔴 Недоставленное вложение ПРЕКРАЩАЕТ работу — инвариант ADR-048, и он же
+    // на сервере. Прежде файл за потолком просто пропускался: разбор шёл без
+    // данных, которые человек считает учтёнными, и выдавался за законченный.
+    // Тост о причине легко не заметить, а отчёт выглядит полноценным — это и есть
+    // молчаливое расхождение, которое дороже честного отказа (INV-50).
+    //
+    // 🔴 Об одном событии человек узнаёт ОДИН раз. Прежде предупреждения
+    // рассылались всплывающими ДО этого решения, и человек получал два сообщения
+    // об одном и том же, причём всплывающее говорило «файл не уедет», хотя не
+    // уезжала вся работа. Всплывающие остаются для случая, когда работа
+    // продолжается, — и рассылаются только после того, как это решено.
+    if let Some(text) = refusal_for_skipped(&skipped) {
+        anyhow::bail!("[TC-GW-INPUT] {text}");
+    }
     for item in &skipped {
         let _ = app_handle.emit(
             &format!("inbox-attachments-skipped-{cabinet_id}"),
@@ -498,14 +565,6 @@ async fn execute(
             // мёртвый груз. Паритет с Oracle, где так же убрано поле files.
             serde_json::json!({ "reason": item.reason, "action": item.action }),
         );
-    }
-    // 🔴 Недоставленное вложение ПРЕКРАЩАЕТ работу — инвариант ADR-048, и он же
-    // на сервере. Прежде файл за потолком просто пропускался: разбор шёл без
-    // данных, которые человек считает учтёнными, и выдавался за законченный.
-    // Тост о причине легко не заметить, а отчёт выглядит полноценным — это и есть
-    // молчаливое расхождение, которое дороже честного отказа (INV-50).
-    if let Some(text) = refusal_for_skipped(&skipped) {
-        anyhow::bail!("[TC-GW-INPUT] {text}");
     }
 
     let effort = effort_for(&app_handle);
@@ -526,7 +585,12 @@ async fn execute(
         let cabinet_for_stream = cabinet_id.clone();
         let handle_for_stream = app_handle.clone();
         client
-            .run_job_watched(
+            // 🔴 Признак отмены уходит В прогон, а не сверяется после него.
+            // Прежде «Остановить» гасило индикатор, а рабочий поток висел в
+            // ожидании до потолка Core — четверть часа, держа соединение и место
+            // в реестре работ. Проверка после возврата отменой не была: возврата
+            // всё это время и не происходило.
+            .run_job_cancellable(
                 &request,
                 |piece| {
                     shown.push_str(piece);
@@ -538,6 +602,7 @@ async fn execute(
                     }
                 },
                 |job_id| work.attach(job_id),
+                || work.cancelled(),
             )
             .await
     };
@@ -605,7 +670,15 @@ async fn execute(
         anyhow::bail!("[TC-GW-SRV] {text}");
     }
 
-    let text = state.text.clone();
+    let mut text = state.text.clone();
+    if state.status == "timeout" {
+        // Неполнота обязана быть видна: молча выдать обрезанный отчёт за законченный
+        // хуже, чем не выдать вовсе.
+        text.push_str(
+            "\n\n---\n**Ответ неполный.** Сервер не успел завершить работу за отведённое \
+             время – выше то, что он успел подготовить.",
+        );
+    }
     info!("Ответ получен [{cabinet_id}]: {} байт, задание {}", text.len(), state.job_id);
 
     // Выгрузка ложится в рабочую папку — дальше продукт работает с ней как с
@@ -616,6 +689,13 @@ async fn execute(
     }
     for (name, why) in &failed {
         warn!("Файл «{name}» не доехал [{cabinet_id}]: {why}");
+    }
+    // 🔴 Недоехавший файл больше не молчит. Прежде о нём знал только журнал:
+    // человек видел полный ответ и признак готовности, а в папке отчётов лежала
+    // половина выгрузки – и дальше работа шла с неполной как с полной. Текст
+    // общий для линейки и живёт в Core.
+    if let Some(notice) = missing_exports_text(&failed) {
+        text.push_str(&notice);
     }
 
     if !suppress_done {
@@ -685,6 +765,61 @@ fn short_stamp() -> String {
         .map(|d| d.as_nanos())
         .unwrap_or(0);
     format!("{:x}", (nanos & 0xFFFF_FFFF) as u32)
+}
+
+/// Версия методологии, которую ожидает эта машина, — версия местного пака содержимого.
+///
+/// 🔴 Пока серверный набор кабинетов версионируется своей величиной (`cab-…`,
+/// считается по содержимому набора), сверять её с версией пака нечем: это разные
+/// пространства значений, и «расхождение» показывалось бы на каждом запросе,
+/// ничего не означая. Такие пары считаем несравнимыми и молчим — ложная тревога
+/// на каждом запросе хуже её отсутствия, потому что от неё перестают отличать
+/// настоящую. Сверка включится сама, когда серверный набор начнёт нести версию
+/// пака; и код сверки, и его проверки для этого уже есть в Core.
+fn client_cabinets_version(app_handle: &tauri::AppHandle) -> Option<String> {
+    app_handle
+        .path()
+        .app_config_dir()
+        .ok()
+        .and_then(|dir| crate::commands::content_updater::get_local_version(&dir))
+}
+
+/// Предупредить, если методология кабинетов на сервере разошлась с ожидаемой.
+async fn warn_on_cabinets_mismatch(
+    client: &CloudClient,
+    app_handle: &tauri::AppHandle,
+    cabinet_id: &str,
+) {
+    let meta = match client.meta().await {
+        Ok(meta) => meta,
+        Err(e) => {
+            // Сведения не пришли — это не повод прекращать работу: сверка версий
+            // полезна, но не является условием исполнения.
+            debug!("Сведения о сервере не получены [{cabinet_id}]: {e}");
+            return;
+        }
+    };
+    let ours = client_cabinets_version(app_handle).unwrap_or_default();
+    if meta.cabinets_version.starts_with("cab-") {
+        debug!(
+            "Версии набора несравнимы [{cabinet_id}]: сервер {}, программа «{ours}»",
+            meta.cabinets_version
+        );
+        return;
+    }
+    let check = check_cabinets_version(&ours, &meta.cabinets_version);
+    if let CabinetsVersionCheck::Differ { .. } = check {
+        if let Some(text) = cabinets_mismatch_text(&check) {
+            warn!("Расхождение версий кабинетов [{cabinet_id}]: {}", meta.cabinets_version);
+            let _ = app_handle.emit(
+                &format!("cabinets-version-mismatch-{cabinet_id}"),
+                // 🔴 Версия набора в событие не кладётся: интерфейс её не читает и
+                // читать не должен — «cab-1db3fe65d525» человеку ничего не говорит.
+                // Для разбора жалоб она уже записана строкой выше в журнал.
+                serde_json::json!({ "reason": text }),
+            );
+        }
+    }
 }
 
 /// Зеркалит `claude::run_claude` при включённом облачном модуле.
@@ -881,6 +1016,22 @@ mod tests {
     }
 
     #[test]
+    fn clock_hint_added_only_for_expired_ticket() {
+        // 🔴 Часы, сбитые ВПЕРЁД, делают годный билет «просроченным» для
+        // программы, и человек начинает чинить лицензию — то есть не то.
+        // Подсказка обязана появляться ТОЛЬКО при отказе по сроку: для прочих
+        // причин («не читается», «нет отпечатка») она увела бы человека не туда.
+        let hinted = clock_hint(anyhow::anyhow!("билет негоден"), TicketProblem::Expired);
+        assert!(hinted.to_string().contains("часы"), "подсказка про часы потеряна: {hinted}");
+
+        let other = clock_hint(anyhow::anyhow!("билет негоден"), TicketProblem::Unreadable);
+        assert!(
+            !other.to_string().contains("часы"),
+            "подсказка про часы там, где срок ни при чём: {other}"
+        );
+    }
+
+    #[test]
     fn everything_delivered_means_no_refusal() {
         // Обратная сторона: пустой перечень пропущенных не смеет останавливать
         // работу — иначе разбор не запустится вообще никогда.
@@ -899,6 +1050,39 @@ mod tests {
         let (files, skipped) = collect_inputs(tmp.path(), "econometrist");
         assert!(files.len() < 4, "сумма вложений потолок не переросла: {} файлов", files.len());
         assert!(!skipped.is_empty(), "о неуехавшем обязано быть сказано");
+    }
+
+    #[test]
+    fn the_pile_is_blamed_for_the_pile_not_the_last_file() {
+        // 🔴 Прежде обе беды звучали одинаково: «файл «в.csv» слишком велик»
+        // выдавалось и стобайтному файлу, не влезшему в остаток общего потолка.
+        // Человек уменьшал его, а мешали два двадцатичетырёхмегабайтных соседа.
+        let tmp = work_dir_with_inbox();
+        let inbox = tmp.path().join("inbox");
+        std::fs::write(inbox.join("а.bin"), vec![1u8; INPUT_FILE_LIMIT]).unwrap();
+        std::fs::write(inbox.join("б.bin"), vec![1u8; INPUT_FILE_LIMIT]).unwrap();
+        std::fs::write(inbox.join("в.csv"), vec![1u8; 100]).unwrap();
+
+        let (_files, skipped) = collect_inputs(tmp.path(), "econometrist");
+        let about_small = skipped
+            .iter()
+            .find(|w| w.reason.contains("в.csv"))
+            .expect("о неуехавшем маленьком файле обязано быть сказано");
+        assert!(
+            !about_small.reason.contains("«в.csv» слишком велик"),
+            "стобайтный файл назван слишком большим: {}",
+            about_small.reason
+        );
+        assert!(
+            about_small.reason.contains("в сумме"),
+            "причина не названа: дело в общем объёме вложений: {}",
+            about_small.reason
+        );
+        assert!(
+            about_small.action.contains("лишние файлы"),
+            "действие ведёт не туда – уменьшать надо не этот файл: {}",
+            about_small.action
+        );
     }
 
     #[test]

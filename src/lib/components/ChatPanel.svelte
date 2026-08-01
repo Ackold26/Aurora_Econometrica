@@ -148,6 +148,8 @@
   let unlistenDone;
   /** @type {(() => void)|undefined} */
   let unlistenAttachmentsSkipped;
+  /** @type {(() => void)|undefined} */
+  let unlistenCabinetsMismatch;
   /** @type {ReturnType<typeof setTimeout>|undefined} */
   let statusTimeout;
   /** @type {number|null} */
@@ -580,6 +582,18 @@
       toast(attachmentsSkippedText(data), 'info', 8000);
     });
 
+    // 🔴 Расхождение методики: набор кабинетов на сервере разошёлся с тем, что
+    // ожидает программа. Молчать нельзя — ответ построен по другому подходу, и
+    // отличить это от нормальной работы человек не может ничем. Прежде событие
+    // слал только продукт, слушателя не было: «видимое предупреждение» было невидимо.
+    unlistenCabinetsMismatch = await listen(`cabinets-version-mismatch-${cabinetId}`, (event) => {
+      const data = typeof event.payload === 'string' ? JSON.parse(event.payload) : event.payload;
+      const reason = typeof data?.reason === 'string'
+        ? data.reason
+        : 'Методика на сервере отличается от той, что ожидает программа.';
+      toast(reason, 'warning', 10000);
+    });
+
     unlistenDone = await listen(`claude-done-${cabinetId}`, () => {
       if (cancelled) {
         cancelled = false;
@@ -663,6 +677,7 @@
       unlistenStream?.();
       unlistenDone?.();
       unlistenAttachmentsSkipped?.();
+      unlistenCabinetsMismatch?.();
       unsubCmds?.();
       clearTimeout(statusTimeout);
       clearTimeout(safetyTimer);
