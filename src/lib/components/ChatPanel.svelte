@@ -4,6 +4,7 @@
   import { onMount } from 'svelte';
   import { messages, isLoading, activeCabinet, pendingCommand, stickyContext, cabinetCommands, inboxFiles as inboxFilesStore } from '$lib/store.js';
   import { toast } from '$lib/toast.js';
+  import { attachmentsSkippedText } from '$lib/cloud-warning-text.js';
   import { getNextSteps, getRandomInsight, getCurrentPhase, trackRequest, getEmpathyError, getTimeGreeting, getUsageHint, startSession, incrementSessionMessages, endSession, pluralRu, getResponseActions, getSafetyTimeout, getEndowedProgressMessage, getContextInsight } from '$lib/psy.js';
   import { classifyMessage } from '$lib/chat-classifier.js';
   import { isEconometrica } from '$lib/creative-store.js';
@@ -574,13 +575,9 @@
     // пропадало — ровно та молчаливая потеря, против которой оно и писано.
     unlistenAttachmentsSkipped = await listen(`inbox-attachments-skipped-${cabinetId}`, (event) => {
       const data = typeof event.payload === 'string' ? JSON.parse(event.payload) : event.payload;
-      const reason = typeof data?.reason === 'string' ? data.reason : '';
-      const action = typeof data?.action === 'string' ? data.action : '';
-      const head = reason
-        ? `В работу не уехало: ${reason}.`
-        : 'Один из файлов «Входящих» в работу не уехал.';
-      const tail = action ? ` Что делать: ${action}` : '';
-      toast(`${head}${tail}`, 'info', 8000);
+      // Текст собирает отдельная функция: проверять его по исходнику обработчика
+      // значило проверять соседство слов, а не то, что увидит человек.
+      toast(attachmentsSkippedText(data), 'info', 8000);
     });
 
     unlistenDone = await listen(`claude-done-${cabinetId}`, () => {

@@ -27,7 +27,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::Result;
 use aurora_gateway::cloud::{
-    check_ticket, decide_ticket, CloudClient, DeviceIdentity, IdentityStore, InputFile, JobRequest, TicketDecision,
+    decide_ticket, CloudClient, DeviceIdentity, IdentityStore, InputFile, JobRequest, TicketDecision,
 };
 use log::{debug, info, warn};
 use tauri::{Emitter, Manager};
@@ -268,6 +268,23 @@ pub struct SkippedInput {
     pub action: String,
 }
 
+/// Что сказать человеку, если хоть одно вложение не доехало, — и говорить ли.
+///
+/// 🔴 Чистая функция намеренно. Решение «работать нельзя» иначе живёт внутри
+/// `execute`, рядом с окном, сетью и билетом, и проверить его нечем: мутация
+/// «недоехавшее пропускаем» пережила бы любой прогон. Здесь же она краснеет.
+fn refusal_for_skipped(skipped: &[SkippedInput]) -> Option<String> {
+    let first = skipped.first()?;
+    let others = match skipped.len() {
+        1 => String::new(),
+        n => format!(" Не уехало файлов: {n}."),
+    };
+    Some(format!(
+        "Работа не начата: {}.{others}\n\nЧто делать: {}",
+        first.reason, first.action
+    ))
+}
+
 /// Собрать файлы «Входящих», которые уедут в работу.
 ///
 /// Чистая функция намеренно: событий не шлёт и окна не требует, поэтому
@@ -285,32 +302,69 @@ fn collect_inputs(work_dir: &Path, cabinet_id: &str) -> (Vec<InputFile>, Vec<Ski
 
     // Порядок обхода папки операционной системой не определён — упорядочиваем,
     // чтобы и отправка, и перечень в предупреждении не менялись от запуска к запуску.
-    let mut names: Vec<String> = entries
-        .filter_map(|e| e.ok())
-        .filter(|e| e.path().is_file())
-        .filter_map(|e| e.file_name().to_str().map(|s| s.to_string()))
-        .collect();
+    let mut names: Vec<String> = Vec::new();
+    for entry in entries.filter_map(|e| e.ok()).filter(|e| e.path().is_file()) {
+        match entry.file_name().to_str() {
+            Some(name) => names.push(name.to_string()),
+            None => {
+                // 🔴 Прежде такое имя отсеивалось молча: ни файла, ни слова о нём.
+                // Человек считал данные учтёнными, а разбор шёл без них.
+                let shown = entry.file_name().to_string_lossy().to_string();
+                warn!("Имя файла не читается [{cabinet_id}]: {shown}");
+                skipped.push(SkippedInput {
+                    name: shown.clone(),
+                    reason: format!("имя файла «{shown}» записано в неизвестной кодировке"),
+                    action: "Переименуйте файл во «Входящих» и добавьте его заново.".to_string(),
+                });
+            }
+        }
+    }
     names.sort();
 
     for name in names {
         let path = inbox.join(&name);
+        // 🔴 Размер сверяется ДО чтения. Прежде файл читался целиком в память, и
+        // только потом сравнивался с потолком: выгрузка на несколько гигабайт
+        // роняла программу вместо того, чтобы вызвать предупреждение.
+        let size = match std::fs::metadata(&path) {
+            Ok(meta) => meta.len(),
+            Err(e) => {
+                warn!("Сведения о файле «{name}» недоступны [{cabinet_id}]: {e}");
+                skipped.push(SkippedInput {
+                    name: name.clone(),
+                    reason: format!("файл «{name}» не удалось прочитать"),
+                    action: "Проверьте файл во «Входящих» и добавьте его заново.".to_string(),
+                });
+                continue;
+            }
+        };
+        if size > INPUT_FILE_LIMIT as u64 || total as u64 + size > INPUTS_TOTAL_LIMIT as u64 {
+            warn!("Файл «{name}» не уедет [{cabinet_id}]: {size} байт");
+            skipped.push(SkippedInput {
+                name: name.clone(),
+                reason: format!("файл «{name}» слишком велик"),
+                action: "Уберите его из «Входящих» или замените файлом поменьше.".to_string(),
+            });
+            continue;
+        }
         let bytes = match std::fs::read(&path) {
             Ok(bytes) => bytes,
             Err(e) => {
                 warn!("Файл «{name}» не прочитан [{cabinet_id}]: {e}");
                 skipped.push(SkippedInput {
                     name: name.clone(),
-                    reason: format!("файл «{name}» не удалось прочитать, и в работу он не уехал"),
+                    reason: format!("файл «{name}» не удалось прочитать"),
                     action: "Проверьте файл во «Входящих» и добавьте его заново.".to_string(),
                 });
                 continue;
             }
         };
+        // Файл мог вырасти между сверкой и чтением: потолок держится по факту.
         if bytes.len() > INPUT_FILE_LIMIT || total + bytes.len() > INPUTS_TOTAL_LIMIT {
-            warn!("Файл «{name}» не уедет [{cabinet_id}]: {} байт", bytes.len());
+            warn!("Файл «{name}» вырос между сверкой и чтением [{cabinet_id}]");
             skipped.push(SkippedInput {
                 name: name.clone(),
-                reason: format!("файл «{name}» слишком велик и в работу не уехал"),
+                reason: format!("файл «{name}» слишком велик"),
                 action: "Уберите его из «Входящих» или замените файлом поменьше.".to_string(),
             });
             continue;
@@ -438,8 +492,20 @@ async fn execute(
     for item in &skipped {
         let _ = app_handle.emit(
             &format!("inbox-attachments-skipped-{cabinet_id}"),
-            serde_json::json!({ "name": item.name, "reason": item.reason, "action": item.action }),
+            // 🔴 Отдельного поля с именем файла в событии НЕТ намеренно: имя уже
+            // стоит внутри причины («файл «бюджет.csv» слишком велик»), а поле,
+            // которого интерфейс не читает, — либо потерянные данные, либо
+            // мёртвый груз. Паритет с Oracle, где так же убрано поле files.
+            serde_json::json!({ "reason": item.reason, "action": item.action }),
         );
+    }
+    // 🔴 Недоставленное вложение ПРЕКРАЩАЕТ работу — инвариант ADR-048, и он же
+    // на сервере. Прежде файл за потолком просто пропускался: разбор шёл без
+    // данных, которые человек считает учтёнными, и выдавался за законченный.
+    // Тост о причине легко не заметить, а отчёт выглядит полноценным — это и есть
+    // молчаливое расхождение, которое дороже честного отказа (INV-50).
+    if let Some(text) = refusal_for_skipped(&skipped) {
+        anyhow::bail!("[TC-GW-INPUT] {text}");
     }
 
     let effort = effort_for(&app_handle);
@@ -579,11 +645,21 @@ async fn execute(
 /// Своя сборка вместо библиотеки дат: ради одной сверки тянуть зависимость в
 /// продукт дороже, чем записать правило. Точность до секунды здесь избыточна,
 /// а часовой пояс всегда всемирный — билет подписан именно так.
+/// Отметка «время неизвестно»: заведомо позже любого срока билета.
+///
+/// Подставляется, когда часы машины сбиты в прошлое. Против любого `expires_at`
+/// такое «сейчас» означает «срок вышел», то есть билет берётся заново — сторона
+/// безопасная. Обратная подстановка (ноль, «1970-01-01») делала билет вечным.
+const TIME_UNKNOWN: &str = "9999-12-31T23:59:59Z";
+
 fn now_utc() -> String {
-    let secs = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_secs())
-        .unwrap_or(0);
+    // 🔴 Часы РАНЬШЕ 1970 года — это не «начало времён», а сбитые часы. Прежде
+    // такой случай подставлял ноль, то есть «1970-01-01», и любой билет выходил
+    // вечно годным: проверка срока молча отключалась ровно там, где она и нужна.
+    let secs = match SystemTime::now().duration_since(UNIX_EPOCH) {
+        Ok(d) => d.as_secs(),
+        Err(_) => return TIME_UNKNOWN.to_string(),
+    };
     let (days, rest) = (secs / 86_400, secs % 86_400);
     let (hh, mm, ss) = (rest / 3600, (rest % 3600) / 60, rest % 60);
 
@@ -642,6 +718,10 @@ pub async fn run_claude_pipeline_gateway(
 #[cfg(test)]
 mod tests {
     use super::*;
+    // Проверка годности билета нужна только здесь: рабочий код принимает
+    // решение через `decide_ticket`, и держать импорт наверху значило бы
+    // сеять предупреждение о неиспользуемом в каждой сборке.
+    use aurora_gateway::cloud::check_ticket;
 
     #[test]
     fn session_label_has_expected_prefix_and_length() {
@@ -758,6 +838,53 @@ mod tests {
             skipped[0].reason
         );
         assert!(!skipped[0].action.is_empty(), "предупреждение обязано называть действие");
+    }
+
+    #[test]
+    fn undelivered_attachment_stops_the_work() {
+        // 🔴 Инвариант ADR-048: недоставленное вложение ПРЕКРАЩАЕТ работу.
+        // Прежде файл за потолком просто пропускался, и разбор по неполным данным
+        // выглядел законченным — это дороже честного отказа (INV-50).
+        let refusal = refusal_for_skipped(&[SkippedInput {
+            name: "бюджет.csv".to_string(),
+            reason: "файл «бюджет.csv» слишком велик".to_string(),
+            action: "Уберите его из «Входящих» или замените файлом поменьше.".to_string(),
+        }])
+        .expect("недоехавшее вложение обязано прекращать работу");
+        assert!(refusal.contains("бюджет.csv"), "человек не узнает файл: {refusal}");
+        assert!(refusal.contains("Что делать"), "отказ не говорит, что делать: {refusal}");
+        assert!(!refusal.contains('—'), "короткое тире в клиентском тексте: {refusal}");
+    }
+
+    #[test]
+    fn broken_clock_does_not_make_the_ticket_eternal() {
+        // 🔴 Сбитые часы (время раньше 1970-го) прежде давали «1970-01-01», и
+        // любой билет выходил вечно годным — проверка срока молча отключалась
+        // ровно там, где она и нужна. Теперь подставляется отметка «время
+        // неизвестно», и она обязана быть позже ЛЮБОГО срока.
+        let live = serde_json::json!({
+            "fingerprint_hash": "a1b2", "signature": "c2ln",
+            "expires_at": "2099-01-01T00:00:00Z"
+        });
+        use base64::Engine as _;
+        let encoded = base64::engine::general_purpose::STANDARD
+            .encode(live.to_string().as_bytes());
+
+        assert!(
+            check_ticket(&encoded, &now_utc()).is_ok(),
+            "при исправных часах годный билет обязан приниматься"
+        );
+        assert!(
+            check_ticket(&encoded, TIME_UNKNOWN).is_err(),
+            "при неизвестном времени билет принят — проверка срока отключена"
+        );
+    }
+
+    #[test]
+    fn everything_delivered_means_no_refusal() {
+        // Обратная сторона: пустой перечень пропущенных не смеет останавливать
+        // работу — иначе разбор не запустится вообще никогда.
+        assert!(refusal_for_skipped(&[]).is_none());
     }
 
     #[test]
