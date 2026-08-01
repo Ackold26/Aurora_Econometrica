@@ -22,7 +22,7 @@
 //! отказал, `[TC-GW-AUTH]` — нет доступа на этой машине.
 
 use std::path::Path;
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::Result;
@@ -52,46 +52,99 @@ const INPUTS_TOTAL_LIMIT: usize = 48 * 1024 * 1024;
 // этом рисовалась и выглядела рабочей, а задание на сервере продолжало считаться,
 // жгло окно подписки и держало одно из трёх мест.
 
-/// Кабинет → номера идущих заданий. Номер появляется сразу после постановки.
+/// Что известно про идущую работу кабинета.
+///
+/// 🔴 Работа начинается ЗАДОЛГО до того, как у неё появляется номер: сперва
+/// подтверждается доступ, потом идёт сетевой круг за сведениями о сервере,
+/// потом читаются и отправляются вложения — на десятках мегабайт это минуты.
+/// Прежде отметка ставилась только при извещении о принятом задании, и всё это
+/// окно отмена докладывала «нечего останавливать», а работа доходила до конца и
+/// сохраняла отчёт. Поэтому отметка ставится ПЕРЕД началом работы, а номер
+/// добавляется к ней позже.
+#[derive(Default)]
+struct ActiveWork {
+    /// Номер задания на сервере. `None` — задание ещё не принято.
+    job_id: Option<String>,
+    /// Пользователь попросил остановиться.
+    cancelled: bool,
+}
+
 fn active_jobs(
-) -> &'static std::sync::Mutex<std::collections::HashMap<String, std::collections::HashSet<String>>>
+) -> &'static std::sync::Mutex<std::collections::HashMap<String, std::collections::HashMap<u64, ActiveWork>>>
 {
     static R: std::sync::OnceLock<
-        std::sync::Mutex<std::collections::HashMap<String, std::collections::HashSet<String>>>,
+        std::sync::Mutex<std::collections::HashMap<String, std::collections::HashMap<u64, ActiveWork>>>,
     > = std::sync::OnceLock::new();
     R.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
 }
 
-fn remember_job(cabinet_id: &str, job_id: &str) {
+/// Отметить начало работы кабинета. Возвращает её метку в реестре.
+fn begin_work(cabinet_id: &str) -> u64 {
+    static NEXT: AtomicU64 = AtomicU64::new(1);
+    let token = NEXT.fetch_add(1, Ordering::Relaxed);
     active_jobs()
         .lock()
         .unwrap_or_else(|e| e.into_inner())
         .entry(cabinet_id.to_string())
         .or_default()
-        .insert(job_id.to_string());
+        .insert(token, ActiveWork::default());
+    token
 }
 
-fn forget_job(cabinet_id: &str, job_id: &str) {
+/// Привязать к начатой работе номер задания, когда сервер его выдал.
+fn attach_job_id(cabinet_id: &str, token: u64, job_id: &str) {
+    let mut jobs = active_jobs().lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(work) = jobs.get_mut(cabinet_id).and_then(|m| m.get_mut(&token)) {
+        work.job_id = Some(job_id.to_string());
+    }
+}
+
+/// Просил ли пользователь остановить именно эту работу.
+fn is_cancelled(cabinet_id: &str, token: u64) -> bool {
+    active_jobs()
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .get(cabinet_id)
+        .and_then(|m| m.get(&token))
+        .map(|w| w.cancelled)
+        .unwrap_or(false)
+}
+
+fn forget_work(cabinet_id: &str, token: u64) {
     let mut jobs = active_jobs().lock().unwrap_or_else(|e| e.into_inner());
     if let Some(set) = jobs.get_mut(cabinet_id) {
-        set.remove(job_id);
+        set.remove(&token);
         if set.is_empty() {
             jobs.remove(cabinet_id);
         }
     }
 }
 
-/// Учёт одного идущего задания. Снимает свою отметку на ЛЮБОМ выходе, включая
+/// Учёт одной идущей работы. Снимает свою отметку на ЛЮБОМ выходе, включая
 /// ошибку и панику: оставленная отметка заставила бы отмену докладывать успех там,
 /// где никто не работает.
-struct JobGuard {
+struct WorkGuard {
     cabinet_id: String,
-    job_id: String,
+    token: u64,
 }
 
-impl Drop for JobGuard {
+impl WorkGuard {
+    fn new(cabinet_id: &str) -> Self {
+        Self { cabinet_id: cabinet_id.to_string(), token: begin_work(cabinet_id) }
+    }
+
+    fn attach(&self, job_id: &str) {
+        attach_job_id(&self.cabinet_id, self.token, job_id);
+    }
+
+    fn cancelled(&self) -> bool {
+        is_cancelled(&self.cabinet_id, self.token)
+    }
+}
+
+impl Drop for WorkGuard {
     fn drop(&mut self) {
-        forget_job(&self.cabinet_id, &self.job_id);
+        forget_work(&self.cabinet_id, self.token);
     }
 }
 
@@ -100,19 +153,39 @@ impl Drop for JobGuard {
 /// Отправка идёт отдельной задачей: команда отмены в интерфейсе синхронная, а ждать
 /// сети в ней значило бы подвесить окно ради ответа, который пользователю не нужен.
 pub fn request_cancel(app_handle: &tauri::AppHandle, cabinet_id: &str) -> bool {
-    let jobs: Vec<String> = active_jobs()
-        .lock()
-        .unwrap_or_else(|e| e.into_inner())
-        .get(cabinet_id)
-        .map(|set| set.iter().cloned().collect())
-        .unwrap_or_default();
+    // 🔴 Отметка «остановиться» ставится ПЕРВЫМ делом и для работы, у которой
+    // номера задания ещё нет. Прежде отмена в этом окне докладывала «нечего
+    // останавливать», а работа доходила до конца и сохраняла отчёт, которого
+    // пользователь уже не ждал.
+    let jobs: Vec<String> = {
+        let mut registry = active_jobs().lock().unwrap_or_else(|e| e.into_inner());
+        let Some(works) = registry.get_mut(cabinet_id) else {
+            return false;
+        };
+        if works.is_empty() {
+            return false;
+        }
+        let mut ids = Vec::new();
+        for work in works.values_mut() {
+            work.cancelled = true;
+            if let Some(id) = &work.job_id {
+                ids.push(id.clone());
+            }
+        }
+        ids
+    };
+
+    // Номера ещё нет — останавливать на сервере нечего, но ожидание у клиента
+    // уже прекращено отметкой выше, и работа не сохранит отчёт.
     if jobs.is_empty() {
-        return false;
+        return true;
     }
 
     let identity = match identity_for(app_handle) {
         Ok(identity) => identity,
         Err(e) => {
+            // Доступа нет — на сервере остановить нечем, но ожидание у клиента
+            // прекращено отметкой выше: отчёт не сохранится и не всплывёт.
             warn!("Отмена не отправлена на сервер [{cabinet_id}]: {e}");
             return true;
         }
@@ -320,6 +393,11 @@ async fn execute(
     suppress_done: bool,
 ) -> Result<(Option<String>, String)> {
     let label = resume_session_id.unwrap_or_else(|| generate_session_label(&cabinet_id));
+    // 🔴 Отметка работы ставится ПЕРВЫМ действием, до подтверждения доступа и
+    // любых сетевых кругов: всё это время пользователь уже видит индикатор и
+    // вправе нажать «Остановить». Прежде отметка появлялась только с номером
+    // задания, и отмена в этом окне докладывала «нечего останавливать».
+    let work = WorkGuard::new(&cabinet_id);
     let identity = identity_for(&app_handle)?;
     let base = gateway_base_url();
     let client = CloudClient::new(&base, identity)
@@ -359,11 +437,9 @@ async fn execute(
     };
 
     let mut shown = String::new();
-    let guard: std::sync::Mutex<Option<JobGuard>> = std::sync::Mutex::new(None);
-    let state = {
+    let outcome = {
         let cabinet_for_stream = cabinet_id.clone();
         let handle_for_stream = app_handle.clone();
-        let cabinet_for_start = cabinet_id.clone();
         client
             .run_job_watched(
                 &request,
@@ -376,21 +452,42 @@ async fn execute(
                         );
                     }
                 },
-                |job_id| {
-                    remember_job(&cabinet_for_start, job_id);
-                    *guard.lock().unwrap_or_else(|e| e.into_inner()) = Some(JobGuard {
-                        cabinet_id: cabinet_for_start.clone(),
-                        job_id: job_id.to_string(),
-                    });
-                },
+                |job_id| work.attach(job_id),
             )
             .await
-            .map_err(|e| {
-                // Внутренняя подробность уходит в журнал, пользователю — причина
-                // и действие. Перевод общий для линейки и живёт в Core.
-                warn!("Облачное обращение не удалось [{cabinet_id}]: {e}");
-                anyhow::anyhow!("[TC-GW-NET] {}", e.user_text())
-            })?
+    };
+
+    // 🔴 Накопленный текст не выбрасывается ни отменой, ни сбоем связи. Прежде
+    // ошибка прогона рушила всё через `?`, и работа, которую пользователь уже
+    // читал на экране, пропадала целиком — включая случай серверного потолка,
+    // ради которого правило и вводилось.
+    if work.cancelled() {
+        info!("Работа остановлена пользователем [{cabinet_id}]");
+        return Ok((None, shown));
+    }
+    let state = match outcome {
+        Ok(state) => state,
+        Err(e) => {
+            warn!("Облачное обращение не удалось [{cabinet_id}]: {e}");
+            if shown.trim().is_empty() {
+                anyhow::bail!("[TC-GW-NET] {}", e.user_text());
+            }
+            let text = format!("{shown}\n\n---\n**Ответ неполный.** {}", e.user_text());
+            if !suppress_done {
+                let _ = app_handle.emit(
+                    &format!("claude-stream-{cabinet_id}"),
+                    build_result_event(&text),
+                );
+                let _ = app_handle.emit(
+                    &format!("claude-done-{cabinet_id}"),
+                    serde_json::json!({ "exit_code": 0 }),
+                );
+            }
+            if !suppress_export {
+                auto_save_response(&app_handle, work_dir, &cabinet_id, prompt, &text, false);
+            }
+            return Ok((Some(label), text));
+        }
     };
 
     if state.status == "cancelled" {
@@ -518,6 +615,40 @@ mod tests {
         let v: serde_json::Value = serde_json::from_str(&raw).unwrap();
         assert_eq!(v["type"], "assistant");
         assert_eq!(v["message"]["content"][0]["text"], "Медиасплит по каналам");
+    }
+
+    // ── Отмена ──────────────────────────────────────────────────────────────
+
+    #[test]
+    fn cancel_reaches_work_that_has_no_job_number_yet() {
+        // 🔴 Найдено внешним аудитом: работа начинается задолго до появления
+        // номера, и прежде отмена в этом окне докладывала «нечего
+        // останавливать», а работа доходила до конца и сохраняла отчёт.
+        let work = WorkGuard::new("econometrist");
+        assert!(!work.cancelled());
+
+        let mut registry = active_jobs().lock().unwrap();
+        let works = registry.get_mut("econometrist").expect("работа обязана быть в реестре");
+        for entry in works.values_mut() {
+            assert!(entry.job_id.is_none());
+            entry.cancelled = true;
+        }
+        drop(registry);
+
+        assert!(work.cancelled(), "отмена не дошла до работы без номера");
+    }
+
+    #[test]
+    fn work_leaves_no_trace_in_the_registry() {
+        {
+            let work = WorkGuard::new("advisor");
+            work.attach("job-777");
+            assert_eq!(active_jobs().lock().unwrap().get("advisor").map(|m| m.len()), Some(1));
+        }
+        assert!(
+            active_jobs().lock().unwrap().get("advisor").is_none(),
+            "отметка осталась — отмена доложит успех там, где никто не работает"
+        );
     }
 
     // ── Вложения «Входящих» ─────────────────────────────────────────────────

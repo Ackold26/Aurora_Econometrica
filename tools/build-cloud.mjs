@@ -87,6 +87,12 @@ const GATEWAY_MARK = 'aurora_gateway';
  *  во фрагменте и включало сетевой слой. */
 const CLOUD_FEATURE = 'thin';
 
+/** Настройка сборки облачной поставки. 🔴 Имя РАЗНОЕ у продуктов: у Oracle
+ *  `tauri.cloud.conf.json`, у Эконометрики `tauri.thin.conf.json`. Перенос
+ *  скрипта без правки этой строки ломает сборку установщика, а режимы
+ *  `--check`/`--test` этого не ловят — они идут через cargo, минуя tauri. */
+const CLOUD_CONFIG = 'src-tauri/tauri.thin.conf.json';
+
 function fail(message, hint) {
   console.error(`\n[облачная сборка] ОТКАЗ: ${message}`);
   if (hint) console.error(`[облачная сборка] что делать: ${hint}\n`);
@@ -474,7 +480,7 @@ async function main() {
       'tauri',
       'build',
       '--config',
-      'src-tauri/tauri.cloud.conf.json',
+      CLOUD_CONFIG,
       ...passThrough,
       '--',
       '--features',
