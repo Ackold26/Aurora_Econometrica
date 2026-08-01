@@ -25,8 +25,9 @@ const LOCKFILE = join(ROOT, 'Cargo.lock');
 const LEFTOVERS = [
   join(ROOT, 'src-tauri', 'Cargo.toml.pre-cloud'),
   join(ROOT, 'Cargo.lock.pre-cloud'),
-  join(ROOT, 'src-tauri', '.cloud-build-running'),
 ];
+/** Замок живого прогона: он же брошенный след, если прогон мёртв. */
+const RUN_LOCK = join(ROOT, 'src-tauri', '.cloud-build-running');
 
 const problems = [];
 
@@ -57,6 +58,31 @@ if (!existsSync(LOCKFILE)) {
 for (const path of LEFTOVERS) {
   if (existsSync(path)) {
     problems.push(`остался служебный файл облачной сборки: ${path}`);
+  }
+}
+
+// 🔴 Замок живого прогона — не след, а признак идущей сборки. Прежде он числился
+// брошенным наравне с остальными, и сторож давал отказ ВО ВРЕМЯ законной облачной
+// сборки, называя её следом прерванной: назначение сторожа ровно обратное.
+// Отказ здесь остаётся (коммитить, пока манифест подменён, нельзя), но причина
+// называется своя, и действие из неё следует.
+if (existsSync(RUN_LOCK)) {
+  // Замок пишется облачной сборкой как JSON {pid, started} — читаем тем же
+  // способом, каким пишем: разбор «по виду» разошёлся бы с записью молча.
+  let holder = {};
+  try {
+    holder = JSON.parse(readFileSync(RUN_LOCK, 'utf8'));
+  } catch {
+    holder = {};
+  }
+  if (alive(holder.pid)) {
+    problems.push(
+      `облачная сборка идёт прямо сейчас (процесс ${holder.pid}, начата ` +
+        `${holder.started || 'неизвестно когда'}) — манифест подменён на время прогона. ` +
+        'Дождитесь её окончания и повторите проверку',
+    );
+  } else {
+    problems.push(`остался служебный файл облачной сборки: ${RUN_LOCK}`);
   }
 }
 

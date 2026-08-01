@@ -49,7 +49,7 @@
  *         npm run tauri:build:cloud -- --test    (прогон тестов облачного пути)
  */
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, readFileSync, writeFileSync, copyFileSync, rmSync } from 'node:fs';
+import { existsSync, readFileSync, readdirSync, writeFileSync, copyFileSync, rmSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -73,11 +73,43 @@ const LOCKFILE_BACKUP = join(ROOT, 'Cargo.lock.pre-cloud');
 /** Файл-замок против двух одновременных прогонов (E-3). */
 const RUN_LOCK = join(TAURI_DIR, '.cloud-build-running');
 
-/** Функции расширенного контракта: без них облачный модуль не соберётся. */
-// Контракт v1 (ADR-048): облачный слой Core. Прежние имена SSH-контракта здесь
-// уже не проверяются — продукт ими не пользуется, и их наличие ничего не сказало
-// бы о том, соберётся ли облачный путь.
-const REQUIRED_EXPORTS = ['run_job_watched', 'download_file', 'start_job'];
+/**
+ * Что продукт берёт из облачного слоя Core — выводится из его же кода.
+ *
+ * 🔴 Прежде здесь лежал перечень из трёх имён, выписанный вручную, и искался он
+ * подстрокой `fn <имя>` в ОДНОМ файле крейта. Продукт же берёт полтора десятка
+ * имён, часть из которых лежит в других файлах: проверка объявляла «контракт на
+ * месте» на дереве, которым продукт не собирается, — ровно тот исход, против
+ * которого она и написана. Вдобавок совпадение по подстроке зеленело от
+ * упоминания имени в комментарии.
+ *
+ * Теперь перечень не выдуман, а прочитан из `use aurora_gateway::cloud::{…}`
+ * самого продукта: добавили имя в коде — проверка подхватила его сама.
+ */
+function usedGatewayNames() {
+  const names = new Set();
+  const walk = (dir) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const full = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        walk(full);
+      } else if (entry.name.endsWith('.rs')) {
+        const source = readFileSync(full, 'utf8');
+        for (const use of source.matchAll(/use\s+aurora_gateway::cloud::\{([^}]*)\}/g)) {
+          for (const name of use[1].split(',')) {
+            const clean = name.trim().replace(/\s+as\s+\w+$/, '');
+            if (clean && /^[A-Za-z_][A-Za-z0-9_]*$/.test(clean)) names.add(clean);
+          }
+        }
+        for (const single of source.matchAll(/use\s+aurora_gateway::cloud::([A-Za-z_][A-Za-z0-9_]*)\s*;/g)) {
+          names.add(single[1]);
+        }
+      }
+    }
+  };
+  walk(join(TAURI_DIR, 'src'));
+  return names;
+}
 
 /** Признак крейта шлюза: его присутствие в базовом манифесте — уже дефект (Н-01). */
 const GATEWAY_MARK = 'aurora_gateway';
@@ -187,11 +219,25 @@ function restoreWorkspace(reason) {
       restoreFailed = true;
       console.error('[облачная сборка] АВАРИЯ: резервная копия манифеста исчезла, '
         + 'а подмена сделана этим прогоном');
+      // 🔴 Спасаем ОБА файла, а не один. Названная выше причина пропажи резерва
+      // (`git clean -fdX`) уносит и резерв замка зависимостей, и тогда `Cargo.lock`
+      // остаётся с крейтом шлюза: сторож краснеет, а сообщение сборки указывает
+      // не на тот файл. Замок в системе контроля версий не у всех продуктов —
+      // его неудача не считается провалом спасения.
       const rescue = spawnSync('git', ['checkout', '--', 'src-tauri/Cargo.toml'],
         { cwd: ROOT, stdio: 'inherit' });
+      const rescueLock = spawnSync('git', ['checkout', '--', 'Cargo.lock'],
+        { cwd: ROOT, stdio: 'inherit' });
+      if (rescueLock.status === 0) {
+        console.error('[облачная сборка] замок зависимостей возвращён из системы контроля версий');
+      }
       if (rescue.status === 0) {
         console.error('[облачная сборка] манифест возвращён из системы контроля версий');
         restoredManifest = true;
+        // 🔴 Отметку аварии снимаем: она выставлена ДО спасения, и, оставшись
+        // висеть, заставляла итоговое сообщение говорить «восстановить манифест
+        // не удалось» ровно там, где он восстановлен.
+        restoreFailed = false;
       } else {
         console.error(`[облачная сборка] верните вручную: git checkout -- ${MANIFEST}`);
       }
@@ -295,38 +341,99 @@ function acquireRunLock() {
 // ── Проверки и склейка ───────────────────────────────────────────────────────
 
 /** Путь к крейту шлюза, объявленный во фрагменте (единственный источник истины). */
-function gatewayPathFromFragment(fragment) {
-  const match = fragment.match(/aurora_gateway\s*=\s*\{[^}]*path\s*=\s*"([^"]+)"/);
-  if (!match) {
+/**
+ * Откуда фрагмент велит брать крейт шлюза: из дерева на диске или по метке.
+ *
+ * 🔴 Развязка по метке — правильная: путь в дерево берёт то, что лежит на диске
+ * ПРЯМО СЕЙЧАС, и продукт может собраться с чужой версией крейта, ничего об этом
+ * не сказав. Ровно так и вышло: путь вёл в дерево основной линии, правки жили в
+ * ветке облака, и сотни зелёных проверок собирались с прежним крейтом.
+ */
+function gatewaySourceFromFragment(fragment) {
+  const declaration = fragment.match(/^\s*aurora_gateway\s*=\s*\{([^}]*)\}/m);
+  if (!declaration) {
     fail(
-      'во фрагменте не нашлось объявление пути к крейту шлюза',
-      `проверьте ${FRAGMENT} — там ожидается строка вида aurora_gateway = { path = "…", optional = true }`,
+      'во фрагменте не нашлось объявление зависимости крейта шлюза',
+      `проверьте ${FRAGMENT} — ожидается aurora_gateway = { path = "…" } ` +
+        'либо aurora_gateway = { git = "…", tag = "…" }',
     );
   }
-  return resolve(TAURI_DIR, match[1]);
+  const body = declaration[1];
+  const path = body.match(/\bpath\s*=\s*"([^"]+)"/);
+  const git = body.match(/\bgit\s*=\s*"([^"]+)"/);
+  const tag = body.match(/\btag\s*=\s*"([^"]+)"/);
+  if (path) return { kind: 'path', dir: resolve(TAURI_DIR, path[1]) };
+  if (git && tag) return { kind: 'tag', url: git[1], tag: tag[1] };
+  if (git) {
+    fail(
+      'зависимость шлюза объявлена по репозиторию, но без метки',
+      'ветка вместо метки означает «собралось то, что там сегодня» — ' +
+        `допишите tag = "aurora_gateway-vX.Y.Z" в ${FRAGMENT}`,
+    );
+  }
+  fail(
+    'во фрагменте не понято, откуда брать крейт шлюза',
+    `ожидается либо path = "…", либо git = "…" вместе с tag = "…" (${FRAGMENT})`,
+  );
 }
 
-/** Крейт на месте и содержит расширенный контракт (иначе сборка упадёт на именах). */
-function verifyGatewayCrate(crateDir) {
-  const transport = join(crateDir, 'src', 'cloud', 'client.rs');
-  if (!existsSync(transport)) {
+/** Источник крейта пригоден: дерево на месте с нужным составом либо метка существует. */
+function verifyGatewaySource(source) {
+  if (source.kind === 'tag') {
+    // Состав контракта здесь не сверяем: исходников на диске нет, и доказывает
+    // его сама сборка. Проверяем то, что проверить можно и нужно, — что метка
+    // действительно есть в удалённом репозитории. Иначе отказ придёт из глубины
+    // cargo, спустя минуты и без внятной причины.
+    const found = spawnSync('git', ['ls-remote', '--tags', source.url, source.tag], {
+      cwd: ROOT,
+      encoding: 'utf8',
+    });
+    if (found.status !== 0) {
+      fail(
+        `метку ${source.tag} не удалось проверить в ${source.url}`,
+        'нет доступа к удалённому репозиторию: поднимите ключ и повторите — ' +
+          `${(found.stderr || '').trim() || 'git ls-remote вернул отказ'}`,
+      );
+    }
+    if (!found.stdout.includes(`refs/tags/${source.tag}`)) {
+      fail(
+        `в удалённом репозитории нет метки ${source.tag}`,
+        'метка не отправлена: git push origin ' + source.tag + ' — либо поправьте её имя во фрагменте',
+      );
+    }
+    info(`крейт шлюза берётся по метке ${source.tag} (метка на месте)`);
+    return;
+  }
+
+  const crateDir = source.dir;
+  const modRs = join(crateDir, 'src', 'cloud', 'mod.rs');
+  if (!existsSync(modRs)) {
     fail(
       `крейт шлюза не найден: ${crateDir}`,
-      'создайте рабочее дерево Core на основной линии — ' +
-        'git -C <путь к aurora-platform-core> worktree add ../_wt_core_main main — ' +
-        'либо поправьте путь во фрагменте Cargo.cloud.fragment.toml',
+      'создайте рабочее дерево Core на нужной ветке — ' +
+        'git -C <путь к aurora-platform-core> worktree add <куда> <ветка> — ' +
+        'либо переведите фрагмент на зависимость по метке',
     );
   }
-  const source = readFileSync(transport, 'utf8');
-  const missing = REQUIRED_EXPORTS.filter((name) => !source.includes(`fn ${name}`));
+  // Публичная поверхность облачного слоя: что объявлено наружу в mod.rs, тем
+  // продукт и может пользоваться.
+  const surface = new Set();
+  const modSource = readFileSync(modRs, 'utf8');
+  for (const reexport of modSource.matchAll(/pub use [^;]+;/g)) {
+    for (const word of reexport[0].matchAll(/[A-Za-z_][A-Za-z0-9_]*/g)) surface.add(word[0]);
+  }
+  for (const module of modSource.matchAll(/pub mod\s+([a-z_][a-z0-9_]*)/g)) surface.add(module[1]);
+
+  const used = usedGatewayNames();
+  const missing = [...used].filter((name) => !surface.has(name));
   if (missing.length > 0) {
     fail(
-      `крейт по пути ${crateDir} не содержит облачный контракт v1: нет ${missing.join(', ')}`,
-      'дерево Core стоит на ветке без ADR-048 либо это неверсионированная копия крейта; ' +
-        'обновите дерево до основной линии (git pull --ff-only) и повторите',
+      `крейт по пути ${crateDir} не отдаёт того, чем пользуется продукт: нет ${missing.join(', ')}`,
+      'дерево Core стоит на ветке без нужных правок либо это неверсионированная копия крейта; ' +
+        'сверьте, что путь ведёт в дерево ТОЙ ветки, где живут ваши изменения, и повторите',
     );
   }
-  info(`крейт шлюза проверен: ${crateDir} (контракт на месте)`);
+  info(`крейт шлюза проверен: ${crateDir} (продукт берёт ${used.size} имён, все на месте)`);
 }
 
 /** Базовый манифест + фрагмент. Якоря обязательны: их отсутствие — отказ, не тихая сборка. */
@@ -454,7 +561,7 @@ async function main() {
   const base = readFileSync(MANIFEST, 'utf8');
   const fragment = readFileSync(FRAGMENT, 'utf8');
 
-  verifyGatewayCrate(gatewayPathFromFragment(fragment));
+  verifyGatewaySource(gatewaySourceFromFragment(fragment));
 
   const composed = composeManifest(base, fragment);
   backupPristineWorkspace(base);
