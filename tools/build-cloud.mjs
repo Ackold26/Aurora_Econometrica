@@ -133,6 +133,19 @@ let child = null;
 
 function killChild() {
   if (!child || child.killed) return;
+  // 🔴 Гасить надо ДЕРЕВО, а не одного ребёнка. На Windows `child.kill()` снимает
+  // оболочку (npm/npx), но НЕ внуков: живой `cargo`/`rustc` продолжает работу и
+  // дописывает `Cargo.lock` уже ПОСЛЕ того, как манифест восстановлен. След
+  // облачной сборки остаётся в замке зависимостей, а восстановление рапортует
+  // об успехе. Сторож теперь такой замок ловит, но правильнее не создавать его
+  // вовсе.
+  if (process.platform === 'win32' && child.pid) {
+    try {
+      spawnSync('taskkill', ['/F', '/T', '/PID', String(child.pid)], { stdio: 'ignore' });
+    } catch {
+      /* инструмента нет — пробуем обычным способом ниже */
+    }
+  }
   try {
     child.kill();
   } catch {

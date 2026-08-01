@@ -21,6 +21,7 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const MANIFEST = join(ROOT, 'src-tauri', 'Cargo.toml');
+const LOCKFILE = join(ROOT, 'Cargo.lock');
 const LEFTOVERS = [
   join(ROOT, 'src-tauri', 'Cargo.toml.pre-cloud'),
   join(ROOT, 'Cargo.lock.pre-cloud'),
@@ -35,6 +36,21 @@ if (!existsSync(MANIFEST)) {
   problems.push(
     'обычный манифест упоминает крейт шлюза — в дереве осталась подмена от облачной сборки. ' +
       'Верните файл из системы контроля версий: git checkout -- src-tauri/Cargo.toml',
+  );
+}
+
+// 🔴 Замок зависимостей проверяется наравне с манифестом. Прежде сторож смотрел
+// только сам манифест и служебные файлы — а след облачной сборки остаётся и в
+// `Cargo.lock`: снятие сборки на Windows гасит оболочку, но не внуков, и живой
+// `cargo` дописывает замок УЖЕ ПОСЛЕ того, как манифест восстановлен. Сторож
+// при этом рапортовал «чисто», и запись увозила замок со шлюзом в обычную
+// поставку — где крейта нет вовсе.
+if (!existsSync(LOCKFILE)) {
+  problems.push(`замок зависимостей не найден вовсе: ${LOCKFILE}`);
+} else if (readFileSync(LOCKFILE, 'utf8').includes('aurora_gateway')) {
+  problems.push(
+    'замок зависимостей упоминает крейт шлюза — след облачной сборки остался в Cargo.lock. ' +
+      'Верните файл из системы контроля версий: git checkout -- Cargo.lock',
   );
 }
 
