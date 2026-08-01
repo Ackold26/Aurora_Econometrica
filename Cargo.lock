@@ -341,7 +341,6 @@ version = "2.4.3"
 dependencies = [
  "aes-gcm",
  "anyhow",
- "aurora_gateway",
  "base64 0.22.1",
  "chrono",
  "ed25519-dalek",
@@ -378,15 +377,6 @@ dependencies = [
  "wmi",
  "xxhash-rust",
  "zip",
-]
-
-[[package]]
-name = "aurora_gateway"
-version = "0.1.0"
-dependencies = [
- "serde",
- "serde_json",
- "thiserror 1.0.69",
 ]
 
 [[package]]

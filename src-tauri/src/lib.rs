@@ -1602,7 +1602,31 @@ fn delete_inbox_file(cabinet_id: String, filename: String, app_handle: tauri::Ap
 }
 
 #[tauri::command]
-fn cancel_claude(cabinet_id: String, state: tauri::State<'_, Arc<AppState>>) -> Result<(), String> {
+fn cancel_claude(
+    cabinet_id: String,
+    state: tauri::State<'_, Arc<AppState>>,
+    #[allow(unused_variables)] app_handle: tauri::AppHandle,
+) -> Result<(), String> {
+    // 🔴 В тонкой поставке процессов модели на машине пользователя нет вовсе,
+    // поэтому карта процессов ниже всегда пуста и отмена возвращала отказ ВСЕГДА —
+    // кнопка «Остановить» была мнимой. Теперь отмена доходит ДО СЕРВЕРА: контракт
+    // v1 её умеет, и работа действительно прекращается, а не продолжает жечь окно
+    // подписки и держать место.
+    #[cfg(feature = "thin")]
+    if commands::gateway_executor::request_cancel(&app_handle, &cabinet_id) {
+        info!("Облачное задание остановлено по кнопке [{cabinet_id}]");
+        let _ = app_handle.emit(
+            &format!("claude-stream-{cabinet_id}"),
+            serde_json::json!({
+                "type": "system",
+                "subtype": "cloud_wait_cancelled",
+                "message": "Работа остановлена на сервере."
+            })
+            .to_string(),
+        );
+        return Ok(());
+    }
+
     let pid = state.active_pids.lock().unwrap_or_else(|e| e.into_inner()).get(&cabinet_id).copied();
 
     if let Some(pid) = pid {

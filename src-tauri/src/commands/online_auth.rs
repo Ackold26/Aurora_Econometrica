@@ -123,6 +123,12 @@ pub struct AuthResponse {
     pub frontend_url: Option<String>,
     #[serde(default)]
     pub frontend_checksum: Option<String>,
+    /// Подпись ответа нашим ключом (`AUTHSIG-v1`). Сервер её уже отдаёт; прежде
+    /// продукт поле не объявлял, и оно молча терялось при разборе — а без него
+    /// облачная поставка не может собрать билет доступа, потому что билет и ЕСТЬ
+    /// подписанный ответ входа.
+    #[serde(default)]
+    pub signature: String,
 }
 
 /// Cached auth response stored on disk.
@@ -257,6 +263,44 @@ fn load_cache(app_config_dir: &Path) -> Option<AuthResponse> {
 }
 
 // ── HTTP helpers ───────────────────────────────────────────
+
+// ── Билет доступа к облачному шлюзу (ADR-048) ──────────────
+
+/// Подтверждённый вход, лежащий в местном кэше.
+///
+/// Облачный модуль обращается сюда, а не разбирает файл кэша сам: здесь уже
+/// проверены срок и принадлежность этому продукту. Своё чтение того же файла
+/// означало бы вторую копию правил проверки — и рано или поздно они разошлись бы.
+#[cfg(feature = "thin")]
+pub fn cached_grant(app_config_dir: &Path) -> Option<AuthResponse> {
+    load_cache(app_config_dir)
+}
+
+/// Собрать билет доступа к облачному шлюзу из подтверждённого входа.
+///
+/// Билет — это и есть ответ входа: сервер проверяет НАШУ подпись под ним, срок и
+/// право на кабинет. Ничего нового подписывать не нужно, и отдельного секрета на
+/// машине клиента не заводится.
+///
+/// 🔴 Отпечаток машины берётся здесь, а не из ответа: сервер подписывал ответ
+/// вместе с отпечатком, и билет с чужим отпечатком просто не сойдётся по подписи —
+/// то есть скопированный на другую машину файл кэша бесполезен.
+#[cfg(feature = "thin")]
+pub fn build_cloud_ticket(grant: &AuthResponse) -> Result<String> {
+    use base64::Engine as _;
+
+    let fp = fingerprint::get_machine_fingerprint()?;
+    let ticket = serde_json::json!({
+        "status": grant.status,
+        "fingerprint_hash": fingerprint::hash_fingerprint(&fp),
+        "product": detect_product(),
+        "cabinets": grant.cabinets,
+        "content_version": grant.content_version,
+        "expires_at": grant.expires_at,
+        "signature": grant.signature,
+    });
+    Ok(base64::engine::general_purpose::STANDARD.encode(serde_json::to_vec(&ticket)?))
+}
 
 fn build_client() -> Result<reqwest::Client> {
     Ok(reqwest::Client::builder()

@@ -147,9 +147,11 @@ pub async fn run_claude(
             // Claude CLI. Гейты выше (local-only/consent) сохранены — данные всё равно
             // уходят на сервер. active_pids/model — часть локального CLI-мира, gateway
             // не спавнит процесс и не выбирает модель клиентской командой.
-            let _ = (active_pids, model);
+            // Модель теперь доезжает до сервера: прежде тонкая поставка считала всё
+            // тем, что решит сервер, и работала слабее полной незаметно для человека.
+            let _ = active_pids;
             let (sid, response_text) = crate::commands::gateway_executor::run_claude_gateway(
-                work_dir, prompt, app_handle, cabinet_id, resume_session_id, suppress_export,
+                work_dir, prompt, app_handle, cabinet_id, resume_session_id, suppress_export, model,
             ).await?;
             Ok((sid, response_text))
         }
