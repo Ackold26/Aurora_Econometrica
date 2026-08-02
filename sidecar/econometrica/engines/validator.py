@@ -570,6 +570,13 @@ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, A
         if pd.api.types.is_numeric_dtype(df[col]):
             col_series = df[col].fillna(0)
             zeros_pct = round((col_series == 0).sum() / len(col_series) * 100, 1)
+            # P0.3 шаг 8: доля пропусков. Движок отдавал только абсолютное
+            # `nulls`, а ПЯТЬ экранов читают `missing_pct` — и все показывали
+            # ровно ноль на любых данных (`?? 0` на отсутствующем поле).
+            # Долю считаем от всех строк файла, а не от `col_series`: та уже
+            # прошла fillna(0) и пропусков в ней нет по построению.
+            _nulls = int(df[col].isna().sum())
+            _n_rows_total = len(df)
             col_info['stats'] = {
                 'min': round(float(col_series.min()), 4),
                 'max': round(float(col_series.max()), 4),
@@ -577,7 +584,8 @@ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, A
                 'std': round(float(col_series.std()), 4),
                 'sum': round(float(col_series.sum()), 2),
                 'zeros_pct': zeros_pct,
-                'nulls': int(df[col].isna().sum()),
+                'nulls': _nulls,
+                'missing_pct': round(_nulls / _n_rows_total * 100, 1) if _n_rows_total else 0.0,
                 'cv': round(float(col_series.std() / col_series.mean() * 100), 1) if col_series.mean() != 0 else 0,
             }
             col_info['histogram'] = compute_histogram(df[col])
@@ -590,6 +598,37 @@ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, A
                     'severity': 'warning',
                     'action': 'merge',
                 })
+            # P0.3 шаг 8: пропуски обрабатываются молча и ПО-РАЗНОМУ, смотря
+            # где они. Пользователь об этом не знал ни разу.
+            if _nulls > 0:
+                _missing_pct = col_info['stats']['missing_pct']
+                if role == 'kpi':
+                    # modeler.py: df = df[df[kpi_col].notna()] — строка
+                    # выбрасывается ЦЕЛИКОМ, вместе с медиа-данными периода.
+                    warnings.append({
+                        'column': col,
+                        'type': 'kpi_missing_rows_dropped',
+                        'message': (
+                            f'{col} - пропусков {_missing_pct}% ({_nulls} из {_n_rows_total}). '
+                            f'Периоды без целевой метрики полностью исключаются из обучения '
+                            f'вместе с медиа-данными этих недель - модель их не увидит.'
+                        ),
+                        'severity': 'warning',
+                    })
+                elif role in ('media', 'control'):
+                    # modeler.py: df[col].fillna(0) — пропуск становится нулём,
+                    # то есть «активности не было». Интерполяции в коде нет.
+                    warnings.append({
+                        'column': col,
+                        'type': 'missing_filled_with_zero',
+                        'message': (
+                            f'{col} - пропусков {_missing_pct}% ({_nulls} из {_n_rows_total}). '
+                            f'При обучении они считаются нулём, то есть «активности не было». '
+                            f'Восстановления пропущенных значений в расчёте нет - если данные '
+                            f'просто не собраны, заполните их до обучения.'
+                        ),
+                        'severity': 'warning',
+                    })
             if col_info['stats']['cv'] < 5 and role == 'media':
                 warnings.append({
                     'column': col,
