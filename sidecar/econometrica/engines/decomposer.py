@@ -1376,6 +1376,20 @@ def decompose(
         # v2.1.0 (ADR-021): money equivalent для count KPI when kpi_unit_cost задан.
         # Frontend выбирает primary display (money если набор полный).
         'kpi_unit_cost': kpi_unit_cost,
+        # Отключены ли АБСОЛЮТНЫЕ пороги окупаемости. Экран обязан сказать об
+        # этом прямо, а не молчать: пользователь видит вердикты и вправе знать,
+        # что сравнения с единицей за ними нет. Истинно, когда денежного
+        # отношения не существует: счётная метрика без стоимости единицы (этот
+        # признак и уезжает в `channel_action`, где шаги 4/6/7/8 не применяются)
+        # либо режим эффективности (его `compute_roi_verdict` разбирает своей
+        # веткой `_eff_mode`).
+        # ⚠️ Докстринг `channel_action` обещает, что второй случай приходит тем
+        # же признаком — фактически вызывающий передаёт только первый. Здесь оба
+        # сведены сознательно: для пользователя разницы нет, абсолютных денежных
+        # порогов не существует ни в том, ни в другом случае.
+        'money_roi_unavailable': bool(
+            _insight_money_roi_na or _kpi_meta['derived_mode'] == 'effectiveness'
+        ),
         'total_sales_money': (
             round(total_sales * kpi_unit_cost, 0)
             if kpi_unit_cost is not None and kpi_kind == 'count'

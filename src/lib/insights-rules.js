@@ -1482,7 +1482,7 @@ export function modelInsights(data, ratioOverride = undefined) {
 // ── Decompose Step ──────────────────────────────────────
 
 /**
- * @param {{ base_pct?: number, baseline_pct?: number, channels: Array<{ name: string, contribution_pct: number, contribution?: number, spend: number, roi: number, verdict?: string, unit_smell?: boolean }>, signed_factor_contributions?: Record<string, { value?: number, pct?: number, type?: string }> }} data
+ * @param {{ base_pct?: number, baseline_pct?: number, channels: Array<{ name: string, contribution_pct: number, contribution?: number, spend: number, roi: number, verdict?: string, unit_smell?: boolean }>, signed_factor_contributions?: Record<string, { value?: number, pct?: number, type?: string }>, money_roi_unavailable?: boolean }} data
  * @param {import('./kpi-aware-formatting.js').KpiViewInput|import('./kpi-aware-formatting.js').KpiView|null} [kpiInput] - KPI/mode context (v1.3.2). null → legacy monetary roi. Принимает и готовый KpiView (см. resolveKpi).
  * @returns {Insight[]}
  */
@@ -1491,6 +1491,20 @@ export function decomposeInsights(data, kpiInput = null) {
   const out = [];
   if (!data) return out;
   const kpi = resolveKpi(kpiInput);
+
+  // Пороги окупаемости отключены — сказать прямо, а не молчать. Признак
+  // приходит ИЗ ДВИЖКА (`decomposer.py`, поле `money_roi_unavailable`): именно
+  // он решает, применять ли абсолютные пороги, и вычислять то же самое на
+  // фронте значило бы завести второй источник истины. Прежде экран об этом
+  // молчал: вердикты показывались как обычно, и пользователь не мог знать, что
+  // сравнения с единицей за ними нет.
+  if (data.money_roi_unavailable === true) {
+    out.push({
+      severity: 'info',
+      text: 'Экономика не задана, поэтому пороги окупаемости отключены: каналы сравниваются между собой, а не с точкой безубыточности.',
+      tip: 'Вердикты и рекомендации ниже опираются на относительную эффективность (доля вклада против доли бюджета), а не на «окупается / не окупается». Чтобы получить абсолютную оценку, задайте ценность единицы результата на шаге «Проверка данных» – тогда расчёт перейдёт в деньги.',
+    });
+  }
 
   const channels = data.channels ?? [];
   // Backend returns `baseline_pct`; legacy field `base_pct` kept as fallback.
