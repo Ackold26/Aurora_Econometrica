@@ -1,1524 +1,667 @@
-diff --git a/src-tauri/src/commands/content_updater.rs b/src-tauri/src/commands/content_updater.rs
-index 6a622bb..4bb29d6 100644
---- a/src-tauri/src/commands/content_updater.rs
-+++ b/src-tauri/src/commands/content_updater.rs
-@@ -27,11 +27,17 @@ fn supabase_url() -> String {
- // и исправную медленную докачку тоже (у клиента ошибка приходила ровно через
- // 120 с — это срабатывал общий таймаут, а не отказ сервера).
- //
--// Докачки по HTTP Range здесь нет намеренно: Edge Function `/content` отдаёт
--// файл целиком и на запрос с `Range` отвечает 200 (проверено зондом 2026-07-26),
--// а vault-файлы весят единицы–десятки КБ — полная перекачка стоит дешевле, чем
--// поддержка резюма. Для крупных пакетов (content-pack, фронтенд-бандл) резюм
--// имеет смысл, но требует поддержки Range на стороне функции.
-+// Файлы забираются ПО ЧАСТЯМ (HTTP Range), а не целиком. Причина — приёмка
-+// 2.4.1 на машине клиента 26.07.2026: повторы и раздельные таймауты работали,
-+// но не лечили, потому что посредник в сети клиента обрывает ответ примерно
-+// после 4 КБ. Файлы 2,0–2,9 КБ доходили все, 20 и 34 КБ — ни разу: 10 обрывов
-+// из 10 на 3251…5649 байт. Против такого порога бессильны и увеличенный
-+// таймаут, и любое число повторов — каждая попытка упирается в него заново.
-+// Единственное лечение — не просить у сервера кусок больше порога.
-+//
-+// Сервер, который частей не умеет (старая сборка функции, посторонний адрес),
-+// отвечает на запрос с Range кодом 200 и телом целиком — этот путь сохранён,
-+// поэтому правка обратно совместима.
- 
- /// Таймаут установки соединения.
- const CONNECT_TIMEOUT_SECS: u64 = 20;
-@@ -51,8 +57,32 @@ const RETRY_BACKOFF_SECS: [u64; 4] = [2, 5, 10, 20];
- /// зависнет навсегда, если сервер шлёт по байту чаще, чем раз в READ_IDLE:
- /// таймаут тишины в такой передаче не срабатывает никогда (находка аудита H-4).
- /// Значение с большим запасом: наши файлы — единицы–десятки КБ.
-+///
-+/// Бюджет считается на ОДИН запрос куска, а не на сборку файла целиком:
-+/// иначе исправная, но медленная докачка из полутора десятков кусков рубилась
-+/// бы на середине — ровно та ошибка, из-за которой отвергнут общий дедлайн.
- const ATTEMPT_BUDGET_SECS: u64 = 180;
- 
-+/// Размер куска при докачке по частям.
-+///
-+/// Два килобайта — заведомо ниже наблюдённого у клиента порога обрыва
-+/// (минимальный зафиксированный обрыв — 3251 байт), с запасом на разброс
-+/// порога у других посредников. Цена — лишние запросы: файл кабинета в 34 КБ
-+/// собирается за 17 обращений вместо одного.
-+const RANGE_CHUNK_BYTES: u64 = 2048;
-+
-+/// Потолок предварительного резерва памяти под тело ответа.
-+///
-+/// Длину объявляет сервер, и доверять ей на слово нельзя: ответ со сломанным
-+/// или злонамеренным `Content-Length` заставил бы выделить память ДО чтения
-+/// хотя бы одного байта тела. Дальше буфер растёт естественно, по мере
-+/// поступления данных.
-+const MAX_PREALLOC_BYTES: u64 = 8 * 1024 * 1024;
-+
-+/// Жёсткий потолок на тело одного ответа: дальше чтение обрывается ошибкой.
-+/// Через этот путь ходят файлы кабинетов и пакеты контента — запас огромен.
-+const MAX_BODY_BYTES: usize = 256 * 1024 * 1024;
-+
- // ── Local version tracking (legacy) ───────────────────────────
- 
- /// Path to local content version file.
-@@ -111,6 +141,31 @@ pub fn set_vault_version(app_config_dir: &Path, cabinet_id: &str, version: u32)
-     Ok(())
- }
- 
-+/// Забыть записанную версию кабинета после ручного импорта материалов из файла.
-+///
-+/// Версию импортированного файла мы не знаем: он мог быть получен в поддержке
-+/// неделю назад. Оставить прежнюю отметку — значит выдать неизвестные материалы
-+/// за актуальные, и обновление с сервера к этому кабинету больше не придёт
-+/// никогда (находка аудита M-3). Без отметки клиент при следующем запуске
-+/// спросит сервер и докачает, если там новее.
-+pub fn forget_vault_version(app_config_dir: &Path, filename: &str) -> Result<()> {
-+    let Some(stem) = filename.strip_suffix(".vault") else {
-+        return Ok(());
-+    };
-+    let cab_id = stem_to_cabinet_id(stem);
-+
-+    let mut versions = get_vault_versions(app_config_dir);
-+    if versions.remove(cab_id).is_none() {
-+        return Ok(());
-+    }
-+    std::fs::write(
-+        vault_versions_path(app_config_dir),
-+        serde_json::to_string_pretty(&versions)?,
-+    )?;
-+    info!("Отметка версии кабинета {} снята: материалы загружены из файла", cab_id);
-+    Ok(())
-+}
-+
- /// Выбрать номер версии для записи в vault-versions.json после докачки кабинета.
- ///
- /// Per-cabinet версия сервера (`vault_versions[cab_id]`) точнее глобального
-@@ -310,6 +365,14 @@ fn resilient_client() -> Result<reqwest::Client> {
-     Ok(reqwest::Client::builder()
-         .connect_timeout(std::time::Duration::from_secs(CONNECT_TIMEOUT_SECS))
-         .read_timeout(std::time::Duration::from_secs(READ_IDLE_TIMEOUT_SECS))
-+        // Соединения НЕ переиспользуются намеренно. Замер на машине клиента
-+        // 26.07.2026: посредник считает объём НА СОЕДИНЕНИЕ — пропускает первые
-+        // ~4 КБ, после чего перестаёт передавать данные, НЕ закрывая сокет
-+        // (получено 4168 байт, дальше тишина до истечения таймаута). С общим
-+        // пулом докачка по частям обесценивалась: второй кусок уходил в то же
-+        // соединение и упирался в тот же порог — ровно поэтому версия с кусками
-+        // по 2 КБ не разблокировала клиента.
-+        .pool_max_idle_per_host(0)
-         .build()?)
- }
- 
-@@ -329,14 +392,25 @@ enum FetchFailure {
- /// успели получить и сколько обещал сервер.
- async fn read_body_counted(mut res: reqwest::Response, what: &str) -> Result<Vec<u8>> {
-     let declared = res.content_length();
-+    // Резерв ограничен сверху намеренно: заявленная сервером длина — это его
-+    // слово, а не факт, и по ней нельзя выделять память до чтения тела.
-     let mut buf: Vec<u8> = match declared {
--        Some(n) => Vec::with_capacity(n as usize),
-+        Some(n) => Vec::with_capacity(n.min(MAX_PREALLOC_BYTES) as usize),
-         None => Vec::new(),
-     };
- 
-     loop {
-         match res.chunk().await {
--            Ok(Some(chunk)) => buf.extend_from_slice(&chunk),
-+            Ok(Some(chunk)) => {
-+                buf.extend_from_slice(&chunk);
-+                if buf.len() > MAX_BODY_BYTES {
-+                    anyhow::bail!(
-+                        "{}: ответ превысил {} МБ и оборван — столько наши файлы не весят",
-+                        what,
-+                        MAX_BODY_BYTES / (1024 * 1024)
-+                    );
-+                }
-+            }
-             Ok(None) => break,
-             Err(e) => anyhow::bail!(
-                 "{}: поток оборван на {} байт (сервер обещал {}): {}",
-@@ -358,43 +432,162 @@ async fn read_body_counted(mut res: reqwest::Response, what: &str) -> Result<Vec
-     Ok(buf)
- }
- 
--/// Одна попытка скачать файл.
--async fn fetch_vault_once(
-+/// Что сервер ответил на запрос куска.
-+enum RangeReply {
-+    /// 206: кусок файла и полный размер, сообщённый в `Content-Range`.
-+    Part { bytes: Vec<u8>, total: u64 },
-+    /// 200: отдавать части сервер не умеет и прислал файл целиком.
-+    Whole(Vec<u8>),
-+}
-+
-+/// Полный размер файла из заголовка `Content-Range` вида `bytes 0-2047/34165`.
-+fn parse_content_range_total(value: &str) -> Option<u64> {
-+    value.rsplit('/').next()?.trim().parse::<u64>().ok()
-+}
-+
-+/// Запросить у сервера один кусок файла (границы включительные).
-+async fn request_range(
-     client: &reqwest::Client,
-     url: &str,
--    filename: &str,
--) -> std::result::Result<Vec<u8>, FetchFailure> {
-+    start: u64,
-+    end: u64,
-+    what: &str,
-+) -> std::result::Result<RangeReply, FetchFailure> {
-     let res = client
-         .get(url)
-+        .header(reqwest::header::RANGE, format!("bytes={start}-{end}"))
-         .send()
-         .await
--        .map_err(|e| FetchFailure::Transient(anyhow::anyhow!("{}: запрос не прошёл: {}", filename, e)))?;
-+        .map_err(|e| FetchFailure::Transient(anyhow::anyhow!("{}: запрос не прошёл: {}", what, e)))?;
- 
-     let status = res.status();
--    if !status.is_success() {
--        let body = res.text().await.unwrap_or_default();
--        let err = anyhow::anyhow!("Download failed for {}: HTTP {} - {}", filename, status, body);
--        // 5xx и 429 — сторона сервера/лимиты, повторяем. Прочие 4xx — по существу.
--        return Err(if status.is_server_error()
--            || status == reqwest::StatusCode::TOO_MANY_REQUESTS
--            || status == reqwest::StatusCode::REQUEST_TIMEOUT
--        {
--            FetchFailure::Transient(err)
--        } else {
--            FetchFailure::Fatal(err)
--        });
-+
-+    if status == reqwest::StatusCode::PARTIAL_CONTENT {
-+        let total = res
-+            .headers()
-+            .get(reqwest::header::CONTENT_RANGE)
-+            .and_then(|v| v.to_str().ok())
-+            .and_then(parse_content_range_total);
-+        // Кусок без внятного полного размера бесполезен: собрать по нему файл
-+        // нельзя — не с чем сверить итог, и усечение прошло бы незамеченным.
-+        let Some(total) = total else {
-+            return Err(FetchFailure::Transient(anyhow::anyhow!(
-+                "{}: сервер отдал часть файла, не сообщив полный размер",
-+                what
-+            )));
-+        };
-+        let bytes = read_body_counted(res, what).await.map_err(FetchFailure::Transient)?;
-+        return Ok(RangeReply::Part { bytes, total });
-     }
- 
--    read_body_counted(res, filename)
--        .await
--        .map_err(FetchFailure::Transient)
-+    if status.is_success() {
-+        let bytes = read_body_counted(res, what).await.map_err(FetchFailure::Transient)?;
-+        return Ok(RangeReply::Whole(bytes));
-+    }
-+
-+    let body = res.text().await.unwrap_or_default();
-+    let err = anyhow::anyhow!("Download failed for {}: HTTP {} - {}", what, status, body);
-+    // 5xx и 429 — сторона сервера/лимиты, повторяем. Прочие 4xx — по существу.
-+    Err(if status.is_server_error()
-+        || status == reqwest::StatusCode::TOO_MANY_REQUESTS
-+        || status == reqwest::StatusCode::REQUEST_TIMEOUT
-+    {
-+        FetchFailure::Transient(err)
-+    } else {
-+        FetchFailure::Fatal(err)
-+    })
-+}
-+
-+/// Одна попытка забрать файл — по частям, кусками ниже порога обрыва.
-+///
-+/// Первый запрос всегда просит первый кусок. Сервер, умеющий отдавать части,
-+/// отвечает 206 и сообщает полный размер — дальше добираем до конца. Сервер,
-+/// который не умеет, отвечает 200 и телом целиком: это прежнее поведение,
-+/// сохранённое ради обратной совместимости.
-+async fn fetch_vault_once(
-+    client: &reqwest::Client,
-+    url: &str,
-+    filename: &str,
-+) -> std::result::Result<Vec<u8>, FetchFailure> {
-+    let first = attempt_with_budget(
-+        request_range(client, url, 0, RANGE_CHUNK_BYTES - 1, filename),
-+        filename,
-+    )
-+    .await?;
-+
-+    let (mut buf, total) = match first {
-+        RangeReply::Whole(bytes) => return Ok(bytes),
-+        RangeReply::Part { bytes, total } => (bytes, total),
-+    };
-+
-+    while (buf.len() as u64) < total {
-+        let start = buf.len() as u64;
-+        let end = (start + RANGE_CHUNK_BYTES - 1).min(total - 1);
-+
-+        let reply = attempt_with_budget(
-+            request_range(client, url, start, end, filename),
-+            filename,
-+        )
-+        .await?;
-+
-+        match reply {
-+            RangeReply::Part { bytes, total: reported } => {
-+                // Файл на сервере подменили посреди докачки — склеивать куски
-+                // разных версий нельзя, начинаем попытку заново.
-+                if reported != total {
-+                    return Err(FetchFailure::Transient(anyhow::anyhow!(
-+                        "{}: размер файла на сервере изменился при докачке ({} вместо {})",
-+                        filename,
-+                        reported,
-+                        total
-+                    )));
-+                }
-+                // Пустой кусок не сдвигает сборку с места: без этой проверки
-+                // цикл крутился бы вечно, запрашивая один и тот же байт.
-+                if bytes.is_empty() {
-+                    return Err(FetchFailure::Transient(anyhow::anyhow!(
-+                        "{}: сервер отдал пустой кусок с байта {} из {} — докачка не движется",
-+                        filename,
-+                        start,
-+                        total
-+                    )));
-+                }
-+                buf.extend_from_slice(&bytes);
-+            }
-+            RangeReply::Whole(bytes) => {
-+                // Сервер перестал понимать части на середине (смена узла,
-+                // посредник). Принимаем целый файл, только если он той длины,
-+                // о которой сервер сам сообщил в начале.
-+                if bytes.len() as u64 == total {
-+                    return Ok(bytes);
-+                }
-+                return Err(FetchFailure::Transient(anyhow::anyhow!(
-+                    "{}: на запрос куска пришёл файл целиком неверной длины ({} вместо {})",
-+                    filename,
-+                    bytes.len(),
-+                    total
-+                )));
-+            }
-+        }
-+    }
-+
-+    if buf.len() as u64 != total {
-+        return Err(FetchFailure::Transient(anyhow::anyhow!(
-+            "{}: собрано {} байт из {}",
-+            filename,
-+            buf.len(),
-+            total
-+        )));
-+    }
-+
-+    Ok(buf)
- }
- 
--/// Ограничить одну попытку сверху (H-4). Истечение бюджета — это связь,
-+/// Ограничить один запрос сверху (H-4). Истечение бюджета — это связь,
- /// а не отказ по существу: считаем повторяемым.
--async fn attempt_with_budget<F>(fut: F, what: &str) -> std::result::Result<Vec<u8>, FetchFailure>
-+async fn attempt_with_budget<T, F>(fut: F, what: &str) -> std::result::Result<T, FetchFailure>
- where
--    F: std::future::Future<Output = std::result::Result<Vec<u8>, FetchFailure>>,
-+    F: std::future::Future<Output = std::result::Result<T, FetchFailure>>,
- {
-     match tokio::time::timeout(std::time::Duration::from_secs(ATTEMPT_BUDGET_SECS), fut).await {
-         Ok(r) => r,
-@@ -406,65 +599,79 @@ where
-     }
- }
- 
--/// Скачать vault-файл с сервера, переживая обрывы канала.
--async fn download_vault_file(
--    fingerprint_hash: &str,
--    product: &str,
--    version: &str,
--    filename: &str,
--) -> Result<Vec<u8>> {
--    let client = resilient_client()?;
--
--    let url = format!(
--        "{}/content?fingerprint_hash={}&product={}&version={}&file={}",
--        supabase_url(), fingerprint_hash, product, version, filename
--    );
-+/// Свежие результаты загрузок под общим замком.
-+///
-+/// В журнале клиента при старте видно по четыре-шесть подряд запросов
-+/// авторизации и по четыре параллельные загрузки ОДНОГО файла: команду
-+/// `get_cabinets` дёргают сразу несколько экранов, и каждый вызов начинал
-+/// качать одно и то же. На слабом канале это прямой вред — обращения мешают
-+/// друг другу. Замок выстраивает их в очередь, а короткая память результатов
-+/// отдаёт уже скачанное вместо повторного обращения к серверу.
-+type UrlLocks = std::sync::Mutex<HashMap<String, std::sync::Arc<tokio::sync::Mutex<()>>>>;
-+type RecentDownloads = std::sync::Mutex<HashMap<String, (std::time::Instant, std::sync::Arc<Vec<u8>>)>>;
-+
-+/// Замки по адресу файла. Одинаковые загрузки идут по очереди, разные —
-+/// по-прежнему параллельно: общий замок на весь транспорт заставил бы файлы
-+/// ждать чужих повторов, а они длятся до полуминуты.
-+fn url_locks() -> &'static UrlLocks {
-+    static LOCKS: std::sync::OnceLock<UrlLocks> = std::sync::OnceLock::new();
-+    LOCKS.get_or_init(|| std::sync::Mutex::new(HashMap::new()))
-+}
- 
--    info!("Downloading vault: {}", filename);
-+/// Память о только что полученных файлах.
-+fn recent_downloads() -> &'static RecentDownloads {
-+    static RECENT: std::sync::OnceLock<RecentDownloads> = std::sync::OnceLock::new();
-+    RECENT.get_or_init(|| std::sync::Mutex::new(HashMap::new()))
-+}
- 
--    let mut last_err: Option<anyhow::Error> = None;
-+/// Сколько только что скачанный файл считается свежим.
-+/// Покрывает всплеск вызовов при старте, но не переживает его надолго:
-+/// обновление, вышедшее через минуту, клиент увидит.
-+const RECENT_DOWNLOAD_TTL_SECS: u64 = 30;
- 
--    for attempt in 1..=DOWNLOAD_ATTEMPTS {
--        match attempt_with_budget(fetch_vault_once(&client, &url, filename), filename).await {
--            Ok(bytes) => {
--                if attempt > 1 {
--                    info!("Vault {} получен с попытки {}/{} ({} байт)", filename, attempt, DOWNLOAD_ATTEMPTS, bytes.len());
--                }
--                return Ok(bytes);
--            }
--            Err(FetchFailure::Fatal(e)) => {
--                error!("Скачивание {} отклонено сервером: {:#}", filename, e);
--                return Err(e);
--            }
--            Err(FetchFailure::Transient(e)) => {
--                warn!("Скачивание {}: попытка {}/{} не удалась: {:#}", filename, attempt, DOWNLOAD_ATTEMPTS, e);
--                last_err = Some(e);
--                if attempt < DOWNLOAD_ATTEMPTS {
--                    let idx = ((attempt - 1) as usize).min(RETRY_BACKOFF_SECS.len() - 1);
--                    tokio::time::sleep(std::time::Duration::from_secs(RETRY_BACKOFF_SECS[idx])).await;
--                }
--            }
--        }
--    }
-+/// Взять замок этого адреса, попутно выбросив те, за которые никто не держится.
-+fn lock_for(url: &str) -> std::sync::Arc<tokio::sync::Mutex<()>> {
-+    let mut locks = url_locks().lock().unwrap_or_else(|e| e.into_inner());
-+    locks.retain(|_, l| std::sync::Arc::strong_count(l) > 1);
-+    locks.entry(url.to_string()).or_default().clone()
-+}
- 
--    Err(last_err.unwrap_or_else(|| anyhow::anyhow!("{}: скачивание не удалось", filename)))
--        .with_context(|| format!("{}: связь с сервером не установилась за {} попыток", filename, DOWNLOAD_ATTEMPTS))
-+/// Отдать файл, полученный только что, если он ещё свеж.
-+fn take_recent(url: &str) -> Option<Vec<u8>> {
-+    let mut recent = recent_downloads().lock().unwrap_or_else(|e| e.into_inner());
-+    recent.retain(|_, (at, _)| at.elapsed().as_secs() < RECENT_DOWNLOAD_TTL_SECS);
-+    recent.get(url).map(|(_, bytes)| bytes.as_ref().clone())
- }
- 
--/// Скачать произвольный файл (пакет контента, бандл фронтенда) с теми же
--/// гарантиями, что и vault: без общего дедлайна, с повторами при обрыве.
--/// Пакеты весят десятки мегабайт — на слабом канале общий таймаут в 120 с
--/// рубил их гарантированно, даже когда передача исправно шла.
--async fn download_url_resilient(url: &str, what: &str) -> Result<Vec<u8>> {
-+/// Скачать файл, переживая обрывы канала: повторы с нарастающей паузой,
-+/// докачка по частям, память о только что полученном.
-+async fn download_with_retries(url: &str, what: &str) -> Result<Vec<u8>> {
-+    // Замок берётся ДО проверки памяти: иначе два одновременных вызова оба
-+    // увидели бы пустоту и оба пошли бы в сеть — ровно тот дребезг, что лечим.
-+    let lock = lock_for(url);
-+    let _guard = lock.lock().await;
-+
-+    if let Some(bytes) = take_recent(url) {
-+        info!("{}: файл получен только что — берём готовый, к серверу не идём", what);
-+        return Ok(bytes);
-+    }
-+
-     let client = resilient_client()?;
-     let mut last_err: Option<anyhow::Error> = None;
- 
-     for attempt in 1..=DOWNLOAD_ATTEMPTS {
--        match attempt_with_budget(fetch_vault_once(&client, url, what), what).await {
-+        match fetch_vault_once(&client, url, what).await {
-             Ok(bytes) => {
-                 if attempt > 1 {
-                     info!("{} получен с попытки {}/{} ({} байт)", what, attempt, DOWNLOAD_ATTEMPTS, bytes.len());
-                 }
-+                recent_downloads()
-+                    .lock()
-+                    .unwrap_or_else(|e| e.into_inner())
-+                    .insert(
-+                        url.to_string(),
-+                        (std::time::Instant::now(), std::sync::Arc::new(bytes.clone())),
-+                    );
-                 return Ok(bytes);
-             }
-             Err(FetchFailure::Fatal(e)) => {
-@@ -486,6 +693,30 @@ async fn download_url_resilient(url: &str, what: &str) -> Result<Vec<u8>> {
-         .with_context(|| format!("{}: связь с сервером не установилась за {} попыток", what, DOWNLOAD_ATTEMPTS))
- }
- 
-+/// Скачать vault-файл с сервера, переживая обрывы канала.
-+async fn download_vault_file(
-+    fingerprint_hash: &str,
-+    product: &str,
-+    version: &str,
-+    filename: &str,
-+) -> Result<Vec<u8>> {
-+    let url = format!(
-+        "{}/content?fingerprint_hash={}&product={}&version={}&file={}",
-+        supabase_url(), fingerprint_hash, product, version, filename
-+    );
-+
-+    info!("Downloading vault: {}", filename);
-+    download_with_retries(&url, filename).await
-+}
-+
-+/// Скачать произвольный файл (пакет контента, бандл фронтенда) с теми же
-+/// гарантиями, что и vault: без общего дедлайна, с повторами при обрыве.
-+/// Пакеты весят десятки мегабайт — на слабом канале общий таймаут в 120 с
-+/// рубил их гарантированно, даже когда передача исправно шла.
-+async fn download_url_resilient(url: &str, what: &str) -> Result<Vec<u8>> {
-+    download_with_retries(url, what).await
-+}
-+
- /// Download and save all updated vault files.
- /// Returns the list of successfully updated files.
- /// If `app_handle` is provided, emits "vault-download-progress" events.
-@@ -921,6 +1152,25 @@ mod tests {
-         Truncated(Vec<u8>, usize),
-         /// Ответить кодом состояния без тела.
-         Status(u16),
-+        /// Посредник из сети клиента: сервер умеет отдавать части, но всё, что
-+        /// длиннее порога, обрывается на нём. Куски ниже порога проходят.
-+        RangeAware { body: Vec<u8>, threshold: usize },
-+        /// Сервер без поддержки частей: на Range отвечает 200 и телом целиком,
-+        /// но тот же порог обрыва действует (старая сборка функции).
-+        NoRangeSupport { body: Vec<u8>, threshold: usize },
-+        /// Отдаёт пустой кусок: сборка не двигается с места.
-+        EmptyChunk { total: usize },
-+        /// На втором и следующих кусках сообщает другой полный размер:
-+        /// файл на сервере подменили посреди докачки.
-+        ShiftingTotal { body: Vec<u8> },
-+    }
-+
-+    /// Границы из заголовка `Range` запроса (включительные).
-+    fn requested_range(req: &str) -> Option<(usize, usize)> {
-+        let line = req.lines().find(|l| l.to_ascii_lowercase().starts_with("range:"))?;
-+        let spec = line.split('=').nth(1)?.trim();
-+        let (s, e) = spec.split_once('-')?;
-+        Some((s.trim().parse().ok()?, e.trim().parse().ok()?))
-     }
- 
-     /// Поднять локальный сервер, отрабатывающий сценарии по очереди.
-@@ -946,7 +1196,8 @@ mod tests {
- 
-                 // Дочитываем запрос до пустой строки, иначе клиент увидит reset.
-                 let mut buf = [0u8; 1024];
--                let _ = sock.read(&mut buf).await;
-+                let read = sock.read(&mut buf).await.unwrap_or(0);
-+                let req = String::from_utf8_lossy(&buf[..read]).to_string();
- 
-                 let scenario = scenarios
-                     .get(idx)
-@@ -978,6 +1229,60 @@ mod tests {
-                         );
-                         let _ = sock.write_all(head.as_bytes()).await;
-                     }
-+                    Scenario::RangeAware { body, threshold } => {
-+                        let total = body.len();
-+                        let (start, end) = match requested_range(&req) {
-+                            Some((s, e)) => (s.min(total), e.min(total - 1)),
-+                            // Range не запрошен — отдаём целиком и упираемся в порог.
-+                            None => (0, total - 1),
-+                        };
-+                        let piece = &body[start..=end];
-+                        let status = if requested_range(&req).is_some() { 206 } else { 200 };
-+                        let mut head = format!(
-+                            "HTTP/1.1 {} OK\r\nContent-Length: {}\r\nAccept-Ranges: bytes\r\nConnection: close\r\n",
-+                            status,
-+                            piece.len()
-+                        );
-+                        if status == 206 {
-+                            head.push_str(&format!("Content-Range: bytes {}-{}/{}\r\n", start, end, total));
-+                        }
-+                        head.push_str("\r\n");
-+                        let _ = sock.write_all(head.as_bytes()).await;
-+                        // Порог посредника: всё, что длиннее, обрывается на нём.
-+                        let cut = piece.len().min(threshold);
-+                        let _ = sock.write_all(&piece[..cut]).await;
-+                    }
-+                    Scenario::NoRangeSupport { body, threshold } => {
-+                        let head = format!(
-+                            "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
-+                            body.len()
-+                        );
-+                        let _ = sock.write_all(head.as_bytes()).await;
-+                        let cut = body.len().min(threshold);
-+                        let _ = sock.write_all(&body[..cut]).await;
-+                    }
-+                    Scenario::EmptyChunk { total } => {
-+                        let (start, end) = requested_range(&req).unwrap_or((0, 0));
-+                        let head = format!(
-+                            "HTTP/1.1 206 OK\r\nContent-Length: 0\r\nContent-Range: bytes {}-{}/{}\r\nConnection: close\r\n\r\n",
-+                            start, end, total
-+                        );
-+                        let _ = sock.write_all(head.as_bytes()).await;
-+                    }
-+                    Scenario::ShiftingTotal { body } => {
-+                        let total = body.len();
-+                        let (start, end) = requested_range(&req).unwrap_or((0, total - 1));
-+                        let end = end.min(total - 1);
-+                        let piece = &body[start..=end];
-+                        // Первый кусок честен, дальше полный размер «уезжает».
-+                        let reported = if start == 0 { total } else { total + 4096 };
-+                        let head = format!(
-+                            "HTTP/1.1 206 OK\r\nContent-Length: {}\r\nContent-Range: bytes {}-{}/{}\r\nConnection: close\r\n\r\n",
-+                            piece.len(), start, end, reported
-+                        );
-+                        let _ = sock.write_all(head.as_bytes()).await;
-+                        let _ = sock.write_all(piece).await;
-+                    }
-                 }
-                 let _ = sock.shutdown().await;
-             }
-@@ -1008,6 +1313,15 @@ mod tests {
-     #[tokio::test]
-     async fn truncated_body_is_not_accepted_as_success() {
-         // Сервер всегда рвёт поток — обязаны получить ошибку, а не обрезанный файл.
-+        //
-+        // Честная оговорка (находка аудита M-4): здесь ошибку возвращает сам
-+        // слой HTTP — он видит объявленный Content-Length и ранний конец
-+        // соединения. Наша сверка длины в read_body_counted до срабатывания
-+        // не доходит и остаётся вторым слоем защиты: сценария «длина объявлена,
-+        // байт меньше, при этом обрыв чистый» протокол HTTP не допускает.
-+        // Собственная сверка итога проверяется на докачке по частям — там полный
-+        // размер берётся из Content-Range, и он наш, а не чужой
-+        // (см. `ranged_download_rejects_shifting_total` и `..._empty_chunk`).
-         let body: Vec<u8> = vec![7u8; 2048];
-         let (url, _hits) = spawn_test_server(vec![Scenario::Truncated(body, 512)]).await;
- 
-@@ -1020,6 +1334,207 @@ mod tests {
-         );
-     }
- 
-+    // ── Докачка по частям (порог обрыва у клиента, 2026-07-26) ────────────────
-+
-+    /// Размер файла кабинета, на котором вскрылся отказ у клиента.
-+    const VAULT_SIZE: usize = 34165;
-+
-+    /// Порог посредника: середина наблюдённого разброса обрывов (3251…5649).
-+    const PROXY_THRESHOLD: usize = 4096;
-+
-+    fn sample_body(len: usize) -> Vec<u8> {
-+        (0..len).map(|i| (i % 251) as u8).collect()
-+    }
-+
-+    #[tokio::test]
-+    async fn ranged_download_assembles_file_above_proxy_threshold() {
-+        // Главный гейт всей правки: файл заметно больше порога обрыва обязан
-+        // собраться кусками. Ровно этот файл (34 КБ) не доезжал у клиента ни
-+        // разу за две недели.
-+        let body = sample_body(VAULT_SIZE);
-+        let (url, hits) = spawn_test_server(vec![Scenario::RangeAware {
-+            body: body.clone(),
-+            threshold: PROXY_THRESHOLD,
-+        }])
-+        .await;
-+
-+        let got = download_url_resilient(&url, "файл кабинета").await.unwrap();
-+
-+        assert_eq!(got, body, "файл обязан собраться из кусков без потерь");
-+        let expected_chunks =
-+            (VAULT_SIZE as u64).div_ceil(RANGE_CHUNK_BYTES) as usize;
-+        assert_eq!(
-+            hits.load(std::sync::atomic::Ordering::SeqCst),
-+            expected_chunks,
-+            "лишние обращения к серверу — признак повторов, которых быть не должно"
-+        );
-+    }
-+
-+    #[tokio::test]
-+    async fn whole_file_download_fails_at_the_same_threshold() {
-+        // Обратная сторона того же гейта: при том же пороге загрузка целиком
-+        // не проходит. Без неё первый тест доказывал бы лишь то, что сервер
-+        // исправен, а не то, что лечит именно докачка по частям.
-+        let body = sample_body(VAULT_SIZE);
-+        let (url, _hits) = spawn_test_server(vec![Scenario::NoRangeSupport {
-+            body,
-+            threshold: PROXY_THRESHOLD,
-+        }])
-+        .await;
-+
-+        let err = download_url_resilient(&url, "файл кабинета").await.unwrap_err();
-+        let text = format!("{:#}", err);
-+
-+        assert!(
-+            text.contains("байт"),
-+            "в ошибке обязано быть число полученных байт: {text}"
-+        );
-+    }
-+
-+    #[tokio::test]
-+    async fn small_file_needs_one_request() {
-+        // Файлы меньше куска не должны дорожать: у клиента такие доезжали и
-+        // раньше, и лишние обращения им ни к чему.
-+        let body = sample_body(1500);
-+        let (url, hits) = spawn_test_server(vec![Scenario::RangeAware {
-+            body: body.clone(),
-+            threshold: PROXY_THRESHOLD,
-+        }])
-+        .await;
-+
-+        let got = download_url_resilient(&url, "мелкий файл").await.unwrap();
-+
-+        assert_eq!(got, body);
-+        assert_eq!(
-+            hits.load(std::sync::atomic::Ordering::SeqCst),
-+            1,
-+            "файл короче куска обязан приходить одним запросом"
-+        );
-+    }
-+
-+    #[tokio::test]
-+    async fn server_without_range_support_still_works() {
-+        // Обратная совместимость: пока серверная правка не доехала (или адрес
-+        // посторонний), клиент обязан работать по-прежнему.
-+        let body = sample_body(9000);
-+        let (url, hits) = spawn_test_server(vec![Scenario::Full(body.clone())]).await;
-+
-+        let got = download_url_resilient(&url, "файл со старого сервера").await.unwrap();
-+
-+        assert_eq!(got, body, "сервер без поддержки частей обязан работать как раньше");
-+        assert_eq!(hits.load(std::sync::atomic::Ordering::SeqCst), 1);
-+    }
-+
-+    #[tokio::test]
-+    async fn ranged_download_rejects_empty_chunk() {
-+        // Пустой кусок не сдвигает сборку: без проверки цикл крутился бы вечно,
-+        // запрашивая один и тот же байт.
-+        let (url, _hits) = spawn_test_server(vec![Scenario::EmptyChunk { total: VAULT_SIZE }]).await;
-+
-+        // Сторож ловит ЗАЦИКЛИВАНИЕ, а не медлительность, поэтому запас большой:
-+        // пять повторов сами по себе выжидают 37 с пауз, и граница в минуту
-+        // срабатывала на загруженной машине как ложная тревога.
-+        let err = tokio::time::timeout(
-+            std::time::Duration::from_secs(180),
-+            download_url_resilient(&url, "файл кабинета"),
-+        )
-+        .await
-+        .expect("пустой кусок обязан прерывать сборку, а не зацикливать её")
-+        .unwrap_err();
-+
-+        assert!(
-+            format!("{:#}", err).contains("не движется"),
-+            "ошибка обязана называть причину: {err:#}"
-+        );
-+    }
-+
-+    #[tokio::test]
-+    async fn ranged_download_rejects_shifting_total() {
-+        // Файл на сервере подменили посреди докачки — склеивать куски разных
-+        // версий нельзя: получился бы правдоподобный, но битый файл.
-+        let (url, _hits) = spawn_test_server(vec![Scenario::ShiftingTotal {
-+            body: sample_body(VAULT_SIZE),
-+        }])
-+        .await;
-+
-+        let err = download_url_resilient(&url, "файл кабинета").await.unwrap_err();
-+
-+        assert!(
-+            format!("{:#}", err).contains("изменился"),
-+            "ошибка обязана называть причину: {err:#}"
-+        );
-+    }
-+
-+    #[tokio::test]
-+    async fn parallel_downloads_of_same_file_reach_server_once() {
-+        // Дребезг из журнала клиента: команду за списком кабинетов дёргают
-+        // несколько экранов сразу, и один файл начинал качаться четырежды.
-+        let body = sample_body(1500);
-+        let (url, hits) = spawn_test_server(vec![Scenario::RangeAware {
-+            body: body.clone(),
-+            threshold: PROXY_THRESHOLD,
-+        }])
-+        .await;
-+
-+        let (first, second) = tokio::join!(
-+            download_url_resilient(&url, "файл кабинета"),
-+            download_url_resilient(&url, "файл кабинета"),
-+        );
-+
-+        assert_eq!(first.unwrap(), body);
-+        assert_eq!(second.unwrap(), body, "второй вызов обязан получить тот же файл");
-+        assert_eq!(
-+            hits.load(std::sync::atomic::Ordering::SeqCst),
-+            1,
-+            "одновременные запросы одного файла обязаны дойти до сервера один раз"
-+        );
-+    }
-+
-+    /// Живая проверка против БОЕВОГО сервера: клиентский код обязан собрать
-+    /// файл кабинета кусками с того самого адреса, куда ходит продукт.
-+    ///
-+    /// Тесты выше гоняют наш собственный тестовый сервер — то есть проверяют
-+    /// клиент против нашего же представления о том, как отвечает Supabase.
-+    /// Этот разрыв закрывается только обращением к настоящему адресу.
-+    ///
-+    /// В обычный прогон не входит (ходит в сеть и требует действующей
-+    /// лицензии). Запуск:
-+    /// `AURORA_PROBE_FINGERPRINT=<хеш отпечатка> cargo test -- --ignored ranged_download_against_production`
-+    #[tokio::test]
-+    #[ignore = "ходит в сеть, нужна действующая лицензия"]
-+    async fn ranged_download_against_production() {
-+        let Ok(fp) = std::env::var("AURORA_PROBE_FINGERPRINT") else {
-+            panic!("нужен AURORA_PROBE_FINGERPRINT — хеш отпечатка машины с действующей лицензией");
-+        };
-+        let url = format!(
-+            "{}/content?fingerprint_hash={}&product=econometrica&version=c3&file=econometrist.vault",
-+            supabase_url(),
-+            fp
-+        );
-+
-+        let got = download_with_retries(&url, "econometrist.vault")
-+            .await
-+            .expect("файл кабинета обязан собраться с боевого сервера");
-+
-+        assert_eq!(got.len(), 34165, "собран файл не того размера");
-+        assert_eq!(
-+            format!("{:x}", Sha256::digest(&got)),
-+            "6ce228e6b2bc85d1903f5d5abdf1595a84a9ce9dfe5f78e787ab96993eed540f",
-+            "содержимое разошлось с тем, что отдаёт сервер целиком"
-+        );
-+    }
-+
-+    #[test]
-+    fn content_range_total_is_parsed() {
-+        assert_eq!(parse_content_range_total("bytes 0-2047/34165"), Some(34165));
-+        assert_eq!(parse_content_range_total("bytes 34000-34164/34165"), Some(34165));
-+        // 416 сообщает полный размер тем же заголовком.
-+        assert_eq!(parse_content_range_total("bytes */34165"), Some(34165));
-+        // Полный размер неизвестен серверу — склеивать нечего, доверять нельзя.
-+        assert_eq!(parse_content_range_total("bytes 0-2047/*"), None);
-+        assert_eq!(parse_content_range_total("мусор"), None);
-+    }
-+
-     #[tokio::test]
-     async fn client_error_is_not_retried() {
-         let (url, hits) = spawn_test_server(vec![Scenario::Status(403)]).await;
-@@ -1084,6 +1599,44 @@ mod tests {
-         assert_eq!(versions.get("social-listening"), None);
-     }
- 
-+    #[test]
-+    fn forget_vault_version_clears_only_that_cabinet() {
-+        let dir = TempDir::new().unwrap();
-+        set_vault_version(dir.path(), "econometrist", 7).unwrap();
-+        set_vault_version(dir.path(), "lawyer-claims", 3).unwrap();
-+
-+        forget_vault_version(dir.path(), "econometrist.vault").unwrap();
-+
-+        let left = get_vault_versions(dir.path());
-+        assert!(
-+            !left.contains_key("econometrist"),
-+            "отметка импортированного кабинета обязана сниматься, иначе обновление к нему не придёт"
-+        );
-+        assert_eq!(left.get("lawyer-claims"), Some(&3), "соседние кабинеты трогать нельзя");
-+    }
-+
-+    #[test]
-+    fn forget_vault_version_maps_file_stem_to_cabinet() {
-+        let dir = TempDir::new().unwrap();
-+        // Файл creative-group.vault принадлежит кабинету creative-director.
-+        set_vault_version(dir.path(), "creative-director", 5).unwrap();
-+
-+        forget_vault_version(dir.path(), "creative-group.vault").unwrap();
-+
-+        assert!(
-+            !get_vault_versions(dir.path()).contains_key("creative-director"),
-+            "имя файла обязано приводиться к имени кабинета"
-+        );
-+    }
-+
-+    #[test]
-+    fn forget_vault_version_is_quiet_when_nothing_to_forget() {
-+        let dir = TempDir::new().unwrap();
-+        forget_vault_version(dir.path(), "econometrist.vault").unwrap();
-+        forget_vault_version(dir.path(), "не-наш-файл.txt").unwrap();
-+        assert!(get_vault_versions(dir.path()).is_empty());
-+    }
-+
-     #[test]
-     fn test_set_vault_version_overwrites_previous() {
-         let dir = TempDir::new().unwrap();
-diff --git a/src-tauri/src/commands/gateway_executor.rs b/src-tauri/src/commands/gateway_executor.rs
-index 9db7d33..e622508 100644
---- a/src-tauri/src/commands/gateway_executor.rs
-+++ b/src-tauri/src/commands/gateway_executor.rs
-@@ -84,7 +84,16 @@ fn map_response(resp: aurora_gateway::GatewayResponse) -> Result<String> {
- fn describe_transport_error(err: &aurora_gateway::TransportError) -> String {
-     match err {
-         aurora_gateway::TransportError::MissingClientFile { .. } => {
--            "Клиентский пакет не установлен – скопируйте файлы доступа в папку client рядом с приложением.".to_string()
-+            // Путь называем ровно тот, откуда читаем (`app_data_dir()/client`).
-+            // Прежний текст отправлял пользователя «в папку рядом с приложением» —
-+            // туда файлы класть бесполезно, программа их там не ищет, и человек
-+            // добросовестно делает бесполезную работу (репорт владельца 27.07.2026).
-+            "Помощник недоступен: не установлены файлы доступа к серверу.\n\n\
-+             Что делать: запустите файл «install_client_package.ps1» из пакета доступа, \
-+             полученного в поддержке, и перезапустите программу.\n\n\
-+             Подробность для поддержки: файлы ожидаются в папке client каталога данных \
-+             программы (переменная APPDATA), а не рядом с исполняемым файлом."
-+                .to_string()
-         }
-         other => other.to_string(),
-     }
-@@ -288,6 +297,18 @@ mod tests {
-     fn missing_client_file_gets_russian_explanation() {
-         let err = TransportError::MissingClientFile { path: std::path::PathBuf::from("client_key") };
-         let msg = describe_transport_error(&err);
--        assert!(msg.contains("Клиентский пакет не установлен"), "получено: {msg}");
-+
-+        assert!(msg.contains("не установлены файлы доступа"), "получено: {msg}");
-+        assert!(
-+            msg.contains("install_client_package.ps1"),
-+            "текст обязан называть, ЧТО запустить: {msg}"
-+        );
-+        // Прежний текст звал класть файлы «рядом с приложением», а читаются они из
-+        // каталога данных. Человек делал бесполезную работу и оставался без помощника.
-+        assert!(
-+            !msg.contains("рядом с приложением"),
-+            "нельзя отправлять пользователя не туда: {msg}"
-+        );
-+        assert!(msg.contains("APPDATA"), "верный путь обязан быть назван: {msg}");
-     }
- }
-diff --git a/src-tauri/src/commands/online_auth.rs b/src-tauri/src/commands/online_auth.rs
-index 2db9526..bd573f8 100644
---- a/src-tauri/src/commands/online_auth.rs
-+++ b/src-tauri/src/commands/online_auth.rs
-@@ -221,7 +221,9 @@ fn save_cache(app_config_dir: &Path, response: &AuthResponse) -> Result<()> {
-     Ok(())
- }
- 
--fn load_cache(app_config_dir: &Path) -> Option<AuthResponse> {
-+/// Прочитать сохранённый ответ, если он ещё годен. Возвращает его вместе с
-+/// возрастом в секундах. Молча: сообщения пишет тот, кто кэш применяет.
-+fn read_fresh_cache(app_config_dir: &Path) -> Option<(AuthResponse, u64)> {
-     let path = cache_path(app_config_dir);
-     let data = std::fs::read_to_string(&path).ok()?;
-     let cached: CachedAuth = serde_json::from_str(&data).ok()?;
-@@ -234,13 +236,24 @@ fn load_cache(app_config_dir: &Path) -> Option<AuthResponse> {
-     if cached.cached_at > now {
-         return None;
-     }
--    if now - cached.cached_at > CACHE_TTL_SECS {
--        info!("Auth cache expired (age: {}h)", (now - cached.cached_at) / 3600);
-+    let age = now - cached.cached_at;
-+    if age > CACHE_TTL_SECS {
-+        info!("Auth cache expired (age: {}h)", age / 3600);
-         return None;
-     }
- 
--    info!("Using cached auth response (age: {}m)", (now - cached.cached_at) / 60);
--    Some(cached.response)
-+    Some((cached.response, age))
-+}
-+
-+/// Есть ли на руках годный сохранённый ответ — тихая проверка.
-+fn has_fresh_cache(app_config_dir: &Path) -> bool {
-+    read_fresh_cache(app_config_dir).is_some()
-+}
-+
-+fn load_cache(app_config_dir: &Path) -> Option<AuthResponse> {
-+    let (response, age) = read_fresh_cache(app_config_dir)?;
-+    info!("Using cached auth response (age: {}m)", age / 60);
-+    Some(response)
- }
- 
- // ── HTTP helpers ───────────────────────────────────────────
-@@ -298,11 +311,19 @@ pub async fn check_auth(
-     // «error decoding response body» приходило и сюда. Кэш спасает только
-     // того, у кого он уже есть; на первом запуске кэша нет, и один
-     // неудачный запрос означал бы «программа не запускается».
-+    //
-+    // Число попыток зависит от того, есть ли чем подстраховаться (находка
-+    // аудита M-1): с годным сохранённым ответом на руках хватает одной, и
-+    // старт при недоступной сети остаётся быстрым — иначе путь «связи нет,
-+    // берём сохранённое» удлинялся втрое вместе с паузами между попытками.
-+    // Без кэша (первый запуск) пробуем трижды: там цена отказа — «программа
-+    // не открывается вовсе».
-     const AUTH_ATTEMPTS: u32 = 3;
-+    let attempts = if has_fresh_cache(app_config_dir) { 1 } else { AUTH_ATTEMPTS };
-     let mut last_err: Option<anyhow::Error> = None;
-     let mut response: Option<(reqwest::StatusCode, String)> = None;
- 
--    for attempt in 1..=AUTH_ATTEMPTS {
-+    for attempt in 1..=attempts {
-         let sent = client.post(&url).json(&req).send().await;
-         match sent {
-             Ok(res) => {
-@@ -317,8 +338,8 @@ pub async fn check_auth(
-             }
-             Err(e) => last_err = Some(anyhow::anyhow!("{e}")),
-         }
--        if attempt < AUTH_ATTEMPTS {
--            warn!("Online auth: попытка {attempt}/{AUTH_ATTEMPTS} не удалась ({:#}) — повтор", last_err.as_ref().unwrap());
-+        if attempt < attempts {
-+            warn!("Online auth: попытка {attempt}/{attempts} не удалась ({:#}) — повтор", last_err.as_ref().unwrap());
-             tokio::time::sleep(std::time::Duration::from_secs(2 * attempt as u64)).await;
-         }
-     }
-diff --git a/src-tauri/src/lib.rs b/src-tauri/src/lib.rs
-index 396bf7b..e291664 100644
---- a/src-tauri/src/lib.rs
-+++ b/src-tauri/src/lib.rs
-@@ -204,7 +204,9 @@ fn import_cabinet_vault(path: String, app_handle: tauri::AppHandle) -> Result<St
-     let config_dir = app_handle.path().app_config_dir().map_err(|e| e.to_string())?;
-     let data_dir = app_handle.path().app_data_dir().map_err(|e| e.to_string())?;
- 
--    let result = (|| -> anyhow::Result<String> {
-+    // Второе значение — заменили ли уже лежавшие материалы: пользователь должен
-+    // узнать об этом из ответа, а не обнаружить потом.
-+    let result = (|| -> anyhow::Result<(String, bool)> {
-         use anyhow::Context as _;
-         // Имя берём ТОЛЬКО из последнего сегмента пути: защита от «..» и абсолютных путей.
-         let filename = std::path::Path::new(&path)
-@@ -260,17 +262,32 @@ fn import_cabinet_vault(path: String, app_handle: tauri::AppHandle) -> Result<St
-         let vaults_dir = vault::vaults_dir(&data_dir);
-         std::fs::create_dir_all(&vaults_dir).context("Не удалось создать папку материалов")?;
-         let dest = vaults_dir.join(&filename);
-+        let replaced = dest.exists();
-         std::fs::write(&dest, &encrypted)
-             .with_context(|| format!("Не удалось сохранить материалы в {}", dest.display()))?;
- 
-+        // Версию импортированного файла мы не знаем, поэтому снимаем отметку:
-+        // иначе клиент считал бы эти материалы актуальными и обновление с
-+        // сервера к кабинету больше не пришло бы (находка аудита M-3).
-+        if let Err(e) = content_updater::forget_vault_version(&config_dir, &filename) {
-+            warn!("Не удалось снять отметку версии после импорта {filename}: {e:#}");
-+        }
-+
-         info!("Материалы кабинета импортированы вручную: {} ({} байт)", filename, raw.len());
--        Ok(filename)
-+        Ok((filename, replaced))
-     })();
- 
-     match result {
--        Ok(filename) => {
-+        Ok((filename, replaced)) => {
-             metrics::audit::log_event("vault_import", &filename, true);
--            Ok(format!("Материалы кабинета загружены из файла «{filename}». Откройте кабинет заново."))
-+            let replaced_note = if replaced {
-+                " Прежние материалы этого кабинета заменены."
-+            } else {
-+                ""
-+            };
-+            Ok(format!(
-+                "Материалы кабинета загружены из файла «{filename}».{replaced_note} Откройте кабинет заново."
-+            ))
-         }
-         Err(e) => {
-             let msg = format!("{e:#}");
-@@ -485,6 +502,52 @@ async fn econ_ask_insight(
-     .map_err(|e| e.to_string())
- }
- 
-+/// Человеческое объяснение, почему рабочие материалы не доехали, и что делать.
-+///
-+/// Раньше пользователю в любом случае сообщалось «связь обрывается при передаче
-+/// файла» — в том числе когда сервер отказал по существу (нет лицензии, нет
-+/// файла) или не отвечал вовсе (находка аудита M-5). Домысел вместо факта уводит
-+/// и пользователя, и поддержку по ложному следу.
-+fn delivery_failure_explanation(detail: &str) -> (&'static str, &'static str) {
-+    let d = detail.to_lowercase();
-+
-+    if d.contains("403") || d.contains("лицензия") {
-+        return (
-+            "Сервер не подтвердил право на этот кабинет.",
-+            "• проверить срок действия лицензии в настройках;\n\
-+             • если срок в порядке – прислать отчёт диагностики в поддержку: кабинет мог быть не включён в вашу лицензию.",
-+        );
-+    }
-+    if d.contains("404") || d.contains("не найден") || d.contains("не отдал файл") {
-+        return (
-+            "Нужного файла на сервере нет.",
-+            "• повторить открытие кабинета через несколько минут – файл может выкладываться прямо сейчас;\n\
-+             • если не помогает – прислать отчёт диагностики в поддержку.",
-+        );
-+    }
-+    if d.contains("недоступен") {
-+        return (
-+            "Сервер программы сейчас недоступен.",
-+            "• проверить подключение к интернету и повторить открытие кабинета;\n\
-+             • если компьютер работает в корпоративной сети с фильтрацией трафика – попросить администратора открыть доступ к серверу программы.",
-+        );
-+    }
-+    if d.contains("оборван") || d.contains("получено") || d.contains("не установилась") || d.contains("попыток") {
-+        return (
-+            "Связь с сервером обрывается при передаче файла.",
-+            "• проверить подключение к интернету и повторить открытие кабинета;\n\
-+             • если компьютер работает в корпоративной сети с фильтрацией трафика – попросить администратора открыть доступ к серверу программы;\n\
-+             • если не помогает – загрузить рабочие материалы из файла в настройках: их можно получить в поддержке.",
-+        );
-+    }
-+
-+    (
-+        "Загрузка рабочих материалов не завершилась.",
-+        "• повторить открытие кабинета;\n\
-+         • если не помогает – выгрузить отчёт диагностики в настройках и прислать его в поддержку.",
-+    )
-+}
-+
- #[tauri::command]
- async fn open_cabinet(
-     cabinet_id: String,
-@@ -576,13 +639,12 @@ async fn open_cabinet(
-         if !vault_path.exists() {
-             let detail = download_err.unwrap_or_else(|| "причина неизвестна".to_string());
-             error!("Кабинет {cabinet_id}: рабочие материалы не доставлены — {detail}");
-+            let (reason, hints) = delivery_failure_explanation(&detail);
-             return Err(format!(
-                 "Не удалось загрузить рабочие материалы кабинета с сервера.\n\n\
--                 Связь с сервером обрывается при передаче файла, поэтому кабинет не открывается.\n\n\
-+                 {reason} Поэтому кабинет не открывается.\n\n\
-                  Что можно сделать:\n\
--                 • проверить подключение к интернету и повторить открытие кабинета;\n\
--                 • если компьютер работает в корпоративной сети с фильтрацией трафика – попросить администратора открыть доступ к серверу программы;\n\
--                 • если не помогает – выгрузить отчёт диагностики в настройках и прислать его в поддержку: рабочие материалы можно передать отдельным файлом.\n\n\
-+                 {hints}\n\n\
-                  Подробность для поддержки: кабинет {cabinet_id}, {detail}"
-             ));
-         }
-@@ -3704,6 +3766,63 @@ pub fn run() {
-     }
- }
- 
-+#[cfg(test)]
-+mod delivery_failure_tests {
-+    use super::*;
-+
-+    /// Причина отказа обязана следовать из факта, а не быть одной на все случаи
-+    /// (находка аудита M-5): домысел уводит по ложному следу и пользователя,
-+    /// и поддержку.
-+    #[test]
-+    fn reason_follows_the_actual_failure() {
-+        let (reason, _) = delivery_failure_explanation(
-+            "econometrist.vault: поток оборван на 4278 байт (сервер обещал 34165)",
-+        );
-+        assert!(reason.contains("обрывается"), "обрыв связи: {reason}");
-+
-+        let (reason, hints) = delivery_failure_explanation(
-+            "Download failed for econometrist.vault: HTTP 403 Forbidden - Лицензия не найдена",
-+        );
-+        assert!(reason.contains("право"), "отказ по лицензии: {reason}");
-+        assert!(hints.contains("лицензии"), "совет обязан быть про лицензию: {hints}");
-+
-+        let (reason, _) = delivery_failure_explanation(
-+            "Download failed for econometrist.vault: HTTP 404 - Файл не найден",
-+        );
-+        assert!(reason.contains("нет"), "файла нет на сервере: {reason}");
-+
-+        let (reason, _) =
-+            delivery_failure_explanation("сервер лицензий недоступен (состояние связи: offline)");
-+        assert!(reason.contains("недоступен"), "сервер не отвечает: {reason}");
-+
-+        // Неизвестная причина не должна выдавать себя за известную.
-+        let (reason, _) = delivery_failure_explanation("причина неизвестна");
-+        assert!(
-+            !reason.contains("обрывается") && !reason.contains("недоступен"),
-+            "неизвестная причина обязана оставаться нейтральной: {reason}"
-+        );
-+    }
-+
-+    /// В клиентском тексте — короткое тире, без кодов и путей.
-+    #[test]
-+    fn client_text_keeps_typography() {
-+        for detail in [
-+            "поток оборван на 100 байт",
-+            "HTTP 403",
-+            "HTTP 404",
-+            "сервер лицензий недоступен",
-+            "что-то ещё",
-+        ] {
-+            let (reason, hints) = delivery_failure_explanation(detail);
-+            for text in [reason, hints] {
-+                assert!(!text.contains('—'), "длинное тире в клиентском тексте: {text}");
-+                assert!(!text.contains(".vault"), "имя файла в клиентском тексте: {text}");
-+                assert!(!text.contains("HTTP"), "технический код в клиентском тексте: {text}");
-+            }
-+        }
-+    }
-+}
-+
- #[cfg(test)]
- mod brief_tests {
-     use super::*;
-diff --git a/supabase/functions/content/index.ts b/supabase/functions/content/index.ts
+diff --git a/sidecar/econometrica/engines/decomposer.py b/sidecar/econometrica/engines/decomposer.py
+index 9d9af4b..97a9a25 100644
+--- a/sidecar/econometrica/engines/decomposer.py
++++ b/sidecar/econometrica/engines/decomposer.py
+@@ -1376,6 +1376,20 @@ def decompose(
+         # v2.1.0 (ADR-021): money equivalent для count KPI when kpi_unit_cost задан.
+         # Frontend выбирает primary display (money если набор полный).
+         'kpi_unit_cost': kpi_unit_cost,
++        # Отключены ли АБСОЛЮТНЫЕ пороги окупаемости. Экран обязан сказать об
++        # этом прямо, а не молчать: пользователь видит вердикты и вправе знать,
++        # что сравнения с единицей за ними нет. Истинно, когда денежного
++        # отношения не существует: счётная метрика без стоимости единицы (этот
++        # признак и уезжает в `channel_action`, где шаги 4/6/7/8 не применяются)
++        # либо режим эффективности (его `compute_roi_verdict` разбирает своей
++        # веткой `_eff_mode`).
++        # ⚠️ Докстринг `channel_action` обещает, что второй случай приходит тем
++        # же признаком — фактически вызывающий передаёт только первый. Здесь оба
++        # сведены сознательно: для пользователя разницы нет, абсолютных денежных
++        # порогов не существует ни в том, ни в другом случае.
++        'money_roi_unavailable': bool(
++            _insight_money_roi_na or _kpi_meta['derived_mode'] == 'effectiveness'
++        ),
+         'total_sales_money': (
+             round(total_sales * kpi_unit_cost, 0)
+             if kpi_unit_cost is not None and kpi_kind == 'count'
+diff --git a/sidecar/econometrica/tests/test_decomposer_exposes_breakeven_flag.py b/sidecar/econometrica/tests/test_decomposer_exposes_breakeven_flag.py
 new file mode 100644
-index 0000000..06bf270
+index 0000000..bb64964
 --- /dev/null
-+++ b/supabase/functions/content/index.ts
-@@ -0,0 +1,188 @@
-+import "jsr:@supabase/functions-js/edge-runtime.d.ts";
-+import { createClient } from "jsr:@supabase/supabase-js@2";
++++ b/sidecar/econometrica/tests/test_decomposer_exposes_breakeven_flag.py
+@@ -0,0 +1,71 @@
++"""Движок обязан ОТДАВАТЬ признак отключённых порогов окупаемости.
 +
-+const corsHeaders = {
-+  "Access-Control-Allow-Origin": "*",
-+  "Access-Control-Allow-Headers": "Content-Type, Range",
-+  "Access-Control-Allow-Methods": "GET, OPTIONS",
-+  // Без этого браузерный вызывающий не увидит длину и границы куска.
-+  "Access-Control-Expose-Headers": "Content-Length, Content-Range, Accept-Ranges",
-+};
++Инцидент, ради которого заведён (2026-08-02): признак `money_roi_unavailable`
++жил только внутри Python — его считал `decomposer` и передавал в
++`channel_action`, где абсолютные breakeven-пороги (шаги 4, 6, 7, 8) не
++применяются. Во фронт он не выходил, и экран показывал вердикты как обычно:
++пользователь не мог знать, что сравнения с точкой безубыточности за ними нет.
 +
-+function jsonResponse(data: Record<string, unknown>, status = 200) {
-+  return new Response(JSON.stringify(data), {
-+    status,
-+    headers: { "Content-Type": "application/json", ...corsHeaders },
-+  });
-+}
++Вычислять то же самое на фронте нельзя — это второй источник истины, он
++разойдётся (так ломались ярусы MQS: слой представления держал свою копию
++порогов). Поэтому поле обязано присутствовать в ответе decompose.
 +
-+/** Включительные границы запрошенного куска. */
-+type RangeSpec = { start: number; end: number };
++Проверка идёт по исходнику: полный `decompose_contributions` требует обученной
++модели, а защитить надо ровно от удаления ключа из ответа. Тот же приём, что у
++`test_mqs_tier_rust_single_source` для Rust-зеркала.
++"""
++import os
++import re
 +
++_HERE = os.path.dirname(os.path.abspath(__file__))
++_DECOMPOSER = os.path.join(os.path.dirname(_HERE), "engines", "decomposer.py")
++
++
++def _source():
++    assert os.path.isfile(_DECOMPOSER), (
++        f"Не найден {_DECOMPOSER} — путь сместился, почини тест, не отключай"
++    )
++    with open(_DECOMPOSER, encoding="utf-8") as f:
++        return f.read()
++
++
++def test_result_carries_breakeven_flag():
++    """Ключ есть в ответе decompose."""
++    assert "'money_roi_unavailable':" in _source(), (
++        "Признак отключённых порогов пропал из ответа decompose — экран снова "
++        "будет молчать о том, что вердикты не сравниваются с безубыточностью"
++    )
++
++
++def test_flag_is_computed_not_hardcoded():
++    """Значение выводится из состояния расчёта, а не прибито константой.
++
++    Прибитый False вернул бы молчание, прибитый True — ложное предупреждение на
++    исправных проектах; и то и другое зелёно проходит проверку «ключ есть».
++    """
++    src = _source()
++    m = re.search(r"'money_roi_unavailable':\s*(.{0,200})", src, re.DOTALL)
++    assert m, "ключ найден, но значение не разобрать"
++    value = m.group(1)
++    assert "_insight_money_roi_na" in value, (
++        "признак больше не опирается на посчитанный флаг — проверьте, не прибит "
++        f"ли он константой: {value[:120]!r}"
++    )
++    assert not re.match(r"\s*(True|False)\s*,", value), (
++        "признак прибит константой — он обязан отражать реальное состояние расчёта"
++    )
++
++
++def test_effectiveness_mode_counted_as_no_breakeven():
++    """Режим эффективности тоже означает отсутствие денежных порогов.
++
++    Докстринг `channel_action` обещает, что этот случай приходит тем же
++    признаком, — фактически вызывающий передаёт только счётный-без-стоимости.
++    В ответе оба случая сведены сознательно: для пользователя разницы нет.
++    """
++    src = _source()
++    m = re.search(r"'money_roi_unavailable':\s*(.{0,200})", src, re.DOTALL)
++    assert m and "effectiveness" in m.group(1), (
++        "режим эффективности выпал из признака — в нём абсолютных денежных "
++        "порогов тоже нет, а экран об этом промолчит"
++    )
+diff --git a/src/lib/__tests__/breakeven-disabled-disclosure.guard.test.js b/src/lib/__tests__/breakeven-disabled-disclosure.guard.test.js
+new file mode 100644
+index 0000000..1489912
+--- /dev/null
++++ b/src/lib/__tests__/breakeven-disabled-disclosure.guard.test.js
+@@ -0,0 +1,69 @@
 +/**
-+ * Разобрать заголовок `Range` для единицы `bytes`.
++ * Сторож: когда пороги окупаемости отключены, экран говорит об этом прямо.
 + *
-+ * Возвращает:
-+ *  - `null` — заголовка нет, единица не байтовая, запрошено несколько
-+ *    диапазонов или синтаксис не распознан. Спецификация разрешает в таком
-+ *    случае просто отдать файл целиком, что и делаем;
-+ *  - `"invalid"` — синтаксис верен, но диапазон невыполним для этого файла
-+ *    (начало за последним байтом, пустой суффикс, перевёрнутые границы) →
-+ *    ответ 416;
-+ *  - `{start, end}` — включительные границы внутри файла; хвост за краем
-+ *    обрезается до последнего байта, как того требует спецификация.
++ * ЗАЧЕМ. Движок честно отключает абсолютные пороги, когда денежного отношения
++ * нет (`engines/channel_action.py`: «При money_roi_unavailable=True абсолютные
++ * breakeven-пороги (шаги 4, 6, 7, 8) НЕ применяются»). Но признак жил ТОЛЬКО
++ * внутри Python и во фронт не отдавался — экран показывал вердикты как обычно,
++ * и пользователь не мог знать, что сравнения с точкой безубыточности за ними
++ * нет. Молчание здесь хуже отсутствия функции: человек читает вердикт как
++ * абсолютный, а он относительный.
++ *
++ * Признак приходит из движка (`decomposer.py` → `money_roi_unavailable`).
++ * Вычислять его на фронте нельзя: это второй источник истины, и он разойдётся —
++ * ровно так ломались ярусы MQS.
 + */
-+function parseRange(header: string | null, size: number): RangeSpec | "invalid" | null {
-+  if (!header) return null;
++import { describe, expect, it } from 'vitest';
 +
-+  const match = /^bytes=(\d*)-(\d*)$/.exec(header.trim());
-+  if (!match) return null;
++import { decomposeInsights } from '../insights-rules.js';
 +
-+  const [, rawStart, rawEnd] = match;
-+  if (rawStart === "" && rawEnd === "") return null;
-+
-+  let start: number;
-+  let end: number;
-+
-+  if (rawStart === "") {
-+    // bytes=-N — последние N байт файла.
-+    const suffix = Number(rawEnd);
-+    if (!Number.isSafeInteger(suffix) || suffix <= 0) return "invalid";
-+    start = Math.max(0, size - suffix);
-+    end = size - 1;
-+  } else {
-+    start = Number(rawStart);
-+    end = rawEnd === "" ? size - 1 : Number(rawEnd);
-+    if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end)) return "invalid";
-+    if (end > size - 1) end = size - 1;
-+  }
-+
-+  if (start > end || start >= size || start < 0) return "invalid";
-+  return { start, end };
-+}
-+
-+Deno.serve(async (req: Request) => {
-+  if (req.method === "OPTIONS") {
-+    return new Response(null, { headers: corsHeaders });
-+  }
-+
-+  if (req.method !== "GET") {
-+    return jsonResponse({ status: "error", message: "Method not allowed" }, 405);
-+  }
-+
-+  try {
-+    const url = new URL(req.url);
-+    const fingerprint_hash = url.searchParams.get("fingerprint_hash");
-+    const product = url.searchParams.get("product");
-+    const version = url.searchParams.get("version");
-+    const file = url.searchParams.get("file");
-+
-+    if (!fingerprint_hash || !product || !version || !file) {
-+      return jsonResponse(
-+        { status: "error", message: "Missing required params: fingerprint_hash, product, version, file" },
-+        400
-+      );
-+    }
-+
-+    const supabase = createClient(
-+      Deno.env.get("SUPABASE_URL")!,
-+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
-+    );
-+
-+    // 1. Find license by fingerprint + product
-+    let query = supabase
-+      .from("licenses")
-+      .select("id, product, is_active, expires_at")
-+      .eq("fingerprint_hash", fingerprint_hash)
-+      .eq("is_active", true);
-+
-+    // Filter by product if provided
-+    query = query.eq("product", product);
-+
-+    const { data: licenses } = await query;
-+    const license = licenses && licenses.length > 0 ? licenses[0] : null;
-+
-+    if (!license) {
-+      return jsonResponse({ status: "blocked", message: "Лицензия не найдена" }, 403);
-+    }
-+
-+    if (new Date(license.expires_at) < new Date()) {
-+      return jsonResponse({ status: "blocked", message: "Лицензия истекла" }, 403);
-+    }
-+
-+    // 2. Download file from Storage
-+    const storagePath = `${product}/${version}/${file}`;
-+    const { data: fileData, error: downloadError } = await supabase
-+      .storage
-+      .from("vaults")
-+      .download(storagePath);
-+
-+    if (downloadError || !fileData) {
-+      return jsonResponse({ status: "error", message: "Файл не найден" }, 404);
-+    }
-+
-+    // 3. Тело целиком в память. Через этот адрес ходят файлы кабинетов —
-+    // единицы и десятки килобайт, и хранилище всё равно отдаёт объект целиком,
-+    // так что нарезка куска в памяти ничего не удорожает. Отдавать байты, а не
-+    // Blob, принципиально: только так в ответе появляется явный Content-Length
-+    // и исчезает порционная передача, которую посредники у клиентов режут.
-+    const bytes = new Uint8Array(await fileData.arrayBuffer());
-+    const size = bytes.byteLength;
-+
-+    const range = parseRange(req.headers.get("range"), size);
-+    const invalidRange = range === "invalid";
-+
-+    // 4. Журнал доставки. Пишем только начальный запрос: при докачке кусками по
-+    // одному-два килобайта запись на каждый кусок раздула бы журнал в десятки
-+    // раз и сделала бы его непригодным для разбора отказов — а он нужен именно
-+    // для этого. Признак `ranged` показывает, что клиент качает по частям.
-+    if (!invalidRange && (range === null || range.start === 0)) {
-+      await supabase.from("audit_log").insert({
-+        event: "content_downloaded",
-+        license_id: license.id,
-+        details: { product, version, file, size, ranged: range !== null },
-+      });
-+    }
-+
-+    if (invalidRange) {
-+      return new Response(null, {
-+        status: 416,
-+        headers: {
-+          "Content-Range": `bytes */${size}`,
-+          "Accept-Ranges": "bytes",
-+          ...corsHeaders,
-+        },
-+      });
-+    }
-+
-+    const fileHeaders: Record<string, string> = {
-+      "Content-Type": "application/octet-stream",
-+      "Content-Disposition": `attachment; filename="${file}"`,
-+      "Accept-Ranges": "bytes",
-+      ...corsHeaders,
-+    };
-+
-+    // 5. Кусок файла.
-+    if (range) {
-+      // Копия, а не подпредставление: тело ответа не должно зависеть от
-+      // разделяемого буфера.
-+      const chunk = bytes.slice(range.start, range.end + 1);
-+      return new Response(chunk, {
-+        status: 206,
-+        headers: {
-+          ...fileHeaders,
-+          "Content-Range": `bytes ${range.start}-${range.end}/${size}`,
-+          "Content-Length": String(chunk.byteLength),
-+        },
-+      });
-+    }
-+
-+    // 6. Файл целиком.
-+    return new Response(bytes, {
-+      status: 200,
-+      headers: { ...fileHeaders, "Content-Length": String(size) },
-+    });
-+  } catch (err) {
-+    return jsonResponse({ status: "error", message: "Internal server error" }, 500);
-+  }
++/** Минимальный ответ декомпозиции. @param {Record<string, any>} extra */
++const payload = (extra) => ({
++  channels: [],
++  baseline_pct: 60,
++  total_sales: 1000,
++  ...extra,
 +});
-diff --git a/tools/check_content_range.mjs b/tools/check_content_range.mjs
++
++const texts = (/** @type {Record<string, any>} */ data) =>
++  decomposeInsights(/** @type {any} */ (data))
++    .map((/** @type {{text: string, tip?: string}} */ i) => `${i.text} ${i.tip ?? ''}`)
++    .join('\n');
++
++describe('признак отключённых порогов доезжает до пользователя', () => {
++  it('при отключённых порогах сообщение показано', () => {
++    const blob = texts(payload({ money_roi_unavailable: true }));
++    expect(blob).toContain('пороги окупаемости отключены');
++  });
++
++  it('сообщение объясняет, на что опираются вердикты вместо порогов', () => {
++    const blob = texts(payload({ money_roi_unavailable: true }));
++    expect(blob).toContain('относительную эффективность');
++  });
++
++  it('сообщение подсказывает, как получить абсолютную оценку', () => {
++    const blob = texts(payload({ money_roi_unavailable: true }));
++    expect(blob).toContain('ценность единицы');
++  });
++
++  it('при работающих порогах сообщения нет — лишний шум недопустим', () => {
++    expect(texts(payload({ money_roi_unavailable: false }))).not.toContain(
++      'пороги окупаемости отключены',
++    );
++  });
++
++  it('старые ответы без поля молчат так же, как раньше', () => {
++    // Признак появился 2026-08-02; результаты, посчитанные до него, поля не
++    // имеют. Показать им сообщение значило бы соврать: пороги там работали.
++    expect(texts(payload({}))).not.toContain('пороги окупаемости отключены');
++  });
++
++  it('строковое «true» из старых артефактов за признак не принимается', () => {
++    // Сравнение строгое (=== true): иначе любое непустое значение включало бы
++    // сообщение, а поле приходит из JSON, где типы уже путались (см. историю
++    // ярлыка mqs_tier_label).
++    expect(texts(payload({ money_roi_unavailable: 'true' }))).not.toContain(
++      'пороги окупаемости отключены',
++    );
++  });
++});
+diff --git a/src/lib/__tests__/goalseek-corridor-honesty.guard.test.js b/src/lib/__tests__/goalseek-corridor-honesty.guard.test.js
 new file mode 100644
-index 0000000..7b642bc
+index 0000000..5761371
 --- /dev/null
-+++ b/tools/check_content_range.mjs
-@@ -0,0 +1,86 @@
-+#!/usr/bin/env node
++++ b/src/lib/__tests__/goalseek-corridor-honesty.guard.test.js
+@@ -0,0 +1,55 @@
 +/**
-+ * Гейт разбора заголовка `Range` в облачной функции доставки `content`.
++ * Сторож честности «зелёной зоны» в расчёте от цели.
 + *
-+ * Зачем: через эту функцию файлы кабинетов идут ко ВСЕМ продуктам линейки, а
-+ * деплой необратим. Ошибка в границах диапазона не падает и не шумит — она
-+ * молча отдаёт клиенту усечённый файл. Поэтому логика границ проверяется здесь,
-+ * до выкладки, а не только живым зондом после неё.
++ * ЗАЧЕМ. Экран обещал: «Цель должна быть в зелёной зоне коридора – иначе модель
++ * экстраполирует за пределы observed range». Обещание не выполнялось: движок
++ * коридор ПРОДАЖ не считает вовсе — `optimize/bounds.py::compute_safe_corridor`
++ * возвращает `per_channel` и `aggregate_budget`, а `aggregate_sales` живёт
++ * ТОЛЬКО в докстринге с пометкой «placeholder, требует forward pass»; в коде его
++ * нет, в `goal_seek.py` тоже. Экран падал на запасной ориентир
++ * `текущие продажи ×0,7…×1,5`, который наблюдавшимся диапазоном не является, —
++ * и клиент принимал решение по обещанию, которого продукт не выполняет.
 + *
-+ * Проверяется ровно тот текст, что лежит в `index.ts`: функция извлекается из
-+ * файла, а не переписывается рядом — копия рано или поздно разойдётся с боевой.
++ * Настоящий расчёт вынесен в P1 (общий прямой проход с профит-фронтиром).
++ * До тех пор текст обязан ВЕТВИТЬСЯ: правда про наблюдения — только когда
++ * коридор реально пришёл.
 + *
-+ * Запуск: node tools/check_content_range.mjs
++ * Проверяется по исходнику: поведение здесь — это текст, который увидит
++ * пользователь, а он собирается в разметке компонента.
 + */
-+import { readFileSync, writeFileSync, mkdtempSync } from "node:fs";
-+import { tmpdir } from "node:os";
-+import { join } from "node:path";
-+import { pathToFileURL } from "node:url";
++import { describe, expect, it } from 'vitest';
 +
-+const SOURCE = "supabase/functions/content/index.ts";
-+const MARK_START = "/** Включительные границы";
-+const MARK_END = "Deno.serve(";
++// Исходник берём импортом `?raw`, а не через fs: под vitest `import.meta.url`
++// приходит не файловой схемой (модули отдаёт dev-сервер), а `process` в этом
++// окружении не типизирован. `?raw` решает оба вопроса и не требует @types/node.
++import src from '../components/pipeline/OptimizeGoalSeek.svelte?raw';
 +
-+const src = readFileSync(SOURCE, "utf-8");
-+const start = src.indexOf(MARK_START);
-+const end = src.indexOf(MARK_END);
-+if (start < 0 || end < 0 || end <= start) {
-+  console.error(
-+    `ПРОВАЛ: в ${SOURCE} не найден блок разбора диапазонов ` +
-+      `(искали «${MARK_START}» до «${MARK_END}»). Если функцию переименовали — ` +
-+      `обновите маркеры, а не удаляйте проверку.`
++describe('зелёная зона не выдаёт ориентир за наблюдения', () => {
++  it('текст ветвится по признаку настоящего коридора', () => {
++    expect(src).toContain('corridorIsObserved');
++  });
++
++  it('признак выводится из пришедших границ, а не из константы', () => {
++    expect(src).toMatch(/corridorIsObserved\s*=\s*\$derived\([\s\S]{0,200}salesCorridor/);
++  });
++
++  it('запасная ветка честно называет зону ориентиром от текущего уровня', () => {
++    expect(src).toContain('ориентир от текущего уровня');
++  });
++
++  it('обещание про наблюдения не стоит безусловно', () => {
++    // Прежняя формулировка утверждала это всегда — независимо от того, пришёл
++    // коридор или нет. Возврат к ней красит тест.
++    expect(src).not.toContain('иначе модель экстраполирует за пределы observed range');
++  });
++
++  it('в клиентском тексте нет англицизма observed range', () => {
++    // Правило клиентского текста продукта: русский без англицизмов там, где есть
++    // аналог. «observed range» → «наблюдавшийся в данных диапазон».
++    const clientText = src
++      .split('\n')
++      .filter((/** @type {string} */ l) => !l.trim().startsWith('*') && !l.trim().startsWith('//'))
++      .join('\n');
++    expect(clientText).not.toContain('observed range');
++  });
++});
+diff --git a/src/lib/__tests__/tier2-roi-base.guard.test.js b/src/lib/__tests__/tier2-roi-base.guard.test.js
+new file mode 100644
+index 0000000..a4582ed
+--- /dev/null
++++ b/src/lib/__tests__/tier2-roi-base.guard.test.js
+@@ -0,0 +1,132 @@
++/**
++ * Сторож базы окупаемости в словах советника.
++ *
++ * ЗАЧЕМ. Расчёт продукта корректен в обоих режимах: «Выручка» и «Прибыль» —
++ * полноценные метрики (`utils/kpi_registry.py`), а когда экономика не задана,
++ * абсолютные пороги окупаемости честно отключаются
++ * (`engines/channel_action.py`, ветка `money_roi_unavailable`). Неточной была
++ * РЕЧЬ: правило 7 советника до 2026-08-02 говорило «прибылен канал или
++ * убыточен» безотносительно выбранной метрики. В режиме выручки ROI=1 — это
++ * окупаемость по обороту, из которой прибыльность не следует: себестоимость в
++ * выручке не вычтена. Клиент читал вывод о прибыли там, где модель считала
++ * оборот.
++ *
++ * Тест держит границу поведением: база выводится единственной функцией, доезжает
++ * в факты и названа в правилах. Возврат к безусловной формулировке красит тест.
++ */
++import { describe, expect, it } from 'vitest';
++
++import { roiBase, roiBaseNote } from '../kpi-aware-formatting.js';
++import { buildTier2Context, STEP, TIER2_SYSTEM_RULES } from '../tier2-context.js';
++
++describe('roiBase — база выводится из выбранной метрики', () => {
++  it('режим «Выручка» → оборот', () => {
++    expect(roiBase({ kpiType: 'sales', kpiKind: 'monetary' })).toBe('оборот');
++  });
++
++  it('устаревший ключ revenue → тоже оборот', () => {
++    // Старые проекты сохраняли kpi_type='revenue' (дубликат убран из выбора
++    // в v2.1.0, но в сохранённых проектах остался) — они не должны провалиться
++    // в «не определена» и потерять слова про окупаемость.
++    expect(roiBase({ kpiType: 'revenue', kpiKind: 'monetary' })).toBe('оборот');
++  });
++
++  it('денежный проект без паспорта KPI (legacy) → оборот, а не «не определена»', () => {
++    // У старых проектов kpiType нет вовсе, а ROI исторически считался от продаж
++    // в рублях. Уронить их в «не определена» значило бы отобрать слова про
++    // окупаемость без причины — регресс там, где ошибки не было.
++    expect(roiBase({ kpiKind: 'monetary', kpiType: null })).toBe('оборот');
++  });
++
++  it('режим «Прибыль» → прибыль', () => {
++    expect(roiBase({ kpiType: 'profit', kpiKind: 'monetary' })).toBe('прибыль');
++  });
++
++  it('счётный режим с маржой на единицу → прибыль', () => {
++    expect(roiBase({ kpiType: 'sales_packs', kpiKind: 'count', vpcu: 42 })).toBe('прибыль');
++  });
++
++  it('счётный режим без маржи → база не определена (пороги в движке отключены)', () => {
++    expect(roiBase({ kpiType: 'leads', kpiKind: 'count' })).toBe('не определена');
++    expect(roiBase({ kpiType: 'leads', kpiKind: 'count', vpcu: 0 })).toBe('не определена');
++  });
++
++  it('режим эффективности считает доли, а не деньги → базы нет', () => {
++    expect(roiBase({ kpiKind: 'monetary', kpiType: 'sales', mode: 'effectiveness' })).toBe(
++      'не определена',
++    );
++  });
++
++  it('ничего не известно → база не определена', () => {
++    expect(roiBase({})).toBe('не определена');
++    expect(roiBase(null)).toBe('не определена');
++    expect(roiBase({ kpiType: 'share_of_market', kpiKind: 'proportional' })).toBe(
++      'не определена',
++    );
++  });
++});
++
++describe('roiBaseNote — пояснение соответствует базе', () => {
++  it('при обороте прямо предупреждает, что прибыльность не следует', () => {
++    const note = roiBaseNote({ kpiType: 'sales', kpiKind: 'monetary' });
++    expect(note).toContain('по обороту');
++    expect(note).toContain('не следует');
++  });
++
++  it('при прибыли говорит о прибыли и не путает базы', () => {
++    const note = roiBaseNote({ kpiType: 'profit', kpiKind: 'monetary' });
++    expect(note).toContain('по прибыли');
++    expect(note).not.toContain('по обороту');
++  });
++
++  it('без экономики честно называет пороги отключёнными', () => {
++    const note = roiBaseNote({ kpiType: 'leads', kpiKind: 'count' });
++    expect(note).toContain('отключены');
++  });
++});
++
++describe('база доезжает в факты советника', () => {
++  /** @param {Record<string, any>} [extra] */
++  const call = (extra) =>
++    buildTier2Context({
++      step: STEP.DECOMPOSE,
++      question: 'Какие каналы окупаются?',
++      dec: { channels: [] },
++      ...extra,
++    });
++
++  it('поле roi_base есть в фактах при режиме выручки', () => {
++    expect(call({ kpiType: 'sales', kpiKind: 'monetary' }).facts.roi_base).toBe('оборот');
++  });
++
++  it('поле roi_base есть в фактах при режиме прибыли', () => {
++    expect(call({ kpiType: 'profit', kpiKind: 'monetary' }).facts.roi_base).toBe('прибыль');
++  });
++
++  it('без переданной метрики поле присутствует и честно говорит «не определена»', () => {
++    // Поле обязано быть всегда: отсутствие ключа советник трактовал бы как
++    // «спрашивать не о чем» и вернулся бы к вольной формулировке.
++    expect(call({}).facts.roi_base).toBe('не определена');
++  });
++});
++
++describe('правило 7 называет базу, а не судит о прибыли безусловно', () => {
++  // TIER2_SYSTEM_RULES экспортируется уже склеенной строкой, не массивом.
++  const rules = TIER2_SYSTEM_RULES;
++
++  it('правила ссылаются на поле roi_base', () => {
++    expect(rules).toContain('roi_base');
++  });
++
++  it('безусловной формулировки «прибылен канал или убыточен» больше нет', () => {
++    expect(rules).not.toContain('прибылен канал или убыточен');
++  });
++
++  it('при базе «оборот» слова о прибыли прямо запрещены', () => {
++    expect(rules).toMatch(/оборот[\s\S]{0,400}НЕЛЬЗЯ/);
++  });
++
++  it('при неопределённой базе запрещено и слово «окупается»', () => {
++    expect(rules).toMatch(/не определена[\s\S]{0,400}не используй/);
++  });
++});
+diff --git a/src/lib/components/pipeline/DecomposeStep.svelte b/src/lib/components/pipeline/DecomposeStep.svelte
+index 0b5971f..04b9174 100644
+--- a/src/lib/components/pipeline/DecomposeStep.svelte
++++ b/src/lib/components/pipeline/DecomposeStep.svelte
+@@ -22,10 +22,12 @@
+     unitCostInflation,
+     // v1.3.0 stores (per ADR-015, ADR-016)
+     kpiKind,
++    kpiType,
+     derivedMode,
+     valuePerCountUnit,
+     modelStaleStatus,
+   } from '$lib/project-state.js';
++  import { roiBaseNote } from '$lib/kpi-aware-formatting.js';
+   import WaterfallChart from '$lib/components/pipeline/WaterfallChart.svelte';
+   import ChannelComparisonChart from '$lib/components/pipeline/ChannelComparisonChart.svelte';
+   import RecommendationCard from '$lib/components/pipeline/RecommendationCard.svelte';
+@@ -250,6 +252,17 @@
+     modelHonestyVerdict === 'unreliable' || modelHonestyVerdict === 'uncertain'
+   );
+ 
++  // Пояснение базы окупаемости. Подсказки ниже говорят «окупается» и «убыточен»,
++  // но в режиме выручки это окупаемость ПО ОБОРОТУ, из которой прибыльность не
++  // следует. Базу считает общий `roiBaseNote` — тот же, что у советника и у
++  // детерминированных инсайтов, чтобы формулировки не разошлись между экранами.
++  const roiNote = $derived(roiBaseNote({
++    kpiKind: $kpiKind,
++    kpiType: $kpiType,
++    vpcu: $valuePerCountUnit,
++    mode: $derivedMode,
++  }));
++
+   // Help-tooltips для основной таблицы «Детализация по каналам».
+   const CH_HELP = {
+     spend:   'Расходы - суммарный бюджет канала за весь период анализа.\n\nПочему важно: основа для ROI и доли бюджета. Если канал не в рублях (TRP, показы) - ROI будет искажён.',
+@@ -603,11 +616,11 @@
+               <th class="num">Расходы<span class="help-icon" title={CH_HELP.spend}>?</span></th>
+               <th class="num">Вклад<span class="help-icon" title={CH_HELP.contrib}>?</span></th>
+               <th class="num">
+-                {metricLabel[displayMetric]}<span class="help-icon" title={CH_HELP.roi}>?</span>
++                {metricLabel[displayMetric]}<span class="help-icon" title={`${CH_HELP.roi}\n\n${roiNote}`}>?</span>
+               </th>
+               <th class="num">Gap<span class="help-icon" title={CH_HELP.gap}>?</span></th>
+               <th class="num">Decay<span class="help-icon" title="Adstock decay - доля медиа-эффекта переносимая на следующий период. 0 = моментальный эффект (1 период), 0.7 ≈ 3-4 периода эффективной длительности (long brand). 50%-й правдоподобный диапазон показывает posterior uncertainty (Trust Level 3, v1.1.0).">?</span></th>
+-              <th>Вердикт<span class="help-icon" title={CH_HELP.verdict}>?</span></th>
++              <th>Вердикт<span class="help-icon" title={`${CH_HELP.verdict}\n\n${roiNote}`}>?</span></th>
+             </tr>
+           </thead>
+           <tbody>
+diff --git a/src/lib/components/pipeline/InsightsPanel.svelte b/src/lib/components/pipeline/InsightsPanel.svelte
+index 77f861a..175a978 100644
+--- a/src/lib/components/pipeline/InsightsPanel.svelte
++++ b/src/lib/components/pipeline/InsightsPanel.svelte
+@@ -402,6 +402,12 @@
+       dec: $decomposeData,
+       opt: $optimizeData,
+       methodology,
++      // Выбранная метрика: от неё зависит база окупаемости, а значит — вправе ли
++      // советник называть канал прибыльным (правило 7). Считает её один
++      // `resolveRoiBase`, экран лишь передаёт исходные значения.
++      kpiType: $kpiType,
++      kpiKind: $kpiKind,
++      valuePerCountUnit: $valuePerCountUnit,
+     });
+     const prompt = buildTier2Prompt(ctx, askQuestion);
+ 
+diff --git a/src/lib/components/pipeline/OptimizeGoalSeek.svelte b/src/lib/components/pipeline/OptimizeGoalSeek.svelte
+index 066aefd..33f636f 100644
+--- a/src/lib/components/pipeline/OptimizeGoalSeek.svelte
++++ b/src/lib/components/pipeline/OptimizeGoalSeek.svelte
+@@ -99,6 +99,29 @@
+   // сохранён, но зона выше corridorHi честно жёлто-красная (Chan & Perry 2017:
+   // кривая вне наблюдённого диапазона не идентифицируется данными).
+   const corridorHi = $derived(salesCorridor?.hi ?? currentSales * 1.5);
++
++  /**
++   * Пришёл ли НАСТОЯЩИЙ коридор продаж, а не запасной ориентир.
++   *
++   * 🔴 Движок его пока не считает: `optimize/bounds.py::compute_safe_corridor`
++   * возвращает `per_channel` и `aggregate_budget`, а `aggregate_sales` живёт
++   * ТОЛЬКО в докстринге с пометкой «placeholder, требует forward pass» — в коде
++   * его нет, и в `goal_seek.py` тоже. Пока так, зелёная зона считается от
++   * текущего уровня (×0,7…×1,5), и называть её наблюдавшимся диапазоном нельзя:
++   * это разные вещи, и клиент принимал бы решение по обещанию, которого продукт
++   * не выполняет. Настоящий расчёт — в P1, вместе с профит-фронтиром: обоим
++   * нужен один и тот же прямой проход через модель, считать порознь значит
++   * делать работу дважды.
++   */
++  const corridorIsObserved = $derived(
++    salesCorridor?.lo != null && salesCorridor?.hi != null,
 +  );
-+  process.exit(1);
++
++  const corridorNote = $derived(
++    corridorIsObserved
++      ? 'Цель должна быть в зелёной зоне коридора – иначе модель считает за пределами того, что наблюдала в данных.'
++      : 'Зелёная зона – ориентир от текущего уровня продаж, а не диапазон, наблюдавшийся в данных: его модель пока не рассчитывает. Чем дальше цель от текущего уровня, тем осторожнее относитесь к результату.',
++  );
+   const sliderMax = $derived(
+     Math.max(achievableCeiling ?? corridorHi * 1.15, corridorHi * 1.02)
+   );
+@@ -180,7 +203,7 @@
+     whatWeDo="Вы задаёте целевые продажи. Программа находит минимальный бюджет, при котором эта цель достижима с высокой вероятностью."
+     whyNeed="Прямая оптимизация отвечает: «у меня есть бюджет – куда вложить?». Расчёт от цели отвечает на вопрос руководителя: «нужно достичь продаж X – сколько потратить?»"
+     attentionTo={[
+-      'Цель должна быть в зелёной зоне коридора - иначе модель экстраполирует за пределы observed range.',
++      corridorNote,
+       'Правдоподобный диапазон на бюджете шире, чем точечная оценка - учитывайте при планировании.',
+       'Низкая P(достижения) означает, что цель близка к границам - рассмотрите менее агрессивные цели.',
+     ]}
+diff --git a/src/lib/insights-rules.js b/src/lib/insights-rules.js
+index 94c9a28..308b3ac 100644
+--- a/src/lib/insights-rules.js
++++ b/src/lib/insights-rules.js
+@@ -18,6 +18,9 @@ import {
+   weightedPhrase as _weightedPhrase,
+   underBreakevenPhrase as _underBreakeven,
+   topMetricBenchmark as _topBenchmark,
++  // База окупаемости — общая с экранами и советником: слово «окупается» без
++  // указания базы читается как вывод о прибыли, а в режиме выручки это оборот.
++  roiBaseNote as _roiBaseNote,
+ } from './kpi-aware-formatting.js';
+ // v2.1.0 (пилот 2026-05-16): SSOT-классификатор ratio для согласованности
+ // меток с RatioInfoCard / sticky header / Контроль качества.
+@@ -1479,7 +1482,7 @@ export function modelInsights(data, ratioOverride = undefined) {
+ // ── Decompose Step ──────────────────────────────────────
+ 
+ /**
+- * @param {{ base_pct?: number, baseline_pct?: number, channels: Array<{ name: string, contribution_pct: number, contribution?: number, spend: number, roi: number, verdict?: string, unit_smell?: boolean }>, signed_factor_contributions?: Record<string, { value?: number, pct?: number, type?: string }> }} data
++ * @param {{ base_pct?: number, baseline_pct?: number, channels: Array<{ name: string, contribution_pct: number, contribution?: number, spend: number, roi: number, verdict?: string, unit_smell?: boolean }>, signed_factor_contributions?: Record<string, { value?: number, pct?: number, type?: string }>, money_roi_unavailable?: boolean }} data
+  * @param {import('./kpi-aware-formatting.js').KpiViewInput|import('./kpi-aware-formatting.js').KpiView|null} [kpiInput] - KPI/mode context (v1.3.2). null → legacy monetary roi. Принимает и готовый KpiView (см. resolveKpi).
+  * @returns {Insight[]}
+  */
+@@ -1489,6 +1492,20 @@ export function decomposeInsights(data, kpiInput = null) {
+   if (!data) return out;
+   const kpi = resolveKpi(kpiInput);
+ 
++  // Пороги окупаемости отключены — сказать прямо, а не молчать. Признак
++  // приходит ИЗ ДВИЖКА (`decomposer.py`, поле `money_roi_unavailable`): именно
++  // он решает, применять ли абсолютные пороги, и вычислять то же самое на
++  // фронте значило бы завести второй источник истины. Прежде экран об этом
++  // молчал: вердикты показывались как обычно, и пользователь не мог знать, что
++  // сравнения с единицей за ними нет.
++  if (data.money_roi_unavailable === true) {
++    out.push({
++      severity: 'info',
++      text: 'Экономика не задана, поэтому пороги окупаемости отключены: каналы сравниваются между собой, а не с точкой безубыточности.',
++      tip: 'Вердикты и рекомендации ниже опираются на относительную эффективность (доля вклада против доли бюджета), а не на «окупается / не окупается». Чтобы получить абсолютную оценку, задайте ценность единицы результата на шаге «Проверка данных» – тогда расчёт перейдёт в деньги.',
++    });
++  }
++
+   const channels = data.channels ?? [];
+   // Backend returns `baseline_pct`; legacy field `base_pct` kept as fallback.
+   const basePct = data.baseline_pct ?? data.base_pct ?? 0;
+@@ -1926,9 +1943,10 @@ export function optimizeInsights(data, ctx = {}) {
+       // результата: для count это штуки (лиды/упаковки), НЕ ₽ (аудит 2026-07-11) → подпись
+       // из паспорта kpi.targetUnit ('₽' для monetary, 'лид.'/'упак.' для count).
+       text: `${portfolioPhrase} – ${roiComment}. На ${Math.round(totalSpendDec).toLocaleString('ru-RU')}₽ обучающего расхода – медиа-вклад ${Math.round(totalContribDec).toLocaleString('ru-RU')} ${kpi.targetUnit || '₽'} (без baseline).`,
+-      tip: kpi.isLegacy
++      tip: (kpi.isLegacy
+         ? 'ROI рассчитан на обучающих данных (вся история). Прогноз для бюджета планирования может отличаться – см. блок B Прогноз KPI.\n\nBenchmark: ROI ≥ 2× – отлично; 1-2× – приемлемо, нужно улучшать микс; < 1× – медиа в среднем работает в убыток, требуется пересмотр каналов или креатива.'
+-        : `Метрика рассчитана на обучающих данных (вся история). Прогноз для бюджета планирования может отличаться.\n\nBenchmark: ${_topBenchmark(kpi)} – отлично; на грани с ценностью – приемлемо; выше ценности – убыточно.`,
++        : `Метрика рассчитана на обучающих данных (вся история). Прогноз для бюджета планирования может отличаться.\n\nBenchmark: ${_topBenchmark(kpi)} – отлично; на грани с ценностью – приемлемо; выше ценности – убыточно.`
++      ) + `\n\n${_roiBaseNote(kpi)}`,
+     });
+   }
+ 
+diff --git a/src/lib/kpi-aware-formatting.js b/src/lib/kpi-aware-formatting.js
+index efa73c9..8dfa515 100644
+--- a/src/lib/kpi-aware-formatting.js
++++ b/src/lib/kpi-aware-formatting.js
+@@ -254,6 +254,57 @@ export function underBreakevenPhrase(kpi) {
+   return 'mROAS < 1×';
+ }
+ 
++/**
++ * База, по которой считается окупаемость — от неё зависит, законно ли называть
++ * канал прибыльным. ЕДИНСТВЕННЫЙ источник этого вывода на фронте.
++ *
++ * ЗАЧЕМ. ROI = 1 в режиме «Выручка» означает, что канал вернул вложенное
++ * ПРОДАЖАМИ; прибылен ли он — из этого не следует, себестоимость в выручке не
++ * вычтена. Экраны и советник говорили «окупается» и «прибылен», не называя базу,
++ * и клиент читал вывод о прибыли там, где модель считала оборот. Расчёт при этом
++ * корректен: `profit` отличается от `sales`/`revenue` только данными (вычтен
++ * COGS), а в счётном режиме ценность единицы — это маржа. Когда экономики нет,
++ * движок абсолютные пороги честно отключает (`engines/channel_action.py`,
++ * ветка `money_roi_unavailable`), и называть базу нечем.
++ *
++ * Принимает `KpiView` целиком либо совместимый объект с теми же полями.
++ *
++ * @param {{kpiKind?: string, kpiType?: string|null, vpcu?: number|null, mode?: string}|null|undefined} kpi
++ * @returns {'оборот'|'прибыль'|'не определена'}
++ */
++export function roiBase(kpi) {
++  if (!kpi) return 'не определена';
++  // Режим эффективности считает доли, а не деньги — окупаемости там нет вовсе.
++  if (kpi.mode === 'effectiveness') return 'не определена';
++  if (kpi.kpiKind === 'count') {
++    return typeof kpi.vpcu === 'number' && kpi.vpcu > 0 ? 'прибыль' : 'не определена';
++  }
++  if (kpi.kpiKind === 'monetary') {
++    // Старые проекты паспорта KPI не имеют (`isLegacy`): их ROI исторически
++    // считался от продаж в рублях, то есть от оборота. Уронить их в «не
++    // определена» значило бы отобрать у них слова про окупаемость без причины.
++    return kpi.kpiType === 'profit' ? 'прибыль' : 'оборот';
++  }
++  return 'не определена';
 +}
 +
-+const dir = mkdtempSync(join(tmpdir(), "content-range-"));
-+const modPath = join(dir, "range.ts");
-+writeFileSync(modPath, src.slice(start, end) + "\nexport { parseRange };\n", "utf-8");
-+const { parseRange } = await import(pathToFileURL(modPath).href);
-+
-+const SIZE = 34165; // размер econometrist.vault — файла, на котором всё вскрылось
-+let failed = 0;
-+
-+function check(name, got, want) {
-+  const g = JSON.stringify(got);
-+  const w = JSON.stringify(want);
-+  if (g !== w) {
-+    failed++;
-+    console.log(`ПРОВАЛ ${name}: получено ${g}, ожидалось ${w}`);
++/**
++ * Пояснение к базе для клиентских подсказок — одной фразой, без жаргона.
++ *
++ * @param {{kpiKind?: string, kpiType?: string|null, vpcu?: number|null, mode?: string}|null|undefined} kpi
++ * @returns {string}
++ */
++export function roiBaseNote(kpi) {
++  switch (roiBase(kpi)) {
++    case 'прибыль':
++      return 'Здесь окупаемость считается по прибыли: ценность единицы задана как маржа, себестоимость уже учтена.';
++    case 'оборот':
++      return 'Здесь окупаемость считается по обороту: канал вернул вложенное продажами. Прибыльность из этого не следует – себестоимость в выручке не вычтена. Чтобы считать в прибыли, выберите целевую метрику «Прибыль».';
++    default:
++      return 'Экономика не задана, поэтому абсолютные пороги окупаемости отключены: сравнивайте каналы между собой, а не с единицей.';
 +  }
 +}
 +
-+// Обычная работа: докачка кусками идёт вот такими запросами.
-+check("заголовка нет — файл целиком", parseRange(null, SIZE), null);
-+check("первый кусок", parseRange("bytes=0-2047", SIZE), { start: 0, end: 2047 });
-+check("средний кусок", parseRange("bytes=2048-4095", SIZE), { start: 2048, end: 4095 });
-+check("открытый конец", parseRange("bytes=34000-", SIZE), { start: 34000, end: SIZE - 1 });
-+check("последний байт", parseRange(`bytes=${SIZE - 1}-`, SIZE), { start: SIZE - 1, end: SIZE - 1 });
-+check("пробелы по краям", parseRange("  bytes=0-9  ", SIZE), { start: 0, end: 9 });
+ /**
+  * Build channel metric phrase (ROI vs CPU vs share) для текстов рекомендаций.
+  *
+diff --git a/src/lib/tier2-context.js b/src/lib/tier2-context.js
+index c6250b8..3b1f277 100644
+--- a/src/lib/tier2-context.js
++++ b/src/lib/tier2-context.js
+@@ -16,6 +16,10 @@
+  */
+ 
+ import { buildHelpContext } from './program-help.js';
++// База окупаемости считается ОДНОЙ функцией на весь фронт: её же читают экраны
++// и детерминированные инсайты. Своя копия здесь завела бы второй источник —
++// ровно тот дефект, который лечили на ярусах MQS.
++import { roiBase } from './kpi-aware-formatting.js';
+ import { humanizeSource } from './rag-query.js';
+ 
+ /** Шаги пайплайна (совпадает с $pipelineCurrentStep в InsightsPanel). */
+@@ -178,11 +182,15 @@ function stripOptTelemetry(opt) {
+  *   tier1Insights?: Array<{severity:string,text:string,tip?:string}>,
+  *   val?: any, mod?: any, dec?: any, opt?: any,
+  *   methodology?: MethodologyHit[] | null,
++ *   kpiType?: string, kpiKind?: string, valuePerCountUnit?: number|null,
+  * }} input
+  * @returns {Tier2Context}
+  */
+ export function buildTier2Context(input) {
+-  const { step, question, tier1Insights = [], val, mod, dec, opt, methodology } = input;
++  const {
++    step, question, tier1Insights = [], val, mod, dec, opt, methodology,
++    kpiType, kpiKind, valuePerCountUnit,
++  } = input;
+ 
+   /** @type {Record<string, any>} */
+   let facts = {};
+@@ -222,6 +230,11 @@ export function buildTier2Context(input) {
+       fullFacts = val ?? {};
+   }
+ 
++  // База окупаемости — единственный источник для правила 7: слово «прибыльный»
++  // законно только когда база «прибыль». Кладётся ПОСЛЕ switch: там facts
++  // присваивается целиком, и поле, добавленное раньше, потерялось бы.
++  facts.roi_base = roiBase({ kpiType, kpiKind, vpcu: valuePerCountUnit });
 +
-+// Хвост за краем обрезается, а не отвергается — иначе последний кусок файла
-+// никогда не доедет, ведь его длина обычно меньше запрошенной.
-+check("хвост за краем обрезан", parseRange("bytes=34000-99999", SIZE), { start: 34000, end: SIZE - 1 });
-+check("суффикс — последние байты", parseRange("bytes=-100", SIZE), { start: SIZE - 100, end: SIZE - 1 });
-+check("суффикс больше файла", parseRange("bytes=-99999", SIZE), { start: 0, end: SIZE - 1 });
-+
-+// Невыполнимый диапазон обязан давать 416: клиент по нему сбрасывает частичный
-+// файл и качает начисто. Молчаливая отдача не того куска здесь опаснее отказа.
-+check("начало за концом файла", parseRange(`bytes=${SIZE}-`, SIZE), "invalid");
-+check("перевёрнутые границы", parseRange("bytes=500-100", SIZE), "invalid");
-+check("нулевой суффикс", parseRange("bytes=-0", SIZE), "invalid");
-+check("пустой файл", parseRange("bytes=0-10", 0), "invalid");
-+
-+// Непонятый заголовок — отдаём файл целиком (так разрешает спецификация).
-+// Отвечать отказом нельзя: старые сборки клиентов не шлют Range вовсе.
-+check("единица не байтовая", parseRange("items=0-10", SIZE), null);
-+check("несколько диапазонов", parseRange("bytes=0-99,200-299", SIZE), null);
-+check("мусор вместо чисел", parseRange("bytes=abc", SIZE), null);
-+check("голое bytes=-", parseRange("bytes=-", SIZE), null);
-+
-+const total = 17;
-+if (failed > 0) {
-+  console.error(`\nПроверок: ${total}, провалов: ${failed}`);
-+  process.exit(1);
-+}
-+console.log(`Разбор диапазонов: ${total} проверок пройдено.`);
-diff --git a/tools/probe_content_delivery.sh b/tools/probe_content_delivery.sh
-new file mode 100644
-index 0000000..d1dfa92
---- /dev/null
-+++ b/tools/probe_content_delivery.sh
-@@ -0,0 +1,86 @@
-+#!/usr/bin/env bash
-+# Зонд облачной доставки снаружи — приёмка функции `content` после выкладки.
-+#
-+# Зачем: деплою верить на слово нельзя. Разбор отказа у клиента 26.07.2026
-+# показал, что расхождение между «функция задеплоена» и «файл доезжает» стоит
-+# двух недель простоя. Зонд ходит по тому же адресу, что и клиент, с теми же
-+# параметрами, и проверяет ровно то, от чего зависит докачка по частям.
-+#
-+# Запуск:  bash tools/probe_content_delivery.sh [fingerprint_hash]
-+# Секреты: ~/.secrets/supabase_aurora.env (SUPABASE_URL)
-+set -u
-+
-+FP="${1:-493288e1961cca7a6902a77aefc98ce904cc745c01d66fd8cda0ab5528efce72}"
-+PRODUCT="${PRODUCT:-econometrica}"
-+VERSION="${VERSION:-c3}"
-+FILE="${FILE:-econometrist.vault}"
-+
-+set -a; . ~/.secrets/supabase_aurora.env; set +a
-+BASE="$SUPABASE_URL/functions/v1/content"
-+U="$BASE?fingerprint_hash=$FP&product=$PRODUCT&version=$VERSION&file=$FILE"
-+
-+fail=0
-+ok()   { echo "  ок    $1"; }
-+bad()  { echo "  ПРОВАЛ $1"; fail=$((fail+1)); }
-+have() { grep -qi "$1" "$2" && ok "$3" || bad "$3 (в ответе нет: $1)"; }
-+
-+tmp=$(mktemp -d)
-+trap 'rm -rf "$tmp"' EXIT
-+
-+echo "1. Запрос целиком: длина обязана быть явной, порционной передачи быть не должно"
-+curl -s -D "$tmp/h1" -o "$tmp/full.bin" "$U"
-+grep -qiE "^HTTP/[0-9.]+ 200" "$tmp/h1" && ok "код 200" || bad "код не 200"
-+have "^content-length:" "$tmp/h1" "длина объявлена"
-+have "^accept-ranges: *bytes" "$tmp/h1" "докачка по частям объявлена"
-+if grep -qi "^transfer-encoding: *chunked" "$tmp/h1"; then
-+  bad "передача всё ещё порционная — это и есть лечимый дефект"
-+else
-+  ok "порционной передачи нет"
-+fi
-+SIZE=$(wc -c < "$tmp/full.bin" | tr -d ' ')
-+DECL=$(grep -i "^content-length:" "$tmp/h1" | tail -1 | tr -dc '0-9')
-+[ "$SIZE" = "$DECL" ] && ok "объявленная длина совпала с полученной ($SIZE)" \
-+                      || bad "объявлено $DECL, получено $SIZE"
-+
-+echo "2. Запрос части: 206 с внятными границами"
-+curl -s -D "$tmp/h2" -o "$tmp/part.bin" -H "Range: bytes=0-1023" "$U"
-+grep -qiE "^HTTP/[0-9.]+ 206" "$tmp/h2" && ok "код 206" || bad "код не 206 — часть не поддержана"
-+grep -qi "^content-range: *bytes 0-1023/$SIZE" "$tmp/h2" \
-+  && ok "границы куска: bytes 0-1023/$SIZE" || bad "нет внятного Content-Range"
-+[ "$(wc -c < "$tmp/part.bin" | tr -d ' ')" = "1024" ] \
-+  && ok "получено ровно 1024 байта" || bad "размер куска не 1024"
-+
-+echo "3. Невыполнимый диапазон: 416 с полным размером"
-+code=$(curl -s -o /dev/null -D "$tmp/h3" -w "%{http_code}" -H "Range: bytes=$SIZE-" "$U")
-+[ "$code" = "416" ] && ok "код 416" || bad "на диапазон за концом файла пришло $code"
-+grep -qi "content-range: *bytes \*/$SIZE" "$tmp/h3" \
-+  && ok "сообщён полный размер" || bad "416 без полного размера"
-+
-+echo "4. Сборка кусками по 2 КБ обязана дать тот же файл"
-+: > "$tmp/joined.bin"
-+off=0; chunks=0
-+while [ "$off" -lt "$SIZE" ]; do
-+  endb=$((off + 2047)); [ "$endb" -ge "$SIZE" ] && endb=$((SIZE - 1))
-+  curl -s -H "Range: bytes=$off-$endb" "$U" >> "$tmp/joined.bin" || break
-+  off=$((endb + 1)); chunks=$((chunks + 1))
-+done
-+h_full=$(sha256sum < "$tmp/full.bin" | cut -d' ' -f1)
-+h_join=$(sha256sum < "$tmp/joined.bin" | cut -d' ' -f1)
-+[ "$h_full" = "$h_join" ] && ok "$chunks кусков склеились в тот же файл ($h_join)" \
-+                          || bad "склейка разошлась с целым файлом"
-+
-+echo "5. Отказы по существу не сломаны"
-+code=$(curl -s -o "$tmp/denied.json" -w "%{http_code}" \
-+  "$BASE?fingerprint_hash=0000000000000000000000000000000000000000000000000000000000000000&product=$PRODUCT&version=$VERSION&file=$FILE")
-+[ "$code" = "403" ] && ok "чужой отпечаток — 403" || bad "на чужой отпечаток пришло $code"
-+grep -q "Лицензия" "$tmp/denied.json" \
-+  && ok "русский текст отказа читается (кодировка цела)" \
-+  || bad "текст отказа испорчен: $(cat "$tmp/denied.json")"
-+code=$(curl -s -o /dev/null -w "%{http_code}" \
-+  "$BASE?fingerprint_hash=$FP&product=$PRODUCT&version=$VERSION&file=no-such-file.vault")
-+[ "$code" = "404" ] && ok "несуществующий файл — 404" || bad "на несуществующий файл пришло $code"
-+
-+echo
-+[ "$fail" -eq 0 ] && echo "Доставка проверена снаружи: замечаний нет." \
-+                  || echo "Замечаний: $fail — выкладку считать непринятой."
-+exit "$fail"
+   // Справочный контекст программы (карта + релевантные термины). Идёт в промпт
+   // И в grounding: его числа — методологические нормативы из справки (пороги
+   // R-hat / NRMSE / R², минимум наблюдений), их цитирование легитимно, поэтому
+@@ -298,8 +311,17 @@ export const TIER2_SYSTEM_RULES = [
+   '   «реклама работает ещё несколько недель после показа»; «насыщение» →',
+   '   «дополнительные вложения почти не дают прироста» (Knaflic; Канеман – проклятие знания).',
+   '7. Неуверенность знака: если интервал ROI канала включает точку безубыточности',
+-  '   (около 1), прямо скажи, что модель не уверена – прибылен канал или убыточен',
++  '   (около 1), прямо скажи, что модель не уверена – окупается канал или нет',
+   '   (McElreath: широкий интервал = реальная неопределённость, не погрешность).',
++  '   🔴 БАЗА ОКУПАЕМОСТИ указана в фактах полем «roi_base», и от неё зависят слова:',
++  '   • «оборот» – окупаемость считается по обороту. Говори «окупается по обороту»;',
++  '     слова «прибыльный», «прибылен», «убыточен» здесь употреблять НЕЛЬЗЯ: канал',
++  '     может возвращать вложенное выручкой и при этом не приносить прибыли.',
++  '   • «прибыль» – можно говорить о прибыльности прямо.',
++  '   • «не определена» – экономика канала не задана, абсолютные пороги окупаемости',
++  '     отключены; говори только об отдаче и сравнении каналов между собой, а слова',
++  '     «окупается», «прибылен», «убыточен» не используй вовсе.',
++  '   Это правило о СЛОВАХ, а не о числах: расчёт верен в любом режиме.',
+   '8. Причинность: MMM показывает СВЯЗИ, не доказанные причины. Если каналы сильно',
+   '   коррелируют – их вклад не разделить надёжно; если из модели исключены',
+   '   сезонность/праздники – оценки могут быть смещены (McElreath: коллинеарность, OVB).',
