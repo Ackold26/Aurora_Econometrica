@@ -28,8 +28,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use anyhow::Result;
 use aurora_gateway::cloud::{
     cabinets_mismatch_text, inputs_fingerprint, check_cabinets_version, decide_ticket, missing_exports_text,
-    CabinetsVersionCheck, CloudClient, DeviceIdentity, IdentityStore, InputFile, JobRequest,
-    TicketDecision, TicketProblem,
+    CabinetsVersionCheck, CloudClient, CloudError, DeviceIdentity, IdentityStore, InputFile,
+    JobRequest, JobState, TicketDecision, TicketProblem,
 };
 use log::{debug, info, warn};
 use tauri::{Emitter, Manager};
@@ -343,6 +343,101 @@ fn sent_inputs() -> &'static std::sync::Mutex<std::collections::HashMap<String, 
     R.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::new()))
 }
 
+/// Судьба памяти о наборе вложений на выходе из работы.
+///
+/// 🔴 Страж, а не вызов в каждой ветке — и в этом вся суть правки. Прежде память
+/// обновлялась ОДНИМ блоком в конце, то есть только при успехе: ни отмена, ни сбой
+/// связи, ни отказ сервера её не трогали. Стоило сборщику простоя на узле убрать
+/// рабочую папку, и сервер честно отвечал «файлы этого диалога не найдены на
+/// сервере – отправьте их заново», а память оставалась прежней: следующий вопрос
+/// уходил с тем же признаком и получал тот же отказ. Круг, из которого человек не
+/// выходит сам — он делает ровно то, о чём просит текст.
+///
+/// Снятие происходит при разрушении стража, поэтому любая ветка выхода — включая
+/// те, которых в коде ещё нет, — безопасна по умолчанию: набор уедет заново.
+/// Лишняя выгрузка дешевле молчаливой работы по пустой папке (INV-50).
+struct InputsMemory {
+    label: String,
+    settled: bool,
+}
+
+impl InputsMemory {
+    fn new(label: &str) -> Self {
+        Self { label: label.to_string(), settled: false }
+    }
+
+    /// Работа удалась и набор в этот раз уехал: помнить его отпечаток.
+    fn remember(&mut self, fingerprint: String) {
+        sent_inputs()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(self.label.clone(), fingerprint);
+        self.settled = true;
+    }
+
+    /// Работа удалась, а набор не менялся: помнить прежнее.
+    fn keep(&mut self) {
+        self.settled = true;
+    }
+}
+
+impl Drop for InputsMemory {
+    fn drop(&mut self) {
+        if !self.settled {
+            sent_inputs()
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .remove(&self.label);
+        }
+    }
+}
+
+/// Повторить ли вопрос с пересылкой вложений.
+///
+/// 🔴 Решение отделено от места, где применяется: внутри работы его не показать
+/// проверке — там нужны сеть, окно и сервер. Здесь правило видно целиком:
+/// пересылаем ровно тогда, когда шли БЕЗ файлов и сервер сказал, что их у него
+/// нет. На любой другой отказ пересылка не отвечает — гонять вложения на каждую
+/// беду связи значило бы вернуть ту самую расточительность, ради ухода от
+/// которой признак и вводился.
+fn should_resend_inputs(went_without_files: bool, outcome: &Result<JobState, CloudError>) -> bool {
+    went_without_files && matches!(outcome, Err(e) if e.is_resend_inputs())
+}
+
+/// Что сделать с памятью набора после успешной работы.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum InputsVerdict {
+    /// Набор не менялся — помнить прежнее.
+    Keep,
+    /// Набор уехал целиком — помнить его отпечаток.
+    Remember,
+    /// Помнить нечего: набор не уезжал или уехал не весь.
+    Forget,
+}
+
+/// Запоминать ли набор этого вопроса как «уже на сервере».
+///
+/// Решение отделено от действия намеренно: иначе его нельзя показать проверке —
+/// оно живёт внутри работы, которой нужны сеть, окно и сервер.
+///
+/// 🔴 `complete` — набор уехал ЦЕЛИКОМ, без пропущенных файлов. Прежде отпечаток
+/// брался со всей папки, включая файл, который не уместился в общий потолок:
+/// человек получал сообщение один раз, а работа шла по неполному набору весь
+/// диалог — каждый следующий вопрос молча разбирал два файла из трёх. Теперь
+/// неполный набор не запоминается: следующий вопрос перечитает папку и скажет о
+/// пропуске снова. Экономия выгрузки при этом теряется ровно в том случае, когда
+/// вложения и так не помещаются целиком, — то есть в уже аварийном.
+fn decide_inputs_memory(unchanged: bool, sent_any: bool, complete: bool) -> InputsVerdict {
+    if unchanged {
+        return InputsVerdict::Keep;
+    }
+    if sent_any && complete {
+        InputsVerdict::Remember
+    } else {
+        InputsVerdict::Forget
+    }
+}
+
 /// Общий потолок вложений исчерпан: сам файл при этом может быть крошечным.
 fn total_limit_warning(name: &str) -> SkippedInput {
     SkippedInput {
@@ -548,6 +643,28 @@ fn refresh_ticket(app_handle: &tauri::AppHandle, store: &IdentityStore) -> Resul
 
 // ── Исполнение ──────────────────────────────────────────────────────────────────
 
+/// Человек остановил работу до того, как задание ушло на сервер.
+///
+/// Отдельная функция, потому что точек сверки две и обе обязаны отвечать
+/// одинаково: погасить признак работы в интерфейсе и вернуться без метки —
+/// следующий вопрос начнёт новый диалог, а не продолжит несостоявшийся.
+fn stopped_before_start(
+    app_handle: &tauri::AppHandle,
+    cabinet_id: &str,
+    suppress_done: bool,
+) -> Result<(Option<String>, String)> {
+    info!("Работа остановлена до постановки задания [{cabinet_id}]");
+    // Сигнал завершения обязателен и здесь: интерфейс держит признак «остановлено»
+    // до него, и без сигнала СЛЕДУЮЩИЙ ответ был бы съеден этим признаком.
+    if !suppress_done {
+        let _ = app_handle.emit(
+            &format!("claude-done-{cabinet_id}"),
+            serde_json::json!({ "exit_code": 0, "cancelled": true }),
+        );
+    }
+    Ok((None, String::new()))
+}
+
 /// Общая реализация обоих входов: поставить задание, вести поток, забрать файлы.
 #[allow(clippy::too_many_arguments)]
 async fn execute(
@@ -588,6 +705,15 @@ async fn execute(
     // ответ по старой методологии.
     warn_on_cabinets_mismatch(&client, &app_handle, &cabinet_id).await;
 
+    // 🔴 Первая сверка отмены — ДО чтения вложений. Прежде отмена не сверялась ни
+    // разу до постановки задания: между нажатием «Остановить» и первой сверкой
+    // внутри прогона успевали пройти запрос сведений о сервере, чтение до 48 МБ и
+    // выгрузка их на сервер. Человек уже отказался от работы, а программа ещё
+    // минуту гнала его файлы наверх.
+    if work.cancelled() {
+        return stopped_before_start(&app_handle, &cabinet_id, suppress_done);
+    }
+
     // 🔴 Отпечаток набора считается ДО чтения файлов — в этом вся экономия.
     // Прежде все вложения уезжали на КАЖДЫЙ вопрос диалога: двадцать вопросов
     // при тридцати мегабайтах давали около шестисот мегабайт выгрузки. Теперь
@@ -602,76 +728,111 @@ async fn execute(
             .get(&label)
             .is_some_and(|known| known == &inputs_fingerprint(&signature));
 
-    let (inputs, skipped) = if unchanged {
-        info!("Вложения диалога уже на сервере [{cabinet_id}]: файлы не перечитываются");
-        (Vec::new(), Vec::new())
-    } else {
-        collect_inputs(work_dir, &cabinet_id)
-    };
-    // 🔴 Недоставленное вложение ПРЕКРАЩАЕТ работу — инвариант ADR-048, и он же
-    // на сервере. Прежде файл за потолком просто пропускался: разбор шёл без
-    // данных, которые человек считает учтёнными, и выдавался за законченный.
-    // Тост о причине легко не заметить, а отчёт выглядит полноценным — это и есть
-    // молчаливое расхождение, которое дороже честного отказа (INV-50).
-    //
-    // 🔴 Об одном событии человек узнаёт ОДИН раз. Прежде предупреждения
-    // рассылались всплывающими ДО этого решения, и человек получал два сообщения
-    // об одном и том же, причём всплывающее говорило «файл не уедет», хотя не
-    // уезжала вся работа. Всплывающие остаются для случая, когда работа
-    // продолжается, — и рассылаются только после того, как это решено.
-    if let Some(text) = refusal_for_skipped(&skipped) {
-        anyhow::bail!("[TC-GW-INPUT] {text}");
-    }
-    for item in &skipped {
-        let _ = app_handle.emit(
-            &format!("inbox-attachments-skipped-{cabinet_id}"),
-            // 🔴 Отдельного поля с именем файла в событии НЕТ намеренно: имя уже
-            // стоит внутри причины («файл «бюджет.csv» слишком велик»), а поле,
-            // которого интерфейс не читает, — либо потерянные данные, либо
-            // мёртвый груз. Паритет с Oracle, где так же убрано поле files.
-            serde_json::json!({ "reason": item.reason, "action": item.action }),
-        );
-    }
+    // 🔴 Память о наборе с этого места под стражем: она переживёт только успешную
+    // работу. Всякий иной выход — отказ, отмена, обрыв связи — снимает её, и
+    // следующая попытка уедет с файлами.
+    let mut inputs_memory = InputsMemory::new(&label);
 
     let effort = effort_for(&app_handle);
-    let request = JobRequest {
-        cabinet: &cabinet_id,
-        prompt,
-        model: model.as_deref(),
-        effort: effort.as_deref(),
-        session_key: Some(&label),
-        // Ключ отправки уникален на попытку: повтор с ним не рождает второе задание,
-        // и обрыв связи после постановки перестаёт быть потерянной работой.
-        idempotency_key: format!("{label}-{}", short_stamp()),
-        inputs: &inputs,
-        keep_inputs: unchanged,
-    };
 
+    // 🔴 Один повтор с файлами, и только он. Рабочую папку на узле убирает сборщик
+    // простоя — по будничным причинам: диалог долго молчал, узел перезапустили.
+    // Сервер тогда честно отвечает «файлы этого диалога не найдены», но человеку
+    // от этого текста толку нет: файлы у него на месте, во «Входящих». Программа
+    // разбирает причину машинно и отправляет их заново сама.
+    let mut keep = unchanged;
     let mut shown = String::new();
-    let outcome = {
-        let cabinet_for_stream = cabinet_id.clone();
-        let handle_for_stream = app_handle.clone();
-        client
-            // 🔴 Признак отмены уходит В прогон, а не сверяется после него.
-            // Прежде «Остановить» гасило индикатор, а рабочий поток висел в
-            // ожидании до потолка Core — четверть часа, держа соединение и место
-            // в реестре работ. Проверка после возврата отменой не была: возврата
-            // всё это время и не происходило.
-            .run_job_cancellable(
-                &request,
-                |piece| {
-                    shown.push_str(piece);
-                    if !suppress_done {
-                        let _ = handle_for_stream.emit(
-                            &format!("claude-stream-{cabinet_for_stream}"),
-                            build_stream_event(&shown),
-                        );
-                    }
-                },
-                |job_id| work.attach(job_id),
-                || work.cancelled(),
-            )
-            .await
+    let (inputs, skipped, outcome) = loop {
+        let (inputs, skipped) = if keep {
+            info!("Вложения диалога уже на сервере [{cabinet_id}]: файлы не перечитываются");
+            (Vec::new(), Vec::new())
+        } else {
+            collect_inputs(work_dir, &cabinet_id)
+        };
+        // 🔴 Недоставленное вложение ПРЕКРАЩАЕТ работу — инвариант ADR-048, и он же
+        // на сервере. Прежде файл за потолком просто пропускался: разбор шёл без
+        // данных, которые человек считает учтёнными, и выдавался за законченный.
+        // Тост о причине легко не заметить, а отчёт выглядит полноценным — это и есть
+        // молчаливое расхождение, которое дороже честного отказа (INV-50).
+        //
+        // 🔴 Об одном событии человек узнаёт ОДИН раз. Прежде предупреждения
+        // рассылались всплывающими ДО этого решения, и человек получал два сообщения
+        // об одном и том же, причём всплывающее говорило «файл не уедет», хотя не
+        // уезжала вся работа. Всплывающие остаются для случая, когда работа
+        // продолжается, — и рассылаются только после того, как это решено.
+        if let Some(text) = refusal_for_skipped(&skipped) {
+            anyhow::bail!("[TC-GW-INPUT] {text}");
+        }
+        for item in &skipped {
+            let _ = app_handle.emit(
+                &format!("inbox-attachments-skipped-{cabinet_id}"),
+                // 🔴 Отдельного поля с именем файла в событии НЕТ намеренно: имя уже
+                // стоит внутри причины («файл «бюджет.csv» слишком велик»), а поле,
+                // которого интерфейс не читает, — либо потерянные данные, либо
+                // мёртвый груз. Паритет с Oracle, где так же убрано поле files.
+                serde_json::json!({ "reason": item.reason, "action": item.action }),
+            );
+        }
+
+        // 🔴 Вторая сверка — перед самой постановкой. Чтение файлов могло занять
+        // заметное время, и отмена, пришедшая за это время, не должна порождать
+        // задание на сервере: оно займёт место в реестре работ и слот лицензии, а
+        // остановить его человеку уже нечем — он остановил всё раньше.
+        if work.cancelled() {
+            return stopped_before_start(&app_handle, &cabinet_id, suppress_done);
+        }
+
+        // 🔴 Запрос живёт ВНУТРИ блока: он держит ссылку на набор файлов, а набор
+        // отдаётся наружу из цикла. Пока запрос жив, отдать его нельзя.
+        let outcome = {
+            let request = JobRequest {
+                cabinet: &cabinet_id,
+                prompt,
+                model: model.as_deref(),
+                effort: effort.as_deref(),
+                session_key: Some(&label),
+                // Ключ отправки уникален на попытку: повтор с ним не рождает второе
+                // задание, и обрыв связи после постановки перестаёт быть потерянной
+                // работой.
+                idempotency_key: format!("{label}-{}", short_stamp()),
+                inputs: &inputs,
+                keep_inputs: keep,
+            };
+            let cabinet_for_stream = cabinet_id.clone();
+            let handle_for_stream = app_handle.clone();
+            let shown = &mut shown;
+            client
+                // 🔴 Признак отмены уходит В прогон, а не сверяется после него.
+                // Прежде «Остановить» гасило индикатор, а рабочий поток висел в
+                // ожидании до потолка Core — четверть часа, держа соединение и место
+                // в реестре работ. Проверка после возврата отменой не была: возврата
+                // всё это время и не происходило.
+                .run_job_cancellable(
+                    &request,
+                    |piece| {
+                        shown.push_str(piece);
+                        if !suppress_done {
+                            let _ = handle_for_stream.emit(
+                                &format!("claude-stream-{cabinet_for_stream}"),
+                                build_stream_event(shown),
+                            );
+                        }
+                    },
+                    |job_id| work.attach(job_id),
+                    || work.cancelled(),
+                )
+                .await
+        };
+
+        // Повтор ровно один: второй заход идёт уже с файлами, и та же причина
+        // прийти не может. Больше одного значило бы гонять вложения по кругу.
+        if should_resend_inputs(keep, &outcome) {
+            info!("Сервер не нашёл вложений диалога [{cabinet_id}]: отправляю их заново");
+            keep = false;
+            shown.clear();
+            continue;
+        }
+        break (inputs, skipped, outcome);
     };
 
     // 🔴 Накопленный текст не выбрасывается ни отменой, ни сбоем связи. Прежде
@@ -741,16 +902,15 @@ async fn execute(
     // в этот раз действительно уехали: запомнить раньше — значит однажды сказать
     // «вложения уже на сервере» про набор, который туда не доехал. И наоборот:
     // работа с ПУСТЫМ набором заставляет сервер очистить «Входящие», поэтому
-    // память о прежнем наборе становится ложью и снимается.
-    {
-        let mut sent = sent_inputs().lock().unwrap_or_else(|e| e.into_inner());
-        if unchanged {
-            // Набор не менялся — помним прежнее.
-        } else if inputs.is_empty() {
-            sent.remove(&label);
-        } else {
-            sent.insert(label.clone(), inputs_fingerprint(&signature));
-        }
+    // память о прежнем наборе становится ложью — страж снимет её сам, ей просто
+    // не подтверждают жизнь.
+    // 🔴 Судить надо по ТОМУ заходу, который удался: после повтора с файлами
+    // `keep` уже ложно, и память обязана обновиться отпечатком уехавшего набора,
+    // а не сохранить прежний.
+    match decide_inputs_memory(keep, !inputs.is_empty(), skipped.is_empty()) {
+        InputsVerdict::Keep => inputs_memory.keep(),
+        InputsVerdict::Remember => inputs_memory.remember(inputs_fingerprint(&signature)),
+        InputsVerdict::Forget => {}
     }
 
     let mut text = state.text.clone();
@@ -1233,4 +1393,120 @@ mod tests {
     // «русский текст сервера против внутренней диагностики» живут в Core
     // (`JobState::failure_text`, `CloudError::user_text`) и проверяются там. Копия
     // проверок в продукте зеленела бы независимо от того, что показывает общий слой.
+
+    /// Что помнит процесс о наборе этой метки прямо сейчас.
+    fn remembered(label: &str) -> Option<String> {
+        sent_inputs()
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(label)
+            .cloned()
+    }
+
+    #[test]
+    fn success_remembers_the_set_that_went_up() {
+        let label = "тест-успех-помнит-набор";
+        {
+            let mut memory = InputsMemory::new(label);
+            memory.remember("отпечаток-1".to_string());
+        }
+        assert_eq!(
+            remembered(label).as_deref(),
+            Some("отпечаток-1"),
+            "успешная работа обязана запомнить уехавший набор — ради этого всё и делается",
+        );
+        sent_inputs().lock().unwrap_or_else(|e| e.into_inner()).remove(label);
+    }
+
+    #[test]
+    fn any_failure_forgets_that_inputs_are_on_the_server() {
+        let label = "тест-отказ-снимает-память";
+        {
+            let mut memory = InputsMemory::new(label);
+            memory.remember("отпечаток-2".to_string());
+        }
+        assert!(remembered(label).is_some(), "предпосылка: набор уже уехал");
+
+        // Следующий вопрос кончился неуспехом — любым: отказ сервера «файлы этого
+        // диалога не найдены», обрыв связи, отмена. Страж разрушается без
+        // подтверждения жизни.
+        {
+            let _memory = InputsMemory::new(label);
+        }
+        assert!(
+            remembered(label).is_none(),
+            "после неуспеха память обязана сняться: иначе следующий вопрос уйдёт с тем же \
+             признаком, получит тот же отказ, и человек попадёт в круг, из которого сам не выйдет",
+        );
+    }
+
+    #[test]
+    fn resend_answers_only_the_missing_inputs_refusal() {
+        let missing: Result<JobState, CloudError> = Err(CloudError::ResendInputs);
+        assert!(
+            should_resend_inputs(true, &missing),
+            "шли без файлов, сервер их не нашёл — единственный отказ, который программа \
+             исправляет сама",
+        );
+        assert!(
+            !should_resend_inputs(false, &missing),
+            "файлы в этот раз уезжали: пересылать нечего, и повтор был бы вечным кругом",
+        );
+
+        let broken: Result<JobState, CloudError> = Err(CloudError::Connection("обрыв".into()));
+        assert!(
+            !should_resend_inputs(true, &broken),
+            "обрыв связи пересылкой не лечится — вложения полетели бы наверх на каждую беду сети",
+        );
+
+        let done: Result<JobState, CloudError> = Ok(JobState::default());
+        assert!(!should_resend_inputs(true, &done), "работа удалась — повторять нечего");
+    }
+
+    #[test]
+    fn incomplete_set_is_never_remembered() {
+        // Три файла, третий не уместился: работа продолжается, человеку сказано.
+        assert_eq!(
+            decide_inputs_memory(false, true, false),
+            InputsVerdict::Forget,
+            "неполный набор запоминать нельзя: иначе каждый следующий вопрос диалога молча \
+             пойдёт по двум файлам из трёх, а сказано об этом было один раз",
+        );
+        assert_eq!(
+            decide_inputs_memory(false, true, true),
+            InputsVerdict::Remember,
+            "полный набор уехал — ради этого экономия и заводилась",
+        );
+        assert_eq!(
+            decide_inputs_memory(false, false, true),
+            InputsVerdict::Forget,
+            "ничего не уезжало — помнить нечего, и сервер очистил «Входящие»",
+        );
+        assert_eq!(
+            decide_inputs_memory(true, false, true),
+            InputsVerdict::Keep,
+            "набор не менялся — прежний отпечаток остаётся в силе",
+        );
+    }
+
+    #[test]
+    fn unchanged_success_keeps_the_previous_memory() {
+        let label = "тест-набор-не-менялся";
+        {
+            let mut memory = InputsMemory::new(label);
+            memory.remember("отпечаток-3".to_string());
+        }
+        // Вопрос без правки вложений: файлы не читались и не уезжали, помнить
+        // нужно прежнее — иначе следующий вопрос выгрузит всё заново.
+        {
+            let mut memory = InputsMemory::new(label);
+            memory.keep();
+        }
+        assert_eq!(
+            remembered(label).as_deref(),
+            Some("отпечаток-3"),
+            "работа по неизменившемуся набору обязана сохранить прежний отпечаток",
+        );
+        sent_inputs().lock().unwrap_or_else(|e| e.into_inner()).remove(label);
+    }
 }
