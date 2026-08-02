@@ -33,7 +33,10 @@
     chosenKpiColumn,
     // Фаза 3 (2026-07-10): баннер обнаружения медиаплана.
     mediaPlanDetected,
+    // P0.3: запас данных считается по режиму — байес заводит праздники, OLS нет.
+    modelEngine,
   } from '$lib/project-state.js';
+  import { effectiveParamCount, effectiveRatio } from '$lib/ratio-classifier.js';
   import {
     deriveModeWithExplanation,
     kpiKindForType,
@@ -794,16 +797,26 @@
     const nPredictors = activeCols.length;
     const nObs = result.file?.rows ?? result.detected?.n_rows ?? 0;
     if (nPredictors === 0 || nObs === 0) return null;
-    const ratio = nObs / nPredictors;
+    // P0.3: запас данных — по числу параметров, которое модель заведёт на самом
+    // деле (байес добавляет авто-праздники и свободный член, OLS — только
+    // свободный член). Число назначенных столбцов берётся ЖИВОЕ, из текущих
+    // ролей: пользователь меняет их прямо на этом экране, и значение из ответа
+    // движка успевает устареть. Авто-часть от ролей не зависит и приходит
+    // из ответа.
+    const ratio = effectiveRatio(nObs, result.detected, $modelEngine, nPredictors);
+    const nParamsEffective = effectiveParamCount(result.detected, $modelEngine, nPredictors);
+    const ratioRaw = nObs / nPredictors;
     // Weak: media каналы с >50% нулей.
     const weakMedia = cols.filter((/** @type {any} */ c) =>
       c?.role === 'media' && Number(c?.stats?.zeros_pct ?? 0) > 50
     );
     const afterExclude = nPredictors - weakMedia.length > 0
-      ? nObs / (nPredictors - weakMedia.length)
+      ? effectiveRatio(nObs, result.detected, $modelEngine, nPredictors - weakMedia.length)
       : null;
     return {
       ratio,
+      ratioRaw,
+      nParamsEffective,
       nObs,
       nPredictors,
       weakChannelsCount: weakMedia.length,
@@ -900,7 +913,8 @@
     /** @type {Record<string, string>} */
     const map = {};
     try {
-      const insights = validateInsights(result, objective);
+      // P0.3: режим передаётся явно — запас данных зависит от него.
+      const insights = validateInsights(result, objective, $modelEngine);
       for (const ins of (insights || [])) {
         // Filter: только жёсткие issues (warning + error), не optimization tips.
         if (ins?.severity !== 'warning' && ins?.severity !== 'error') continue;

@@ -10,14 +10,39 @@ import { validateInsights } from '../lib/insights-rules.js';
 
 // ─── helpers ───────────────────────────────────────────────────────────────
 
-/** Минимальный result с нужными параметрами. */
+/**
+ * Минимальный result с нужными параметрами.
+ *
+ * P0.3 (2026-08-03): `detected` заполняется составом, который реально отдаёт
+ * `validator.py`, — запас данных считается по ЭФФЕКТИВНОМУ числу параметров
+ * (назначенные + 12 авто-праздников + свободный член для байеса). Раньше здесь
+ * стоял пустой `detected: {}`, и тесты неявно опирались на сырой знаменатель.
+ * Числа наблюдений в тестах ниже пересчитаны под эффективный, чтобы каждый
+ * проверял ту же ситуацию, что и задумывался.
+ */
+const N_HOLIDAYS_AUTO = 12;
+const N_INTERCEPT = 1;
+
 function mkResult({ kpi = 1, media = 4, control = 0, rows = 48, warnings = [], status = 'ok', extraCols = [] } = {}) {
   const columns = [];
   for (let i = 0; i < kpi; i++) columns.push({ name: `kpi${i}`, role: 'kpi', stats: {} });
   for (let i = 0; i < media; i++) columns.push({ name: `media${i}`, role: 'media', stats: {} });
   for (let i = 0; i < control; i++) columns.push({ name: `ctrl${i}`, role: 'control', stats: {} });
   columns.push(...extraCols);
-  return { status, columns, file: { rows }, warnings, detected: {} };
+  const nPredictors = media + control;
+  return {
+    status,
+    columns,
+    file: { rows },
+    warnings,
+    detected: {
+      n_predictors: nPredictors,
+      n_holidays_auto: N_HOLIDAYS_AUTO,
+      n_intercept: N_INTERCEPT,
+      n_params_effective_bayesian: nPredictors + N_HOLIDAYS_AUTO + N_INTERCEPT,
+      n_params_effective_ols: nPredictors + N_INTERCEPT,
+    },
+  };
 }
 
 const allTexts = (out) => out.map(i => i.text).join(' || ');
@@ -28,8 +53,8 @@ const sev = (out, s) => out.filter(i => i.severity === s);
 
 describe('П5-1а: отсутствие дублей ratio-инсайтов', () => {
   it('ratio 3.0 → ровно один инсайт упоминает «3.0:1»', () => {
-    // 21 rows / 7 params = 3.0
-    const out = validateInsights(mkResult({ kpi: 1, media: 5, control: 2, rows: 21 }));
+    // P0.3: 60 наблюдений / (5 медиа + 2 контроля + 12 праздников + 1) = 3.0
+    const out = validateInsights(mkResult({ kpi: 1, media: 5, control: 2, rows: 60 }));
     const matches = out.filter(i => (i.text ?? '').includes('3.0:1'));
     expect(matches).toHaveLength(1);
   });
@@ -47,8 +72,8 @@ describe('П5-1а: отсутствие дублей ratio-инсайтов', ()
   });
 
   it('ratio ≥ 5 → один success «Модель надёжна», нет дублирующего warning', () => {
-    // 60 rows / 4 = 15.0
-    const out = validateInsights(mkResult({ kpi: 1, media: 4, rows: 60 }));
+    // P0.3: 170 наблюдений / (4 медиа + 12 праздников + 1) = 10.0
+    const out = validateInsights(mkResult({ kpi: 1, media: 4, rows: 170 }));
     const nadezhn = out.filter(i => (i.text ?? '').includes('надёжна') || (i.text ?? '').includes('надёжен'));
     // success-инсайт «надёжна» только один
     expect(nadezhn.length).toBeLessThanOrEqual(1);

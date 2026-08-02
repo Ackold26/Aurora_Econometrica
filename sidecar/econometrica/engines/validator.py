@@ -668,26 +668,68 @@ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, A
     #     фронт получит фактические данные из diagnostics.seasonality
     # Значение проброшено в ответ как отдельное поле и читается фронтом
     # вместо local (mediaCount + controlCount) для отображения ratio.
+    #
+    # P0.3 (2026-08-03, решение владельца «всё к эффективному»): показываем и
+    # гейтим по числу параметров, которое модель заведёт НА САМОМ ДЕЛЕ, а не по
+    # числу назначенных пользователем столбцов. Сырой знаменатель завышал запас
+    # данных (INV-50) и давал скачок: до обучения «Рекомендуемый уровень»,
+    # после — «Критически мало» на тех же данных.
+    #
+    # 🔴 Знаменателей ДВА, по режиму моделирования, и это не деталь:
+    #   - байесовский заводит праздники (modeler.py авто-инжектит их в контроли);
+    #   - OLS не заводит НИ ОДНОГО (в ols_modeler.py генератора праздников нет
+    #     вовсе — проверено обходом вызовов generate_holiday_dummies).
+    # Единая константа +13 соврала бы для OLS ровно настолько же, насколько
+    # сырой знаменатель врал для байеса.
+    #
+    # Праздников не всегда 12: modeler.py пропускает те, что пользователь дал
+    # сам (семантический дедуп по нормализованному имени), и отключённые в
+    # конфиге. Отключённые на этапе валидации неизвестны, а вот покрытые
+    # пользователем — видны прямо здесь, по списку колонок. Считаем их.
     N_HOLIDAYS_DEFAULT = 12
     N_INTERCEPT = 1
-    n_params_effective_pretrain = n_predictors + N_HOLIDAYS_DEFAULT + N_INTERCEPT
-    ratio = n_rows / max(n_predictors, 1)
-    if ratio < 2:
+    try:
+        from utils.holiday_calendar_ru import user_covered_auto_holidays
+        _covered = len(user_covered_auto_holidays([c['name'] for c in columns]))
+    except Exception:  # noqa: BLE001 — оценка не имеет права ронять валидацию
+        _covered = 0
+    n_holidays_auto = max(N_HOLIDAYS_DEFAULT - _covered, 0)
+    n_params_effective_bayesian = n_predictors + n_holidays_auto + N_INTERCEPT
+    n_params_effective_ols = n_predictors + N_INTERCEPT
+    # Историческое имя поля: оставлено, чтобы не сломать уже сохранённые
+    # проекты и внешних читателей. Значение — байесовская оценка (режим по
+    # умолчанию); фронт выбирает нужное по фактическому режиму.
+    n_params_effective_pretrain = n_params_effective_bayesian
+    # 🔴 Пороги ниже (issues/warnings) считаются по САМОМУ МЯГКОМУ знаменателю —
+    # OLS. Причина: валидация идёт ДО того, как движок узнаёт режим (в
+    # /compute/validate его нет вовсе), а у пользователя всегда есть выбор
+    # между байесовским и OLS. Гейтить по байесовскому знаменателю значило бы
+    # объявить «критически мало данных» проекту, который в OLS считается
+    # нормально, — и отнять у него режим, специально предназначенный для
+    # коротких рядов. Здесь порог означает «мало данных для ЛЮБОГО режима».
+    # Точный показ по фактическому режиму делает фронт — единый источник
+    # `ratio-classifier.effectiveRatio`, он режим знает.
+    ratio_gate = n_rows / max(n_params_effective_ols, 1)
+    # Отображаемое значение — байесовское (режим по умолчанию); фронт
+    # пересчитает под фактический режим.
+    ratio = n_rows / max(n_params_effective_bayesian, 1)
+    ratio_raw = n_rows / max(n_predictors, 1)
+    if ratio_gate < 2:
         issues.append({
             'type': 'insufficient_data',
-            'message': f'Ratio данных {ratio:.1f}:1 - критически мало. Модель почти наверняка переобучится - β-коэффициенты будут случайными',
+            'message': f'Ratio данных {ratio_gate:.1f}:1 - критически мало. Модель почти наверняка переобучится - β-коэффициенты будут случайными',
             'severity': 'critical',
         })
-    elif ratio < 3:
+    elif ratio_gate < 3:
         warnings.append({
             'type': 'low_data',
-            'message': f'Ratio {ratio:.1f}:1 - ниже минимума. Модель сойдётся, но правдоподобные диапазоны будут очень широкими - используйте результаты как ориентир',
+            'message': f'Ratio {ratio_gate:.1f}:1 - ниже минимума. Модель сойдётся, но правдоподобные диапазоны будут очень широкими - используйте результаты как ориентир',
             'severity': 'warning',
         })
-    elif ratio < 4:
+    elif ratio_gate < 4:
         warnings.append({
             'type': 'borderline_data',
-            'message': f'Ratio {ratio:.1f}:1 - ниже рекомендуемого. Модель работает, но с широкими правдоподобными диапазонами - результаты как качественные ориентиры',
+            'message': f'Ratio {ratio_gate:.1f}:1 - ниже рекомендуемого. Модель работает, но с широкими правдоподобными диапазонами - результаты как качественные ориентиры',
             'severity': 'warning',
         })
 
@@ -826,7 +868,17 @@ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, A
             'control': control_cols,
             'n_predictors': n_predictors,
             'n_params_effective_pretrain': n_params_effective_pretrain,
+            # P0.3: раздельные оценки по режимам — фронт берёт свою, не
+            # пересобирает состав у себя (иначе появился бы второй источник).
+            'n_params_effective_bayesian': n_params_effective_bayesian,
+            'n_params_effective_ols': n_params_effective_ols,
+            # Состав — для объяснения пользователю, откуда взялось число.
+            'n_holidays_auto': n_holidays_auto,
+            'n_intercept': N_INTERCEPT,
             'ratio': round(ratio, 1),
+            # Сырой запас (наблюдения на назначенный столбец) — справочно,
+            # для второй строки подписи. Гейтить по нему нельзя: он завышает.
+            'ratio_raw': round(ratio_raw, 1),
             'date_frequency': date_frequency,
         },
         'available_kpi_types': sorted(available_kpi_types),

@@ -10,7 +10,12 @@
  */
 import { writable, derived, get } from 'svelte/store';
 import { invoke } from '@tauri-apps/api/core';
-import { classifyRatio, severityTo3Tier } from './ratio-classifier.js';
+import {
+  classifyRatio,
+  effectiveParamCount,
+  effectiveRatio,
+  severityTo3Tier,
+} from './ratio-classifier.js';
 // MQS SSOT (2026-07-26): прогнозный MQS (до обучения) — та же клиентская шкала,
 // что и посчитанный MQS, поэтому уровень берём из канона, а не своим порогом.
 import { mqsTierInfo } from './mqs-tiers.js';
@@ -442,7 +447,22 @@ export const modelEnabledMediaNames = derived(modelChannelEnabled, ($map) => {
  *   mqsStatus: 'ok'|'warn'|'bad'
  * } | null>}
  */
-export const validationHeaderMetrics = derived(validateData, ($vd) => {
+/**
+ * v1.0.16: модель-движок selector (Import шаг).
+ * 'bayesian' (default, NUTS NumPyro) - полный posterior, CI, ~20-60 сек train.
+ * 'ols' (Sprint 2 small-data fallback) - closed-form OLS, frequentist β CI,
+ *   ~2-5 сек, для n<30 наблюдений где Bayesian funnel/divergences likely.
+ * Auto-recommend: n<30 → OLS, n≥30 → Bayesian. Customer может override.
+ *
+ * P0.3: объявлен ЗДЕСЬ, выше validationHeaderMetrics, а не ниже по файлу —
+ * запас данных считается по режиму (байес заводит праздники, OLS нет), и
+ * derived ниже подписан на этот стор. Объявление после подписки упало бы
+ * в мёртвую зону инициализации.
+ * @type {import('svelte/store').Writable<'bayesian' | 'ols'>}
+ */
+export const modelEngine = writable('bayesian');
+
+export const validationHeaderMetrics = derived([validateData, modelEngine], ([$vd, $engine]) => {
   const result = $vd?.result;
   if (!result) return null;
 
@@ -461,10 +481,15 @@ export const validationHeaderMetrics = derived(validateData, ($vd) => {
   // F-A1-5: эффективное число параметров с учётом авто-контролей (праздники + intercept).
   // Backend проставляет detected.n_params_effective_pretrain при вызове /compute/validate;
   // для реконструированных проектов (нет свежего validate) — пересчёт с дефолтными 12+1.
-  const nParamsEffectivePretrain = Number(
-    result.detected?.n_params_effective_pretrain ?? (nPredictors + 12 + 1)
-  );
-  const ratio = nObs > 0 && nPredictors > 0 ? nObs / nPredictors : 0;
+  const nParamsEffectivePretrain = effectiveParamCount(result.detected, $engine);
+  // P0.3 (решение владельца «всё к эффективному»): запас данных считается по
+  // числу параметров, которое модель заведёт НА САМОМ ДЕЛЕ — с авто-праздниками
+  // и свободным членом для байеса, только со свободным членом для OLS. Сырой
+  // (obs / назначенные столбцы) завышал достаточность (INV-50) и давал скачок:
+  // до обучения «Рекомендуемый уровень», после — «Критически мало» на тех же
+  // данных. Сырой оставлен рядом справочно, для второй строки подписи.
+  const ratio = effectiveRatio(nObs, result.detected, $engine);
+  const ratioRaw = nObs > 0 && nPredictors > 0 ? nObs / nPredictors : 0;
 
   // VIF max - collinearity worst-case среди media каналов
   const vifs = mediaCols
@@ -515,6 +540,9 @@ export const validationHeaderMetrics = derived(validateData, ($vd) => {
 
   return {
     ratio,
+    /** P0.3: сырой запас (наблюдения на назначенный столбец) — СПРАВОЧНО,
+     *  для второй строки подписи. Гейтить и красить по нему нельзя. */
+    ratioRaw,
     ratioStatus: ratioStatusAligned,
     /** v2.1.0: расширенная severity (5 уровней) для UI badges и инсайтов */
     ratioSeverity,
@@ -997,16 +1025,6 @@ export const showGlossaryPanel = writable(false);
  * @type {import('svelte/store').Writable<string | null>}
  */
 export const glossaryInitialTerm = writable(/** @type {string | null} */ (null));
-
-/**
- * v1.0.16: модель-движок selector (Import шаг).
- * 'bayesian' (default, NUTS NumPyro) - полный posterior, CI, ~20-60 сек train.
- * 'ols' (Sprint 2 small-data fallback) - closed-form OLS, frequentist β CI,
- *   ~2-5 сек, для n<30 наблюдений где Bayesian funnel/divergences likely.
- * Auto-recommend: n<30 → OLS, n≥30 → Bayesian. Customer может override.
- * @type {import('svelte/store').Writable<'bayesian' | 'ols'>}
- */
-export const modelEngine = writable('bayesian');
 
 /** @type {import('svelte/store').Writable<{diagnostics: any|null, channelParams: any|null, picklePath: string|null, normalization?: {y_mean: number, y_std: number}|null}>} */
 export const modelData = writable({ diagnostics: null, channelParams: null, picklePath: null, normalization: null });

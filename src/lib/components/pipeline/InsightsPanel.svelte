@@ -37,7 +37,7 @@
     validateKpiInsights, validateRolesInsights, validateMetricsInsights, validateConfirmInsights,
   } from '$lib/insights-rules.js';
   // v2.1.0 (rc2 U-05): subStep store для контекстной маршрутизации.
-  import { validateSubStep, analysisMode, perChannelInput, unitCosts, unitCostInputMode, budgetInputs, modelEnabledMediaNames, validationHeaderMetrics } from '$lib/project-state.js';
+  import { validateSubStep, analysisMode, perChannelInput, unitCosts, unitCostInputMode, budgetInputs, modelEnabledMediaNames, validationHeaderMetrics, modelEngine } from '$lib/project-state.js';
   // Tier 2 (Claude-усилитель инсайтов, «Phase 10»). Видим только в облачной
   // редакции с согласием и для продукта Econometrica.
   import { isEconometrica } from '$lib/creative-store.js';
@@ -302,7 +302,9 @@
         // media-роли. modelEnabledMediaNames пустой до Init шага Модель.
         if (!mod?.diagnostics) {
           const activeMedia = $modelEnabledMediaNames;
-          return modelPreTrainingInsights(val?.result, activeMedia.length > 0 ? activeMedia : undefined);
+          // P0.3: режим передаётся явно — запас данных считается по нему
+          // (байес заводит авто-праздники, OLS не заводит ни одного).
+          return modelPreTrainingInsights(val?.result, activeMedia.length > 0 ? activeMedia : undefined, $modelEngine);
         }
         // v2.1.0 (пилот 2026-05-16): передаём frontend SSOT ratio - Антон:
         // «ratio в расчёте было 3.9, на модели опять неверные ratio».

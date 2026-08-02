@@ -140,3 +140,76 @@ export function severityTo3Tier(severity) {
   if (severity === 'warning') return 'warn';
   return 'bad';
 }
+
+/**
+ * P0.3 (2026-08-03, решение владельца «всё к эффективному»): ЕДИНЫЙ источник
+ * знаменателя «Запаса данных» на всех экранах до обучения.
+ *
+ * Зачем отдельная функция, а не расчёт по месту. До этой правки знаменатель
+ * считался в шести местах тремя разными формулами — причём две из них жили
+ * внутри одной функции `validateInsights`. Пользователь на одном экране видел
+ * «Запас данных 5,2 — Рекомендуемый уровень» в шапке и «Критически мало
+ * данных: ratio 2,3:1» в советах под ней.
+ *
+ * 🔴 Знаменателей ДВА, по режиму моделирования:
+ *   - байесовский заводит авто-праздники РФ (их инжектит `modeler.py` в
+ *     контроли) + свободный член;
+ *   - OLS не заводит ни одного праздника (в `ols_modeler.py` генератора нет
+ *     вовсе) — только свободный член.
+ * Единая константа «+13 всегда» соврала бы для OLS ровно настолько, насколько
+ * сырой знаменатель врёт для байеса.
+ *
+ * Состав приходит из `validator.py` (`detected.n_params_effective_*`); здесь
+ * только выбор по режиму — собирать состав на фронте нельзя, это завело бы
+ * второй источник истины.
+ *
+ * @param {any} detected  блок `result.detected` из ответа /compute/validate
+ * @param {'bayesian'|'ols'|string|null|undefined} engine  текущий режим
+ * @param {number|null} [nPredictorsOverride]  актуальное число назначенных
+ *   столбцов, когда пользователь меняет роли на лету и число из ответа движка
+ *   уже устарело. Авто-часть (праздники, свободный член) берётся из ответа —
+ *   она от ролей не зависит.
+ * @returns {number} число параметров, которое модель заведёт на самом деле
+ */
+export function effectiveParamCount(detected, engine, nPredictorsOverride = null) {
+  const nPredictors = Number(detected?.n_predictors ?? 0) || 0;
+  const isOls = engine === 'ols';
+
+  if (nPredictorsOverride != null && Number.isFinite(Number(nPredictorsOverride))) {
+    const live = Number(nPredictorsOverride);
+    const intercept = Number(detected?.n_intercept ?? 1) || 1;
+    const holidays = isOls ? 0 : (Number(detected?.n_holidays_auto ?? 12) || 0);
+    return Math.max(live + holidays + intercept, 1);
+  }
+
+  const fromBackend = isOls
+    ? detected?.n_params_effective_ols
+    : (detected?.n_params_effective_bayesian ?? detected?.n_params_effective_pretrain);
+  const parsed = Number(fromBackend);
+  if (Number.isFinite(parsed) && parsed > 0) return parsed;
+  // Запасной путь для проектов, сохранённых до P0.3 (в ответе нет новых
+  // полей): собираем по тем же правилам, что и движок. Праздников берём 12 —
+  // семантический дедуп без списка колонок здесь не воспроизвести, поэтому
+  // оценка консервативная (знаменатель не меньше фактического).
+  const N_HOLIDAYS_DEFAULT = 12;
+  const N_INTERCEPT = 1;
+  return isOls
+    ? nPredictors + N_INTERCEPT
+    : nPredictors + N_HOLIDAYS_DEFAULT + N_INTERCEPT;
+}
+
+/**
+ * Запас данных по эффективному знаменателю — то, что показывается и гейтится.
+ *
+ * @param {number} nObs      число наблюдений
+ * @param {any} detected     блок `result.detected`
+ * @param {'bayesian'|'ols'|string|null|undefined} engine
+ * @param {number|null} [nPredictorsOverride]  см. effectiveParamCount
+ * @returns {number} наблюдений на фактический параметр, 0 если посчитать не из чего
+ */
+export function effectiveRatio(nObs, detected, engine, nPredictorsOverride = null) {
+  const obs = Number(nObs) || 0;
+  const params = effectiveParamCount(detected, engine, nPredictorsOverride);
+  if (obs <= 0 || params <= 0) return 0;
+  return obs / params;
+}

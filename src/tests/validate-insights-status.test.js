@@ -8,13 +8,36 @@
 import { describe, it, expect } from 'vitest';
 import { validateInsights } from '../lib/insights-rules.js';
 
-/** Собрать result из ролей: kpi/media/control counts + rows. */
+/**
+ * Собрать result из ролей: kpi/media/control counts + rows.
+ *
+ * P0.3 (2026-08-03): `detected` несёт состав, который реально отдаёт
+ * `validator.py`. Запас данных считается по ЭФФЕКТИВНОМУ числу параметров
+ * (назначенные + 12 авто-праздников + свободный член у байеса), поэтому числа
+ * наблюдений ниже пересчитаны — ситуация в каждом тесте прежняя.
+ */
+const N_HOLIDAYS_AUTO = 12;
+const N_INTERCEPT = 1;
+
 function mkResult({ kpi = 1, media = 4, control = 0, rows = 48, warnings = [], status = 'ok' } = {}) {
   const columns = [];
   for (let i = 0; i < kpi; i++) columns.push({ name: `kpi${i}`, role: 'kpi', stats: {} });
   for (let i = 0; i < media; i++) columns.push({ name: `media${i}`, role: 'media', stats: {} });
   for (let i = 0; i < control; i++) columns.push({ name: `ctrl${i}`, role: 'control', stats: {} });
-  return { status, columns, file: { rows }, warnings, detected: {} };
+  const nPredictors = media + control;
+  return {
+    status,
+    columns,
+    file: { rows },
+    warnings,
+    detected: {
+      n_predictors: nPredictors,
+      n_holidays_auto: N_HOLIDAYS_AUTO,
+      n_intercept: N_INTERCEPT,
+      n_params_effective_bayesian: nPredictors + N_HOLIDAYS_AUTO + N_INTERCEPT,
+      n_params_effective_ols: nPredictors + N_INTERCEPT,
+    },
+  };
 }
 
 const sev = (out, s) => out.filter(i => i.severity === s);
@@ -22,7 +45,8 @@ const txt = (out) => out.map(i => i.text).join(' || ');
 
 describe('validateInsights — статус и конкретика ошибок', () => {
   it('готовые данные (kpi=1, media≥1, ratio≥4, нет warnings) → success', () => {
-    const out = validateInsights(mkResult({ kpi: 1, media: 4, rows: 48 })); // 48/4=12
+    // P0.3: 204 / (4 медиа + 12 праздников + 1) = 12.0
+    const out = validateInsights(mkResult({ kpi: 1, media: 4, rows: 204 }));
     expect(sev(out, 'success').length).toBeGreaterThanOrEqual(1);
     expect(txt(out)).toContain('готовы к обучению');
     expect(sev(out, 'error')).toHaveLength(0);
@@ -56,11 +80,11 @@ describe('validateInsights — статус и конкретика ошибок
   });
 
   it('ratio 2–4 → warning про ratio (не error)', () => {
-    // 21 rows / (5 media + 2 control) = 3.0 → warning
+    // P0.3: 60 / (5 медиа + 2 контроля + 12 праздников + 1) = 3.0 → warning
     // П5-1а (2026-07-10): статусный блок больше НЕ дублирует число ratio («Ratio X:1»
     // с заглавной) — конкретика идёт из блока «Объём данных» строчной «ratio X:1».
     // Тест обновлён: проверяем наличие числа ratio в любом регистре, не конкретную капитализацию.
-    const out = validateInsights(mkResult({ kpi: 1, media: 5, control: 2, rows: 21 }));
+    const out = validateInsights(mkResult({ kpi: 1, media: 5, control: 2, rows: 60 }));
     expect(sev(out, 'error')).toHaveLength(0);
     const warn = sev(out, 'warning');
     expect(warn.length).toBeGreaterThanOrEqual(1);
@@ -85,7 +109,8 @@ describe('validateInsights — статус и конкретика ошибок
   it('effectiveStatus пересчитывается из ролей, а не из stale backend status', () => {
     // backend прислал error, но роли валидны (kpi=1, media=4, ratio высокий) →
     // фронт НЕ должен показывать блокирующую ошибку статуса.
-    const out = validateInsights(mkResult({ status: 'error', kpi: 1, media: 4, rows: 48 }));
+    // P0.3: 204 / (4 медиа + 12 праздников + 1) = 12.0 — запас заведомо высокий
+    const out = validateInsights(mkResult({ status: 'error', kpi: 1, media: 4, rows: 204 }));
     // generic «критические проблемы со структурой» не должно быть (issues пусты,
     // но effectiveStatus=ok перебивает — ветка backward-compat не про статус).
     expect(txt(out)).toContain('готовы к обучению');

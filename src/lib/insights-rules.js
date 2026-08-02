@@ -24,7 +24,7 @@ import {
 } from './kpi-aware-formatting.js';
 // v2.1.0 (пилот 2026-05-16): SSOT-классификатор ratio для согласованности
 // меток с RatioInfoCard / sticky header / Контроль качества.
-import { classifyRatio } from './ratio-classifier.js';
+import { classifyRatio, effectiveParamCount, effectiveRatio } from './ratio-classifier.js';
 import { pluralizeRu } from './utils/i18n.js';
 // INV-50 анти-рецидив (2026-06-07): единый пост-train селектор MQS / effective
 // ratio. Инсайты больше НЕ читают эти производные из diagnostics напрямую —
@@ -397,7 +397,7 @@ export function validateConfirmInsights(result, context = {}) {
  * @param {any} result
  * @returns {Insight[]}
  */
-export function validateInsights(result, objective = 'roi') {
+export function validateInsights(result, objective = 'roi', engine = 'bayesian') {
   /** @type {Insight[]} */
   const out = [];
   if (!result) return out;
@@ -412,11 +412,12 @@ export function validateInsights(result, objective = 'roi') {
   const mediaCount = colsCheck.filter(/** @param {any} c */ c => c?.role === 'media').length;
   const controlCount = colsCheck.filter(/** @param {any} c */ c => c?.role === 'control').length;
   const rowsCheck = result.file?.rows ?? result.detected?.rows ?? 0;
-  // F-A1-5: эффективное число параметров (включая авто-контроли: 12 праздников + intercept).
-  // Backend /compute/validate проставляет detected.n_params_effective_pretrain;
-  // фолбэк — только user-visible media+controls.
-  const paramCountCheck = result.detected?.n_params_effective_pretrain ?? (mediaCount + controlCount);
-  const liveRatio = rowsCheck > 0 && paramCountCheck > 0 ? rowsCheck / paramCountCheck : 0;
+  // P0.3: единый источник знаменателя — ratio-classifier.effectiveParamCount.
+  // Число назначенных столбцов берём живое (из ролей): пользователь меняет их
+  // на этом же экране. Авто-часть (праздники для байеса, свободный член) — из
+  // ответа движка, она от ролей не зависит.
+  const paramCountCheck = effectiveParamCount(result.detected, engine, mediaCount + controlCount);
+  const liveRatio = effectiveRatio(rowsCheck, result.detected, engine, mediaCount + controlCount);
   /** @type {'ok'|'warning'|'error'} */
   let effectiveStatus = 'ok';
   if (kpiCount !== 1 || mediaCount === 0 || liveRatio < 2) {
@@ -976,8 +977,13 @@ export function validateInsights(result, objective = 'roi') {
   }
 
   // ── Динамическая оценка готовности (цепочка рекомендаций) ──
-  // Формула едина с Python validator: ratio = rows / (media + control) variables.
-  const currentRatio = totalRows > 0 && mediaCols.length > 0 ? totalRows / Math.max(mediaCols.length + controlCols.length, 1) : 0;
+  // P0.3: раньше здесь жила ВТОРАЯ формула — сырая (rows / media+control), в то
+  // время как выше в этой же функции ratio считался по эффективному числу
+  // параметров. Из-за этого блок готовности противоречил статусу на том же
+  // экране. Теперь оба идут через единый источник.
+  const currentRatio = mediaCols.length > 0
+    ? effectiveRatio(totalRows, result.detected, engine, mediaCols.length + controlCols.length)
+    : 0;
   const maxChannels = Math.max(2, Math.floor(totalRows / 4) - controlCols.length);
   const excessChannels = mediaCols.length - maxChannels;
 
@@ -1064,7 +1070,7 @@ export function validateInsights(result, objective = 'roi') {
  *   при 7 включённых чекбоксах.
  * @returns {Insight[]}
  */
-export function modelPreTrainingInsights(validateResult, enabledMediaNames = undefined) {
+export function modelPreTrainingInsights(validateResult, enabledMediaNames = undefined, engine = 'bayesian') {
   /** @type {Insight[]} */
   const out = [];
   if (!validateResult) return out;
@@ -1081,21 +1087,13 @@ export function modelPreTrainingInsights(validateResult, enabledMediaNames = und
   const kpiNames = cols.filter(/** @param {any} c */ c => c.role === 'kpi').map(/** @param {any} c */ c => c.name);
   const mediaNames = activeMediaCols.map(/** @param {any} c */ c => c.name);
   const rows = validateResult.file?.rows ?? 0;
-  // F-A1-5: используем эффективное число параметров (включает авто-контроли),
-  // а не только user-visible media+controls. Backend проставляет
-  // detected.n_params_effective_pretrain; учитывает активные каналы через
-  // фолбэк-формулу (activeMedia + allControls + 12 праздников + intercept).
-  // Примечание: detected.n_params_effective_pretrain считает все медиа-колонки
-  // (не фильтрует по enabledMediaNames) — при расхождении берём явный расчёт.
+  // P0.3: единый источник вместо собственного пересчёта авто-контролей.
+  // Здесь считаем по ВКЛЮЧЁННЫМ каналам (`enabledMediaNames`), а не по всем
+  // медиа-ролям — потому число назначенных передаём явно; авто-часть приходит
+  // из ответа движка и зависит от режима (у OLS праздников нет).
   const userVisibleParams = mediaCount + controlCount;
-  const detectedEffective = validateResult.detected?.n_params_effective_pretrain;
-  // Если бэкенд знает эффективное число — используем, но пересчитываем дельту
-  // авто-контролей (12 праздников + 1 intercept) и добавляем к user-visible params.
-  const N_AUTO = 12 + 1; // праздники + intercept
-  const paramCount = detectedEffective != null
-    ? userVisibleParams + N_AUTO
-    : userVisibleParams;
-  const ratio = rows > 0 && paramCount > 0 ? rows / paramCount : 0;
+  const paramCount = effectiveParamCount(validateResult.detected, engine, userVisibleParams);
+  const ratio = effectiveRatio(rows, validateResult.detected, engine, userVisibleParams);
 
   // ── 1. Ready-state summary ──
   if (kpiNames.length > 0 && mediaCount > 0) {
