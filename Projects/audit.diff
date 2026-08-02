@@ -1,667 +1,2293 @@
-diff --git a/sidecar/econometrica/engines/decomposer.py b/sidecar/econometrica/engines/decomposer.py
-index 9d9af4b..97a9a25 100644
---- a/sidecar/econometrica/engines/decomposer.py
-+++ b/sidecar/econometrica/engines/decomposer.py
-@@ -1376,6 +1376,20 @@ def decompose(
-         # v2.1.0 (ADR-021): money equivalent для count KPI when kpi_unit_cost задан.
-         # Frontend выбирает primary display (money если набор полный).
-         'kpi_unit_cost': kpi_unit_cost,
-+        # Отключены ли АБСОЛЮТНЫЕ пороги окупаемости. Экран обязан сказать об
-+        # этом прямо, а не молчать: пользователь видит вердикты и вправе знать,
-+        # что сравнения с единицей за ними нет. Истинно, когда денежного
-+        # отношения не существует: счётная метрика без стоимости единицы (этот
-+        # признак и уезжает в `channel_action`, где шаги 4/6/7/8 не применяются)
-+        # либо режим эффективности (его `compute_roi_verdict` разбирает своей
-+        # веткой `_eff_mode`).
-+        # ⚠️ Докстринг `channel_action` обещает, что второй случай приходит тем
-+        # же признаком — фактически вызывающий передаёт только первый. Здесь оба
-+        # сведены сознательно: для пользователя разницы нет, абсолютных денежных
-+        # порогов не существует ни в том, ни в другом случае.
-+        'money_roi_unavailable': bool(
-+            _insight_money_roi_na or _kpi_meta['derived_mode'] == 'effectiveness'
-+        ),
-         'total_sales_money': (
-             round(total_sales * kpi_unit_cost, 0)
-             if kpi_unit_cost is not None and kpi_kind == 'count'
-diff --git a/sidecar/econometrica/tests/test_decomposer_exposes_breakeven_flag.py b/sidecar/econometrica/tests/test_decomposer_exposes_breakeven_flag.py
+diff --git a/docs/GLOSSARY_v2_1_0.md b/docs/GLOSSARY_v2_1_0.md
+index 566dbe2..0d9fc71 100644
+--- a/docs/GLOSSARY_v2_1_0.md
++++ b/docs/GLOSSARY_v2_1_0.md
+@@ -468,20 +468,6 @@
+ 
+ ---
+ 
+-### NRMSE (Нормализованная ошибка)
+-
+-**NRMSE** (Normalized Root Mean Square Error – Нормализованная среднеквадратичная ошибка)
+-
+-**Что это.** Насколько точно модель воспроизводит исторические данные. Если модель говорит «на неделе 15 должно быть 12 000 упаковок», а в реальности было 13 500 – это ошибка. NRMSE суммирует все такие ошибки и нормирует на масштаб продаж.
+-
+-**Пример.** NRMSE = 8% означает, что в среднем прогноз модели отклоняется от факта на 8%. Хорошее значение для MMM – ниже 15%.
+-
+-**Когда увидите в Aurora.** В разделе «Качество модели» после расчёта. Зелёный – NRMSE < 10%. Жёлтый – 10–15%. Красный – > 15% (модель плохо объясняет данные, возможно, нужно добавить каналы или проверить данные).
+-
+-**Связанные термины:** [MAPE](#mape-процент-ошибки), [R²](#r²-коэффициент-детерминации).
+-
+----
+-
+ ### R² (Коэффициент детерминации)
+ 
+ **R²** (R-squared, Coefficient of Determination – «эр-квадрат»)
+@@ -490,9 +476,9 @@
+ 
+ **Пример.** В проекте Кагоцел R² = 0,87 – модель объясняет 87% динамики продаж. Оставшиеся 13% – это факторы, не вошедшие в модель (промоакции в аптеках, погода, действия конкурентов без данных).
+ 
+-**Когда увидите в Aurora.** В разделе «Качество модели». R² > 0,75 – хорошая модель. R² < 0,5 – проверьте данные или добавьте важные факторы.
++**Когда увидите в Aurora.** В разделе «Качество модели» как часть общей оценки (Model Quality Score) вместе с MAPE и сходимостью MCMC.
+ 
+-**Связанные термины:** [NRMSE](#nrmse-нормализованная-ошибка), [MAPE](#mape-процент-ошибки).
++**Связанные термины:** [MAPE](#mape-процент-ошибки).
+ 
+ ---
+ 
+@@ -500,13 +486,13 @@
+ 
+ **MAPE** (Mean Absolute Percentage Error – Средняя абсолютная процентная ошибка)
+ 
+-**Что это.** Похож на NRMSE, но показывает ошибку в процентах от фактических значений. Удобно для понимания: «в среднем модель ошибается на столько-то процентов».
++**Что это.** Средняя ошибка модели в процентах от фактических значений. Удобно для понимания: «в среднем модель ошибается на столько-то процентов».
+ 
+ **Пример.** MAPE = 11%: модель в среднем ошибается на 11% в предсказании недельных продаж. Если продаёте 10 000 упаковок в неделю – это ошибка ±1 100 упаковок.
+ 
+-**Когда увидите в Aurora.** В карточке качества модели рядом с NRMSE. Хорошее значение для MMM – MAPE < 15%.
++**Когда увидите в Aurora.** В карточке качества модели. Хорошее значение для MMM – MAPE < 10%.
+ 
+-**Связанные термины:** [NRMSE](#nrmse-нормализованная-ошибка), [R²](#r²-коэффициент-детерминации).
++**Связанные термины:** [R²](#r²-коэффициент-детерминации).
+ 
+ ---
+ 
+@@ -618,7 +604,6 @@
+ | MCMC | [Б](#mcmc-алгоритм-байесовского-расчёта) |
+ | Медиамикс | [Д](#медиамикс-media-mix) |
+ | Насыщение | [В](#насыщение-saturation) |
+-| NRMSE | [Е](#nrmse-нормализованная-ошибка) |
+ | Остаточный эффект (Adstock) | [В](#остаточный-эффект-adstock-carryover) |
+ | Охват (Reach) | [Д](#охват-reach) |
+ | Период полураспада | [В](#период-полураспада-half-life) |
+diff --git a/sidecar/econometrica/engines/backtest.py b/sidecar/econometrica/engines/backtest.py
+index da727bb..92049a1 100644
+--- a/sidecar/econometrica/engines/backtest.py
++++ b/sidecar/econometrica/engines/backtest.py
+@@ -50,6 +50,8 @@ from typing import Any
+ import numpy as np
+ import pandas as pd
+ 
++from utils.seeding import seed_from_model
++
+ logger = logging.getLogger(__name__)
+ 
+ 
+@@ -138,6 +140,16 @@ def run_backtest(
+         train_config['mode'] = mode
+         if use_horseshoe:
+             train_config['use_horseshoe'] = True
++        # P0.2: переобучение идёт тем же зерном, что и исходная модель.
++        # Задаётся явно, а не наследуется из конфига: у моделей, обученных
++        # до P0.2, ключа нет вовсе — они получат значение по умолчанию, и
++        # повторный прогон проверки даст те же числа.
++        _bt_seed, _bt_seed_source = seed_from_model(model_data)
++        train_config['seed'] = _bt_seed
++        logger.info(
++            f'Проверка на отложенном периоде: зерно={_bt_seed} '
++            f'(источник: {_bt_seed_source})'
++        )
+ 
+         # Re-train on subset
+         if mode == 'ols':
+@@ -606,6 +618,14 @@ def run_rolling_backtest(
+         from engines.modeler import train_model as _train
+     from engines.scenario import predict_scenario
+ 
++    # P0.2: зерно перепроверки берётся один раз на весь прогон — из снимка
++    # обученной модели, а для моделей до P0.2 — из значения по умолчанию.
++    _rolling_seed, _rolling_seed_source = seed_from_model(model_data)
++    logger.info(
++        f'Перепроверка на истории: зерно={_rolling_seed} '
++        f'(источник: {_rolling_seed_source}), окон переобучения будет несколько'
++    )
++
+     window_results: list[dict[str, Any]] = []
+     failed_windows: list[dict[str, Any]] = []
+     all_hits: list[bool] = []
+@@ -638,6 +658,10 @@ def run_rolling_backtest(
+             # merge_rules уже применены к df выше — subset сохранён в слитом
+             # виде, повторное применение при обучении окна не нужно.
+             train_config['merge_rules'] = {}
++            # P0.2: все окна переобучаются одним зерном — зерно фиксирует
++            # разброс сэмплера, а различия между окнами должны идти от данных
++            # окна, а не от того, каким по счёту оно посчиталось.
++            train_config['seed'] = _rolling_seed
+ 
+             try:
+                 train_result = _train(train_config, str(train_project_dir))
+diff --git a/sidecar/econometrica/engines/modeler.py b/sidecar/econometrica/engines/modeler.py
+index 84cf373..dd7109e 100644
+--- a/sidecar/econometrica/engines/modeler.py
++++ b/sidecar/econometrica/engines/modeler.py
+@@ -769,6 +769,32 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
+     draws = mcmc.get('draws', 2000)
+     tune = mcmc.get('tune', 2000)
+ 
++    # Воспроизводимость (P0.2): зерно + снимок среды, от которой результат
++    # зависит помимо зерна. Ярус сэмплера и раскладка цепей дописываются по
++    # факту — молчаливый откат на запасной ярус даёт другие числа при том же
++    # зерне, и без записи это выглядит как дефект расчёта.
++    from utils.seeding import (
++        TIER_NUMPYRO,
++        TIER_PYTENSOR,
++        TIER_PYTENSOR_NO_CALLBACK,
++        environment_snapshot,
++        mark_chain_layout,
++        mark_sampler_tier,
++        resolve_seed,
++    )
++    mcmc_seed, mcmc_seed_source = resolve_seed(config)
++    reproducibility = environment_snapshot(
++        seed=mcmc_seed,
++        seed_source=mcmc_seed_source,
++        chains=chains,
++        draws=draws,
++        tune=tune,
++        has_compiler=has_compiler,
++    )
++    logger.info(
++        f'Воспроизводимость: зерно={mcmc_seed} (источник: {mcmc_seed_source})'
++    )
++
+     report('compiling', pct=20)
+ 
+     logger.info(f"Training MMM: {n_obs} obs, {len(media_cols)} media, {len(control_cols)} control, "
+@@ -1019,6 +1045,14 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
+                     f'NumPyro chain_method={_chain_method} '
+                     f'(jax_devices={_n_devices}, chains={chains})'
+                 )
++                # Раскладка цепей — часть паспорта расчёта: при одном зерне
++                # parallel и vectorized дают разные числа, а выбирается она
++                # автоматически по числу видимых устройств.
++                mark_chain_layout(
++                    reproducibility,
++                    chain_method=_chain_method,
++                    jax_devices=_n_devices,
++                )
+                 try:
+                     logger.info(
+                         f'Sampling: Tier-1 NumPyro NUTS '
+@@ -1028,12 +1062,20 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
+                         draws=draws,
+                         tune=tune,
+                         chains=chains,
++                        random_seed=mcmc_seed,
+                         return_inferencedata=True,
+                         progressbar=True,
+                         nuts_sampler='numpyro',
+-                        chain_method=_chain_method,
++                        # 🔴 Раскладка цепей едет ТОЛЬКО через nuts_sampler_kwargs.
++                        # Прямой аргумент chain_method= PyMC 5.28 молча
++                        # проглатывает (_sample_external_nuts пробрасывает во
++                        # внешний сэмплер лишь nuts_sampler_kwargs) — тогда
++                        # берётся дефолт 'parallel', а вся логика выбора выше
++                        # становится мёртвой. Проверено зондом 2026-08-03.
++                        nuts_sampler_kwargs={'chain_method': _chain_method},
+                         target_accept=0.95,  # Phase 0.1 live-test: funnel posterior на тонких данных требует tighter step (default 0.8 даёт 70+ divergences)
+                     )
++                    mark_sampler_tier(reproducibility, TIER_NUMPYRO)
+                     logger.info('Tier-1 NumPyro NUTS: SUCCESS')
+                 except AttributeError as e:
+                     if _is_partial_bug(e):
+@@ -1073,11 +1115,13 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
+                             tune=tune,
+                             chains=chains,
+                             cores=1,
++                            random_seed=mcmc_seed,
+                             return_inferencedata=True,
+                             progressbar=True,
+                             callback=_draw_cb,
+                             target_accept=0.95,
+                         )
++                        mark_sampler_tier(reproducibility, TIER_PYTENSOR)
+                     except TypeError:
+                         # Callback не поддерживается (старая PyMC версия)
+                         trace = pm.sample(
+@@ -1085,10 +1129,12 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
+                             tune=tune,
+                             chains=chains,
+                             cores=1,
++                            random_seed=mcmc_seed,
+                             return_inferencedata=True,
+                             progressbar=True,
+                             target_accept=0.95,
+                         )
++                        mark_sampler_tier(reproducibility, TIER_PYTENSOR_NO_CALLBACK)
+                     logger.info('Tier-2 PyTensor NUTS: SUCCESS')
+                 except AttributeError as e:
+                     if _is_partial_bug(e):
+@@ -1328,6 +1374,10 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
+         # F-13 (2026-07-02): in-train preflight (quick proxy + prior predictive)
+         # доезжает до model-diagnostics.json → honesty-gate/UI.
+         diagnostics['preflight'] = preflight_summary
++        # P0.2: паспорт воспроизводимости доезжает до model-diagnostics.json —
++        # это SSOT диагностики для чтения (server.py + optimizer_honesty).
++        # Без него «то же зерно, другие числа» неотличимо от дефекта расчёта.
++        diagnostics['reproducibility'] = reproducibility
+         # F-20 (2026-07-02): сбой реконструкции y_pred → метрики от константы;
+         # honesty различает «модель плохая» vs «диагностика деградировала».
+         diagnostics['y_pred_reconstruction_failed'] = y_pred_reconstruction_failed
+@@ -1552,6 +1602,10 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
+ 
+         model_data = {
+             'config': config,
++            # P0.2: паспорт воспроизводимости едет ВМЕСТЕ с моделью — перепроверка
++            # окон на истории переобучает из этого же конфига, а зерно из чужого
++            # снимка сделало бы сверку бессмысленной.
++            'reproducibility': reproducibility,
+             'channel_params': channel_params,
+             # v2.1.0 (ADR-020): unit_costs apply audit trail для decomposer
+             # симметрии и byte-identical reproducibility (INV-23a).
+@@ -1644,6 +1698,21 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
+             'channel_adstock_types': dict(adstock_config),
+         }
+ 
++        # ─── P0.5 (2026-08-03): sensitivity tornado at-fit-time ───
++        # Движок (sensitivity.py, 673 строки) и график (SensitivityTornado.svelte)
++        # существовали без единого вызывающего — «функция есть» ≠ «функция
++        # подключена». Считаем сразу после сборки model_data (channel_params /
++        # normalization / config уже готовы, переобучение не требуется) и
++        # кладём в diagnostics — тот же SSOT, что preflight/reproducibility.
++        # Non-fatal: тонкие/вырожденные модели получают пустой результат
++        # (guard внутри compute_sensitivity_tornado), не роняют обучение.
++        try:
++            from engines.sensitivity import compute_sensitivity_tornado
++            diagnostics['sensitivity_tornado'] = compute_sensitivity_tornado(model_data)
++        except Exception as _sens_err:  # noqa: BLE001
++            logger.warning(f'Sensitivity tornado failed (не блокирует обучение): {_sens_err}')
++            diagnostics['sensitivity_tornado'] = None
++
+         # ─── Phase 2 (Planning Mode) at-fit-time persistence ───
+         # Audit pass 2 2026-05-02: persist granularity + x_norm quantiles +
+         # seasonality detection so planning mode requests skip lazy inference
+@@ -1794,6 +1863,7 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
+                 'config': {k: v for k, v in config.items() if k != 'data_file'},
+                 'mcmc': mcmc,
+                 'has_compiler': has_compiler,
++                'reproducibility': reproducibility,
+             }), f, ensure_ascii=False, indent=2)
+ 
+         # Save diagnostics as result
+@@ -1818,6 +1888,7 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
+             'mcmc_info': {
+                 **mcmc,
+                 'has_compiler': has_compiler,
++                'reproducibility': reproducibility,
+             },
+         }
+ 
+diff --git a/sidecar/econometrica/engines/validator.py b/sidecar/econometrica/engines/validator.py
+index fdacc3c..a3d2266 100644
+--- a/sidecar/econometrica/engines/validator.py
++++ b/sidecar/econometrica/engines/validator.py
+@@ -570,6 +570,13 @@ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, A
+         if pd.api.types.is_numeric_dtype(df[col]):
+             col_series = df[col].fillna(0)
+             zeros_pct = round((col_series == 0).sum() / len(col_series) * 100, 1)
++            # P0.3 шаг 8: доля пропусков. Движок отдавал только абсолютное
++            # `nulls`, а ПЯТЬ экранов читают `missing_pct` — и все показывали
++            # ровно ноль на любых данных (`?? 0` на отсутствующем поле).
++            # Долю считаем от всех строк файла, а не от `col_series`: та уже
++            # прошла fillna(0) и пропусков в ней нет по построению.
++            _nulls = int(df[col].isna().sum())
++            _n_rows_total = len(df)
+             col_info['stats'] = {
+                 'min': round(float(col_series.min()), 4),
+                 'max': round(float(col_series.max()), 4),
+@@ -577,7 +584,8 @@ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, A
+                 'std': round(float(col_series.std()), 4),
+                 'sum': round(float(col_series.sum()), 2),
+                 'zeros_pct': zeros_pct,
+-                'nulls': int(df[col].isna().sum()),
++                'nulls': _nulls,
++                'missing_pct': round(_nulls / _n_rows_total * 100, 1) if _n_rows_total else 0.0,
+                 'cv': round(float(col_series.std() / col_series.mean() * 100), 1) if col_series.mean() != 0 else 0,
+             }
+             col_info['histogram'] = compute_histogram(df[col])
+@@ -590,6 +598,37 @@ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, A
+                     'severity': 'warning',
+                     'action': 'merge',
+                 })
++            # P0.3 шаг 8: пропуски обрабатываются молча и ПО-РАЗНОМУ, смотря
++            # где они. Пользователь об этом не знал ни разу.
++            if _nulls > 0:
++                _missing_pct = col_info['stats']['missing_pct']
++                if role == 'kpi':
++                    # modeler.py: df = df[df[kpi_col].notna()] — строка
++                    # выбрасывается ЦЕЛИКОМ, вместе с медиа-данными периода.
++                    warnings.append({
++                        'column': col,
++                        'type': 'kpi_missing_rows_dropped',
++                        'message': (
++                            f'{col} - пропусков {_missing_pct}% ({_nulls} из {_n_rows_total}). '
++                            f'Периоды без целевой метрики полностью исключаются из обучения '
++                            f'вместе с медиа-данными этих недель - модель их не увидит.'
++                        ),
++                        'severity': 'warning',
++                    })
++                elif role in ('media', 'control'):
++                    # modeler.py: df[col].fillna(0) — пропуск становится нулём,
++                    # то есть «активности не было». Интерполяции в коде нет.
++                    warnings.append({
++                        'column': col,
++                        'type': 'missing_filled_with_zero',
++                        'message': (
++                            f'{col} - пропусков {_missing_pct}% ({_nulls} из {_n_rows_total}). '
++                            f'При обучении они считаются нулём, то есть «активности не было». '
++                            f'Восстановления пропущенных значений в расчёте нет - если данные '
++                            f'просто не собраны, заполните их до обучения.'
++                        ),
++                        'severity': 'warning',
++                    })
+             if col_info['stats']['cv'] < 5 and role == 'media':
+                 warnings.append({
+                     'column': col,
+@@ -668,26 +707,68 @@ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, A
+     #     фронт получит фактические данные из diagnostics.seasonality
+     # Значение проброшено в ответ как отдельное поле и читается фронтом
+     # вместо local (mediaCount + controlCount) для отображения ratio.
++    #
++    # P0.3 (2026-08-03, решение владельца «всё к эффективному»): показываем и
++    # гейтим по числу параметров, которое модель заведёт НА САМОМ ДЕЛЕ, а не по
++    # числу назначенных пользователем столбцов. Сырой знаменатель завышал запас
++    # данных (INV-50) и давал скачок: до обучения «Рекомендуемый уровень»,
++    # после — «Критически мало» на тех же данных.
++    #
++    # 🔴 Знаменателей ДВА, по режиму моделирования, и это не деталь:
++    #   - байесовский заводит праздники (modeler.py авто-инжектит их в контроли);
++    #   - OLS не заводит НИ ОДНОГО (в ols_modeler.py генератора праздников нет
++    #     вовсе — проверено обходом вызовов generate_holiday_dummies).
++    # Единая константа +13 соврала бы для OLS ровно настолько же, насколько
++    # сырой знаменатель врал для байеса.
++    #
++    # Праздников не всегда 12: modeler.py пропускает те, что пользователь дал
++    # сам (семантический дедуп по нормализованному имени), и отключённые в
++    # конфиге. Отключённые на этапе валидации неизвестны, а вот покрытые
++    # пользователем — видны прямо здесь, по списку колонок. Считаем их.
+     N_HOLIDAYS_DEFAULT = 12
+     N_INTERCEPT = 1
+-    n_params_effective_pretrain = n_predictors + N_HOLIDAYS_DEFAULT + N_INTERCEPT
+-    ratio = n_rows / max(n_predictors, 1)
+-    if ratio < 2:
++    try:
++        from utils.holiday_calendar_ru import user_covered_auto_holidays
++        _covered = len(user_covered_auto_holidays([c['name'] for c in columns]))
++    except Exception:  # noqa: BLE001 — оценка не имеет права ронять валидацию
++        _covered = 0
++    n_holidays_auto = max(N_HOLIDAYS_DEFAULT - _covered, 0)
++    n_params_effective_bayesian = n_predictors + n_holidays_auto + N_INTERCEPT
++    n_params_effective_ols = n_predictors + N_INTERCEPT
++    # Историческое имя поля: оставлено, чтобы не сломать уже сохранённые
++    # проекты и внешних читателей. Значение — байесовская оценка (режим по
++    # умолчанию); фронт выбирает нужное по фактическому режиму.
++    n_params_effective_pretrain = n_params_effective_bayesian
++    # 🔴 Пороги ниже (issues/warnings) считаются по САМОМУ МЯГКОМУ знаменателю —
++    # OLS. Причина: валидация идёт ДО того, как движок узнаёт режим (в
++    # /compute/validate его нет вовсе), а у пользователя всегда есть выбор
++    # между байесовским и OLS. Гейтить по байесовскому знаменателю значило бы
++    # объявить «критически мало данных» проекту, который в OLS считается
++    # нормально, — и отнять у него режим, специально предназначенный для
++    # коротких рядов. Здесь порог означает «мало данных для ЛЮБОГО режима».
++    # Точный показ по фактическому режиму делает фронт — единый источник
++    # `ratio-classifier.effectiveRatio`, он режим знает.
++    ratio_gate = n_rows / max(n_params_effective_ols, 1)
++    # Отображаемое значение — байесовское (режим по умолчанию); фронт
++    # пересчитает под фактический режим.
++    ratio = n_rows / max(n_params_effective_bayesian, 1)
++    ratio_raw = n_rows / max(n_predictors, 1)
++    if ratio_gate < 2:
+         issues.append({
+             'type': 'insufficient_data',
+-            'message': f'Ratio данных {ratio:.1f}:1 - критически мало. Модель почти наверняка переобучится - β-коэффициенты будут случайными',
++            'message': f'Ratio данных {ratio_gate:.1f}:1 - критически мало. Модель почти наверняка переобучится - β-коэффициенты будут случайными',
+             'severity': 'critical',
+         })
+-    elif ratio < 3:
++    elif ratio_gate < 3:
+         warnings.append({
+             'type': 'low_data',
+-            'message': f'Ratio {ratio:.1f}:1 - ниже минимума. Модель сойдётся, но правдоподобные диапазоны будут очень широкими - используйте результаты как ориентир',
++            'message': f'Ratio {ratio_gate:.1f}:1 - ниже минимума. Модель сойдётся, но правдоподобные диапазоны будут очень широкими - используйте результаты как ориентир',
+             'severity': 'warning',
+         })
+-    elif ratio < 4:
++    elif ratio_gate < 4:
+         warnings.append({
+             'type': 'borderline_data',
+-            'message': f'Ratio {ratio:.1f}:1 - ниже рекомендуемого. Модель работает, но с широкими правдоподобными диапазонами - результаты как качественные ориентиры',
++            'message': f'Ratio {ratio_gate:.1f}:1 - ниже рекомендуемого. Модель работает, но с широкими правдоподобными диапазонами - результаты как качественные ориентиры',
+             'severity': 'warning',
+         })
+ 
+@@ -826,7 +907,17 @@ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, A
+             'control': control_cols,
+             'n_predictors': n_predictors,
+             'n_params_effective_pretrain': n_params_effective_pretrain,
++            # P0.3: раздельные оценки по режимам — фронт берёт свою, не
++            # пересобирает состав у себя (иначе появился бы второй источник).
++            'n_params_effective_bayesian': n_params_effective_bayesian,
++            'n_params_effective_ols': n_params_effective_ols,
++            # Состав — для объяснения пользователю, откуда взялось число.
++            'n_holidays_auto': n_holidays_auto,
++            'n_intercept': N_INTERCEPT,
+             'ratio': round(ratio, 1),
++            # Сырой запас (наблюдения на назначенный столбец) — справочно,
++            # для второй строки подписи. Гейтить по нему нельзя: он завышает.
++            'ratio_raw': round(ratio_raw, 1),
+             'date_frequency': date_frequency,
+         },
+         'available_kpi_types': sorted(available_kpi_types),
+diff --git a/sidecar/econometrica/server.py b/sidecar/econometrica/server.py
+index 24cd42f..fae6538 100644
+--- a/sidecar/econometrica/server.py
++++ b/sidecar/econometrica/server.py
+@@ -420,6 +420,11 @@ class TrainRequest(BaseModel):
+     # И в train-config.js buildTrainConfig — иначе поле теряется (F-AUD-1).
+     # Стережёт tools/test_frontend_schema_parity.py.
+     use_seasonality: bool = True
++    # P0.2 (воспроизводимость): зерно MCMC. None → utils/seeding.resolve_seed
++    # берёт из переменной среды либо значение по умолчанию. F-AUD-1: без
++    # явного объявления Pydantic v2 молча отбросил бы поле — та же ловушка,
++    # что и с use_holidays.
++    seed: int | None = None
+ 
+ 
+ class TrainStartRequest(BaseModel):
+@@ -449,6 +454,8 @@ class TrainStartRequest(BaseModel):
+     use_holidays: bool = True
+     disabled_holidays: list[str] = []
+     use_seasonality: bool = True
++    # P0.2: см. TrainRequest.seed — async-путь (GUI) обязан нести то же поле.
++    seed: int | None = None
+ 
+ 
+ class DecomposeRequest(BaseModel):
+diff --git a/sidecar/econometrica/tests/test_mcmc_determinism_live.py b/sidecar/econometrica/tests/test_mcmc_determinism_live.py
 new file mode 100644
-index 0000000..bb64964
+index 0000000..cc5c6a9
 --- /dev/null
-+++ b/sidecar/econometrica/tests/test_decomposer_exposes_breakeven_flag.py
-@@ -0,0 +1,71 @@
-+"""Движок обязан ОТДАВАТЬ признак отключённых порогов окупаемости.
++++ b/sidecar/econometrica/tests/test_mcmc_determinism_live.py
+@@ -0,0 +1,152 @@
++"""Настоящий прогон детерминизма MMM (P0.2) – живое обучение, не разбор кода.
 +
-+Инцидент, ради которого заведён (2026-08-02): признак `money_roi_unavailable`
-+жил только внутри Python — его считал `decomposer` и передавал в
-+`channel_action`, где абсолютные breakeven-пороги (шаги 4, 6, 7, 8) не
-+применяются. Во фронт он не выходил, и экран показывал вердикты как обычно:
-+пользователь не мог знать, что сравнения с точкой безубыточности за ними нет.
++Почему отдельным файлом и с меткой ``slow``:
++    в CI нет PyMC (тяжёлые зависимости сайдкара там не ставятся), а этот тест
++    обязан реально обучить модель трижды. Структурный сторож на зерно живёт
++    отдельно – ``test_mcmc_seeding_ast.py``, он идёт в CI и PyMC не требует.
++    Разделение намеренное: сторож, который в CI молча пропускается, не сторож.
 +
-+Вычислять то же самое на фронте нельзя — это второй источник истины, он
-+разойдётся (так ломались ярусы MQS: слой представления держал свою копию
-+порогов). Поэтому поле обязано присутствовать в ответе decompose.
-+
-+Проверка идёт по исходнику: полный `decompose_contributions` требует обученной
-+модели, а защитить надо ровно от удаления ключа из ответа. Тот же приём, что у
-+`test_mqs_tier_rust_single_source` для Rust-зеркала.
++Что доказывается:
++    1. два обучения с одним зерном дают в точности одни и те же числа;
++    2. обучение с другим зерном даёт другие – иначе «воспроизводимость»
++       могла бы оказаться просто нечувствительностью на коротком прогоне,
++       и сторож зеленел бы, даже если зерно никуда не доехало;
++    3. паспорт воспроизводимости доезжает до результата и называет ярус
++       сэмплера, который сработал на самом деле.
 +"""
++from __future__ import annotations
++
++import sys
++from pathlib import Path
++
++import pytest
++
++sys.path.insert(0, str(Path(__file__).parent.parent))
++
++pymc = pytest.importorskip('pymc', reason='PyMC недоступен – живой прогон невозможен')
++
++# Короткий прогон: цепей и выборок ровно столько, чтобы различие между
++# зёрнами было заведомо видно, а тест оставался в пределах пары минут.
++MCMC_OVERRIDE = {'chains': 2, 'draws': 50, 'tune': 50}
++SEED_A = 42
++SEED_B = 777
++
++
++def _make_dataset(path: Path) -> None:
++    """24 недели синтетики: связь с медиа есть, шум фиксирован.
++
++    Данные обязаны быть одинаковыми во всех трёх обучениях, иначе тест
++    сравнивал бы разные задачи. Поэтому свой генератор с постоянным
++    зерном – он не имеет отношения к зерну сэмплера, которое и проверяем.
++    """
++    import numpy as np
++    import pandas as pd
++
++    rng = np.random.default_rng(20260802)
++    n = 24
++    tv = rng.uniform(400_000, 1_200_000, n)
++    digital = rng.uniform(200_000, 800_000, n)
++    sales = (
++        5_000_000
++        + 1.8 * tv
++        + 2.4 * digital
++        + rng.normal(0, 150_000, n)
++    )
++    pd.DataFrame({
++        'date': pd.date_range('2025-01-06', periods=n, freq='W-MON'),
++        'tv': tv,
++        'digital': digital,
++        'sales': sales,
++    }).to_excel(path, index=False)
++
++
++def _train_once(tmp_root: Path, data_file: Path, seed: int, tag: str) -> dict:
++    """Одно обучение со своим зерном в своей папке проекта."""
++    from engines.modeler import train_model
++
++    project_dir = tmp_root / f'project_{tag}'
++    project_dir.mkdir(parents=True, exist_ok=True)
++    result = train_model({
++        'data_file': str(data_file),
++        'kpi_column': 'sales',
++        'media_columns': ['tv', 'digital'],
++        'control_columns': [],
++        'date_column': 'date',
++        'kpi_type': 'sales',
++        'adstock_config': {'tv': 'geometric', 'digital': 'geometric'},
++        'mcmc_override': dict(MCMC_OVERRIDE),
++        'seed': seed,
++    }, str(project_dir))
++    assert result.get('status') == 'ok', (
++        f'Обучение {tag} не прошло: {result.get("error_code")} '
++        f'{result.get("message")}'
++    )
++    return result
++
++
++def _fingerprint(result: dict) -> str:
++    """Отпечаток апостериорных оценок – то, что видит клиент.
++
++    Сравниваются именно параметры каналов, а не сводные метрики: метрика
++    может совпасть у разных выборок случайно, набор параметров – нет.
++    """
++    import json
++
++    return json.dumps(result['channel_params'], sort_keys=True, default=str)
++
++
++@pytest.mark.slow
++def test_same_seed_reproduces_and_other_seed_differs(tmp_path):
++    data_file = tmp_path / 'data.xlsx'
++    _make_dataset(data_file)
++
++    first = _train_once(tmp_path, data_file, SEED_A, 'a1')
++    second = _train_once(tmp_path, data_file, SEED_A, 'a2')
++    third = _train_once(tmp_path, data_file, SEED_B, 'b1')
++
++    fp_first = _fingerprint(first)
++    fp_second = _fingerprint(second)
++    fp_third = _fingerprint(third)
++
++    assert fp_first == fp_second, (
++        'Два обучения с зерном {} дали разные параметры каналов – расчёт '
++        'не воспроизводится.\nПервое: {}\nВторое: {}'.format(
++            SEED_A, fp_first[:400], fp_second[:400]
++        )
++    )
++    assert fp_first != fp_third, (
++        'Обучение с зерном {} дало те же параметры, что и с зерном {}. '
++        'Значит зерно до сэмплера не доехало, а совпадение выше ничего не '
++        'доказывает.'.format(SEED_B, SEED_A)
++    )
++
++
++@pytest.mark.slow
++def test_reproducibility_passport_reaches_result(tmp_path):
++    """Паспорт расчёта доезжает до результата и называет фактический ярус."""
++    data_file = tmp_path / 'data.xlsx'
++    _make_dataset(data_file)
++    result = _train_once(tmp_path, data_file, SEED_A, 'passport')
++
++    passport = (result.get('mcmc_info') or {}).get('reproducibility')
++    assert isinstance(passport, dict), (
++        'В mcmc_info нет паспорта воспроизводимости – снимок среды до '
++        'результата не доехал.'
++    )
++    assert passport['seed'] == SEED_A
++    assert passport['seed_source'] == 'config'
++    assert passport['sampler_tier'], (
++        'Ярус сэмплера в паспорте пуст, хотя обучение прошло. Молчаливый '
++        'откат на запасной ярус даёт другие числа при том же зерне – без '
++        'записи яруса это неотличимо от дефекта расчёта.'
++    )
++    assert passport['versions']['pymc'], 'Версия PyMC в паспорте не записана'
++    assert passport['mcmc']['chains'] == MCMC_OVERRIDE['chains']
++
++    # Паспорт обязан лежать и в диагностике – её читают server.py и
++    # honesty-аудит, для них это единственный источник.
++    diag_passport = (result.get('diagnostics') or {}).get('reproducibility')
++    assert isinstance(diag_passport, dict), (
++        'В diagnostics нет паспорта воспроизводимости'
++    )
++    assert diag_passport['seed'] == SEED_A
+diff --git a/sidecar/econometrica/tests/test_mcmc_seeding_ast.py b/sidecar/econometrica/tests/test_mcmc_seeding_ast.py
+new file mode 100644
+index 0000000..2d3cabf
+--- /dev/null
++++ b/sidecar/econometrica/tests/test_mcmc_seeding_ast.py
+@@ -0,0 +1,229 @@
++"""Сторож воспроизводимости MCMC (P0.2) – проверка обходом дерева, без PyMC.
++
++Зачем нужен именно AST-разбор, а не импорт движка и не прогон обучения:
++тест обязан жить в CI, где PyMC не установлен (тяжёлая зависимость, дорогой
++образ). Импортировать ``engines.modeler`` или ``pm.sample`` напрямую нельзя –
++любой такой импорт тянет за собой pymc/pytensor и падает уже на уровне
++``import``, а не на проверяемом инварианте. Поэтому здесь – только
++``ast`` + stdlib: файлы читаются как текст, разбираются в дерево синтаксиса,
++инварианты проверяются по форме кода.
++
++Что стережём (P0.2, ``utils/seeding.py``):
++
++1. Каждый вызов ``pm.sample(...)`` в ``engines/modeler.py`` несёт именованный
++   аргумент ``random_seed`` – иначе два обучения на одних данных дают разные
++   апостериорные интервалы, и клиент видит "поехавшие" цифры при повторном
++   расчёте (регресс P0.2).
++2. Вызовов ``pm.sample`` найдено не меньше трёх (Tier-1 NumPyro, Tier-2
++   PyTensor с колбэком, Tier-2 без колбэка на старых версиях PyMC) – если
++   обход дерева вдруг находит ноль, это тест сломан (модуль переехал, идиому
++   вызова сменили), а не "всё обучение исчезло и стеречь нечего".
++3. В движке (``engines/**.py``, ``utils/**.py``) нет ни одного вызова
++   глобального засева ``np.random.seed(...)`` / ``numpy.random.seed(...)``.
++   Явный ``random_seed=`` в ``pm.sample`` – единственный канал засева MCMC
++   намеренно: в движке уже есть независимо засеянные пути со своими
++   генераторами (``utils/reliability_a4.py``, ``utils/conformal.py``,
++   ``utils/ols_bootstrap.py``, ``engines/causal/_panel_data.py`` – везде
++   ``np.random.default_rng(42)``). Глобальный засев сдвинул бы их выдачу, а
++   с ней и уже выпущенные клиентам интервалы.
++4. ``engines/backtest.py`` кладёт зерно в конфиг переобучения не меньше двух
++   раз – проверка на отложенном периоде и перепроверка окон на истории
++   обязаны переобучаться тем же зерном, что и исходная модель (иначе разброс
++   между прогонами проверки смешается с разбросом самой модели).
++
++Защита от тихого нуля выдержана на каждом инварианте отдельно: пустой список
++найденных вызовов/файлов – КРАСНЫЙ результат, а не "всё сходится".
++"""
++import ast
 +import os
-+import re
 +
 +_HERE = os.path.dirname(os.path.abspath(__file__))
-+_DECOMPOSER = os.path.join(os.path.dirname(_HERE), "engines", "decomposer.py")
++_SIDECAR = os.path.dirname(_HERE)
++_ENGINES_DIR = os.path.join(_SIDECAR, 'engines')
++_UTILS_DIR = os.path.join(_SIDECAR, 'utils')
++_MODELER_PY = os.path.join(_ENGINES_DIR, 'modeler.py')
++_BACKTEST_PY = os.path.join(_ENGINES_DIR, 'backtest.py')
 +
 +
-+def _source():
-+    assert os.path.isfile(_DECOMPOSER), (
-+        f"Не найден {_DECOMPOSER} — путь сместился, почини тест, не отключай"
++def _parse_file(path: str) -> ast.Module:
++    with open(path, encoding='utf-8') as f:
++        src = f.read()
++    return ast.parse(src, filename=path)
++
++
++def _iter_py_files(root: str):
++    """Все .py-файлы под root, обходом дерева каталогов, путь отсортирован."""
++    out = []
++    for dirpath, _dirs, files in os.walk(root):
++        for name in files:
++            if name.endswith('.py'):
++                out.append(os.path.join(dirpath, name))
++    return sorted(out)
++
++
++def _find_pm_sample_calls(tree: ast.Module) -> list[ast.Call]:
++    """Все узлы вызова ``pm.sample(...)`` в дереве."""
++    calls = []
++    for node in ast.walk(tree):
++        if not isinstance(node, ast.Call):
++            continue
++        func = node.func
++        if (
++            isinstance(func, ast.Attribute)
++            and func.attr == 'sample'
++            and isinstance(func.value, ast.Name)
++            and func.value.id == 'pm'
++        ):
++            calls.append(node)
++    return calls
++
++
++def _is_global_numpy_seed_call(node: ast.AST) -> bool:
++    """``np.random.seed(...)`` или ``numpy.random.seed(...)`` – глобальный засев."""
++    if not isinstance(node, ast.Call):
++        return False
++    func = node.func
++    if not (isinstance(func, ast.Attribute) and func.attr == 'seed'):
++        return False
++    middle = func.value
++    if not (isinstance(middle, ast.Attribute) and middle.attr == 'random'):
++        return False
++    base = middle.value
++    return isinstance(base, ast.Name) and base.id in ('np', 'numpy')
++
++
++def _subscript_string_key(node: ast.Subscript) -> str | None:
++    """Строковый литерал ключа в ``obj['ключ']``, либо None, если ключ не литерал."""
++    sl = node.slice
++    # ast.Index – обёртка до Python 3.9, здесь на всякий случай разворачиваем.
++    if hasattr(ast, 'Index') and isinstance(sl, ast.Index):
++        sl = sl.value
++    if isinstance(sl, ast.Constant) and isinstance(sl.value, str):
++        return sl.value
++    return None
++
++
++def _find_train_config_seed_assignments(tree: ast.Module) -> list[int]:
++    """Номера строк присваиваний вида ``train_config['seed'] = ...``."""
++    lines = []
++    for node in ast.walk(tree):
++        if not isinstance(node, ast.Assign):
++            continue
++        for target in node.targets:
++            if (
++                isinstance(target, ast.Subscript)
++                and isinstance(target.value, ast.Name)
++                and target.value.id == 'train_config'
++                and _subscript_string_key(target) == 'seed'
++            ):
++                lines.append(node.lineno)
++    return lines
++
++
++def test_all_pm_sample_calls_have_random_seed():
++    """Каждый вызов pm.sample(...) в modeler.py несёт random_seed."""
++    tree = _parse_file(_MODELER_PY)
++    calls = _find_pm_sample_calls(tree)
++
++    # Защита от тихого нуля: пустой разбор – КРАСНЫЙ, не "стеречь нечего".
++    assert len(calls) >= 3, (
++        f'В modeler.py обходом дерева найдено вызовов pm.sample: {len(calls)} '
++        f'(ожидалось не меньше 3 – Tier-1 NumPyro, Tier-2 PyTensor с колбэком '
++        f'и без него). Идиома вызова сменилась – почини тест, не отключай.'
 +    )
-+    with open(_DECOMPOSER, encoding="utf-8") as f:
-+        return f.read()
 +
++    missing = []
++    for call in calls:
++        kw_names = {kw.arg for kw in call.keywords if kw.arg is not None}
++        if 'random_seed' not in kw_names:
++            missing.append(call.lineno)
 +
-+def test_result_carries_breakeven_flag():
-+    """Ключ есть в ответе decompose."""
-+    assert "'money_roi_unavailable':" in _source(), (
-+        "Признак отключённых порогов пропал из ответа decompose — экран снова "
-+        "будет молчать о том, что вердикты не сравниваются с безубыточностью"
++    assert not missing, (
++        'pm.sample(...) без random_seed в modeler.py, строки: '
++        f'{missing} – два обучения на одних данных дадут разные апостериорные '
++        'интервалы, клиент увидит "поехавшие" цифры при повторном расчёте '
++        '(регресс P0.2, utils/seeding.py).'
 +    )
 +
 +
-+def test_flag_is_computed_not_hardcoded():
-+    """Значение выводится из состояния расчёта, а не прибито константой.
++def test_no_global_numpy_seed_in_engine():
++    """В engines/**.py и utils/**.py нет глобального np.random.seed(...)."""
++    files = _iter_py_files(_ENGINES_DIR) + _iter_py_files(_UTILS_DIR)
 +
-+    Прибитый False вернул бы молчание, прибитый True — ложное предупреждение на
-+    исправных проектах; и то и другое зелёно проходит проверку «ключ есть».
++    # Защита от тихого нуля: каталоги переехали или сканирование сломано.
++    assert len(files) >= 10, (
++        f'Просмотрено файлов engines/+utils/: {len(files)} – ожидалось не '
++        f'меньше 10. Каталог переехал или обход дерева сломан.'
++    )
++
++    offenders = []
++    for path in files:
++        tree = _parse_file(path)
++        for node in ast.walk(tree):
++            if _is_global_numpy_seed_call(node):
++                rel = os.path.relpath(path, _SIDECAR)
++                offenders.append(f'{rel}:{node.lineno}')
++
++    assert not offenders, (
++        'Глобальный засев np.random.seed(...) в движке: '
++        + ', '.join(offenders)
++        + ' – сдвинет выдачу уже засеянных независимых путей '
++        '(reliability_a4.py, conformal.py, ols_bootstrap.py, все на '
++        'default_rng(42)), а с ней и уже выпущенные клиентам интервалы. '
++        'Зерно MCMC – только через random_seed= в pm.sample (utils/seeding.py).'
++    )
++
++
++def test_chain_method_goes_through_nuts_sampler_kwargs():
++    """Раскладка цепей передаётся через nuts_sampler_kwargs, не прямым аргументом.
++
++    PyMC 5.28 пробрасывает во внешний сэмплер (numpyro) ТОЛЬКО содержимое
++    nuts_sampler_kwargs. Прямой аргумент pm.sample(chain_method=...) молча
++    проглатывается: ошибки нет, но применяется дефолт 'parallel', а вся
++    логика выбора раскладки в modeler.py становится мёртвой. Именно так и
++    было до 2026-08-03 – поймано зондом с перехватом вызова, не тестами.
 +    """
-+    src = _source()
-+    m = re.search(r"'money_roi_unavailable':\s*(.{0,200})", src, re.DOTALL)
-+    assert m, "ключ найден, но значение не разобрать"
-+    value = m.group(1)
-+    assert "_insight_money_roi_na" in value, (
-+        "признак больше не опирается на посчитанный флаг — проверьте, не прибит "
-+        f"ли он константой: {value[:120]!r}"
++    tree = _parse_file(_MODELER_PY)
++    calls = _find_pm_sample_calls(tree)
++    assert len(calls) >= 3, 'обход дерева не нашёл вызовов pm.sample – почини тест'
++
++    direct_chain_method = []
++    numpyro_calls_without_kwargs = []
++    for call in calls:
++        kw = {k.arg: k.value for k in call.keywords if k.arg is not None}
++        if 'chain_method' in kw:
++            direct_chain_method.append(call.lineno)
++        sampler = kw.get('nuts_sampler')
++        is_numpyro = (
++            isinstance(sampler, ast.Constant) and sampler.value == 'numpyro'
++        )
++        if is_numpyro and 'nuts_sampler_kwargs' not in kw:
++            numpyro_calls_without_kwargs.append(call.lineno)
++
++    assert not direct_chain_method, (
++        'pm.sample(chain_method=...) прямым аргументом в modeler.py, строки: '
++        f'{direct_chain_method} – PyMC его молча проглотит, раскладка возьмётся '
++        'дефолтная, а логика выбора выше станет мёртвой. Передавать через '
++        'nuts_sampler_kwargs={"chain_method": ...}.'
 +    )
-+    assert not re.match(r"\s*(True|False)\s*,", value), (
-+        "признак прибит константой — он обязан отражать реальное состояние расчёта"
++    assert not numpyro_calls_without_kwargs, (
++        'вызов numpyro-сэмплера без nuts_sampler_kwargs в modeler.py, строки: '
++        f'{numpyro_calls_without_kwargs} – раскладка цепей до сэмплера не '
++        'доедет, паспорт воспроизводимости будет обещать несделанное.'
 +    )
 +
 +
-+def test_effectiveness_mode_counted_as_no_breakeven():
-+    """Режим эффективности тоже означает отсутствие денежных порогов.
++def test_backtest_seeds_retraining_config_at_least_twice():
++    """backtest.py кладёт зерно в train_config не меньше двух раз."""
++    tree = _parse_file(_BACKTEST_PY)
++    lines = _find_train_config_seed_assignments(tree)
 +
-+    Докстринг `channel_action` обещает, что этот случай приходит тем же
-+    признаком, — фактически вызывающий передаёт только счётный-без-стоимости.
-+    В ответе оба случая сведены сознательно: для пользователя разницы нет.
++    assert len(lines) >= 2, (
++        f'В backtest.py найдено присваиваний train_config[\'seed\'] = ...: '
++        f'{len(lines)} (строки: {lines}). Ожидалось не меньше 2 – проверка на '
++        'отложенном периоде и перепроверка окон на истории обязаны '
++        'переобучаться тем же зерном, что исходная модель, иначе разброс '
++        'между прогонами проверки смешается с разбросом самой модели '
++        '(P0.2). Обход дерева ничего не нашёл – переобучение потеряло зерно, '
++        'либо идиома присваивания сменилась.'
++    )
+diff --git a/sidecar/econometrica/tests/test_missing_pct_disclosure.py b/sidecar/econometrica/tests/test_missing_pct_disclosure.py
+new file mode 100644
+index 0000000..5b6af35
+--- /dev/null
++++ b/sidecar/econometrica/tests/test_missing_pct_disclosure.py
+@@ -0,0 +1,121 @@
++"""P0.3 шаг 8: доля пропусков доезжает до экранов, и продукт о них говорит.
++
++Корень. Движок отдавал только абсолютное `nulls`, а ПЯТЬ мест на фронте читают
++`stats.missing_pct` (`ColumnMapperConfirm` дважды, `ExpertValidatePanel`,
++`PerChannelInputSelector`, `InsightsPanel`) — все с `?? 0`. Поле не приходило
++никогда, поэтому на любых данных показывался ровно ноль пропусков.
++
++Вторая половина корня — молчание. Пропуски обрабатываются ПО-РАЗНОМУ, смотря
++где они, и ни о том, ни о другом пользователю не сообщалось:
++  * в целевой метрике — строка выбрасывается целиком (`modeler.py`:
++    ``df = df[df[kpi_col].notna()]``), вместе с медиа-данными этого периода;
++  * в канале или контроле — становится нулём (``fillna(0)``), то есть
++    «активности не было». Восстановления пропущенных значений в коде нет.
++"""
++from __future__ import annotations
++
++import numpy as np
++import pandas as pd
++import pytest
++
++from engines.validator import validate_data
++
++
++@pytest.fixture()
++def data_with_gaps(tmp_path):
++    """30 недель; 3 пропуска в канале, 2 — в целевой метрике."""
++    rng = np.random.default_rng(3)
++    n = 30
++    tv = rng.uniform(400_000, 900_000, n)
++    digital = rng.uniform(200_000, 500_000, n)
++    sales = 3_000_000 + 1.4 * tv + rng.normal(0, 90_000, n)
++    df = pd.DataFrame({
++        'date': pd.date_range('2025-01-06', periods=n, freq='W-MON'),
++        'tv': tv,
++        'digital': digital,
++        'sales': sales,
++    })
++    df.loc[[3, 7, 11], 'digital'] = np.nan
++    df.loc[[20, 21], 'sales'] = np.nan
++    path = tmp_path / 'data.xlsx'
++    df.to_excel(path, index=False)
++    return str(path)
++
++
++def _stats_by_name(result):
++    return {c['name']: (c.get('stats') or {}) for c in result['columns']}
++
++
++def test_missing_pct_is_reported_at_all(data_with_gaps):
++    """Поле есть в ответе — раньше его не было вовсе, и экраны показывали ноль."""
++    stats = _stats_by_name(validate_data(data_with_gaps))
++    assert 'missing_pct' in stats['digital'], (
++        'stats.missing_pct отсутствует — пять экранов снова покажут ноль '
++        'пропусков на любых данных'
++    )
++
++
++def test_missing_pct_matches_actual_gaps(data_with_gaps):
++    """Доля считается от ВСЕХ строк файла, а не от очищенного ряда."""
++    stats = _stats_by_name(validate_data(data_with_gaps))
++    assert stats['digital']['missing_pct'] == pytest.approx(10.0)
++    assert stats['digital']['nulls'] == 3
++    assert stats['sales']['missing_pct'] == pytest.approx(6.7, abs=0.1)
++    assert stats['tv']['missing_pct'] == 0.0
++
++
++def test_gaps_in_channel_are_disclosed_as_zeros(data_with_gaps):
++    """Про канал сказано, что пропуск станет нулём и восстановления нет."""
++    warnings = validate_data(data_with_gaps)['warnings']
++    hits = [w for w in warnings if w.get('type') == 'missing_filled_with_zero']
++    assert hits, 'молчание про пропуски в канале: пользователь не узнает, что они станут нулём'
++    text = hits[0]['message']
++    assert 'digital' in text
++    assert 'нулём' in text
++    assert 'Восстановления' in text
++
++
++def test_gaps_in_target_metric_are_disclosed_as_dropped_rows(data_with_gaps):
++    """Про целевую метрику сказано, что период выбрасывается целиком."""
++    warnings = validate_data(data_with_gaps)['warnings']
++    hits = [w for w in warnings if w.get('type') == 'kpi_missing_rows_dropped']
++    assert hits, (
++        'молчание про пропуски в целевой метрике: строки выбрасываются вместе '
++        'с медиа-данными периода, а пользователь об этом не знает'
++    )
++    assert 'sales' in hits[0]['message']
++    assert 'исключаются' in hits[0]['message']
++
++
++def test_two_kinds_of_gaps_are_not_confused(data_with_gaps):
++    """Канал и целевая метрика получают РАЗНЫЕ сообщения.
++
++    Единый текст «есть пропуски» был бы неправдой в обе стороны: он умолчал
++    бы и про выброшенные периоды, и про подмену нулём.
 +    """
-+    src = _source()
-+    m = re.search(r"'money_roi_unavailable':\s*(.{0,200})", src, re.DOTALL)
-+    assert m and "effectiveness" in m.group(1), (
-+        "режим эффективности выпал из признака — в нём абсолютных денежных "
-+        "порогов тоже нет, а экран об этом промолчит"
++    warnings = validate_data(data_with_gaps)['warnings']
++    kinds = {w.get('type') for w in warnings}
++    assert 'missing_filled_with_zero' in kinds
++    assert 'kpi_missing_rows_dropped' in kinds
++    for w in warnings:
++        if w.get('type') == 'missing_filled_with_zero':
++            assert w['column'] != 'sales', 'целевой метрике приписано поведение канала'
++        if w.get('type') == 'kpi_missing_rows_dropped':
++            assert w['column'] == 'sales'
++
++
++def test_clean_data_stays_silent(tmp_path):
++    """Без пропусков — ни одного предупреждения про них."""
++    rng = np.random.default_rng(11)
++    n = 24
++    df = pd.DataFrame({
++        'date': pd.date_range('2025-01-06', periods=n, freq='W-MON'),
++        'tv': rng.uniform(400_000, 900_000, n),
++        'sales': rng.uniform(3_000_000, 5_000_000, n),
++    })
++    path = tmp_path / 'clean.xlsx'
++    df.to_excel(path, index=False)
++    warnings = validate_data(str(path))['warnings']
++    noisy = [w for w in warnings if w.get('type') in
++             ('missing_filled_with_zero', 'kpi_missing_rows_dropped')]
++    assert not noisy, f'предупреждение о пропусках на чистых данных: {noisy}'
+diff --git a/sidecar/econometrica/tests/test_sensitivity_tornado_wired.py b/sidecar/econometrica/tests/test_sensitivity_tornado_wired.py
+new file mode 100644
+index 0000000..7534d89
+--- /dev/null
++++ b/sidecar/econometrica/tests/test_sensitivity_tornado_wired.py
+@@ -0,0 +1,63 @@
++"""P0.5 шаг 10-11: торнадо чувствительности подключён, не просто написан.
++
++Корень. `engines/sensitivity.py` (673 строки) и `SensitivityTornado.svelte`
++(323 строки) существовали с ноля вызывающих на каждой стороне — тот же класс
++дефекта, что раньше давал в продукте сертификат и торнадо-график, которые
++никто не звал. Обход дерева здесь не обходной путь ради теста — он ровно
++воспроизводит зонд «вызывающих больше нуля», который и вскрыл дыру.
++"""
++from __future__ import annotations
++
++import ast
++from pathlib import Path
++
++MODELER_PY = Path(__file__).parent.parent / 'engines' / 'modeler.py'
++
++
++def _parse(path: Path) -> ast.Module:
++    return ast.parse(path.read_text(encoding='utf-8'), filename=str(path))
++
++
++def _calls_named(tree: ast.Module, name: str) -> list[ast.Call]:
++    out = []
++    for node in ast.walk(tree):
++        if not isinstance(node, ast.Call):
++            continue
++        func = node.func
++        if isinstance(func, ast.Name) and func.id == name:
++            out.append(node)
++        elif isinstance(func, ast.Attribute) and func.attr == name:
++            out.append(node)
++    return out
++
++
++def test_compute_sensitivity_tornado_is_called_from_modeler():
++    """Движок больше не сирота: modeler.py действительно его зовёт."""
++    tree = _parse(MODELER_PY)
++    calls = _calls_named(tree, 'compute_sensitivity_tornado')
++    assert calls, (
++        'compute_sensitivity_tornado не вызывается из modeler.py – торнадо '
++        'снова стал написанным, но неподключённым кодом (673 строки без '
++        'единого вызывающего).'
 +    )
-diff --git a/src/lib/__tests__/breakeven-disabled-disclosure.guard.test.js b/src/lib/__tests__/breakeven-disabled-disclosure.guard.test.js
++
++
++def test_sensitivity_tornado_written_into_diagnostics():
++    """Результат кладётся в diagnostics['sensitivity_tornado'], не теряется локально."""
++    tree = _parse(MODELER_PY)
++    hits = []
++    for node in ast.walk(tree):
++        if not isinstance(node, ast.Subscript):
++            continue
++        if not (isinstance(node.value, ast.Name) and node.value.id == 'diagnostics'):
++            continue
++        sl = node.slice
++        if hasattr(ast, 'Index') and isinstance(sl, ast.Index):  # py<3.9 shim
++            sl = sl.value
++        if isinstance(sl, ast.Constant) and sl.value == 'sensitivity_tornado':
++            hits.append(node.lineno)
++    assert hits, (
++        "diagnostics['sensitivity_tornado'] не присваивается в modeler.py – "
++        'результат посчитан, но не доедет до model-diagnostics.json (SSOT '
++        'диагностики для чтения — server.py + фронт), значит клиент его не увидит.'
++    )
+diff --git a/sidecar/econometrica/utils/seeding.py b/sidecar/econometrica/utils/seeding.py
 new file mode 100644
-index 0000000..1489912
+index 0000000..336f017
 --- /dev/null
-+++ b/src/lib/__tests__/breakeven-disabled-disclosure.guard.test.js
-@@ -0,0 +1,69 @@
-+/**
-+ * Сторож: когда пороги окупаемости отключены, экран говорит об этом прямо.
-+ *
-+ * ЗАЧЕМ. Движок честно отключает абсолютные пороги, когда денежного отношения
-+ * нет (`engines/channel_action.py`: «При money_roi_unavailable=True абсолютные
-+ * breakeven-пороги (шаги 4, 6, 7, 8) НЕ применяются»). Но признак жил ТОЛЬКО
-+ * внутри Python и во фронт не отдавался — экран показывал вердикты как обычно,
-+ * и пользователь не мог знать, что сравнения с точкой безубыточности за ними
-+ * нет. Молчание здесь хуже отсутствия функции: человек читает вердикт как
-+ * абсолютный, а он относительный.
-+ *
-+ * Признак приходит из движка (`decomposer.py` → `money_roi_unavailable`).
-+ * Вычислять его на фронте нельзя: это второй источник истины, и он разойдётся —
-+ * ровно так ломались ярусы MQS.
-+ */
-+import { describe, expect, it } from 'vitest';
++++ b/sidecar/econometrica/utils/seeding.py
+@@ -0,0 +1,252 @@
++"""Aurora Econometrica — воспроизводимость расчёта (P0.2).
 +
-+import { decomposeInsights } from '../insights-rules.js';
++Зерно генератора случайных чисел для MCMC + снимок среды, от которой
++результат зависит помимо зерна.
 +
-+/** Минимальный ответ декомпозиции. @param {Record<string, any>} extra */
-+const payload = (extra) => ({
-+  channels: [],
-+  baseline_pct: 60,
-+  total_sales: 1000,
-+  ...extra,
-+});
++Зачем
++-----
++MCMC-сэмплер стохастичен. Без зерна два обучения на одних и тех же данных
++дают разные апостериорные интервалы: клиент пересчитывает модель и видит,
++что цифры поехали. Стандарт IAB (дек. 2025) требует воспроизводимости
++расчёта как условия приёмки MMM.
 +
-+const texts = (/** @type {Record<string, any>} */ data) =>
-+  decomposeInsights(/** @type {any} */ (data))
-+    .map((/** @type {{text: string, tip?: string}} */ i) => `${i.text} ${i.tip ?? ''}`)
-+    .join('\n');
++Границы обещания
++----------------
++Зерно даёт повторяемость **на той же среде**. Битовое совпадение между
++машинами не гарантируется и обещать его нельзя: результат зависит ещё и от
++того, какой ярус сэмплера фактически сработал, каким методом разложены
++цепи и сколько устройств увидел JAX. Поэтому вместе с зерном сохраняется
++снимок среды — без него «то же зерно, другой ответ» выглядит как дефект,
++хотя это смена яруса.
 +
-+describe('признак отключённых порогов доезжает до пользователя', () => {
-+  it('при отключённых порогах сообщение показано', () => {
-+    const blob = texts(payload({ money_roi_unavailable: true }));
-+    expect(blob).toContain('пороги окупаемости отключены');
-+  });
++Почему зерно передаётся ЯВНО, а не через ``np.random.seed()``
++-------------------------------------------------------------
++В движке уже есть засеянные пути со СВОИМИ генераторами:
++``utils/reliability_a4.py`` (проверка приоров), ``utils/conformal.py``,
++``utils/ols_bootstrap.py`` — у всех ``np.random.default_rng(42)``,
++независимый поток. Глобальный засев сдвинул бы их выдачу, а значит и уже
++выпущенные клиентам интервалы. Явный ``random_seed=`` в ``pm.sample``
++их не касается: проверено зондом — глобального ``np.random.seed`` в движке
++нет ни одного.
++"""
++from __future__ import annotations
 +
-+  it('сообщение объясняет, на что опираются вердикты вместо порогов', () => {
-+    const blob = texts(payload({ money_roi_unavailable: true }));
-+    expect(blob).toContain('относительную эффективность');
-+  });
++import logging
++import os
++import platform
++import sys
++from typing import Any
 +
-+  it('сообщение подсказывает, как получить абсолютную оценку', () => {
-+    const blob = texts(payload({ money_roi_unavailable: true }));
-+    expect(blob).toContain('ценность единицы');
-+  });
++logger = logging.getLogger(__name__)
 +
-+  it('при работающих порогах сообщения нет — лишний шум недопустим', () => {
-+    expect(texts(payload({ money_roi_unavailable: false }))).not.toContain(
-+      'пороги окупаемости отключены',
-+    );
-+  });
++# Зерно по умолчанию. 42 — уже фактический дефолт остальных засеянных путей
++# движка (reliability_a4, conformal, ols_bootstrap); один и тот же номер
++# держим ради единообразия, а не ради свойств числа.
++DEFAULT_SEED = 42
 +
-+  it('старые ответы без поля молчат так же, как раньше', () => {
-+    // Признак появился 2026-08-02; результаты, посчитанные до него, поля не
-+    // имеют. Показать им сообщение значило бы соврать: пороги там работали.
-+    expect(texts(payload({}))).not.toContain('пороги окупаемости отключены');
-+  });
++# Переменная среды для разового переопределения (диагностика, прогон
++# детерминизма в тестах). Конфиг проекта имеет приоритет над ней:
++# у проекта зерно — часть паспорта расчёта, у среды — временная мера.
++SEED_ENV_VAR = 'AURORA_MCMC_SEED'
 +
-+  it('строковое «true» из старых артефактов за признак не принимается', () => {
-+    // Сравнение строгое (=== true): иначе любое непустое значение включало бы
-+    // сообщение, а поле приходит из JSON, где типы уже путались (см. историю
-+    // ярлыка mqs_tier_label).
-+    expect(texts(payload({ money_roi_unavailable: 'true' }))).not.toContain(
-+      'пороги окупаемости отключены',
-+    );
-+  });
-+});
-diff --git a/src/lib/__tests__/goalseek-corridor-honesty.guard.test.js b/src/lib/__tests__/goalseek-corridor-honesty.guard.test.js
-new file mode 100644
-index 0000000..5761371
---- /dev/null
-+++ b/src/lib/__tests__/goalseek-corridor-honesty.guard.test.js
-@@ -0,0 +1,55 @@
-+/**
-+ * Сторож честности «зелёной зоны» в расчёте от цели.
-+ *
-+ * ЗАЧЕМ. Экран обещал: «Цель должна быть в зелёной зоне коридора – иначе модель
-+ * экстраполирует за пределы observed range». Обещание не выполнялось: движок
-+ * коридор ПРОДАЖ не считает вовсе — `optimize/bounds.py::compute_safe_corridor`
-+ * возвращает `per_channel` и `aggregate_budget`, а `aggregate_sales` живёт
-+ * ТОЛЬКО в докстринге с пометкой «placeholder, требует forward pass»; в коде его
-+ * нет, в `goal_seek.py` тоже. Экран падал на запасной ориентир
-+ * `текущие продажи ×0,7…×1,5`, который наблюдавшимся диапазоном не является, —
-+ * и клиент принимал решение по обещанию, которого продукт не выполняет.
-+ *
-+ * Настоящий расчёт вынесен в P1 (общий прямой проход с профит-фронтиром).
-+ * До тех пор текст обязан ВЕТВИТЬСЯ: правда про наблюдения — только когда
-+ * коридор реально пришёл.
-+ *
-+ * Проверяется по исходнику: поведение здесь — это текст, который увидит
-+ * пользователь, а он собирается в разметке компонента.
-+ */
-+import { describe, expect, it } from 'vitest';
++# Ярусы сэмплера. Обучение идёт по цепочке: Tier-1 → Tier-2 → отказ.
++# Ярус ОБЯЗАН попасть в снимок: при одном зерне разные ярусы дают разные
++# числа, а откат на запасной происходит молча (ловится только по журналу).
++TIER_NUMPYRO = 'numpyro-nuts'
++TIER_PYTENSOR = 'pytensor-nuts'
++TIER_PYTENSOR_NO_CALLBACK = 'pytensor-nuts-no-callback'
 +
-+// Исходник берём импортом `?raw`, а не через fs: под vitest `import.meta.url`
-+// приходит не файловой схемой (модули отдаёт dev-сервер), а `process` в этом
-+// окружении не типизирован. `?raw` решает оба вопроса и не требует @types/node.
-+import src from '../components/pipeline/OptimizeGoalSeek.svelte?raw';
 +
-+describe('зелёная зона не выдаёт ориентир за наблюдения', () => {
-+  it('текст ветвится по признаку настоящего коридора', () => {
-+    expect(src).toContain('corridorIsObserved');
-+  });
++def resolve_seed(config: dict[str, Any] | None = None) -> tuple[int, str]:
++    """Зерно расчёта и источник, откуда оно взято.
 +
-+  it('признак выводится из пришедших границ, а не из константы', () => {
-+    expect(src).toMatch(/corridorIsObserved\s*=\s*\$derived\([\s\S]{0,200}salesCorridor/);
-+  });
++    Порядок: ``config['seed']`` → переменная среды → ``DEFAULT_SEED``.
 +
-+  it('запасная ветка честно называет зону ориентиром от текущего уровня', () => {
-+    expect(src).toContain('ориентир от текущего уровня');
-+  });
++    Явный источник нужен для паспорта расчёта: «зерно 42» само по себе не
++    отличает заданное пользователем от подставленного по умолчанию, а для
++    старых моделей (ключа в конфиге нет вовсе) это разные ситуации.
 +
-+  it('обещание про наблюдения не стоит безусловно', () => {
-+    // Прежняя формулировка утверждала это всегда — независимо от того, пришёл
-+    // коридор или нет. Возврат к ней красит тест.
-+    expect(src).not.toContain('иначе модель экстраполирует за пределы observed range');
-+  });
++    Args:
++        config: конфиг обучения. ``None`` и отсутствие ключа равнозначны.
 +
-+  it('в клиентском тексте нет англицизма observed range', () => {
-+    // Правило клиентского текста продукта: русский без англицизмов там, где есть
-+    // аналог. «observed range» → «наблюдавшийся в данных диапазон».
-+    const clientText = src
-+      .split('\n')
-+      .filter((/** @type {string} */ l) => !l.trim().startsWith('*') && !l.trim().startsWith('//'))
-+      .join('\n');
-+    expect(clientText).not.toContain('observed range');
-+  });
-+});
-diff --git a/src/lib/__tests__/tier2-roi-base.guard.test.js b/src/lib/__tests__/tier2-roi-base.guard.test.js
-new file mode 100644
-index 0000000..a4582ed
---- /dev/null
-+++ b/src/lib/__tests__/tier2-roi-base.guard.test.js
-@@ -0,0 +1,132 @@
-+/**
-+ * Сторож базы окупаемости в словах советника.
-+ *
-+ * ЗАЧЕМ. Расчёт продукта корректен в обоих режимах: «Выручка» и «Прибыль» —
-+ * полноценные метрики (`utils/kpi_registry.py`), а когда экономика не задана,
-+ * абсолютные пороги окупаемости честно отключаются
-+ * (`engines/channel_action.py`, ветка `money_roi_unavailable`). Неточной была
-+ * РЕЧЬ: правило 7 советника до 2026-08-02 говорило «прибылен канал или
-+ * убыточен» безотносительно выбранной метрики. В режиме выручки ROI=1 — это
-+ * окупаемость по обороту, из которой прибыльность не следует: себестоимость в
-+ * выручке не вычтена. Клиент читал вывод о прибыли там, где модель считала
-+ * оборот.
-+ *
-+ * Тест держит границу поведением: база выводится единственной функцией, доезжает
-+ * в факты и названа в правилах. Возврат к безусловной формулировке красит тест.
-+ */
-+import { describe, expect, it } from 'vitest';
++    Returns:
++        (зерно, источник) — источник один из ``'config'``, ``'env'``,
++        ``'default'``.
++    """
++    raw = (config or {}).get('seed')
++    if raw is not None:
++        seed = _coerce_seed(raw, origin='config')
++        if seed is not None:
++            return seed, 'config'
 +
-+import { roiBase, roiBaseNote } from '../kpi-aware-formatting.js';
-+import { buildTier2Context, STEP, TIER2_SYSTEM_RULES } from '../tier2-context.js';
++    raw_env = os.environ.get(SEED_ENV_VAR)
++    if raw_env not in (None, ''):
++        seed = _coerce_seed(raw_env, origin=f'env {SEED_ENV_VAR}')
++        if seed is not None:
++            return seed, 'env'
 +
-+describe('roiBase — база выводится из выбранной метрики', () => {
-+  it('режим «Выручка» → оборот', () => {
-+    expect(roiBase({ kpiType: 'sales', kpiKind: 'monetary' })).toBe('оборот');
-+  });
++    return DEFAULT_SEED, 'default'
 +
-+  it('устаревший ключ revenue → тоже оборот', () => {
-+    // Старые проекты сохраняли kpi_type='revenue' (дубликат убран из выбора
-+    // в v2.1.0, но в сохранённых проектах остался) — они не должны провалиться
-+    // в «не определена» и потерять слова про окупаемость.
-+    expect(roiBase({ kpiType: 'revenue', kpiKind: 'monetary' })).toBe('оборот');
-+  });
 +
-+  it('денежный проект без паспорта KPI (legacy) → оборот, а не «не определена»', () => {
-+    // У старых проектов kpiType нет вовсе, а ROI исторически считался от продаж
-+    // в рублях. Уронить их в «не определена» значило бы отобрать слова про
-+    // окупаемость без причины — регресс там, где ошибки не было.
-+    expect(roiBase({ kpiKind: 'monetary', kpiType: null })).toBe('оборот');
-+  });
++def _coerce_seed(raw: Any, *, origin: str) -> int | None:
++    """Привести значение к неотрицательному int либо отвергнуть с журналом.
 +
-+  it('режим «Прибыль» → прибыль', () => {
-+    expect(roiBase({ kpiType: 'profit', kpiKind: 'monetary' })).toBe('прибыль');
-+  });
++    Молча падать на дефолт нельзя: пользователь, задавший зерно с опечаткой,
++    получил бы «воспроизводимо, но не тем зерном, что просил».
++    """
++    try:
++        seed = int(raw)
++    except (TypeError, ValueError):
++        logger.warning(
++            f'Зерно из {origin} не число ({raw!r}) — беру значение по умолчанию '
++            f'{DEFAULT_SEED}.'
++        )
++        return None
++    if seed < 0:
++        logger.warning(
++            f'Зерно из {origin} отрицательное ({seed}) — беру значение по умолчанию '
++            f'{DEFAULT_SEED}.'
++        )
++        return None
++    return seed
 +
-+  it('счётный режим с маржой на единицу → прибыль', () => {
-+    expect(roiBase({ kpiType: 'sales_packs', kpiKind: 'count', vpcu: 42 })).toBe('прибыль');
-+  });
 +
-+  it('счётный режим без маржи → база не определена (пороги в движке отключены)', () => {
-+    expect(roiBase({ kpiType: 'leads', kpiKind: 'count' })).toBe('не определена');
-+    expect(roiBase({ kpiType: 'leads', kpiKind: 'count', vpcu: 0 })).toBe('не определена');
-+  });
++def environment_snapshot(
++    *,
++    seed: int,
++    seed_source: str,
++    chains: int,
++    draws: int,
++    tune: int,
++    has_compiler: bool,
++    chain_method: str | None = None,
++    jax_devices: int | None = None,
++) -> dict[str, Any]:
++    """Снимок среды, от которой результат зависит помимо зерна.
 +
-+  it('режим эффективности считает доли, а не деньги → базы нет', () => {
-+    expect(roiBase({ kpiKind: 'monetary', kpiType: 'sales', mode: 'effectiveness' })).toBe(
-+      'не определена',
-+    );
-+  });
++    Ярус сэмплера здесь ещё не известен — он определяется по факту
++    сэмплирования и дописывается ``mark_sampler_tier``. Пустое поле
++    ``sampler_tier`` в сохранённом снимке означает, что обучение до
++    сэмплинга не дошло.
 +
-+  it('ничего не известно → база не определена', () => {
-+    expect(roiBase({})).toBe('не определена');
-+    expect(roiBase(null)).toBe('не определена');
-+    expect(roiBase({ kpiType: 'share_of_market', kpiKind: 'proportional' })).toBe(
-+      'не определена',
-+    );
-+  });
-+});
++    Args:
++        seed: зерно, фактически переданное сэмплеру.
++        seed_source: источник зерна из ``resolve_seed``.
++        chains, draws, tune: параметры MCMC.
++        has_compiler: наличие C-компилятора. Влияет на скорость Tier-2 и на
++            дефолтные параметры MCMC, а через них — на результат.
++        chain_method: способ раскладки цепей, запрошенный движком.
++        jax_devices: сколько устройств увидел JAX — именно от этого числа
++            движок выбирает раскладку.
++    """
++    return {
++        'seed': seed,
++        'seed_source': seed_source,
++        'sampler_tier': None,
++        'chain_method_requested': chain_method,
++        # Доехала ли запрошенная раскладка до сэмплера. Ярус PyTensor цепи
++        # так не раскладывает вовсе — там поле остаётся ложью по факту, а не
++        # по недосмотру. История поля: до 2026-08-03 раскладка передавалась
++        # прямым аргументом `pm.sample(chain_method=...)`, который PyMC 5.28
++        # молча проглатывает; поле и заведено, чтобы паспорт не выдавал
++        # запрошенное за применённое.
++        'chain_method_delivered': False,
++        'jax_devices': jax_devices,
++        'has_compiler': has_compiler,
++        'mcmc': {'chains': chains, 'draws': draws, 'tune': tune},
++        'versions': _package_versions(),
++        'platform': {
++            'system': platform.system(),
++            'release': platform.release(),
++            'machine': platform.machine(),
++            'python': platform.python_version(),
++        },
++    }
 +
-+describe('roiBaseNote — пояснение соответствует базе', () => {
-+  it('при обороте прямо предупреждает, что прибыльность не следует', () => {
-+    const note = roiBaseNote({ kpiType: 'sales', kpiKind: 'monetary' });
-+    expect(note).toContain('по обороту');
-+    expect(note).toContain('не следует');
-+  });
 +
-+  it('при прибыли говорит о прибыли и не путает базы', () => {
-+    const note = roiBaseNote({ kpiType: 'profit', kpiKind: 'monetary' });
-+    expect(note).toContain('по прибыли');
-+    expect(note).not.toContain('по обороту');
-+  });
++def seed_from_model(model_data: dict[str, Any] | None) -> tuple[int, str]:
++    """Зерно, которым обучалась сохранённая модель.
 +
-+  it('без экономики честно называет пороги отключёнными', () => {
-+    const note = roiBaseNote({ kpiType: 'leads', kpiKind: 'count' });
-+    expect(note).toContain('отключены');
-+  });
-+});
++    Нужно перепроверке на истории: она переобучает модель на урезанных
++    окнах и обязана делать это тем же зерном, иначе разброс между
++    прогонами проверки смешается с разбросом самой модели.
 +
-+describe('база доезжает в факты советника', () => {
-+  /** @param {Record<string, any>} [extra] */
-+  const call = (extra) =>
-+    buildTier2Context({
-+      step: STEP.DECOMPOSE,
-+      question: 'Какие каналы окупаются?',
-+      dec: { channels: [] },
-+      ...extra,
-+    });
++    Порядок: снимок воспроизводимости в модели → конфиг модели → общий
++    разбор (переменная среды, затем значение по умолчанию).
 +
-+  it('поле roi_base есть в фактах при режиме выручки', () => {
-+    expect(call({ kpiType: 'sales', kpiKind: 'monetary' }).facts.roi_base).toBe('оборот');
-+  });
++    У моделей, обученных до P0.2, снимка нет и зерна не было вовсе —
++    они получают значение по умолчанию. Совпадения с их исходным
++    обучением это не даёт и дать не может; даёт повторяемость самой
++    перепроверки, что и требуется от неё.
 +
-+  it('поле roi_base есть в фактах при режиме прибыли', () => {
-+    expect(call({ kpiType: 'profit', kpiKind: 'monetary' }).facts.roi_base).toBe('прибыль');
-+  });
++    Returns:
++        (зерно, источник) — источник дополнительно к значениям
++        ``resolve_seed`` может быть ``'model'``.
++    """
++    snapshot = (model_data or {}).get('reproducibility')
++    if isinstance(snapshot, dict) and snapshot.get('seed') is not None:
++        seed = _coerce_seed(snapshot['seed'], origin='снимок модели')
++        if seed is not None:
++            return seed, 'model'
++    return resolve_seed((model_data or {}).get('config'))
 +
-+  it('без переданной метрики поле присутствует и честно говорит «не определена»', () => {
-+    // Поле обязано быть всегда: отсутствие ключа советник трактовал бы как
-+    // «спрашивать не о чем» и вернулся бы к вольной формулировке.
-+    expect(call({}).facts.roi_base).toBe('не определена');
-+  });
-+});
 +
-+describe('правило 7 называет базу, а не судит о прибыли безусловно', () => {
-+  // TIER2_SYSTEM_RULES экспортируется уже склеенной строкой, не массивом.
-+  const rules = TIER2_SYSTEM_RULES;
++def mark_chain_layout(
++    snapshot: dict[str, Any] | None,
++    *,
++    chain_method: str,
++    jax_devices: int,
++) -> None:
++    """Записать в снимок раскладку цепей и число устройств.
 +
-+  it('правила ссылаются на поле roi_base', () => {
-+    expect(rules).toContain('roi_base');
-+  });
++    Отдельно от ``environment_snapshot``, потому что раскладка выбирается
++    позже — уже внутри блока сэмплирования, по числу видимых устройств.
 +
-+  it('безусловной формулировки «прибылен канал или убыточен» больше нет', () => {
-+    expect(rules).not.toContain('прибылен канал или убыточен');
-+  });
++    Вызывается только на ярусе NumPyro и только там, где раскладка
++    действительно передана сэмплеру через ``nuts_sampler_kwargs``, — потому
++    и выставляет ``chain_method_delivered``.
 +
-+  it('при базе «оборот» слова о прибыли прямо запрещены', () => {
-+    expect(rules).toMatch(/оборот[\s\S]{0,400}НЕЛЬЗЯ/);
-+  });
++    ⚠️ Доставлена ≠ применена буквально: NumPyro сам понижает ``parallel``
++    до ``sequential``, если устройств меньше, чем цепей. На числа это не
++    влияет — ``parallel`` и ``sequential`` дают побитово одинаковый
++    результат при одном зерне (проверено зондом 2026-08-03).
++    """
++    if snapshot is None:
++        return
++    snapshot['chain_method_requested'] = chain_method
++    snapshot['chain_method_delivered'] = True
++    snapshot['jax_devices'] = jax_devices
 +
-+  it('при неопределённой базе запрещено и слово «окупается»', () => {
-+    expect(rules).toMatch(/не определена[\s\S]{0,400}не используй/);
-+  });
-+});
-diff --git a/src/lib/components/pipeline/DecomposeStep.svelte b/src/lib/components/pipeline/DecomposeStep.svelte
-index 0b5971f..04b9174 100644
---- a/src/lib/components/pipeline/DecomposeStep.svelte
-+++ b/src/lib/components/pipeline/DecomposeStep.svelte
-@@ -22,10 +22,12 @@
-     unitCostInflation,
-     // v1.3.0 stores (per ADR-015, ADR-016)
-     kpiKind,
-+    kpiType,
-     derivedMode,
-     valuePerCountUnit,
-     modelStaleStatus,
-   } from '$lib/project-state.js';
-+  import { roiBaseNote } from '$lib/kpi-aware-formatting.js';
-   import WaterfallChart from '$lib/components/pipeline/WaterfallChart.svelte';
-   import ChannelComparisonChart from '$lib/components/pipeline/ChannelComparisonChart.svelte';
-   import RecommendationCard from '$lib/components/pipeline/RecommendationCard.svelte';
-@@ -250,6 +252,17 @@
-     modelHonestyVerdict === 'unreliable' || modelHonestyVerdict === 'uncertain'
-   );
++
++def mark_sampler_tier(snapshot: dict[str, Any] | None, tier: str) -> None:
++    """Записать в снимок ярус, который сработал на самом деле.
++
++    Вызывать сразу после успешного возврата сэмплера, а не при входе в
++    ветку: ветка Tier-1 может начаться и упасть на запасной путь.
++    """
++    if snapshot is None:
++        return
++    snapshot['sampler_tier'] = tier
++
++
++def _package_versions() -> dict[str, str | None]:
++    """Версии пакетов, влияющих на числа. Отсутствующий пакет → ``None``.
++
++    Импорт здесь ленивый и защищённый: снимок среды не имеет права уронить
++    обучение из-за отсутствующего необязательного пакета (jax/numpyro в
++    медленной поставке может не быть вовсе).
++    """
++    versions: dict[str, str | None] = {
++        'python': sys.version.split()[0],
++    }
++    for name in ('numpy', 'pymc', 'pytensor', 'numpyro', 'jax'):
++        versions[name] = _version_of(name)
++    return versions
++
++
++def _version_of(module_name: str) -> str | None:
++    try:
++        module = __import__(module_name)
++    except Exception:  # noqa: BLE001 — любой сбой импорта = пакета нет
++        return None
++    return getattr(module, '__version__', None)
+diff --git a/src-tauri/help-econometrica/data-preparation.html b/src-tauri/help-econometrica/data-preparation.html
+index 7dcc383..40c4b64 100644
+--- a/src-tauri/help-econometrica/data-preparation.html
++++ b/src-tauri/help-econometrica/data-preparation.html
+@@ -213,11 +213,11 @@ details.expert li { font-size: 13px; }
+      • Нужно <strong>и то, и другое</strong> → собери <strong>и объём, и стоимость юнита</strong>: объём моделирует отдачу, стоимость переводит её в деньги.</p>
+ </div>
  
-+  // Пояснение базы окупаемости. Подсказки ниже говорят «окупается» и «убыточен»,
-+  // но в режиме выручки это окупаемость ПО ОБОРОТУ, из которой прибыльность не
-+  // следует. Базу считает общий `roiBaseNote` — тот же, что у советника и у
-+  // детерминированных инсайтов, чтобы формулировки не разошлись между экранами.
-+  const roiNote = $derived(roiBaseNote({
-+    kpiKind: $kpiKind,
-+    kpiType: $kpiType,
-+    vpcu: $valuePerCountUnit,
-+    mode: $derivedMode,
-+  }));
+-<p>Приложение <strong>само определит режим</strong> по тому, какие данные ты дал. Не дашь денег – режим ROI будет недоступен, и ты получишь только эффективность. Поэтому задачу выбирают заранее.</p>
++<p>Приложение <strong>само определит режим</strong> по тому, какие данные вы дали. Не дадите денег – режим ROI будет недоступен, и вы получите только эффективность. Поэтому задачу выбирают заранее.</p>
+ 
+ <div class="callout c-danger">
+   <div class="c-title">Модель учат под один конкретный KPI</div>
+-  <p><strong>Одна модель = один KPI.</strong> Сначала реши, <em>что именно</em> ты прогнозируешь: продажи в рублях? упаковки? долю рынка? узнаваемость? лиды? регистрации? От этого зависит тип KPI (денежный или количественный), какие режимы доступны и какие факторы вообще нужно собирать.</p>
++  <p><strong>Одна модель = один KPI.</strong> Сначала решите, <em>что именно</em> вы прогнозируете: продажи в рублях? упаковки? долю рынка? узнаваемость? лиды? регистрации? От этого зависит тип KPI (денежный или количественный), какие режимы доступны и какие факторы вообще нужно собирать.</p>
+   <p>Хочешь объяснить <strong>и продажи, и узнаваемость</strong> – это <strong>две отдельные модели</strong> на двух файлах (или на одном файле, но обучаемые по очереди под разный KPI), а не одна модель с двумя целями.</p>
+ </div>
+ 
+@@ -236,11 +236,11 @@ details.expert li { font-size: 13px; }
+ <!-- ============ ПОЧЕМУ ============ -->
+ <h2 id="why"><span class="h2-num">1</span>Почему правильные данные решают всё</h2>
+ 
+-<p>Эконометрическая модель не «умнее» своих данных. Она находит закономерности ровно в том, что ты ей дал. Кривые данные дают красивые, но ложные выводы – и снаружи это почти не видно: модель всё равно покажет графики и числа.</p>
++<p>Эконометрическая модель не «умнее» своих данных. Она находит закономерности ровно в том, что вы ей дали. Кривые данные дают красивые, но ложные выводы – и снаружи это почти не видно: модель всё равно покажет графики и числа.</p>
+ 
+ <div class="callout c-warn">
+   <div class="c-title">Мусор на входе – мусор на выходе</div>
+-  <p>Если в данных пропущен важный фактор продаж или подставлена «зеркальная» переменная (см. <a href="#methodology">раздел 4</a>), модель припишет чужой эффект рекламе. ROI будет завышен, рекомендации по бюджету – ошибочны. И никто за тебя это не поймает: программа работает локально, без внешней проверки.</p>
++  <p>Если в данных пропущен важный фактор продаж или подставлена «зеркальная» переменная (см. <a href="#methodology">раздел 4</a>), модель припишет чужой эффект рекламе. ROI будет завышен, рекомендации по бюджету – ошибочны. И никто за вас это не поймает: программа работает локально, без внешней проверки.</p>
+ </div>
+ 
+ <p>Поэтому 80% качества результата создаётся <strong>здесь</strong>, на этапе сбора данных, а не в настройках модели. Этот раздел – про то, как собрать данные правильно с первого раза.</p>
+diff --git a/src-tauri/help-econometrica/faq.html b/src-tauri/help-econometrica/faq.html
+index 259dd2b..54182ce 100644
+--- a/src-tauri/help-econometrica/faq.html
++++ b/src-tauri/help-econometrica/faq.html
+@@ -47,7 +47,7 @@ a:hover { text-decoration: underline; }
+ <details>
+ <summary>Можно ли смешивать TRP и рубли в одной модели?</summary>
+ <p>Да, модель сама разберётся с разными единицами. <strong>Но обязательно укажи стоимость юнита в ₽</strong> на шаге «Проверка» – иначе ROAS и бюджетные сравнения станут бессмысленными (1 TRP ≠ 1 рубль).</p>
+-<p>Без unit_costs ты увидишь ROI каналов типа «115× для TRP» – это артефакт смешения единиц, а не реальная эффективность.</p>
++<p>Без unit_costs вы увидите ROI каналов типа «115× для TRP» – это артефакт смешения единиц, а не реальная эффективность.</p>
+ </details>
+ 
+ <details>
+@@ -64,7 +64,7 @@ a:hover { text-decoration: underline; }
+ <details>
+ <summary>Недельные или помесячные данные лучше?</summary>
+ <p>Помесячные проще агрегировать, меньше шума, легче найти long-term тренды. Но дают меньше точек на тот же период (24 мес × помесячно = 24 точки vs недельно = 104 точки).</p>
+-<p>Недельные лучше если: (1) у тебя короткий период данных, (2) медиа-кампании короткие (1-2 недели), (3) хочешь поймать промо-эффект. Aurora работает одинаково хорошо с обоими.</p>
++<p>Недельные лучше если: (1) у вас короткий период данных, (2) медиа-кампании короткие (1-2 недели), (3) хотите поймать промо-эффект. Aurora работает одинаково хорошо с обоими.</p>
+ </details>
+ 
+ <details>
+@@ -95,7 +95,7 @@ a:hover { text-decoration: underline; }
+ 
+ <details>
+ <summary>Появилась рекомендация «Объединить слабые каналы» – что это?</summary>
+-<p>На шаге «Валидация» если у тебя 3+ каналов с малым бюджетом или низким сигналом, Aurora предлагает объединить их в виртуальный канал «Малые медиа» для целей моделирования.</p>
++<p>На шаге «Валидация» если у вас 3+ каналов с малым бюджетом или низким сигналом, Aurora предлагает объединить их в виртуальный канал «Малые медиа» для целей моделирования.</p>
+ <p>Применение не меняет исходные данные – merge materializes только внутри modeler/decomposer/optimizer/awareness при обучении. Если слияемые каналы содержат «до НДС» / «₽» – merged name наследует маркер.</p>
+ <p>Зачем: тонкий сигнал от одного слабого канала размывает модель; агрегат получает более устойчивую оценку эффекта.</p>
+ </details>
+@@ -129,7 +129,7 @@ a:hover { text-decoration: underline; }
+ <summary>Разница между блоками B, C, D, E в Оптимизации?</summary>
+ <p>Все 5 блоков на одном экране:</p>
+ <ul>
+-  <li><strong>A – Текущий бюджет</strong>: где ты сейчас (без действий)</li>
++  <li><strong>A – Текущий бюджет</strong>: где вы сейчас (без действий)</li>
+   <li><strong>B – Оптимизация</strong>: найти лучший микс в рамках <em>текущей суммы</em></li>
+   <li><strong>C – What-if</strong>: что будет при другой сумме (+20% / −30%)</li>
+   <li><strong>D – Прогноз</strong>: на будущий период с учётом медиаинфляции (TV +12%, Digital +7% и т.д.)</li>
+diff --git a/src-tauri/help-econometrica/pipeline.html b/src-tauri/help-econometrica/pipeline.html
+index f53f749..81477e6 100644
+--- a/src-tauri/help-econometrica/pipeline.html
++++ b/src-tauri/help-econometrica/pipeline.html
+@@ -60,7 +60,7 @@ code { background: var(--bg3); padding: 1px 6px; border-radius: 4px; font-size:
+     <div class="io-box"><div class="lbl">Output</div><div class="val">Статус «готов / требует доработки», уточнённые роли, matrix корреляций, гистограммы</div></div>
+   </div>
+   <div class="ui-ref">UI: шаг «Валидация». Добавь стоимость юнита в ₽ если есть физические метрики (TRP/impressions) и нужен ROI.</div>
+-  <div class="ui-ref" style="margin-top: 8px;">Если у тебя 3+ слабых каналов – появится рекомендация <em>«Объединить слабые каналы в Малые медиа»</em>. Применение materializes merge в 4 слоях модели (modeler/decomposer/optimizer/awareness) без изменения исходных данных. См. <a href="user-guide.html#merge-channels">Объединение слабых каналов</a>.</div>
++  <div class="ui-ref" style="margin-top: 8px;">Если у вас 3+ слабых каналов – появится рекомендация <em>«Объединить слабые каналы в Малые медиа»</em>. Применение materializes merge в 4 слоях модели (modeler/decomposer/optimizer/awareness) без изменения исходных данных. См. <a href="user-guide.html#merge-channels">Объединение слабых каналов</a>.</div>
+   <div class="ui-ref" style="margin-top: 8px;"><strong style="color: var(--text);">Панель «Авто-праздники РФ»</strong> – мастер-переключатель <em>«Учитывать праздники РФ как факторы»</em> (<strong>ВКЛ по умолчанию</strong>). При включении ~12 государственных праздников добавляются как контрольные переменные в модель (отображаются ниже Ratio). Это снижает риск OVB – если праздники реально влияют на продажи, их эффект не будет ошибочно приписан медиаканалам. При <strong>ВЫКЛ</strong>: меньше параметров → Ratio растёт → ниже риск переобучения. Отключай, если данных мало (Ratio &lt; 4) или категория не зависит от праздников. <span title="OVB (Omitted Variable Bias): если убрать значимый фактор, его реальный эффект ошибочно перейдёт на другие переменные и исказит их ROI" style="display:inline-flex;align-items:center;justify-content:center;width:16px;height:16px;background:rgba(88,166,255,0.15);color:var(--accent);font-size:11px;font-weight:700;border-radius:50%;cursor:help;vertical-align:middle;margin-left:4px;">?</span></div>
+ </div>
+ 
+diff --git a/src-tauri/src/commands/gateway_executor.rs b/src-tauri/src/commands/gateway_executor.rs
+index fe53117..949adf2 100644
+--- a/src-tauri/src/commands/gateway_executor.rs
++++ b/src-tauri/src/commands/gateway_executor.rs
+@@ -865,6 +865,18 @@ async fn execute(
+             }
+             keep = false;
+             shown.clear();
++            // 🔴 Экран обязан забыть показанное ВМЕСТЕ с накопленным текстом.
++            // Событие несёт весь ответ целиком, и интерфейс заменяет показанное,
++            // — но только когда событие приходит. Если второй заход не отдаст ни
++            // одного куска (человек остановил работу, сервер отказал сразу), на
++            // экране остаётся абзац, которого нет ни в возврате, ни в истории:
++            // видимое и сохранённое расходятся молча.
++            if !suppress_done {
++                let _ = app_handle.emit(
++                    &format!("claude-stream-{cabinet_id}"),
++                    build_stream_event(""),
++                );
++            }
+             continue;
+         }
+         break (inputs, skipped, outcome);
+diff --git a/src/lib/__tests__/ratio-single-source.guard.test.js b/src/lib/__tests__/ratio-single-source.guard.test.js
+new file mode 100644
+index 0000000..87c67a0
+--- /dev/null
++++ b/src/lib/__tests__/ratio-single-source.guard.test.js
+@@ -0,0 +1,155 @@
++/**
++ * P0.3 (2026-08-03): сторож единого знаменателя «Запаса данных».
++ *
++ * Корень. До этой правки знаменатель считался в шести местах тремя разными
++ * формулами — причём две из них жили внутри ОДНОЙ функции `validateInsights`.
++ * Пользователь на одном экране видел «Запас данных 5,2 — Рекомендуемый
++ * уровень» в шапке и «Критически мало данных: ratio 2,3:1» в советах под ней.
++ * Замер: 52 наблюдения, 8 медиа + 2 контроля.
++ *
++ * Решение владельца: всё к эффективному — показываем и красим по числу
++ * параметров, которое модель заведёт НА САМОМ ДЕЛЕ.
++ *
++ * 🔴 Знаменателей ДВА, по режиму: байесовский заводит авто-праздники, OLS не
++ * заводит ни одного (в `ols_modeler.py` генератора праздников нет вовсе).
++ * Единая константа «+13 всегда» соврала бы для OLS ровно настолько, насколько
++ * сырой знаменатель врал для байеса. Поэтому сторож проверяет ОБА режима.
++ */
++import { describe, it, expect } from 'vitest';
++import { get } from 'svelte/store';
++import {
++  effectiveParamCount,
++  effectiveRatio,
++} from '../ratio-classifier.js';
++import { validateInsights, modelPreTrainingInsights } from '../insights-rules.js';
++import { validateData, validationHeaderMetrics, modelEngine } from '../project-state.js';
 +
-   // Help-tooltips для основной таблицы «Детализация по каналам».
-   const CH_HELP = {
-     spend:   'Расходы - суммарный бюджет канала за весь период анализа.\n\nПочему важно: основа для ROI и доли бюджета. Если канал не в рублях (TRP, показы) - ROI будет искажён.',
-@@ -603,11 +616,11 @@
-               <th class="num">Расходы<span class="help-icon" title={CH_HELP.spend}>?</span></th>
-               <th class="num">Вклад<span class="help-icon" title={CH_HELP.contrib}>?</span></th>
-               <th class="num">
--                {metricLabel[displayMetric]}<span class="help-icon" title={CH_HELP.roi}>?</span>
-+                {metricLabel[displayMetric]}<span class="help-icon" title={`${CH_HELP.roi}\n\n${roiNote}`}>?</span>
-               </th>
-               <th class="num">Gap<span class="help-icon" title={CH_HELP.gap}>?</span></th>
-               <th class="num">Decay<span class="help-icon" title="Adstock decay - доля медиа-эффекта переносимая на следующий период. 0 = моментальный эффект (1 период), 0.7 ≈ 3-4 периода эффективной длительности (long brand). 50%-й правдоподобный диапазон показывает posterior uncertainty (Trust Level 3, v1.1.0).">?</span></th>
--              <th>Вердикт<span class="help-icon" title={CH_HELP.verdict}>?</span></th>
-+              <th>Вердикт<span class="help-icon" title={`${CH_HELP.verdict}\n\n${roiNote}`}>?</span></th>
-             </tr>
-           </thead>
-           <tbody>
++/** 52 наблюдения, 8 медиа + 2 контроля — состав как отдаёт validator.py. */
++function makeResult() {
++  const columns = [];
++  for (let i = 0; i < 8; i++) {
++    columns.push({ name: `media_${i}`, role: 'media', stats: { zeros_pct: 5, vif: 2 } });
++  }
++  for (let i = 0; i < 2; i++) {
++    columns.push({ name: `ctrl_${i}`, role: 'control', stats: { zeros_pct: 0 } });
++  }
++  columns.push({ name: 'sales', role: 'kpi', stats: { zeros_pct: 0 } });
++  columns.push({ name: 'date', role: 'date', stats: {} });
++  return {
++    columns,
++    file: { rows: 52 },
++    detected: {
++      rows: 52,
++      n_rows: 52,
++      n_predictors: 10,
++      n_holidays_auto: 12,
++      n_intercept: 1,
++      n_params_effective_bayesian: 23,
++      n_params_effective_ols: 11,
++    },
++  };
++}
++
++/** Обёртка стора «Валидация»: сторы ждут полную форму, тесту важен только result.
++ * @param {any} result
++ * @returns {any} */
++function asValidateData(result) {
++  return { result, correlationMatrix: null, columnHistograms: null };
++}
++
++/** Все числа вида «X.Y:1», упомянутые в наборе подсказок.
++ * @param {any[]} insights */
++function ratiosMentioned(insights) {
++  const found = new Set();
++  for (const ins of insights) {
++    const text = `${ins.text ?? ''} ${ins.tip ?? ''}`;
++    for (const m of text.matchAll(/(\d+[.,]\d+):1/g)) {
++      found.add(m[1].replace(',', '.'));
++    }
++  }
++  return found;
++}
++
++describe('P0.3: знаменатель «Запаса данных» — один источник', () => {
++  it('байесовский режим: 52 / 23 параметра = 2.3', () => {
++    const r = makeResult();
++    expect(effectiveParamCount(r.detected, 'bayesian')).toBe(23);
++    expect(effectiveRatio(52, r.detected, 'bayesian')).toBeCloseTo(2.26, 2);
++  });
++
++  it('режим OLS: праздников нет, 52 / 11 параметров = 4.7', () => {
++    const r = makeResult();
++    expect(effectiveParamCount(r.detected, 'ols')).toBe(11);
++    expect(effectiveRatio(52, r.detected, 'ols')).toBeCloseTo(4.73, 2);
++  });
++
++  it('шапка и советы называют ОДНО число, а не разные', () => {
++    const result = makeResult();
++    modelEngine.set('bayesian');
++    validateData.set(asValidateData(result));
++
++    const header = /** @type {any} */ (get(validationHeaderMetrics));
++    const shown = header.ratio.toFixed(1);
++    expect(shown).toBe('2.3');
++
++    // Ни одна подсказка не имеет права называть другое значение запаса.
++    // Раньше здесь соседствовали 5.2 (шапка) и 2.3 (советы).
++    const mentioned = ratiosMentioned([
++      ...validateInsights(result, 'roi', 'bayesian'),
++      ...modelPreTrainingInsights(result, undefined, 'bayesian'),
++    ]);
++    for (const value of mentioned) {
++      // Значения «после исключения слабых каналов» легитимно выше текущего —
++      // они про другую, гипотетическую конфигурацию. Запрещено ровно одно:
++      // повторение СЫРОГО знаменателя (52/10 = 5.2) как текущего запаса.
++      expect(value).not.toBe('5.2');
++    }
++  });
++
++  it('при нехватке запаса продукт не успокаивает пользователя', () => {
++    // Прямое следствие знаменателя, а не его печать. Блок готовности ветвится
++    // по запасу: при ≥4 он говорит «Данные готовы к моделированию» либо
++    // «N предупреждений не блокируют моделирование». На сыром знаменателе
++    // (5.2) сюда попадал проект с фактическим запасом 2.3 — и получал
++    // успокаивающую формулировку на данных, которых не хватает.
++    const result = makeResult();
++    const texts = validateInsights(result, 'roi', 'bayesian')
++      .map((i) => i.text ?? '')
++      .join(' || ');
++    expect(texts).not.toContain('готовы к моделированию');
++    expect(texts).not.toContain('не блокируют моделирование');
++  });
++
++  it('сырой запас остаётся доступен справочно, но не красит статус', () => {
++    const result = makeResult();
++    modelEngine.set('bayesian');
++    validateData.set(asValidateData(result));
++    const header = /** @type {any} */ (get(validationHeaderMetrics));
++    expect(header.ratioRaw).toBeCloseTo(5.2, 1);
++    // Статус обязан идти от эффективного (2.3 → «мало»), а не от сырого
++    // (5.2 → «рекомендуемый уровень»). Иначе вернётся тот самый скачок
++    // «зелёное до обучения, красное после».
++    expect(header.ratioStatus).not.toBe('ok');
++  });
++
++  it('смена режима меняет запас данных на том же проекте', () => {
++    const result = makeResult();
++    validateData.set(asValidateData(result));
++
++    modelEngine.set('bayesian');
++    const bayes = /** @type {any} */ (get(validationHeaderMetrics)).ratio;
++    modelEngine.set('ols');
++    const ols = /** @type {any} */ (get(validationHeaderMetrics)).ratio;
++
++    expect(bayes).toBeLessThan(ols);
++    expect(bayes).toBeCloseTo(2.26, 2);
++    expect(ols).toBeCloseTo(4.73, 2);
++  });
++
++  it('проект, сохранённый до P0.3 (нет новых полей), не падает', () => {
++    const legacy = { n_predictors: 10, n_params_effective_pretrain: 23 };
++    expect(effectiveParamCount(legacy, 'bayesian')).toBe(23);
++    // Для OLS новых полей нет — собираем консервативно, без праздников.
++    expect(effectiveParamCount(legacy, 'ols')).toBe(11);
++  });
++});
+diff --git a/src/lib/components/CommandPalette.svelte b/src/lib/components/CommandPalette.svelte
+index 8b44b35..cd0f54d 100644
+--- a/src/lib/components/CommandPalette.svelte
++++ b/src/lib/components/CommandPalette.svelte
+@@ -15,7 +15,7 @@
+     { id: 'features', label: 'Справка: каталог функций', keywords: 'функции возможности что умеет' },
+     { id: 'whats-new', label: 'Справка: что нового в 2.1', keywords: 'новое изменения changelog версия' },
+     { id: 'data-preparation', label: 'Справка: подготовка данных', keywords: 'данные столбцы kpi медиа формат xlsx шаблоны' },
+-    { id: 'pipeline', label: 'Справка: пайплайн (6 шагов)', keywords: 'шаги процесс импорт валидация модель декомпозиция оптимизация отчёт' },
++    { id: 'pipeline', label: 'Справка: пайплайн (7 шагов)', keywords: 'шаги процесс импорт валидация модель декомпозиция оптимизация планирование отчёт' },
+     { id: 'interpretation', label: 'Справка: интерпретация результатов', keywords: 'как читать отчёт mqs roi вердикт переобучение доверительный интервал ratio' },
+     { id: 'methodology', label: 'Справка: методология MMM', keywords: 'mmm байес mcmc adstock hill насыщение' },
+     { id: 'glossary', label: 'Справка: глоссарий (страница)', keywords: 'термины словарь определения' },
+diff --git a/src/lib/components/OnboardingOverlay.svelte b/src/lib/components/OnboardingOverlay.svelte
+index 87ae853..8d7e0ab 100644
+--- a/src/lib/components/OnboardingOverlay.svelte
++++ b/src/lib/components/OnboardingOverlay.svelte
+@@ -27,7 +27,7 @@
+     },
+     {
+       title: 'Как начать',
+-      desc: 'Создайте проект, загрузите Excel с недельными данными и пройдите 6 шагов пайплайна: Import → Validate → Model → Decompose → Optimize → Report. Каждый шаг с встроенным онбордингом и живыми подсказками.',
++      desc: 'Создайте проект, загрузите Excel с недельными данными и пройдите 7 шагов пайплайна: Import → Validate → Model → Decompose → Optimize → Planning → Report. Каждый шаг с встроенным онбордингом и живыми подсказками.',
+       icon: 'M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z M14 2v6h6 M16 13H8 M16 17H8 M10 9H8',
+     },
+     {
 diff --git a/src/lib/components/pipeline/InsightsPanel.svelte b/src/lib/components/pipeline/InsightsPanel.svelte
-index 77f861a..175a978 100644
+index 1c07e11..4a30039 100644
 --- a/src/lib/components/pipeline/InsightsPanel.svelte
 +++ b/src/lib/components/pipeline/InsightsPanel.svelte
-@@ -402,6 +402,12 @@
-       dec: $decomposeData,
-       opt: $optimizeData,
-       methodology,
-+      // Выбранная метрика: от неё зависит база окупаемости, а значит — вправе ли
-+      // советник называть канал прибыльным (правило 7). Считает её один
-+      // `resolveRoiBase`, экран лишь передаёт исходные значения.
-+      kpiType: $kpiType,
-+      kpiKind: $kpiKind,
-+      valuePerCountUnit: $valuePerCountUnit,
-     });
-     const prompt = buildTier2Prompt(ctx, askQuestion);
+@@ -37,7 +37,7 @@
+     validateKpiInsights, validateRolesInsights, validateMetricsInsights, validateConfirmInsights,
+   } from '$lib/insights-rules.js';
+   // v2.1.0 (rc2 U-05): subStep store для контекстной маршрутизации.
+-  import { validateSubStep, analysisMode, perChannelInput, unitCosts, unitCostInputMode, budgetInputs, modelEnabledMediaNames, validationHeaderMetrics } from '$lib/project-state.js';
++  import { validateSubStep, analysisMode, perChannelInput, unitCosts, unitCostInputMode, budgetInputs, modelEnabledMediaNames, validationHeaderMetrics, modelEngine } from '$lib/project-state.js';
+   // Tier 2 (Claude-усилитель инсайтов, «Phase 10»). Видим только в облачной
+   // редакции с согласием и для продукта Econometrica.
+   import { isEconometrica } from '$lib/creative-store.js';
+@@ -302,7 +302,9 @@
+         // media-роли. modelEnabledMediaNames пустой до Init шага Модель.
+         if (!mod?.diagnostics) {
+           const activeMedia = $modelEnabledMediaNames;
+-          return modelPreTrainingInsights(val?.result, activeMedia.length > 0 ? activeMedia : undefined);
++          // P0.3: режим передаётся явно — запас данных считается по нему
++          // (байес заводит авто-праздники, OLS не заводит ни одного).
++          return modelPreTrainingInsights(val?.result, activeMedia.length > 0 ? activeMedia : undefined, $modelEngine);
+         }
+         // v2.1.0 (пилот 2026-05-16): передаём frontend SSOT ratio - Антон:
+         // «ratio в расчёте было 3.9, на модели опять неверные ratio».
+diff --git a/src/lib/components/pipeline/MultiScenarioPage.svelte b/src/lib/components/pipeline/MultiScenarioPage.svelte
+index f25ee5a..3d9358b 100644
+--- a/src/lib/components/pipeline/MultiScenarioPage.svelte
++++ b/src/lib/components/pipeline/MultiScenarioPage.svelte
+@@ -27,7 +27,6 @@
+   import {
+     exportToCsv,
+     exportToExcel,
+-    exportToPptx,
+     downloadText,
+     buildExportFilename,
+   } from '$lib/scenario-export.js';
+@@ -313,25 +312,6 @@
+     }
+   }
  
-diff --git a/src/lib/components/pipeline/OptimizeGoalSeek.svelte b/src/lib/components/pipeline/OptimizeGoalSeek.svelte
-index 066aefd..33f636f 100644
---- a/src/lib/components/pipeline/OptimizeGoalSeek.svelte
-+++ b/src/lib/components/pipeline/OptimizeGoalSeek.svelte
-@@ -99,6 +99,29 @@
-   // сохранён, но зона выше corridorHi честно жёлто-красная (Chan & Perry 2017:
-   // кривая вне наблюдённого диапазона не идентифицируется данными).
-   const corridorHi = $derived(salesCorridor?.hi ?? currentSales * 1.5);
+-  /** Export to PPTX via Rust backend */
+-  async function handleExportPptx() {
+-    exportOpen = false;
+-    exportBusy = true;
+-    exportStatus = null;
+-    try {
+-      const result = await exportToPptx(scenarios, baseline);
+-      if ('stub' in result) {
+-        exportStatus = result.message;
+-      } else {
+-        exportStatus = `PPTX сохранён: ${result.path}`;
+-      }
+-    } catch (e) {
+-      exportStatus = `Ошибка: ${String(e)}`;
+-    } finally {
+-      exportBusy = false;
+-    }
+-  }
+-
+   // Close any open dropdown on outside click
+   function handleDocClick(/** @type {MouseEvent} */ e) {
+     const target = /** @type {HTMLElement | null} */ (e.target);
+@@ -582,11 +562,6 @@
+                 Excel (.xlsx) - сравнение
+               </button>
+             </li>
+-            <li role="menuitem">
+-              <button type="button" onclick={handleExportPptx}>
+-                Слайд PPTX
+-              </button>
+-            </li>
+           </ul>
+         {/if}
+       </div>
+diff --git a/src/lib/components/pipeline/PipelineOnboarding.svelte b/src/lib/components/pipeline/PipelineOnboarding.svelte
+index 68000bb..7bfc5de 100644
+--- a/src/lib/components/pipeline/PipelineOnboarding.svelte
++++ b/src/lib/components/pipeline/PipelineOnboarding.svelte
+@@ -7,8 +7,8 @@
+    * На null-selector - карточка по центру (intro/outro).
+    *
+    * Вынесен из OptimizeOnboarding в универсальную форму: принимает `steps` и
+-   * `stepKey` (ключ для localStorage). Используется для всех 6 шагов пайплайна
+-   * (Импорт, Валидация, Модель, Декомпозиция, Оптимизация, Отчёт).
++   * `stepKey` (ключ для localStorage). Используется для всех 7 шагов пайплайна
++   * (Импорт, Валидация, Модель, Декомпозиция, Оптимизация, Планирование, Отчёт).
+    *
+    * Props:
+    *   steps - массив { selector, title, body }[]
+diff --git a/src/lib/components/pipeline/ReportStep.svelte b/src/lib/components/pipeline/ReportStep.svelte
+index 1713dfa..f37736d 100644
+--- a/src/lib/components/pipeline/ReportStep.svelte
++++ b/src/lib/components/pipeline/ReportStep.svelte
+@@ -23,6 +23,7 @@
+     validationHeaderMetrics,
+   } from '$lib/project-state.js';
+   import PipelineOnboarding from '$lib/components/pipeline/PipelineOnboarding.svelte';
++  import SensitivityTornado from '$lib/components/pipeline/SensitivityTornado.svelte';
+   import { TOURS } from '$lib/pipeline-tours.js';
+   import { shouldShowOnboarding } from '$lib/onboarding-state.js';
+   import { unitCosts, activeProject, valuePerCountUnit, kpiKind } from '$lib/project-state.js';
+@@ -877,6 +878,16 @@
+         <div class="metric-sub">руб.</div>
+       </div>
+     </div>
 +
-+  /**
-+   * Пришёл ли НАСТОЯЩИЙ коридор продаж, а не запасной ориентир.
-+   *
-+   * 🔴 Движок его пока не считает: `optimize/bounds.py::compute_safe_corridor`
-+   * возвращает `per_channel` и `aggregate_budget`, а `aggregate_sales` живёт
-+   * ТОЛЬКО в докстринге с пометкой «placeholder, требует forward pass» — в коде
-+   * его нет, и в `goal_seek.py` тоже. Пока так, зелёная зона считается от
-+   * текущего уровня (×0,7…×1,5), и называть её наблюдавшимся диапазоном нельзя:
-+   * это разные вещи, и клиент принимал бы решение по обещанию, которого продукт
-+   * не выполняет. Настоящий расчёт — в P1, вместе с профит-фронтиром: обоим
-+   * нужен один и тот же прямой проход через модель, считать порознь значит
-+   * делать работу дважды.
-+   */
-+  const corridorIsObserved = $derived(
-+    salesCorridor?.lo != null && salesCorridor?.hi != null,
-+  );
-+
-+  const corridorNote = $derived(
-+    corridorIsObserved
-+      ? 'Цель должна быть в зелёной зоне коридора – иначе модель считает за пределами того, что наблюдала в данных.'
-+      : 'Зелёная зона – ориентир от текущего уровня продаж, а не диапазон, наблюдавшийся в данных: его модель пока не рассчитывает. Чем дальше цель от текущего уровня, тем осторожнее относитесь к результату.',
-+  );
-   const sliderMax = $derived(
-     Math.max(achievableCeiling ?? corridorHi * 1.15, corridorHi * 1.02)
-   );
-@@ -180,7 +203,7 @@
-     whatWeDo="Вы задаёте целевые продажи. Программа находит минимальный бюджет, при котором эта цель достижима с высокой вероятностью."
-     whyNeed="Прямая оптимизация отвечает: «у меня есть бюджет – куда вложить?». Расчёт от цели отвечает на вопрос руководителя: «нужно достичь продаж X – сколько потратить?»"
-     attentionTo={[
--      'Цель должна быть в зелёной зоне коридора - иначе модель экстраполирует за пределы observed range.',
-+      corridorNote,
-       'Правдоподобный диапазон на бюджете шире, чем точечная оценка - учитывайте при планировании.',
-       'Низкая P(достижения) означает, что цель близка к границам - рассмотрите менее агрессивные цели.',
-     ]}
++    <!-- P0.5: торнадо чувствительности — ответ на «а если модель ошиблась
++         на 20%». Только Bayesian: OLS не имеет апостериорных параметров,
++         которые можно варьировать (sensitivity.py считает по posterior mean). -->
++    {#if !isOls && mData?.diagnostics?.sensitivity_tornado?.parameters?.length}
++      <div class="card">
++        <div class="card-title">Тест устойчивости</div>
++        <SensitivityTornado tornadoData={mData.diagnostics.sensitivity_tornado} />
++      </div>
++    {/if}
+   {:else}
+     {@const missing = [!mData?.diagnostics && 'модель', !dData && 'декомпозиция', !oData && 'оптимизация'].filter(Boolean).join(', ')}
+     <div class="no-data-banner">
+diff --git a/src/lib/components/pipeline/ValidateStepV13.svelte b/src/lib/components/pipeline/ValidateStepV13.svelte
+index 6898de2..68f0d7e 100644
+--- a/src/lib/components/pipeline/ValidateStepV13.svelte
++++ b/src/lib/components/pipeline/ValidateStepV13.svelte
+@@ -33,7 +33,10 @@
+     chosenKpiColumn,
+     // Фаза 3 (2026-07-10): баннер обнаружения медиаплана.
+     mediaPlanDetected,
++    // P0.3: запас данных считается по режиму — байес заводит праздники, OLS нет.
++    modelEngine,
+   } from '$lib/project-state.js';
++  import { effectiveParamCount, effectiveRatio } from '$lib/ratio-classifier.js';
+   import {
+     deriveModeWithExplanation,
+     kpiKindForType,
+@@ -794,16 +797,26 @@
+     const nPredictors = activeCols.length;
+     const nObs = result.file?.rows ?? result.detected?.n_rows ?? 0;
+     if (nPredictors === 0 || nObs === 0) return null;
+-    const ratio = nObs / nPredictors;
++    // P0.3: запас данных — по числу параметров, которое модель заведёт на самом
++    // деле (байес добавляет авто-праздники и свободный член, OLS — только
++    // свободный член). Число назначенных столбцов берётся ЖИВОЕ, из текущих
++    // ролей: пользователь меняет их прямо на этом экране, и значение из ответа
++    // движка успевает устареть. Авто-часть от ролей не зависит и приходит
++    // из ответа.
++    const ratio = effectiveRatio(nObs, result.detected, $modelEngine, nPredictors);
++    const nParamsEffective = effectiveParamCount(result.detected, $modelEngine, nPredictors);
++    const ratioRaw = nObs / nPredictors;
+     // Weak: media каналы с >50% нулей.
+     const weakMedia = cols.filter((/** @type {any} */ c) =>
+       c?.role === 'media' && Number(c?.stats?.zeros_pct ?? 0) > 50
+     );
+     const afterExclude = nPredictors - weakMedia.length > 0
+-      ? nObs / (nPredictors - weakMedia.length)
++      ? effectiveRatio(nObs, result.detected, $modelEngine, nPredictors - weakMedia.length)
+       : null;
+     return {
+       ratio,
++      ratioRaw,
++      nParamsEffective,
+       nObs,
+       nPredictors,
+       weakChannelsCount: weakMedia.length,
+@@ -900,7 +913,8 @@
+     /** @type {Record<string, string>} */
+     const map = {};
+     try {
+-      const insights = validateInsights(result, objective);
++      // P0.3: режим передаётся явно — запас данных зависит от него.
++      const insights = validateInsights(result, objective, $modelEngine);
+       for (const ins of (insights || [])) {
+         // Filter: только жёсткие issues (warning + error), не optimization tips.
+         if (ins?.severity !== 'warning' && ins?.severity !== 'error') continue;
+diff --git a/src/lib/data/tooltip-texts.js b/src/lib/data/tooltip-texts.js
+index 9352f85..71ec338 100644
+--- a/src/lib/data/tooltip-texts.js
++++ b/src/lib/data/tooltip-texts.js
+@@ -63,9 +63,6 @@ export const TOOLTIPS = {
+   'metric.r2':
+     'R² (коэффициент детерминации) – доля дисперсии продаж, объяснённая моделью. R² > 0.85 – отличное качество, 0.7-0.85 – хорошее, ниже 0.7 – требует доработки.',
+ 
+-  'metric.nrmse':
+-    'NRMSE (нормированная среднеквадратичная ошибка) – средняя ошибка модели в % от среднего KPI. Аналог MAPE. NRMSE < 15% – хорошая точность.',
+-
+   'metric.mape':
+     'MAPE (средняя абсолютная ошибка в %) – насколько модель промахивается от реальных значений. MAPE < 10% – отлично, < 20% – приемлемо для MMM.',
+ 
 diff --git a/src/lib/insights-rules.js b/src/lib/insights-rules.js
-index 94c9a28..308b3ac 100644
+index 308b3ac..5c92d43 100644
 --- a/src/lib/insights-rules.js
 +++ b/src/lib/insights-rules.js
-@@ -18,6 +18,9 @@ import {
-   weightedPhrase as _weightedPhrase,
-   underBreakevenPhrase as _underBreakeven,
-   topMetricBenchmark as _topBenchmark,
-+  // База окупаемости — общая с экранами и советником: слово «окупается» без
-+  // указания базы читается как вывод о прибыли, а в режиме выручки это оборот.
-+  roiBaseNote as _roiBaseNote,
+@@ -24,7 +24,7 @@ import {
  } from './kpi-aware-formatting.js';
  // v2.1.0 (пилот 2026-05-16): SSOT-классификатор ratio для согласованности
  // меток с RatioInfoCard / sticky header / Контроль качества.
-@@ -1479,7 +1482,7 @@ export function modelInsights(data, ratioOverride = undefined) {
- // ── Decompose Step ──────────────────────────────────────
- 
- /**
-- * @param {{ base_pct?: number, baseline_pct?: number, channels: Array<{ name: string, contribution_pct: number, contribution?: number, spend: number, roi: number, verdict?: string, unit_smell?: boolean }>, signed_factor_contributions?: Record<string, { value?: number, pct?: number, type?: string }> }} data
-+ * @param {{ base_pct?: number, baseline_pct?: number, channels: Array<{ name: string, contribution_pct: number, contribution?: number, spend: number, roi: number, verdict?: string, unit_smell?: boolean }>, signed_factor_contributions?: Record<string, { value?: number, pct?: number, type?: string }>, money_roi_unavailable?: boolean }} data
-  * @param {import('./kpi-aware-formatting.js').KpiViewInput|import('./kpi-aware-formatting.js').KpiView|null} [kpiInput] - KPI/mode context (v1.3.2). null → legacy monetary roi. Принимает и готовый KpiView (см. resolveKpi).
+-import { classifyRatio } from './ratio-classifier.js';
++import { classifyRatio, effectiveParamCount, effectiveRatio } from './ratio-classifier.js';
+ import { pluralizeRu } from './utils/i18n.js';
+ // INV-50 анти-рецидив (2026-06-07): единый пост-train селектор MQS / effective
+ // ratio. Инсайты больше НЕ читают эти производные из diagnostics напрямую —
+@@ -397,7 +397,7 @@ export function validateConfirmInsights(result, context = {}) {
+  * @param {any} result
   * @returns {Insight[]}
   */
-@@ -1489,6 +1492,20 @@ export function decomposeInsights(data, kpiInput = null) {
-   if (!data) return out;
-   const kpi = resolveKpi(kpiInput);
- 
-+  // Пороги окупаемости отключены — сказать прямо, а не молчать. Признак
-+  // приходит ИЗ ДВИЖКА (`decomposer.py`, поле `money_roi_unavailable`): именно
-+  // он решает, применять ли абсолютные пороги, и вычислять то же самое на
-+  // фронте значило бы завести второй источник истины. Прежде экран об этом
-+  // молчал: вердикты показывались как обычно, и пользователь не мог знать, что
-+  // сравнения с единицей за ними нет.
-+  if (data.money_roi_unavailable === true) {
-+    out.push({
-+      severity: 'info',
-+      text: 'Экономика не задана, поэтому пороги окупаемости отключены: каналы сравниваются между собой, а не с точкой безубыточности.',
-+      tip: 'Вердикты и рекомендации ниже опираются на относительную эффективность (доля вклада против доли бюджета), а не на «окупается / не окупается». Чтобы получить абсолютную оценку, задайте ценность единицы результата на шаге «Проверка данных» – тогда расчёт перейдёт в деньги.',
-+    });
-+  }
-+
-   const channels = data.channels ?? [];
-   // Backend returns `baseline_pct`; legacy field `base_pct` kept as fallback.
-   const basePct = data.baseline_pct ?? data.base_pct ?? 0;
-@@ -1926,9 +1943,10 @@ export function optimizeInsights(data, ctx = {}) {
-       // результата: для count это штуки (лиды/упаковки), НЕ ₽ (аудит 2026-07-11) → подпись
-       // из паспорта kpi.targetUnit ('₽' для monetary, 'лид.'/'упак.' для count).
-       text: `${portfolioPhrase} – ${roiComment}. На ${Math.round(totalSpendDec).toLocaleString('ru-RU')}₽ обучающего расхода – медиа-вклад ${Math.round(totalContribDec).toLocaleString('ru-RU')} ${kpi.targetUnit || '₽'} (без baseline).`,
--      tip: kpi.isLegacy
-+      tip: (kpi.isLegacy
-         ? 'ROI рассчитан на обучающих данных (вся история). Прогноз для бюджета планирования может отличаться – см. блок B Прогноз KPI.\n\nBenchmark: ROI ≥ 2× – отлично; 1-2× – приемлемо, нужно улучшать микс; < 1× – медиа в среднем работает в убыток, требуется пересмотр каналов или креатива.'
--        : `Метрика рассчитана на обучающих данных (вся история). Прогноз для бюджета планирования может отличаться.\n\nBenchmark: ${_topBenchmark(kpi)} – отлично; на грани с ценностью – приемлемо; выше ценности – убыточно.`,
-+        : `Метрика рассчитана на обучающих данных (вся история). Прогноз для бюджета планирования может отличаться.\n\nBenchmark: ${_topBenchmark(kpi)} – отлично; на грани с ценностью – приемлемо; выше ценности – убыточно.`
-+      ) + `\n\n${_roiBaseNote(kpi)}`,
-     });
+-export function validateInsights(result, objective = 'roi') {
++export function validateInsights(result, objective = 'roi', engine = 'bayesian') {
+   /** @type {Insight[]} */
+   const out = [];
+   if (!result) return out;
+@@ -412,11 +412,12 @@ export function validateInsights(result, objective = 'roi') {
+   const mediaCount = colsCheck.filter(/** @param {any} c */ c => c?.role === 'media').length;
+   const controlCount = colsCheck.filter(/** @param {any} c */ c => c?.role === 'control').length;
+   const rowsCheck = result.file?.rows ?? result.detected?.rows ?? 0;
+-  // F-A1-5: эффективное число параметров (включая авто-контроли: 12 праздников + intercept).
+-  // Backend /compute/validate проставляет detected.n_params_effective_pretrain;
+-  // фолбэк — только user-visible media+controls.
+-  const paramCountCheck = result.detected?.n_params_effective_pretrain ?? (mediaCount + controlCount);
+-  const liveRatio = rowsCheck > 0 && paramCountCheck > 0 ? rowsCheck / paramCountCheck : 0;
++  // P0.3: единый источник знаменателя — ratio-classifier.effectiveParamCount.
++  // Число назначенных столбцов берём живое (из ролей): пользователь меняет их
++  // на этом же экране. Авто-часть (праздники для байеса, свободный член) — из
++  // ответа движка, она от ролей не зависит.
++  const paramCountCheck = effectiveParamCount(result.detected, engine, mediaCount + controlCount);
++  const liveRatio = effectiveRatio(rowsCheck, result.detected, engine, mediaCount + controlCount);
+   /** @type {'ok'|'warning'|'error'} */
+   let effectiveStatus = 'ok';
+   if (kpiCount !== 1 || mediaCount === 0 || liveRatio < 2) {
+@@ -976,8 +977,13 @@ export function validateInsights(result, objective = 'roi') {
    }
  
+   // ── Динамическая оценка готовности (цепочка рекомендаций) ──
+-  // Формула едина с Python validator: ratio = rows / (media + control) variables.
+-  const currentRatio = totalRows > 0 && mediaCols.length > 0 ? totalRows / Math.max(mediaCols.length + controlCols.length, 1) : 0;
++  // P0.3: раньше здесь жила ВТОРАЯ формула — сырая (rows / media+control), в то
++  // время как выше в этой же функции ratio считался по эффективному числу
++  // параметров. Из-за этого блок готовности противоречил статусу на том же
++  // экране. Теперь оба идут через единый источник.
++  const currentRatio = mediaCols.length > 0
++    ? effectiveRatio(totalRows, result.detected, engine, mediaCols.length + controlCols.length)
++    : 0;
+   const maxChannels = Math.max(2, Math.floor(totalRows / 4) - controlCols.length);
+   const excessChannels = mediaCols.length - maxChannels;
+ 
+@@ -1064,7 +1070,7 @@ export function validateInsights(result, objective = 'roi') {
+  *   при 7 включённых чекбоксах.
+  * @returns {Insight[]}
+  */
+-export function modelPreTrainingInsights(validateResult, enabledMediaNames = undefined) {
++export function modelPreTrainingInsights(validateResult, enabledMediaNames = undefined, engine = 'bayesian') {
+   /** @type {Insight[]} */
+   const out = [];
+   if (!validateResult) return out;
+@@ -1081,21 +1087,13 @@ export function modelPreTrainingInsights(validateResult, enabledMediaNames = und
+   const kpiNames = cols.filter(/** @param {any} c */ c => c.role === 'kpi').map(/** @param {any} c */ c => c.name);
+   const mediaNames = activeMediaCols.map(/** @param {any} c */ c => c.name);
+   const rows = validateResult.file?.rows ?? 0;
+-  // F-A1-5: используем эффективное число параметров (включает авто-контроли),
+-  // а не только user-visible media+controls. Backend проставляет
+-  // detected.n_params_effective_pretrain; учитывает активные каналы через
+-  // фолбэк-формулу (activeMedia + allControls + 12 праздников + intercept).
+-  // Примечание: detected.n_params_effective_pretrain считает все медиа-колонки
+-  // (не фильтрует по enabledMediaNames) — при расхождении берём явный расчёт.
++  // P0.3: единый источник вместо собственного пересчёта авто-контролей.
++  // Здесь считаем по ВКЛЮЧЁННЫМ каналам (`enabledMediaNames`), а не по всем
++  // медиа-ролям — потому число назначенных передаём явно; авто-часть приходит
++  // из ответа движка и зависит от режима (у OLS праздников нет).
+   const userVisibleParams = mediaCount + controlCount;
+-  const detectedEffective = validateResult.detected?.n_params_effective_pretrain;
+-  // Если бэкенд знает эффективное число — используем, но пересчитываем дельту
+-  // авто-контролей (12 праздников + 1 intercept) и добавляем к user-visible params.
+-  const N_AUTO = 12 + 1; // праздники + intercept
+-  const paramCount = detectedEffective != null
+-    ? userVisibleParams + N_AUTO
+-    : userVisibleParams;
+-  const ratio = rows > 0 && paramCount > 0 ? rows / paramCount : 0;
++  const paramCount = effectiveParamCount(validateResult.detected, engine, userVisibleParams);
++  const ratio = effectiveRatio(rows, validateResult.detected, engine, userVisibleParams);
+ 
+   // ── 1. Ready-state summary ──
+   if (kpiNames.length > 0 && mediaCount > 0) {
 diff --git a/src/lib/kpi-aware-formatting.js b/src/lib/kpi-aware-formatting.js
-index efa73c9..8dfa515 100644
+index 2c0751d..d7d75f6 100644
 --- a/src/lib/kpi-aware-formatting.js
 +++ b/src/lib/kpi-aware-formatting.js
-@@ -254,6 +254,57 @@ export function underBreakevenPhrase(kpi) {
-   return 'mROAS < 1×';
+@@ -316,7 +316,7 @@ export function roiBaseNote(kpi) {
+       // (режим считает доли, а не деньги). Разводим два случая, иначе экран
+       // врёт ровно там, где блок эту ложь и снимает.
+       return kpi && kpi.mode === 'effectiveness'
+-        ? 'Режим эффективности считает доли вклада, а не деньги: абсолютных порогов окупаемости здесь нет — сравнивайте каналы между собой.'
++        ? 'Режим эффективности считает доли вклада, а не деньги: абсолютных порогов окупаемости здесь нет – сравнивайте каналы между собой.'
+         : 'Экономика не задана, поэтому абсолютные пороги окупаемости отключены: сравнивайте каналы между собой, а не с единицей.';
+   }
  }
- 
-+/**
-+ * База, по которой считается окупаемость — от неё зависит, законно ли называть
-+ * канал прибыльным. ЕДИНСТВЕННЫЙ источник этого вывода на фронте.
-+ *
-+ * ЗАЧЕМ. ROI = 1 в режиме «Выручка» означает, что канал вернул вложенное
-+ * ПРОДАЖАМИ; прибылен ли он — из этого не следует, себестоимость в выручке не
-+ * вычтена. Экраны и советник говорили «окупается» и «прибылен», не называя базу,
-+ * и клиент читал вывод о прибыли там, где модель считала оборот. Расчёт при этом
-+ * корректен: `profit` отличается от `sales`/`revenue` только данными (вычтен
-+ * COGS), а в счётном режиме ценность единицы — это маржа. Когда экономики нет,
-+ * движок абсолютные пороги честно отключает (`engines/channel_action.py`,
-+ * ветка `money_roi_unavailable`), и называть базу нечем.
-+ *
-+ * Принимает `KpiView` целиком либо совместимый объект с теми же полями.
-+ *
-+ * @param {{kpiKind?: string, kpiType?: string|null, vpcu?: number|null, mode?: string}|null|undefined} kpi
-+ * @returns {'оборот'|'прибыль'|'не определена'}
-+ */
-+export function roiBase(kpi) {
-+  if (!kpi) return 'не определена';
-+  // Режим эффективности считает доли, а не деньги — окупаемости там нет вовсе.
-+  if (kpi.mode === 'effectiveness') return 'не определена';
-+  if (kpi.kpiKind === 'count') {
-+    return typeof kpi.vpcu === 'number' && kpi.vpcu > 0 ? 'прибыль' : 'не определена';
-+  }
-+  if (kpi.kpiKind === 'monetary') {
-+    // Старые проекты паспорта KPI не имеют (`isLegacy`): их ROI исторически
-+    // считался от продаж в рублях, то есть от оборота. Уронить их в «не
-+    // определена» значило бы отобрать у них слова про окупаемость без причины.
-+    return kpi.kpiType === 'profit' ? 'прибыль' : 'оборот';
-+  }
-+  return 'не определена';
-+}
-+
-+/**
-+ * Пояснение к базе для клиентских подсказок — одной фразой, без жаргона.
-+ *
-+ * @param {{kpiKind?: string, kpiType?: string|null, vpcu?: number|null, mode?: string}|null|undefined} kpi
-+ * @returns {string}
-+ */
-+export function roiBaseNote(kpi) {
-+  switch (roiBase(kpi)) {
-+    case 'прибыль':
-+      return 'Здесь окупаемость считается по прибыли: ценность единицы задана как маржа, себестоимость уже учтена.';
-+    case 'оборот':
-+      return 'Здесь окупаемость считается по обороту: канал вернул вложенное продажами. Прибыльность из этого не следует – себестоимость в выручке не вычтена. Чтобы считать в прибыли, выберите целевую метрику «Прибыль».';
-+    default:
-+      return 'Экономика не задана, поэтому абсолютные пороги окупаемости отключены: сравнивайте каналы между собой, а не с единицей.';
-+  }
-+}
-+
- /**
-  * Build channel metric phrase (ROI vs CPU vs share) для текстов рекомендаций.
+diff --git a/src/lib/program-help.js b/src/lib/program-help.js
+index 434a75b..6261816 100644
+--- a/src/lib/program-help.js
++++ b/src/lib/program-help.js
+@@ -11,7 +11,7 @@
+  *      (single source – НЕ дублируем, импортируем GLOSSARY).
   *
+  * INV-50 (честность чисел): подаём только определения (short) и
+- * методологические НОРМАТИВЫ (пороги R-hat / NRMSE / R², минимальный объём
++ * методологические НОРМАТИВЫ (пороги R-hat / MAPE / R², минимальный объём
+  * наблюдений) – НЕ иллюстративные числа результатов (поля example/long опущены).
+  * Числа этого модуля попадают в grounding как справочные (вызывающий кладёт
+  * help-текст в grounding.jsonFacts), поэтому рантайм-страж не флагает
+@@ -73,8 +73,8 @@ export const PROGRAM_OVERVIEW = [
+   '  диапазон (90%), вердикт (прибыльный/убыточный/на грани). Широкий диапазон =',
+   '  данных мало, сильных решений по каналу не принимать.',
+   '- Диагностика – качество модели по цветам: R-hat сходимости (зелёный < 1,05,',
+-  '  красный > 1,1), NRMSE (зелёный < 10%, красный > 15%), R² (зелёный > 0,75).',
+-  '  Все зелёные – результатам можно доверять.',
++  '  красный > 1,1), MAPE (зелёный < 10%, красный > 20%), R² (доля объяснённой',
++  '  вариации продаж). Все зелёные – результатам можно доверять.',
+   '- Параметры каналов – кривая отклика, светофор насыщения (зелёный есть рост /',
+   '  красный перегружен), период полураспада эффекта.',
+   '- Сценарии – слайдеры бюджета по каналам, прогноз обновляется мгновенно:',
+@@ -92,7 +92,7 @@ export const PROGRAM_OVERVIEW = [
+   '  синхронно, модель не может их разделить); объединить синхронные каналы.',
+   '- R-hat > 1,1 (красный) – модель не сошлась; убрать каналы с менее чем 10',
+   '  ненулевыми неделями, при повторе – обратиться в поддержку.',
+-  '- NRMSE > 15% (красный) – упущен важный фактор (промо, цена, конкурент);',
++  '- MAPE > 20% (красный) – упущен важный фактор (промо, цена, конкурент);',
+   '  добавить его отдельной колонкой (сезонность учитывается автоматически).',
+   '',
+   'Поддержка: support@auroraai.pro; логи – папка %LOCALAPPDATA%\\com.aurora.econometrica\\',
+@@ -108,7 +108,7 @@ export const PROGRAM_OVERVIEW = [
+ export const STEP_TERMS = {
+   0: ['mmm', 'kpi_kind', 'derived_mode'],
+   1: ['kpi_kind', 'value_per_count_unit', 'derived_mode', 'mode_roi', 'mode_effectiveness'],
+-  2: ['mcmc', 'r_hat', 'ess', 'bayesian', 'prior', 'posterior', 'nrmse', 'r_squared', 'mape', 'adstock', 'hill_saturation'],
++  2: ['mcmc', 'r_hat', 'ess', 'bayesian', 'prior', 'posterior', 'r_squared', 'mape', 'adstock', 'hill_saturation'],
+   3: ['decomposition', 'base_sales', 'incremental', 'roi', 'roas', 'cpu', 'channel_attribution', 'sales_share'],
+   4: ['mroi', 'hill_saturation', 'response_curve', 'plateau', 'diminishing_returns', 'media_mix', 'safe_corridor', 'goal_seek'],
+   5: ['media_mix', 'mroi', 'scenario_whatif', 'safe_corridor', 'decomposition'],
+diff --git a/src/lib/project-state.js b/src/lib/project-state.js
+index 5e137be..b8045a7 100644
+--- a/src/lib/project-state.js
++++ b/src/lib/project-state.js
+@@ -10,7 +10,12 @@
+  */
+ import { writable, derived, get } from 'svelte/store';
+ import { invoke } from '@tauri-apps/api/core';
+-import { classifyRatio, severityTo3Tier } from './ratio-classifier.js';
++import {
++  classifyRatio,
++  effectiveParamCount,
++  effectiveRatio,
++  severityTo3Tier,
++} from './ratio-classifier.js';
+ // MQS SSOT (2026-07-26): прогнозный MQS (до обучения) — та же клиентская шкала,
+ // что и посчитанный MQS, поэтому уровень берём из канона, а не своим порогом.
+ import { mqsTierInfo } from './mqs-tiers.js';
+@@ -442,7 +447,22 @@ export const modelEnabledMediaNames = derived(modelChannelEnabled, ($map) => {
+  *   mqsStatus: 'ok'|'warn'|'bad'
+  * } | null>}
+  */
+-export const validationHeaderMetrics = derived(validateData, ($vd) => {
++/**
++ * v1.0.16: модель-движок selector (Import шаг).
++ * 'bayesian' (default, NUTS NumPyro) - полный posterior, CI, ~20-60 сек train.
++ * 'ols' (Sprint 2 small-data fallback) - closed-form OLS, frequentist β CI,
++ *   ~2-5 сек, для n<30 наблюдений где Bayesian funnel/divergences likely.
++ * Auto-recommend: n<30 → OLS, n≥30 → Bayesian. Customer может override.
++ *
++ * P0.3: объявлен ЗДЕСЬ, выше validationHeaderMetrics, а не ниже по файлу —
++ * запас данных считается по режиму (байес заводит праздники, OLS нет), и
++ * derived ниже подписан на этот стор. Объявление после подписки упало бы
++ * в мёртвую зону инициализации.
++ * @type {import('svelte/store').Writable<'bayesian' | 'ols'>}
++ */
++export const modelEngine = writable('bayesian');
++
++export const validationHeaderMetrics = derived([validateData, modelEngine], ([$vd, $engine]) => {
+   const result = $vd?.result;
+   if (!result) return null;
+ 
+@@ -461,10 +481,15 @@ export const validationHeaderMetrics = derived(validateData, ($vd) => {
+   // F-A1-5: эффективное число параметров с учётом авто-контролей (праздники + intercept).
+   // Backend проставляет detected.n_params_effective_pretrain при вызове /compute/validate;
+   // для реконструированных проектов (нет свежего validate) — пересчёт с дефолтными 12+1.
+-  const nParamsEffectivePretrain = Number(
+-    result.detected?.n_params_effective_pretrain ?? (nPredictors + 12 + 1)
+-  );
+-  const ratio = nObs > 0 && nPredictors > 0 ? nObs / nPredictors : 0;
++  const nParamsEffectivePretrain = effectiveParamCount(result.detected, $engine);
++  // P0.3 (решение владельца «всё к эффективному»): запас данных считается по
++  // числу параметров, которое модель заведёт НА САМОМ ДЕЛЕ — с авто-праздниками
++  // и свободным членом для байеса, только со свободным членом для OLS. Сырой
++  // (obs / назначенные столбцы) завышал достаточность (INV-50) и давал скачок:
++  // до обучения «Рекомендуемый уровень», после — «Критически мало» на тех же
++  // данных. Сырой оставлен рядом справочно, для второй строки подписи.
++  const ratio = effectiveRatio(nObs, result.detected, $engine);
++  const ratioRaw = nObs > 0 && nPredictors > 0 ? nObs / nPredictors : 0;
+ 
+   // VIF max - collinearity worst-case среди media каналов
+   const vifs = mediaCols
+@@ -515,6 +540,9 @@ export const validationHeaderMetrics = derived(validateData, ($vd) => {
+ 
+   return {
+     ratio,
++    /** P0.3: сырой запас (наблюдения на назначенный столбец) — СПРАВОЧНО,
++     *  для второй строки подписи. Гейтить и красить по нему нельзя. */
++    ratioRaw,
+     ratioStatus: ratioStatusAligned,
+     /** v2.1.0: расширенная severity (5 уровней) для UI badges и инсайтов */
+     ratioSeverity,
+@@ -998,16 +1026,6 @@ export const showGlossaryPanel = writable(false);
+  */
+ export const glossaryInitialTerm = writable(/** @type {string | null} */ (null));
+ 
+-/**
+- * v1.0.16: модель-движок selector (Import шаг).
+- * 'bayesian' (default, NUTS NumPyro) - полный posterior, CI, ~20-60 сек train.
+- * 'ols' (Sprint 2 small-data fallback) - closed-form OLS, frequentist β CI,
+- *   ~2-5 сек, для n<30 наблюдений где Bayesian funnel/divergences likely.
+- * Auto-recommend: n<30 → OLS, n≥30 → Bayesian. Customer может override.
+- * @type {import('svelte/store').Writable<'bayesian' | 'ols'>}
+- */
+-export const modelEngine = writable('bayesian');
+-
+ /** @type {import('svelte/store').Writable<{diagnostics: any|null, channelParams: any|null, picklePath: string|null, normalization?: {y_mean: number, y_std: number}|null}>} */
+ export const modelData = writable({ diagnostics: null, channelParams: null, picklePath: null, normalization: null });
+ 
+diff --git a/src/lib/ratio-classifier.js b/src/lib/ratio-classifier.js
+index dde58a5..7088d9f 100644
+--- a/src/lib/ratio-classifier.js
++++ b/src/lib/ratio-classifier.js
+@@ -140,3 +140,76 @@ export function severityTo3Tier(severity) {
+   if (severity === 'warning') return 'warn';
+   return 'bad';
+ }
++
++/**
++ * P0.3 (2026-08-03, решение владельца «всё к эффективному»): ЕДИНЫЙ источник
++ * знаменателя «Запаса данных» на всех экранах до обучения.
++ *
++ * Зачем отдельная функция, а не расчёт по месту. До этой правки знаменатель
++ * считался в шести местах тремя разными формулами — причём две из них жили
++ * внутри одной функции `validateInsights`. Пользователь на одном экране видел
++ * «Запас данных 5,2 — Рекомендуемый уровень» в шапке и «Критически мало
++ * данных: ratio 2,3:1» в советах под ней.
++ *
++ * 🔴 Знаменателей ДВА, по режиму моделирования:
++ *   - байесовский заводит авто-праздники РФ (их инжектит `modeler.py` в
++ *     контроли) + свободный член;
++ *   - OLS не заводит ни одного праздника (в `ols_modeler.py` генератора нет
++ *     вовсе) — только свободный член.
++ * Единая константа «+13 всегда» соврала бы для OLS ровно настолько, насколько
++ * сырой знаменатель врёт для байеса.
++ *
++ * Состав приходит из `validator.py` (`detected.n_params_effective_*`); здесь
++ * только выбор по режиму — собирать состав на фронте нельзя, это завело бы
++ * второй источник истины.
++ *
++ * @param {any} detected  блок `result.detected` из ответа /compute/validate
++ * @param {'bayesian'|'ols'|string|null|undefined} engine  текущий режим
++ * @param {number|null} [nPredictorsOverride]  актуальное число назначенных
++ *   столбцов, когда пользователь меняет роли на лету и число из ответа движка
++ *   уже устарело. Авто-часть (праздники, свободный член) берётся из ответа —
++ *   она от ролей не зависит.
++ * @returns {number} число параметров, которое модель заведёт на самом деле
++ */
++export function effectiveParamCount(detected, engine, nPredictorsOverride = null) {
++  const nPredictors = Number(detected?.n_predictors ?? 0) || 0;
++  const isOls = engine === 'ols';
++
++  if (nPredictorsOverride != null && Number.isFinite(Number(nPredictorsOverride))) {
++    const live = Number(nPredictorsOverride);
++    const intercept = Number(detected?.n_intercept ?? 1) || 1;
++    const holidays = isOls ? 0 : (Number(detected?.n_holidays_auto ?? 12) || 0);
++    return Math.max(live + holidays + intercept, 1);
++  }
++
++  const fromBackend = isOls
++    ? detected?.n_params_effective_ols
++    : (detected?.n_params_effective_bayesian ?? detected?.n_params_effective_pretrain);
++  const parsed = Number(fromBackend);
++  if (Number.isFinite(parsed) && parsed > 0) return parsed;
++  // Запасной путь для проектов, сохранённых до P0.3 (в ответе нет новых
++  // полей): собираем по тем же правилам, что и движок. Праздников берём 12 —
++  // семантический дедуп без списка колонок здесь не воспроизвести, поэтому
++  // оценка консервативная (знаменатель не меньше фактического).
++  const N_HOLIDAYS_DEFAULT = 12;
++  const N_INTERCEPT = 1;
++  return isOls
++    ? nPredictors + N_INTERCEPT
++    : nPredictors + N_HOLIDAYS_DEFAULT + N_INTERCEPT;
++}
++
++/**
++ * Запас данных по эффективному знаменателю — то, что показывается и гейтится.
++ *
++ * @param {number} nObs      число наблюдений
++ * @param {any} detected     блок `result.detected`
++ * @param {'bayesian'|'ols'|string|null|undefined} engine
++ * @param {number|null} [nPredictorsOverride]  см. effectiveParamCount
++ * @returns {number} наблюдений на фактический параметр, 0 если посчитать не из чего
++ */
++export function effectiveRatio(nObs, detected, engine, nPredictorsOverride = null) {
++  const obs = Number(nObs) || 0;
++  const params = effectiveParamCount(detected, engine, nPredictorsOverride);
++  if (obs <= 0 || params <= 0) return 0;
++  return obs / params;
++}
 diff --git a/src/lib/tier2-context.js b/src/lib/tier2-context.js
-index c6250b8..3b1f277 100644
+index e49e36b..82a376f 100644
 --- a/src/lib/tier2-context.js
 +++ b/src/lib/tier2-context.js
-@@ -16,6 +16,10 @@
-  */
+@@ -246,7 +246,7 @@ export function buildTier2Context(input) {
  
- import { buildHelpContext } from './program-help.js';
-+// База окупаемости считается ОДНОЙ функцией на весь фронт: её же читают экраны
-+// и детерминированные инсайты. Своя копия здесь завела бы второй источник —
-+// ровно тот дефект, который лечили на ярусах MQS.
-+import { roiBase } from './kpi-aware-formatting.js';
- import { humanizeSource } from './rag-query.js';
- 
- /** Шаги пайплайна (совпадает с $pipelineCurrentStep в InsightsPanel). */
-@@ -178,11 +182,15 @@ function stripOptTelemetry(opt) {
-  *   tier1Insights?: Array<{severity:string,text:string,tip?:string}>,
-  *   val?: any, mod?: any, dec?: any, opt?: any,
-  *   methodology?: MethodologyHit[] | null,
-+ *   kpiType?: string, kpiKind?: string, valuePerCountUnit?: number|null,
-  * }} input
-  * @returns {Tier2Context}
-  */
- export function buildTier2Context(input) {
--  const { step, question, tier1Insights = [], val, mod, dec, opt, methodology } = input;
-+  const {
-+    step, question, tier1Insights = [], val, mod, dec, opt, methodology,
-+    kpiType, kpiKind, valuePerCountUnit,
-+  } = input;
- 
-   /** @type {Record<string, any>} */
-   let facts = {};
-@@ -222,6 +230,11 @@ export function buildTier2Context(input) {
-       fullFacts = val ?? {};
-   }
- 
-+  // База окупаемости — единственный источник для правила 7: слово «прибыльный»
-+  // законно только когда база «прибыль». Кладётся ПОСЛЕ switch: там facts
-+  // присваивается целиком, и поле, добавленное раньше, потерялось бы.
-+  facts.roi_base = roiBase({ kpiType, kpiKind, vpcu: valuePerCountUnit });
-+
    // Справочный контекст программы (карта + релевантные термины). Идёт в промпт
    // И в grounding: его числа — методологические нормативы из справки (пороги
-   // R-hat / NRMSE / R², минимум наблюдений), их цитирование легитимно, поэтому
-@@ -298,8 +311,17 @@ export const TIER2_SYSTEM_RULES = [
-   '   «реклама работает ещё несколько недель после показа»; «насыщение» →',
-   '   «дополнительные вложения почти не дают прироста» (Knaflic; Канеман – проклятие знания).',
-   '7. Неуверенность знака: если интервал ROI канала включает точку безубыточности',
--  '   (около 1), прямо скажи, что модель не уверена – прибылен канал или убыточен',
-+  '   (около 1), прямо скажи, что модель не уверена – окупается канал или нет',
-   '   (McElreath: широкий интервал = реальная неопределённость, не погрешность).',
-+  '   🔴 БАЗА ОКУПАЕМОСТИ указана в фактах полем «roi_base», и от неё зависят слова:',
-+  '   • «оборот» – окупаемость считается по обороту. Говори «окупается по обороту»;',
-+  '     слова «прибыльный», «прибылен», «убыточен» здесь употреблять НЕЛЬЗЯ: канал',
-+  '     может возвращать вложенное выручкой и при этом не приносить прибыли.',
-+  '   • «прибыль» – можно говорить о прибыльности прямо.',
-+  '   • «не определена» – экономика канала не задана, абсолютные пороги окупаемости',
-+  '     отключены; говори только об отдаче и сравнении каналов между собой, а слова',
-+  '     «окупается», «прибылен», «убыточен» не используй вовсе.',
-+  '   Это правило о СЛОВАХ, а не о числах: расчёт верен в любом режиме.',
-   '8. Причинность: MMM показывает СВЯЗИ, не доказанные причины. Если каналы сильно',
-   '   коррелируют – их вклад не разделить надёжно; если из модели исключены',
-   '   сезонность/праздники – оценки могут быть смещены (McElreath: коллинеарность, OVB).',
+-  // R-hat / NRMSE / R², минимум наблюдений), их цитирование легитимно, поэтому
++  // R-hat / MAPE / R², минимум наблюдений), их цитирование легитимно, поэтому
+   // они должны считаться grounded, иначе рантайм-страж ложно пометит (INV-50).
+   const help = buildHelpContext({ step, question });
+ 
+diff --git a/src/tests/insights-bugs-p5.test.js b/src/tests/insights-bugs-p5.test.js
+index 08dc3c4..11ace27 100644
+--- a/src/tests/insights-bugs-p5.test.js
++++ b/src/tests/insights-bugs-p5.test.js
+@@ -10,14 +10,39 @@ import { validateInsights } from '../lib/insights-rules.js';
+ 
+ // ─── helpers ───────────────────────────────────────────────────────────────
+ 
+-/** Минимальный result с нужными параметрами. */
++/**
++ * Минимальный result с нужными параметрами.
++ *
++ * P0.3 (2026-08-03): `detected` заполняется составом, который реально отдаёт
++ * `validator.py`, — запас данных считается по ЭФФЕКТИВНОМУ числу параметров
++ * (назначенные + 12 авто-праздников + свободный член для байеса). Раньше здесь
++ * стоял пустой `detected: {}`, и тесты неявно опирались на сырой знаменатель.
++ * Числа наблюдений в тестах ниже пересчитаны под эффективный, чтобы каждый
++ * проверял ту же ситуацию, что и задумывался.
++ */
++const N_HOLIDAYS_AUTO = 12;
++const N_INTERCEPT = 1;
++
+ function mkResult({ kpi = 1, media = 4, control = 0, rows = 48, warnings = [], status = 'ok', extraCols = [] } = {}) {
+   const columns = [];
+   for (let i = 0; i < kpi; i++) columns.push({ name: `kpi${i}`, role: 'kpi', stats: {} });
+   for (let i = 0; i < media; i++) columns.push({ name: `media${i}`, role: 'media', stats: {} });
+   for (let i = 0; i < control; i++) columns.push({ name: `ctrl${i}`, role: 'control', stats: {} });
+   columns.push(...extraCols);
+-  return { status, columns, file: { rows }, warnings, detected: {} };
++  const nPredictors = media + control;
++  return {
++    status,
++    columns,
++    file: { rows },
++    warnings,
++    detected: {
++      n_predictors: nPredictors,
++      n_holidays_auto: N_HOLIDAYS_AUTO,
++      n_intercept: N_INTERCEPT,
++      n_params_effective_bayesian: nPredictors + N_HOLIDAYS_AUTO + N_INTERCEPT,
++      n_params_effective_ols: nPredictors + N_INTERCEPT,
++    },
++  };
+ }
+ 
+ const allTexts = (out) => out.map(i => i.text).join(' || ');
+@@ -28,8 +53,8 @@ const sev = (out, s) => out.filter(i => i.severity === s);
+ 
+ describe('П5-1а: отсутствие дублей ratio-инсайтов', () => {
+   it('ratio 3.0 → ровно один инсайт упоминает «3.0:1»', () => {
+-    // 21 rows / 7 params = 3.0
+-    const out = validateInsights(mkResult({ kpi: 1, media: 5, control: 2, rows: 21 }));
++    // P0.3: 60 наблюдений / (5 медиа + 2 контроля + 12 праздников + 1) = 3.0
++    const out = validateInsights(mkResult({ kpi: 1, media: 5, control: 2, rows: 60 }));
+     const matches = out.filter(i => (i.text ?? '').includes('3.0:1'));
+     expect(matches).toHaveLength(1);
+   });
+@@ -47,8 +72,8 @@ describe('П5-1а: отсутствие дублей ratio-инсайтов', ()
+   });
+ 
+   it('ratio ≥ 5 → один success «Модель надёжна», нет дублирующего warning', () => {
+-    // 60 rows / 4 = 15.0
+-    const out = validateInsights(mkResult({ kpi: 1, media: 4, rows: 60 }));
++    // P0.3: 170 наблюдений / (4 медиа + 12 праздников + 1) = 10.0
++    const out = validateInsights(mkResult({ kpi: 1, media: 4, rows: 170 }));
+     const nadezhn = out.filter(i => (i.text ?? '').includes('надёжна') || (i.text ?? '').includes('надёжен'));
+     // success-инсайт «надёжна» только один
+     expect(nadezhn.length).toBeLessThanOrEqual(1);
+diff --git a/src/tests/multi-scenario-page.test.js b/src/tests/multi-scenario-page.test.js
+index 6d2985c..fcab609 100644
+--- a/src/tests/multi-scenario-page.test.js
++++ b/src/tests/multi-scenario-page.test.js
+@@ -336,13 +336,17 @@ describe('MultiScenarioPage - Export dropdown', () => {
+     expect(screen.getByText(/Excel/)).toBeInTheDocument();
+   });
+ 
+-  it('Export dropdown contains PPTX option', async () => {
++  // P0.4 (2026-08-03): кнопка PPTX убрана — вела на несуществующую Rust-команду
++  // export_scenarios_pptx (её нет в src-tauri/src/), фронт ловил ошибку и
++  // подставлял заглушку «PPTX export временно недоступен». Тест перевёрнут:
++  // теперь стережёт ОТСУТСТВИЕ обещания, которое продукт не мог выполнить.
++  it('Export dropdown does not offer PPTX (no working backend command)', async () => {
+     render(MultiScenarioPage, {
+       props: { scenarios: [makeScenario('sc-1'), makeScenario('sc-2')] },
+     });
+     const exportBtn = screen.getByRole('button', { name: /Экспорт/ });
+     await fireEvent.click(exportBtn);
+-    expect(screen.getByText(/PPTX/)).toBeInTheDocument();
++    expect(screen.queryByText(/PPTX/)).not.toBeInTheDocument();
+   });
+ 
+   it('Export button aria-expanded=false initially', () => {
+diff --git a/src/tests/validate-insights-status.test.js b/src/tests/validate-insights-status.test.js
+index 108070a..8582b0b 100644
+--- a/src/tests/validate-insights-status.test.js
++++ b/src/tests/validate-insights-status.test.js
+@@ -8,13 +8,36 @@
+ import { describe, it, expect } from 'vitest';
+ import { validateInsights } from '../lib/insights-rules.js';
+ 
+-/** Собрать result из ролей: kpi/media/control counts + rows. */
++/**
++ * Собрать result из ролей: kpi/media/control counts + rows.
++ *
++ * P0.3 (2026-08-03): `detected` несёт состав, который реально отдаёт
++ * `validator.py`. Запас данных считается по ЭФФЕКТИВНОМУ числу параметров
++ * (назначенные + 12 авто-праздников + свободный член у байеса), поэтому числа
++ * наблюдений ниже пересчитаны — ситуация в каждом тесте прежняя.
++ */
++const N_HOLIDAYS_AUTO = 12;
++const N_INTERCEPT = 1;
++
+ function mkResult({ kpi = 1, media = 4, control = 0, rows = 48, warnings = [], status = 'ok' } = {}) {
+   const columns = [];
+   for (let i = 0; i < kpi; i++) columns.push({ name: `kpi${i}`, role: 'kpi', stats: {} });
+   for (let i = 0; i < media; i++) columns.push({ name: `media${i}`, role: 'media', stats: {} });
+   for (let i = 0; i < control; i++) columns.push({ name: `ctrl${i}`, role: 'control', stats: {} });
+-  return { status, columns, file: { rows }, warnings, detected: {} };
++  const nPredictors = media + control;
++  return {
++    status,
++    columns,
++    file: { rows },
++    warnings,
++    detected: {
++      n_predictors: nPredictors,
++      n_holidays_auto: N_HOLIDAYS_AUTO,
++      n_intercept: N_INTERCEPT,
++      n_params_effective_bayesian: nPredictors + N_HOLIDAYS_AUTO + N_INTERCEPT,
++      n_params_effective_ols: nPredictors + N_INTERCEPT,
++    },
++  };
+ }
+ 
+ const sev = (out, s) => out.filter(i => i.severity === s);
+@@ -22,7 +45,8 @@ const txt = (out) => out.map(i => i.text).join(' || ');
+ 
+ describe('validateInsights — статус и конкретика ошибок', () => {
+   it('готовые данные (kpi=1, media≥1, ratio≥4, нет warnings) → success', () => {
+-    const out = validateInsights(mkResult({ kpi: 1, media: 4, rows: 48 })); // 48/4=12
++    // P0.3: 204 / (4 медиа + 12 праздников + 1) = 12.0
++    const out = validateInsights(mkResult({ kpi: 1, media: 4, rows: 204 }));
+     expect(sev(out, 'success').length).toBeGreaterThanOrEqual(1);
+     expect(txt(out)).toContain('готовы к обучению');
+     expect(sev(out, 'error')).toHaveLength(0);
+@@ -56,11 +80,11 @@ describe('validateInsights — статус и конкретика ошибок
+   });
+ 
+   it('ratio 2–4 → warning про ratio (не error)', () => {
+-    // 21 rows / (5 media + 2 control) = 3.0 → warning
++    // P0.3: 60 / (5 медиа + 2 контроля + 12 праздников + 1) = 3.0 → warning
+     // П5-1а (2026-07-10): статусный блок больше НЕ дублирует число ratio («Ratio X:1»
+     // с заглавной) — конкретика идёт из блока «Объём данных» строчной «ratio X:1».
+     // Тест обновлён: проверяем наличие числа ratio в любом регистре, не конкретную капитализацию.
+-    const out = validateInsights(mkResult({ kpi: 1, media: 5, control: 2, rows: 21 }));
++    const out = validateInsights(mkResult({ kpi: 1, media: 5, control: 2, rows: 60 }));
+     expect(sev(out, 'error')).toHaveLength(0);
+     const warn = sev(out, 'warning');
+     expect(warn.length).toBeGreaterThanOrEqual(1);
+@@ -85,7 +109,8 @@ describe('validateInsights — статус и конкретика ошибок
+   it('effectiveStatus пересчитывается из ролей, а не из stale backend status', () => {
+     // backend прислал error, но роли валидны (kpi=1, media=4, ratio высокий) →
+     // фронт НЕ должен показывать блокирующую ошибку статуса.
+-    const out = validateInsights(mkResult({ status: 'error', kpi: 1, media: 4, rows: 48 }));
++    // P0.3: 204 / (4 медиа + 12 праздников + 1) = 12.0 — запас заведомо высокий
++    const out = validateInsights(mkResult({ status: 'error', kpi: 1, media: 4, rows: 204 }));
+     // generic «критические проблемы со структурой» не должно быть (issues пусты,
+     // но effectiveStatus=ok перебивает — ветка backward-compat не про статус).
+     expect(txt(out)).toContain('готовы к обучению');
