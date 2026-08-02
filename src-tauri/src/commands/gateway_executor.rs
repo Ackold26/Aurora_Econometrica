@@ -427,6 +427,20 @@ fn cancel_notice(state: &JobState) -> Option<String> {
         .then(|| unconfirmed_cancel_text(&state.job_id))
 }
 
+/// Дописать к ответу номер работы, оставшейся на узле после автоповтора.
+///
+/// 🔴 Зовётся во ВСЕХ ветках выхода, а не только в успешной (находка внешнего
+/// аудита). После повтора работа может закончиться отменой, обрывом связи или
+/// отказом сервера — и каждая такая ветка уходит из функции раньше успешной.
+/// Приписка только в успешном пути означала, что при неуспехе человек не узнает
+/// об осиротевшем задании вовсе, а именно неуспех и делает эту весть нужной:
+/// место среди одновременных занято, следующий вопрос упрётся в потолок.
+fn append_stray_notice(text: &mut String, stray_job: &Option<String>) {
+    if let Some(id) = stray_job {
+        text.push_str(&unconfirmed_cancel_text(id));
+    }
+}
+
 /// Что сделать с памятью набора после успешной работы.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum InputsVerdict {
@@ -866,15 +880,21 @@ async fn execute(
             keep = false;
             shown.clear();
             // 🔴 Экран обязан забыть показанное ВМЕСТЕ с накопленным текстом.
-            // Событие несёт весь ответ целиком, и интерфейс заменяет показанное,
-            // — но только когда событие приходит. Если второй заход не отдаст ни
-            // одного куска (человек остановил работу, сервер отказал сразу), на
-            // экране остаётся абзац, которого нет ни в возврате, ни в истории:
-            // видимое и сохранённое расходятся молча.
+            // Если второй заход не отдаст ни одного куска (человек остановил
+            // работу, сервер отказал сразу), на экране остался бы абзац, которого
+            // нет ни в возврате, ни в истории: видимое и сохранённое расходятся
+            // молча.
+            //
+            // 🔴 Шлём `clear_response`, а НЕ пустой `build_stream_event("")`
+            // (находка внешнего аудита). Пустое событие приёмник игнорирует: обе
+            // ветки замены отсечены условием на непустой текст, а склейка даёт
+            // «показанное + пустая строка» — то есть прежнее. Событие для этой
+            // задачи в интерфейсе уже есть и снимает частичный ответ прошлой
+            // попытки целиком.
             if !suppress_done {
                 let _ = app_handle.emit(
                     &format!("claude-stream-{cabinet_id}"),
-                    build_stream_event(""),
+                    serde_json::json!({ "type": "clear_response" }).to_string(),
                 );
             }
             continue;
@@ -888,11 +908,30 @@ async fn execute(
     // ради которого правило и вводилось.
     if work.cancelled() {
         info!("Работа остановлена пользователем [{cabinet_id}]");
+        // 🔴 Приписка добавляется и ВЫПУСКАЕТСЯ до сигнала завершения (находка
+        // внешнего аудита). Прежде она дописывалась в возвращаемое значение уже
+        // после `claude-done`, а чат собирается ИСКЛЮЧИТЕЛЬНО из событий
+        // `claude-stream`: обработчик завершения при отмене выходит первым же
+        // условием, и возвращённая строка на экран не попадала вовсе. Человек
+        // не узнавал номер осиротевшей работы — ровно того, ради чего приписка
+        // и заводилась: место среди одновременных занято, следующий вопрос
+        // упрётся в потолок, а называть поддержке нечего.
+        let has_notice = stray_job.is_some();
+        append_stray_notice(&mut shown, &stray_job);
         // 🔴 Сигнал завершения шлётся и при отмене. Интерфейс держит признак
         // «остановлено» до него: без сигнала признак висит, и СЛЕДУЮЩИЙ ответ
         // съедается им — не попадает ни в чат, ни в историю. Отчёт при этом не
         // сохраняем: работы, которую пользователь остановил, в файлах быть не должно.
         if !suppress_done {
+            // Событие с текстом — только когда есть что сказать: пустое ничего
+            // не заменяет (приёмник отсекает пустой блок), а лишний пузырь
+            // ответа на экране оставляет.
+            if has_notice {
+                let _ = app_handle.emit(
+                    &format!("claude-stream-{cabinet_id}"),
+                    build_stream_event(&shown),
+                );
+            }
             let _ = app_handle.emit(
                 &format!("claude-done-{cabinet_id}"),
                 serde_json::json!({ "exit_code": 0, "cancelled": true }),
@@ -905,9 +944,12 @@ async fn execute(
         Err(e) => {
             warn!("Облачное обращение не удалось [{cabinet_id}]: {e}");
             if shown.trim().is_empty() {
-                anyhow::bail!("[TC-GW-NET] {}", e.user_text());
+                let mut refusal = e.user_text();
+                append_stray_notice(&mut refusal, &stray_job);
+                anyhow::bail!("[TC-GW-NET] {refusal}");
             }
-            let text = format!("{shown}\n\n---\n**Ответ неполный.** {}", e.user_text());
+            let mut text = format!("{shown}\n\n---\n**Ответ неполный.** {}", e.user_text());
+            append_stray_notice(&mut text, &stray_job);
             if !suppress_done {
                 let _ = app_handle.emit(
                     &format!("claude-stream-{cabinet_id}"),
@@ -929,18 +971,24 @@ async fn execute(
         // Пользователь остановил работу. Отчёт НЕ сохраняем и метку НЕ возвращаем:
         // следующий вопрос обязан начать новый диалог, а не продолжить отменённый.
         info!("Задание остановлено пользователем [{cabinet_id}]");
-        if !suppress_done {
-            let _ = app_handle.emit(
-                &format!("claude-done-{cabinet_id}"),
-                serde_json::json!({ "exit_code": 0, "cancelled": true }),
-            );
-        }
-        // 🔴 Остановка, которую сервер не подтвердил, обязана быть названа: работа
-        // могла остаться идти и занимать место среди одновременных.
+        // 🔴 Текст собирается ДО события завершения: интерфейс, слушающий это
+        // событие, забирает показанное — приписка, добавленная после, до него уже
+        // не доедет (находка внешнего аудита).
         let mut text = state.text.clone();
         if let Some(notice) = cancel_notice(&state) {
             warn!("Остановка не подтверждена сервером [{cabinet_id}]: {}", state.job_id);
             text.push_str(&notice);
+        }
+        append_stray_notice(&mut text, &stray_job);
+        if !suppress_done {
+            let _ = app_handle.emit(
+                &format!("claude-stream-{cabinet_id}"),
+                build_result_event(&text),
+            );
+            let _ = app_handle.emit(
+                &format!("claude-done-{cabinet_id}"),
+                serde_json::json!({ "exit_code": 0, "cancelled": true }),
+            );
         }
         return Ok((None, text));
     }
@@ -949,7 +997,9 @@ async fn execute(
         if let Some(internal) = hidden {
             warn!("шлюз: внутренняя диагностика узла (пользователю не показана): {internal}");
         }
-        anyhow::bail!("[TC-GW-SRV] {text}");
+        let mut refusal = text;
+        append_stray_notice(&mut refusal, &stray_job);
+        anyhow::bail!("[TC-GW-SRV] {refusal}");
     }
 
     // 🔴 Отпечаток запоминается ТОЛЬКО после успешной работы и только если файлы
@@ -998,9 +1048,7 @@ async fn execute(
     // единственное место, где о ней вообще можно сказать: сам отказ повтор уже
     // выбросил, а следующий вопрос упрётся в потолок работ без объяснимой
     // причины.
-    if let Some(id) = &stray_job {
-        text.push_str(&unconfirmed_cancel_text(id));
-    }
+    append_stray_notice(&mut text, &stray_job);
 
     if !suppress_done {
         // Финальный текст в чат ДО готовности (порядок локального пути): иначе
