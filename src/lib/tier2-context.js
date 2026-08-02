@@ -183,13 +183,14 @@ function stripOptTelemetry(opt) {
  *   val?: any, mod?: any, dec?: any, opt?: any,
  *   methodology?: MethodologyHit[] | null,
  *   kpiType?: string, kpiKind?: string, valuePerCountUnit?: number|null,
+ *   derivedMode?: string,
  * }} input
  * @returns {Tier2Context}
  */
 export function buildTier2Context(input) {
   const {
     step, question, tier1Insights = [], val, mod, dec, opt, methodology,
-    kpiType, kpiKind, valuePerCountUnit,
+    kpiType, kpiKind, valuePerCountUnit, derivedMode,
   } = input;
 
   /** @type {Record<string, any>} */
@@ -233,7 +234,15 @@ export function buildTier2Context(input) {
   // База окупаемости — единственный источник для правила 7: слово «прибыльный»
   // законно только когда база «прибыль». Кладётся ПОСЛЕ switch: там facts
   // присваивается целиком, и поле, добавленное раньше, потерялось бы.
-  facts.roi_base = roiBase({ kpiType, kpiKind, vpcu: valuePerCountUnit });
+  // 🔴 `mode` передавать ОБЯЗАТЕЛЬНО: без него ветка «режим эффективности →
+  // базы нет» не срабатывает, и советник называет базу «оборот» там, где экран
+  // декомпозиции (он `mode` передаёт) честно говорит «не определена». Вход
+  // единой функции обязан собираться одинаково во всех слоях, иначе «единый
+  // источник» соблюдён формально, а результат расходится. Внешний аудит,
+  // High, 2026-08-02.
+  facts.roi_base = roiBase({
+    kpiType, kpiKind, vpcu: valuePerCountUnit, mode: derivedMode,
+  });
 
   // Справочный контекст программы (карта + релевантные термины). Идёт в промпт
   // И в grounding: его числа — методологические нормативы из справки (пороги

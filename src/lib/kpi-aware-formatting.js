@@ -269,7 +269,7 @@ export function underBreakevenPhrase(kpi) {
  *
  * Принимает `KpiView` целиком либо совместимый объект с теми же полями.
  *
- * @param {{kpiKind?: string, kpiType?: string|null, vpcu?: number|null, mode?: string}|null|undefined} kpi
+ * @param {{kpiKind?: string, kpiType?: string|null, vpcu?: number|string|null, mode?: string}|null|undefined} kpi
  * @returns {'оборот'|'прибыль'|'не определена'}
  */
 export function roiBase(kpi) {
@@ -277,7 +277,16 @@ export function roiBase(kpi) {
   // Режим эффективности считает доли, а не деньги — окупаемости там нет вовсе.
   if (kpi.mode === 'effectiveness') return 'не определена';
   if (kpi.kpiKind === 'count') {
-    return typeof kpi.vpcu === 'number' && kpi.vpcu > 0 ? 'прибыль' : 'не определена';
+    // 🔴 Значение приводится ЗДЕСЬ, а не полагается на тип. Вызывающие передают
+    // и готовый `KpiView` (там `kpiView()` уже сделал `Number(...)`), и сырое
+    // значение стора — а оно бывает строкой: собственный тест продукта заведён
+    // на `valuePerCountUnit: '120.5'` (src/tests/kpi-aware-formatting.test.js).
+    // Проверка `typeof === 'number'` роняла строковую маржу в «не определена»,
+    // тогда как движок при заданном `kpi_unit_cost` пороги ПРИМЕНЯЕТ
+    // (`decomposer.py`: `money_roi_unavailable=False`) — экран и расчёт
+    // расходились на одном и том же проекте. Внешний аудит, High, 2026-08-02.
+    const v = Number(kpi.vpcu);
+    return Number.isFinite(v) && v > 0 ? 'прибыль' : 'не определена';
   }
   if (kpi.kpiKind === 'monetary') {
     // Старые проекты паспорта KPI не имеют (`isLegacy`): их ROI исторически
@@ -291,7 +300,7 @@ export function roiBase(kpi) {
 /**
  * Пояснение к базе для клиентских подсказок — одной фразой, без жаргона.
  *
- * @param {{kpiKind?: string, kpiType?: string|null, vpcu?: number|null, mode?: string}|null|undefined} kpi
+ * @param {{kpiKind?: string, kpiType?: string|null, vpcu?: number|string|null, mode?: string}|null|undefined} kpi
  * @returns {string}
  */
 export function roiBaseNote(kpi) {
@@ -301,7 +310,14 @@ export function roiBaseNote(kpi) {
     case 'оборот':
       return 'Здесь окупаемость считается по обороту: канал вернул вложенное продажами. Прибыльность из этого не следует – себестоимость в выручке не вычтена. Чтобы считать в прибыли, выберите целевую метрику «Прибыль».';
     default:
-      return 'Экономика не задана, поэтому абсолютные пороги окупаемости отключены: сравнивайте каналы между собой, а не с единицей.';
+      // Внешний аудит, Medium, 2026-08-02: для денежного проекта в режиме
+      // эффективности «экономика не задана» — ЛОЖНОЕ утверждение: метрика
+      // денежная и экономика есть, отсутствуют именно абсолютные пороги
+      // (режим считает доли, а не деньги). Разводим два случая, иначе экран
+      // врёт ровно там, где блок эту ложь и снимает.
+      return kpi && kpi.mode === 'effectiveness'
+        ? 'Режим эффективности считает доли вклада, а не деньги: абсолютных порогов окупаемости здесь нет — сравнивайте каналы между собой.'
+        : 'Экономика не задана, поэтому абсолютные пороги окупаемости отключены: сравнивайте каналы между собой, а не с единицей.';
   }
 }
 

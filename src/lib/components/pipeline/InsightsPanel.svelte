@@ -408,6 +408,9 @@
       kpiType: $kpiType,
       kpiKind: $kpiKind,
       valuePerCountUnit: $valuePerCountUnit,
+      // Режим обязателен: в «эффективности» денег нет вовсе, и без него
+      // советник назовёт базу «оборот» там, где экран говорит «не определена».
+      derivedMode: $derivedMode,
     });
     const prompt = buildTier2Prompt(ctx, askQuestion);
 
