@@ -769,6 +769,32 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
     draws = mcmc.get('draws', 2000)
     tune = mcmc.get('tune', 2000)
 
+    # Воспроизводимость (P0.2): зерно + снимок среды, от которой результат
+    # зависит помимо зерна. Ярус сэмплера и раскладка цепей дописываются по
+    # факту — молчаливый откат на запасной ярус даёт другие числа при том же
+    # зерне, и без записи это выглядит как дефект расчёта.
+    from utils.seeding import (
+        TIER_NUMPYRO,
+        TIER_PYTENSOR,
+        TIER_PYTENSOR_NO_CALLBACK,
+        environment_snapshot,
+        mark_chain_layout,
+        mark_sampler_tier,
+        resolve_seed,
+    )
+    mcmc_seed, mcmc_seed_source = resolve_seed(config)
+    reproducibility = environment_snapshot(
+        seed=mcmc_seed,
+        seed_source=mcmc_seed_source,
+        chains=chains,
+        draws=draws,
+        tune=tune,
+        has_compiler=has_compiler,
+    )
+    logger.info(
+        f'Воспроизводимость: зерно={mcmc_seed} (источник: {mcmc_seed_source})'
+    )
+
     report('compiling', pct=20)
 
     logger.info(f"Training MMM: {n_obs} obs, {len(media_cols)} media, {len(control_cols)} control, "
@@ -1019,6 +1045,14 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
                     f'NumPyro chain_method={_chain_method} '
                     f'(jax_devices={_n_devices}, chains={chains})'
                 )
+                # Раскладка цепей — часть паспорта расчёта: при одном зерне
+                # parallel и vectorized дают разные числа, а выбирается она
+                # автоматически по числу видимых устройств.
+                mark_chain_layout(
+                    reproducibility,
+                    chain_method=_chain_method,
+                    jax_devices=_n_devices,
+                )
                 try:
                     logger.info(
                         f'Sampling: Tier-1 NumPyro NUTS '
@@ -1028,12 +1062,14 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
                         draws=draws,
                         tune=tune,
                         chains=chains,
+                        random_seed=mcmc_seed,
                         return_inferencedata=True,
                         progressbar=True,
                         nuts_sampler='numpyro',
                         chain_method=_chain_method,
                         target_accept=0.95,  # Phase 0.1 live-test: funnel posterior на тонких данных требует tighter step (default 0.8 даёт 70+ divergences)
                     )
+                    mark_sampler_tier(reproducibility, TIER_NUMPYRO)
                     logger.info('Tier-1 NumPyro NUTS: SUCCESS')
                 except AttributeError as e:
                     if _is_partial_bug(e):
@@ -1073,11 +1109,13 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
                             tune=tune,
                             chains=chains,
                             cores=1,
+                            random_seed=mcmc_seed,
                             return_inferencedata=True,
                             progressbar=True,
                             callback=_draw_cb,
                             target_accept=0.95,
                         )
+                        mark_sampler_tier(reproducibility, TIER_PYTENSOR)
                     except TypeError:
                         # Callback не поддерживается (старая PyMC версия)
                         trace = pm.sample(
@@ -1085,10 +1123,12 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
                             tune=tune,
                             chains=chains,
                             cores=1,
+                            random_seed=mcmc_seed,
                             return_inferencedata=True,
                             progressbar=True,
                             target_accept=0.95,
                         )
+                        mark_sampler_tier(reproducibility, TIER_PYTENSOR_NO_CALLBACK)
                     logger.info('Tier-2 PyTensor NUTS: SUCCESS')
                 except AttributeError as e:
                     if _is_partial_bug(e):
@@ -1328,6 +1368,10 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
         # F-13 (2026-07-02): in-train preflight (quick proxy + prior predictive)
         # доезжает до model-diagnostics.json → honesty-gate/UI.
         diagnostics['preflight'] = preflight_summary
+        # P0.2: паспорт воспроизводимости доезжает до model-diagnostics.json —
+        # это SSOT диагностики для чтения (server.py + optimizer_honesty).
+        # Без него «то же зерно, другие числа» неотличимо от дефекта расчёта.
+        diagnostics['reproducibility'] = reproducibility
         # F-20 (2026-07-02): сбой реконструкции y_pred → метрики от константы;
         # honesty различает «модель плохая» vs «диагностика деградировала».
         diagnostics['y_pred_reconstruction_failed'] = y_pred_reconstruction_failed
@@ -1552,6 +1596,10 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
 
         model_data = {
             'config': config,
+            # P0.2: паспорт воспроизводимости едет ВМЕСТЕ с моделью — перепроверка
+            # окон на истории переобучает из этого же конфига, а зерно из чужого
+            # снимка сделало бы сверку бессмысленной.
+            'reproducibility': reproducibility,
             'channel_params': channel_params,
             # v2.1.0 (ADR-020): unit_costs apply audit trail для decomposer
             # симметрии и byte-identical reproducibility (INV-23a).
@@ -1794,6 +1842,7 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
                 'config': {k: v for k, v in config.items() if k != 'data_file'},
                 'mcmc': mcmc,
                 'has_compiler': has_compiler,
+                'reproducibility': reproducibility,
             }), f, ensure_ascii=False, indent=2)
 
         # Save diagnostics as result
@@ -1818,6 +1867,7 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
             'mcmc_info': {
                 **mcmc,
                 'has_compiler': has_compiler,
+                'reproducibility': reproducibility,
             },
         }
 

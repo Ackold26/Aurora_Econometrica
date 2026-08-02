@@ -50,6 +50,8 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+from utils.seeding import seed_from_model
+
 logger = logging.getLogger(__name__)
 
 
@@ -138,6 +140,16 @@ def run_backtest(
         train_config['mode'] = mode
         if use_horseshoe:
             train_config['use_horseshoe'] = True
+        # P0.2: переобучение идёт тем же зерном, что и исходная модель.
+        # Задаётся явно, а не наследуется из конфига: у моделей, обученных
+        # до P0.2, ключа нет вовсе — они получат значение по умолчанию, и
+        # повторный прогон проверки даст те же числа.
+        _bt_seed, _bt_seed_source = seed_from_model(model_data)
+        train_config['seed'] = _bt_seed
+        logger.info(
+            f'Проверка на отложенном периоде: зерно={_bt_seed} '
+            f'(источник: {_bt_seed_source})'
+        )
 
         # Re-train on subset
         if mode == 'ols':
@@ -606,6 +618,14 @@ def run_rolling_backtest(
         from engines.modeler import train_model as _train
     from engines.scenario import predict_scenario
 
+    # P0.2: зерно перепроверки берётся один раз на весь прогон — из снимка
+    # обученной модели, а для моделей до P0.2 — из значения по умолчанию.
+    _rolling_seed, _rolling_seed_source = seed_from_model(model_data)
+    logger.info(
+        f'Перепроверка на истории: зерно={_rolling_seed} '
+        f'(источник: {_rolling_seed_source}), окон переобучения будет несколько'
+    )
+
     window_results: list[dict[str, Any]] = []
     failed_windows: list[dict[str, Any]] = []
     all_hits: list[bool] = []
@@ -638,6 +658,10 @@ def run_rolling_backtest(
             # merge_rules уже применены к df выше — subset сохранён в слитом
             # виде, повторное применение при обучении окна не нужно.
             train_config['merge_rules'] = {}
+            # P0.2: все окна переобучаются одним зерном — зерно фиксирует
+            # разброс сэмплера, а различия между окнами должны идти от данных
+            # окна, а не от того, каким по счёту оно посчиталось.
+            train_config['seed'] = _rolling_seed
 
             try:
                 train_result = _train(train_config, str(train_project_dir))
