@@ -336,13 +336,17 @@ describe('MultiScenarioPage - Export dropdown', () => {
     expect(screen.getByText(/Excel/)).toBeInTheDocument();
   });
 
-  it('Export dropdown contains PPTX option', async () => {
+  // P0.4 (2026-08-03): кнопка PPTX убрана — вела на несуществующую Rust-команду
+  // export_scenarios_pptx (её нет в src-tauri/src/), фронт ловил ошибку и
+  // подставлял заглушку «PPTX export временно недоступен». Тест перевёрнут:
+  // теперь стережёт ОТСУТСТВИЕ обещания, которое продукт не мог выполнить.
+  it('Export dropdown does not offer PPTX (no working backend command)', async () => {
     render(MultiScenarioPage, {
       props: { scenarios: [makeScenario('sc-1'), makeScenario('sc-2')] },
     });
     const exportBtn = screen.getByRole('button', { name: /Экспорт/ });
     await fireEvent.click(exportBtn);
-    expect(screen.getByText(/PPTX/)).toBeInTheDocument();
+    expect(screen.queryByText(/PPTX/)).not.toBeInTheDocument();
   });
 
   it('Export button aria-expanded=false initially', () => {

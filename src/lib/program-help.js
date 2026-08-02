@@ -11,7 +11,7 @@
  *      (single source – НЕ дублируем, импортируем GLOSSARY).
  *
  * INV-50 (честность чисел): подаём только определения (short) и
- * методологические НОРМАТИВЫ (пороги R-hat / NRMSE / R², минимальный объём
+ * методологические НОРМАТИВЫ (пороги R-hat / MAPE / R², минимальный объём
  * наблюдений) – НЕ иллюстративные числа результатов (поля example/long опущены).
  * Числа этого модуля попадают в grounding как справочные (вызывающий кладёт
  * help-текст в grounding.jsonFacts), поэтому рантайм-страж не флагает
@@ -73,8 +73,8 @@ export const PROGRAM_OVERVIEW = [
   '  диапазон (90%), вердикт (прибыльный/убыточный/на грани). Широкий диапазон =',
   '  данных мало, сильных решений по каналу не принимать.',
   '- Диагностика – качество модели по цветам: R-hat сходимости (зелёный < 1,05,',
-  '  красный > 1,1), NRMSE (зелёный < 10%, красный > 15%), R² (зелёный > 0,75).',
-  '  Все зелёные – результатам можно доверять.',
+  '  красный > 1,1), MAPE (зелёный < 10%, красный > 20%), R² (доля объяснённой',
+  '  вариации продаж). Все зелёные – результатам можно доверять.',
   '- Параметры каналов – кривая отклика, светофор насыщения (зелёный есть рост /',
   '  красный перегружен), период полураспада эффекта.',
   '- Сценарии – слайдеры бюджета по каналам, прогноз обновляется мгновенно:',
@@ -92,7 +92,7 @@ export const PROGRAM_OVERVIEW = [
   '  синхронно, модель не может их разделить); объединить синхронные каналы.',
   '- R-hat > 1,1 (красный) – модель не сошлась; убрать каналы с менее чем 10',
   '  ненулевыми неделями, при повторе – обратиться в поддержку.',
-  '- NRMSE > 15% (красный) – упущен важный фактор (промо, цена, конкурент);',
+  '- MAPE > 20% (красный) – упущен важный фактор (промо, цена, конкурент);',
   '  добавить его отдельной колонкой (сезонность учитывается автоматически).',
   '',
   'Поддержка: support@auroraai.pro; логи – папка %LOCALAPPDATA%\\com.aurora.econometrica\\',
@@ -108,7 +108,7 @@ export const PROGRAM_OVERVIEW = [
 export const STEP_TERMS = {
   0: ['mmm', 'kpi_kind', 'derived_mode'],
   1: ['kpi_kind', 'value_per_count_unit', 'derived_mode', 'mode_roi', 'mode_effectiveness'],
-  2: ['mcmc', 'r_hat', 'ess', 'bayesian', 'prior', 'posterior', 'nrmse', 'r_squared', 'mape', 'adstock', 'hill_saturation'],
+  2: ['mcmc', 'r_hat', 'ess', 'bayesian', 'prior', 'posterior', 'r_squared', 'mape', 'adstock', 'hill_saturation'],
   3: ['decomposition', 'base_sales', 'incremental', 'roi', 'roas', 'cpu', 'channel_attribution', 'sales_share'],
   4: ['mroi', 'hill_saturation', 'response_curve', 'plateau', 'diminishing_returns', 'media_mix', 'safe_corridor', 'goal_seek'],
   5: ['media_mix', 'mroi', 'scenario_whatif', 'safe_corridor', 'decomposition'],

@@ -27,7 +27,6 @@
   import {
     exportToCsv,
     exportToExcel,
-    exportToPptx,
     downloadText,
     buildExportFilename,
   } from '$lib/scenario-export.js';
@@ -313,25 +312,6 @@
     }
   }
 
-  /** Export to PPTX via Rust backend */
-  async function handleExportPptx() {
-    exportOpen = false;
-    exportBusy = true;
-    exportStatus = null;
-    try {
-      const result = await exportToPptx(scenarios, baseline);
-      if ('stub' in result) {
-        exportStatus = result.message;
-      } else {
-        exportStatus = `PPTX сохранён: ${result.path}`;
-      }
-    } catch (e) {
-      exportStatus = `Ошибка: ${String(e)}`;
-    } finally {
-      exportBusy = false;
-    }
-  }
-
   // Close any open dropdown on outside click
   function handleDocClick(/** @type {MouseEvent} */ e) {
     const target = /** @type {HTMLElement | null} */ (e.target);
@@ -580,11 +560,6 @@
             <li role="menuitem">
               <button type="button" onclick={handleExportExcel}>
                 Excel (.xlsx) - сравнение
-              </button>
-            </li>
-            <li role="menuitem">
-              <button type="button" onclick={handleExportPptx}>
-                Слайд PPTX
               </button>
             </li>
           </ul>
