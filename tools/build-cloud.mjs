@@ -49,9 +49,12 @@
  *         npm run tauri:build:cloud -- --test    (прогон тестов облачного пути)
  */
 import { spawn, spawnSync } from 'node:child_process';
-import { existsSync, readFileSync, readdirSync, writeFileSync, copyFileSync, rmSync } from 'node:fs';
+import {
+  existsSync, readFileSync, readdirSync, writeFileSync, copyFileSync, rmSync, mkdtempSync,
+} from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { tmpdir } from 'node:os';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const TAURI_DIR = join(ROOT, 'src-tauri');
@@ -86,7 +89,7 @@ const RUN_LOCK = join(TAURI_DIR, '.cloud-build-running');
  * Теперь перечень не выдуман, а прочитан из `use aurora_gateway::cloud::{…}`
  * самого продукта: добавили имя в коде — проверка подхватила его сама.
  */
-function usedGatewayNames() {
+export function usedGatewayNames() {
   const names = new Set();
   const walk = (dir) => {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
@@ -349,7 +352,7 @@ function acquireRunLock() {
  * не сказав. Ровно так и вышло: путь вёл в дерево основной линии, правки жили в
  * ветке облака, и сотни зелёных проверок собирались с прежним крейтом.
  */
-function gatewaySourceFromFragment(fragment) {
+export function gatewaySourceFromFragment(fragment) {
   const declaration = fragment.match(/^\s*aurora_gateway\s*=\s*\{([^}]*)\}/m);
   if (!declaration) {
     fail(
@@ -377,13 +380,73 @@ function gatewaySourceFromFragment(fragment) {
   );
 }
 
-/** Источник крейта пригоден: дерево на месте с нужным составом либо метка существует. */
-function verifyGatewaySource(source) {
+/**
+ * Публичная поверхность облачного слоя: что объявлено наружу в mod.rs, тем
+ * продукт и может пользоваться.
+ */
+export function gatewaySurface(modSource) {
+  const surface = new Set();
+  for (const reexport of modSource.matchAll(/pub use [^;]+;/g)) {
+    for (const word of reexport[0].matchAll(/[A-Za-z_][A-Za-z0-9_]*/g)) surface.add(word[0]);
+  }
+  for (const module of modSource.matchAll(/pub mod\s+([a-z_][a-z0-9_]*)/g)) surface.add(module[1]);
+  return surface;
+}
+
+/**
+ * Сверить, что продукт не зовёт того, чего в поверхности крейта нет. Общая для
+ * ветки пути и ветки метки — состав контракта, а не способ достать исходники,
+ * решает, пройдёт ли сборка.
+ */
+export function assertContractSurface(surface, describeSource) {
+  const used = usedGatewayNames();
+  const missing = [...used].filter((name) => !surface.has(name));
+  if (missing.length > 0) {
+    fail(
+      `${describeSource} не отдаёт того, чем пользуется продукт: нет ${missing.join(', ')}`,
+      'источник крейта устарел либо указывает не туда; сверьте путь/метку фрагмента ' +
+        'и повторите — если правки только что уехали в Core, дождитесь новой метки',
+    );
+  }
+  return used.size;
+}
+
+/**
+ * Достать исходники крейта шлюза на КОНКРЕТНОЙ метке во временный каталог.
+ *
+ * 🔴 Находка П-5 аудита 4. Прежде ветка метки состав контракта не сверяла вовсе:
+ * метка существует — не значит, что нужное имя внутри есть, и отказ приходил из
+ * глубины cargo, спустя минуты компиляции, без внятной причины. Сверить состав
+ * без исходников нечем, а достать их можно: `git archive --remote` не годится
+ * (GitHub отключил git-upload-archive по протоколу для смарт-HTTP), поэтому
+ * берём мелкий (`--depth 1`) клон РОВНО по метке — тот же приём годится для
+ * любого хоста. Каталог одноразовый, лежит в системном temp (не в дереве
+ * продукта) и это НЕ тот резерв, что бережёт `backupPristineWorkspace`.
+ */
+export function fetchGatewaySourceAtTag(url, tag) {
+  const dir = mkdtempSync(join(tmpdir(), 'aurora-gateway-tag-'));
+  const clone = spawnSync(
+    'git',
+    ['clone', '--quiet', '--depth', '1', '--branch', tag, url, dir],
+    { encoding: 'utf8' },
+  );
+  if (clone.status !== 0) {
+    rmSync(dir, { recursive: true, force: true });
+    fail(
+      `не удалось скачать исходники крейта по метке ${tag}`,
+      `git clone вернул отказ: ${(clone.stderr || '').trim() || 'неизвестная причина'}`,
+    );
+  }
+  return dir;
+}
+
+/** Источник крейта пригоден: дерево на месте с нужным составом либо метка существует
+ *  и на ней тот же состав, каким пользуется продукт. */
+export function verifyGatewaySource(source) {
   if (source.kind === 'tag') {
-    // Состав контракта здесь не сверяем: исходников на диске нет, и доказывает
-    // его сама сборка. Проверяем то, что проверить можно и нужно, — что метка
-    // действительно есть в удалённом репозитории. Иначе отказ придёт из глубины
-    // cargo, спустя минуты и без внятной причины.
+    // Живость метки — быстрый признак, проверяем его первым: нет доступа к
+    // репозиторию или метки не существует — отказ приходит немедленно, без
+    // траты времени на клон.
     const found = spawnSync('git', ['ls-remote', '--tags', source.url, source.tag], {
       cwd: ROOT,
       encoding: 'utf8',
@@ -402,6 +465,30 @@ function verifyGatewaySource(source) {
       );
     }
     info(`крейт шлюза берётся по метке ${source.tag} (метка на месте)`);
+
+    // 🔴 Метка существует — не значит, что состав контракта на месте: сверяем
+    // тем же способом, что и ветка пути, а не просто фактом существования метки.
+    //
+    // 🔴 Очистка временного каталога сделана ЯВНО перед каждым `fail()`, а не
+    // через `try/finally`: `fail()` зовёт `process.exit()` синхронно, а он
+    // обрывает исполнение ДО того, как обвязывающий `finally` успеет
+    // сработать (проверено зондом) — каталог остался бы висеть в temp ровно
+    // на том пути, где сверка и находит нарушение.
+    const tmpDir = fetchGatewaySourceAtTag(source.url, source.tag);
+    const modRs = join(tmpDir, 'aurora_gateway', 'src', 'cloud', 'mod.rs');
+    if (!existsSync(modRs)) {
+      rmSync(tmpDir, { recursive: true, force: true });
+      fail(
+        `метка ${source.tag} не содержит облачного слоя (${modRs})`,
+        'сверьте, что метка действительно облачная и расположение крейта ' +
+          'внутри репозитория Core не менялось',
+      );
+    }
+    const modSource = readFileSync(modRs, 'utf8');
+    rmSync(tmpDir, { recursive: true, force: true });
+    const surface = gatewaySurface(modSource);
+    const size = assertContractSurface(surface, `крейт по метке ${source.tag}`);
+    info(`контракт по метке ${source.tag} проверен (продукт берёт ${size} имён, все на месте)`);
     return;
   }
 
@@ -415,25 +502,9 @@ function verifyGatewaySource(source) {
         'либо переведите фрагмент на зависимость по метке',
     );
   }
-  // Публичная поверхность облачного слоя: что объявлено наружу в mod.rs, тем
-  // продукт и может пользоваться.
-  const surface = new Set();
-  const modSource = readFileSync(modRs, 'utf8');
-  for (const reexport of modSource.matchAll(/pub use [^;]+;/g)) {
-    for (const word of reexport[0].matchAll(/[A-Za-z_][A-Za-z0-9_]*/g)) surface.add(word[0]);
-  }
-  for (const module of modSource.matchAll(/pub mod\s+([a-z_][a-z0-9_]*)/g)) surface.add(module[1]);
-
-  const used = usedGatewayNames();
-  const missing = [...used].filter((name) => !surface.has(name));
-  if (missing.length > 0) {
-    fail(
-      `крейт по пути ${crateDir} не отдаёт того, чем пользуется продукт: нет ${missing.join(', ')}`,
-      'дерево Core стоит на ветке без нужных правок либо это неверсионированная копия крейта; ' +
-        'сверьте, что путь ведёт в дерево ТОЙ ветки, где живут ваши изменения, и повторите',
-    );
-  }
-  info(`крейт шлюза проверен: ${crateDir} (продукт берёт ${used.size} имён, все на месте)`);
+  const surface = gatewaySurface(readFileSync(modRs, 'utf8'));
+  const size = assertContractSurface(surface, `крейт по пути ${crateDir}`);
+  info(`крейт шлюза проверен: ${crateDir} (продукт берёт ${size} имён, все на месте)`);
 }
 
 /**
@@ -443,8 +514,13 @@ function verifyGatewaySource(source) {
  * продукта уехали с ошибкой проверки типов, а облачный гейт остался зелёным,
  * поскольку смотрел только на Rust. Порог — ошибки: предупреждений в дереве
  * сотни, и краснеть на них значило бы приучить обходить гейт.
+ *
+ * 🔴 Находка П-4 аудита 4: прежде звалась только в `--test`. Настоящий выпуск
+ * идёт БЕЗ `--test` — значит и без этой проверки, и ошибка типов фронта уезжала
+ * в сборку ровно так же, как уехал вид уведомления, ради которого проверку и
+ * заводили. Зовётся теперь при любом запуске: сборке, `--check` и `--test`.
  */
-function checkFrontendTypes() {
+export function checkFrontendTypes() {
   info('проверяю типы фронта (svelte-check)');
   const res = spawnSync('npx', ['svelte-check', '--threshold', 'error', '--output', 'human'], {
     cwd: ROOT,
@@ -635,7 +711,9 @@ async function main() {
     ];
   }
 
-  if (testOnly) checkFrontendTypes();
+  // П-4 (аудит 4): гоняется при КАЖДОМ запуске — сборке, --check и --test, —
+  // а не только в --test, иначе выпуск собирается без неё же самой проверки.
+  checkFrontendTypes();
   writeFileSync(MANIFEST, composed, 'utf8');
   info(
     checkOnly
@@ -658,4 +736,7 @@ async function main() {
   info('готово');
 }
 
-main();
+// Гард запуска: при импорте (тесты) main НЕ выполняется.
+if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {
+  main();
+}
