@@ -149,6 +149,7 @@ export const KNOWN_GATEWAY_METHODS = {
   is_success: { type: 'JobState', why: 'задание завершилось успешно' },
   failure_text: { type: 'JobState', why: 'текст отказа для человека (и скрытая диагностика узла)' },
   user_text: { type: 'CloudError', why: 'текст для человека, без внутренних подробностей' },
+  stray_job: { type: 'CloudError', why: 'номер задания, снятие которого сервер не подтвердил' },
 };
 
 /** Методы общего слоя из {@link KNOWN_GATEWAY_METHODS}, реально вызванные в коде продукта. */
