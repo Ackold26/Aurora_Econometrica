@@ -1,5 +1,5 @@
 """
-aurora_html.sections - 14 section renderers.
+aurora_html.sections - 17 section renderers.
 
 Each function emits an HTML fragment wrapped in `<section id="{id}">...`,
 aligned with PPTX S7 slides:
@@ -17,6 +17,7 @@ JS layer adds sortable columns, drill-downs, counters, etc.
 """
 from __future__ import annotations
 
+import math
 from typing import Any
 
 from .security import escape
@@ -444,9 +445,9 @@ def _reliability_disclaimer_html(ctx: dict) -> str:
     if verdict_str not in ("unreliable", "uncertain"):
         return ""
     if verdict_str == "unreliable":
-        note = "Модель имеет высокий R-hat или много расходящихся цепей — результаты ниже ориентировочные."
+        note = "Модель имеет высокий R-hat или много расходящихся цепей – результаты ниже ориентировочные."
     else:
-        note = "Узкий объём данных или слабый prior-coverage — результаты ниже трактуйте осторожно."
+        note = "Узкий объём данных или слабый prior-coverage – результаты ниже трактуйте осторожно."
     return (
         '<div class="reliability-disclaimer" role="alert" style="'
         "margin:16px 0;padding:14px 18px;background:rgba(201,164,73,0.12);"
@@ -553,7 +554,11 @@ def render_executive_summary(ctx: dict) -> str:
         budget = facts.get("total_budget_mln") or 0
         n_ch = facts.get("n_active_channels") or len(ctx["channels"])
         wr = facts.get("weighted_roi") or 1.0
-        mqs = ctx.get("diagnostics", {}).get("mqs_score") or 0
+        # Нет числа - нет подписи: метрика может быть не посчитана для этого
+        # прогона (ctx["diagnostics"]["mqs_score"] отсутствует) - честный
+        # прочерк вместо фиктивного 0, тот же формат что в карточке источников
+        # (render_sources) и по всему отчёту (_fmt_num SSOT-фолбэк "-").
+        mqs_fmt = _fmt_num(ctx.get("diagnostics", {}).get("mqs_score"))
         leader = facts.get("leader_channel") or "-"
         hero = facts.get("hero_channel") or leader
         leader_pct = facts.get("leader_share_spend_pct") or 0
@@ -575,14 +580,14 @@ def render_executive_summary(ctx: dict) -> str:
         if kpi["is_legacy"]:
             situation = scqar["situation"]["template"].format(
                 client=client, budget_mln=budget, n_channels=n_ch,
-                weighted_roi=wr, mqs=mqs
+                weighted_roi=wr, mqs=mqs_fmt
             )
         else:
             # v1.3.2: KPI-aware situation - заменяем «Weighted ROI X×» на CPU/доля.
             situation = (
                 f"{client} размещает {budget:.0f} млн ₽ в квартал через "
                 f"{n_ch} активных каналов. {_weighted_summary_phrase(wr, kpi)}, "
-                f"MQS модели {mqs:.0f}/100."
+                f"MQS модели {mqs_fmt}/100."
             )
         # L14: complication uses budget_dominator (not leader). Fallback when
         # all channels balanced (no clear dominator OR balanced contribution).
@@ -854,45 +859,66 @@ def render_at_a_glance(ctx: dict) -> str:
         f4_sup = strings["findings_templates"]["f4_verdicts_support"].format(n_channels=len(channels))
         findings.append((f4, f4_sup))
 
-        try:
-            mqs_val = float(mqs) if mqs is not None else 0
-        except (TypeError, ValueError):
-            mqs_val = 0
-        # L16 (math-fix v1.4 Section C, 2026-04-29): align frontend tier labels
-        # с backend (utils/diagnostics.py:62-72) - single 5-tier source of truth.
-        # Pre-fix: frontend had 3 tiers (good/fair/poor at 80/60/<60), backend
-        # had 5 tiers (excellent/good/acceptable/weak/poor at 85/70/55/40/<40)
-        # → MQS=70 showed «Хорошее» (sources block) vs «приемлемо» (findings).
-        diag_tier = (ctx.get("diagnostics") or {}).get("mqs_tier_label")
-        # Audit fix (2026-04-29): explicit `is not None` check distinguishes
-        # «backend not provided» vs «backend provided non-empty string».
-        # Pre-fix: `if diag_tier:` falsy для empty string '' → silent fallback
-        # к local computation, masking backend issues. Post-fix: trust backend
-        # value when present (even if empty), only fallback when truly absent.
-        if diag_tier is not None and diag_tier != "":
-            tier_label_text = diag_tier
-        elif mqs_val >= 85:
-            tier_label_text = 'Отличное'
-        elif mqs_val >= 70:
-            tier_label_text = 'Хорошее'
-        elif mqs_val >= 55:
-            tier_label_text = 'Приемлемое'
-        elif mqs_val >= 40:
-            tier_label_text = 'Слабое'
+        # Нет числа - нет подписи (2026-07-25): mqs_score может отсутствовать
+        # (метрика не была рассчитана для этого прогона) - раньше это тихо
+        # превращалось в mqs_val=0 и показывало клиенту правдоподобное
+        # «Качество модели: 0/100 - Ненадёжное», как будто это результат
+        # расчёта, а не факт отсутствия оценки. Честное отсутствие вместо
+        # фиктивного нуля - см. тот же принцип в render_sources (mqs_display).
+        mqs_val: float | None = None
+        if mqs is not None:
+            try:
+                mqs_val = float(mqs)
+            except (TypeError, ValueError):
+                mqs_val = None
+            # 2026-07-26: NaN проходит float() без исключения и получал вердикт
+            # «MQS nan/100 – Ненадёжное» — приговор модели вместо отметки, что
+            # оценки нет. NaN приходит штатно: json.loads принимает литерал NaN,
+            # а метрики дают его при нулевых фактах. Нечисло — это отсутствие.
+            if mqs_val is not None and not math.isfinite(mqs_val):
+                mqs_val = None
+        if mqs_val is None:
+            f5 = strings["findings_templates"]["f5_mqs_unavailable"]
+            f5_sup = strings["findings_templates"]["f5_mqs_support_unavailable"]
         else:
-            tier_label_text = 'Ненадёжное'
-        # Support text per tier
-        support_key = {
-            'Отличное': 'f5_mqs_support_excellent',
-            'Хорошее': 'f5_mqs_support_good',
-            'Приемлемое': 'f5_mqs_support_acceptable',
-            'Слабое': 'f5_mqs_support_weak',
-            'Ненадёжное': 'f5_mqs_support_poor',
-        }.get(tier_label_text, 'f5_mqs_support_acceptable')
-        f5 = strings["findings_templates"]["f5_mqs"].format(
-            mqs=mqs_val, tier_label=tier_label_text
-        )
-        f5_sup = strings["findings_templates"][support_key]
+            # L16 (math-fix v1.4 Section C, 2026-04-29): align frontend tier labels
+            # с backend (utils/diagnostics.py) - single 5-tier source of truth.
+            # Pre-fix: frontend had 3 tiers (good/fair/poor at 80/60/<60), backend
+            # had 5 tiers (excellent/good/acceptable/weak/poor at 85/70/55/40/<40)
+            # → MQS=70 showed «Хорошее» (sources block) vs «приемлемо» (findings).
+            # 2026-07-25: локальная копия порогов 85/70/55/40 убрана - тиры читаются
+            # из единого SSOT (utils.diagnostics.mqs_tier_info), а не дублируются
+            # здесь; дубль этих чисел уже ловили в бою (см. комментарий выше).
+            diag_tier = (ctx.get("diagnostics") or {}).get("mqs_tier_label")
+            # Audit fix (2026-04-29): explicit `is not None` check distinguishes
+            # «backend not provided» vs «backend provided non-empty string».
+            # Pre-fix: `if diag_tier:` falsy для empty string '' → silent fallback
+            # к local computation, masking backend issues. Post-fix: trust backend
+            # value when present (even if empty), only fallback when truly absent.
+            # Audit fix (2026-07-26): непустоты мало — ярлык обязан принадлежать
+            # набору канона. Прежде сюда проходило любое значение: подстановка
+            # ключа `tier` вместо `tier_label` («excellent») печаталась клиенту
+            # по-английски и сбивала подбор пояснения на «Приемлемо» при
+            # отличной модели, потому что ниже стоит .get(..., 'acceptable').
+            # Чужой подписи слой представления не ждёт: не узнал — считает сам.
+            # Audit fix (2026-07-27): принадлежности набору тоже мало — ярлык
+            # обязан ещё и СООТВЕТСТВОВАТЬ баллу (валидный ярлык канона, но не
+            # для этого mqs_val, раньше проходил как есть). Проверка вынесена в
+            # SSOT-функцию, а не дублируется здесь и в render_sources ниже.
+            from utils.diagnostics import resolve_mqs_tier_label
+            tier_label_text = resolve_mqs_tier_label(mqs_val, diag_tier)
+            # Support text per tier
+            support_key = {
+                'Отличное': 'f5_mqs_support_excellent',
+                'Хорошее': 'f5_mqs_support_good',
+                'Приемлемое': 'f5_mqs_support_acceptable',
+                'Слабое': 'f5_mqs_support_weak',
+                'Ненадёжное': 'f5_mqs_support_poor',
+            }.get(tier_label_text, 'f5_mqs_support_acceptable')
+            f5 = strings["findings_templates"]["f5_mqs"].format(
+                mqs=mqs_val, tier_label=tier_label_text
+            )
+            f5_sup = strings["findings_templates"][support_key]
         findings.append((f5, f5_sup))
     else:
         # Preview mode
@@ -1368,14 +1394,16 @@ def render_timeline(ctx: dict) -> str:
     else:
         title = f"Динамика продаж {period_unit}"
 
+    # Б-3 (аудит Т3+): подпись отражает двухрежимность (обзор групп ⇄ детально),
+    # дефолт — обзор 4 групп в паритете с программой, а не «вклад каналов».
+    # (2026-07-25, Фаза 3 покрытия): было HTML-комментарием внутри клиентского
+    # тела секции — внутренняя аудит-заметка утекала в экспортируемый файл.
     body = f"""
 {_action_title(title)}
 <div class="chart-container">
   <div class="chart-title-bar">
     <div>
       <div class="chart-title">Продажи {period_unit}</div>
-      <!-- Б-3 (аудит Т3+): подпись отражает двухрежимность (обзор групп ⇄ детально),
-           дефолт — обзор 4 групп в паритете с программой, а не «вклад каналов». -->
       <div class="chart-subtitle">Декомпозиция по группам (обзор) или по каналам и факторам (детально). Ползунок - зум периода.</div>
     </div>
     <button class="btn-inline" id="tl-view-toggle" title="Показать каналы и факторы по отдельности. Итоговая сумма продаж одинакова в обоих режимах">Детально</button>
@@ -1637,15 +1665,15 @@ def _render_brand_perf_split_block(ctx: dict) -> str:
   <div class="method-col-label" style="margin-bottom:8px;">Иерархическая модель brand/performance (v1.1.0)</div>
   <p style="font-size:12px;line-height:1.5;color:var(--text-secondary,#94a3b8);">
     Модель разделяет каналы на brand (долгосрочный отклик) и performance (краткосрочный отклик).
-    Brand-каналы получают более широкий априорный параметр — отражает неизвестную длительность накопления эффекта.
+    Brand-каналы получают более широкий априорный параметр – отражает неизвестную длительность накопления эффекта.
     Performance-каналы используют тесный априорный параметр на быстрое затухание.
   </p>
   <ul style="font-size:12px;line-height:1.7;margin-top:8px;padding-left:16px;">
 {chr(10).join(rows)}
   </ul>
   <p style="font-size:11px;font-style:italic;color:var(--text-muted,#64748b);margin-top:8px;">
-    Атрибуция между brand и performance содержит неустранимую неопределённость — используются априорные ожидания на основе отраслевых норм.
-    Если категория канала вызывает сомнения, проверьте классификацию на шаге Validate.
+    Атрибуция между brand и performance содержит неустранимую неопределённость – используются априорные ожидания на основе отраслевых норм.
+    Если категория канала вызывает сомнения, проверьте классификацию на шаге «Валидация».
   </p>
   {warning_html}
 </div>"""
@@ -1740,11 +1768,32 @@ def render_sources(ctx: dict) -> str:
     is_ols = (diag.get("engine") == "ols") or (ctx.get("model_version") == "1.0-ols")
 
     mqs = diag.get("mqs_score")
-    mqs_tier = diag.get("mqs_tier_label") or "-"
+    # 🔴 Внешний аудит 2026-07-26: та же проверка, что в findings выше, — карточка
+    # секции её не имела. Адаптер при отсутствии `tier_label` подставляет значение
+    # ключа `tier` («excellent»), и клиенту печаталась латиница, тогда как findings
+    # той же страницы говорили «Отличное». Ярлык принимается только из набора
+    # канона; иначе уровень выводится из посчитанного балла, а при его отсутствии
+    # ярлыка нет вовсе (карточка ниже рисует честное отсутствие).
+    # Audit fix (2026-07-27): принадлежности набору тоже мало — ярлык обязан ещё
+    # и СООТВЕТСТВОВАТЬ баллу (SSOT-проверка вынесена в resolve_mqs_tier_label,
+    # используется здесь и в findings выше — не дублируется). Заодно: раньше
+    # проверка членства шла ДО проверки самого балла, поэтому валидный ярлык
+    # канона без валидного балла тоже проходил как есть — честного отсутствия
+    # не получалось, хотя комментарий выше его обещал. Балл парсится первым.
+    from utils.diagnostics import resolve_mqs_tier_label
+    _diag_tier = diag.get("mqs_tier_label")
     try:
-        mqs_display = f"{int(round(float(mqs)))}" if mqs is not None else "-"
+        _mqs_num = float(mqs) if mqs is not None else None
     except (TypeError, ValueError):
-        mqs_display = "-"
+        _mqs_num = None
+    if _mqs_num is not None and math.isfinite(_mqs_num):
+        mqs_tier = resolve_mqs_tier_label(_mqs_num, _diag_tier)
+    else:
+        mqs_tier = ""
+    try:
+        mqs_display = f"{int(round(float(mqs)))}" if mqs is not None else None
+    except (TypeError, ValueError):
+        mqs_display = None
 
     # INV-50 F-DELIVERABLE-1 (2026-06-07): честная оговорка о тонких данных /
     # переобучении — та же формулировка, что в вердикте программы и письме
@@ -1788,13 +1837,27 @@ def render_sources(ctx: dict) -> str:
         else "Bayesian MMM · posterior means · 90% HDI"
     )
 
+    # Нет числа - нет подписи (2026-07-26): пустая шкала «- /100» с ярлыком
+    # уровня ниже - та же ложь, что фиктивный ноль (форма измерения без
+    # измерения). Формулировка отсутствия дословно та же, что в PPTX-карточке
+    # (aurora_pptx/builder.py) - разнобой по поверхностям это тот же дефект
+    # в профиль. При отсутствии оценки шкала и ярлык уровня не рисуются вовсе.
+    if mqs_display is not None:
+        mqs_score_block = (
+            f'<div class="mqs-score">{escape(mqs_display)}<sub>/100</sub></div>\n'
+            f'    <div class="mqs-tier">{escape(mqs_tier)}</div>'
+        )
+    else:
+        mqs_score_block = (
+            '<div class="mqs-absent">Оценка не выполнялась для этого расчёта</div>'
+        )
+
     body = f"""
 {_action_title("Качество модели и источники данных")}
 <div class="sources-grid">
   <div class="mqs-card">
     <div class="mqs-label">Model Quality Score</div>
-    <div class="mqs-score">{escape(mqs_display)}<sub>/100</sub></div>
-    <div class="mqs-tier">{escape(mqs_tier)}</div>
+    {mqs_score_block}
     {f'<div class="mqs-caveat">{escape(mqs_caveat)}</div>' if mqs_caveat else ''}
     {f'<div class="mqs-diag">{mqs_diag_html}</div>' if mqs_diag_html else ''}
     <a class="method-badge" href="#method">{escape(_badge_text)}</a>
@@ -1805,7 +1868,7 @@ def render_sources(ctx: dict) -> str:
       <li>Продажи: первичные данные клиента</li>
       <li>Медиа-инвестиции: биллинг по каналам</li>
       <li>Нормирование: CPP / CPM per unit</li>
-      <li>Сезонность и макро: константы в baseline</li>
+      <li>Сезонность и макро: константы в базовом уровне продаж</li>
       <li>{escape(_src_line)}</li>
     </ul>
   </div>
@@ -1891,10 +1954,10 @@ def render_trust_loop(ctx: dict) -> str:
         for w in (bt.get("windows") or [])[:8]:
             lo, hi = w.get("pi_low_total"), w.get("pi_high_total")
             interval = (f"{_fmt_int(lo)} – {_fmt_int(hi)}"
-                        if lo is not None and hi is not None else "—")
-            mark = "✓" if w.get("hit_total") else ("—" if w.get("hit_total") is None else "✕")
+                        if lo is not None and hi is not None else "н/д")
+            mark = "✓" if w.get("hit_total") else ("–" if w.get("hit_total") is None else "✕")
             rows += (
-                f'<tr><td>{escape(str(w.get("window") or "—"))}</td>'
+                f'<tr><td>{escape(str(w.get("window") or "н/д"))}</td>'
                 f'<td class="num">{_fmt_int(w.get("actual_total"))}</td>'
                 f'<td class="num">{_fmt_int(w.get("predicted_total"))}</td>'
                 f'<td class="num">{interval}</td><td class="center">{mark}</td></tr>'
@@ -1906,7 +1969,7 @@ def render_trust_loop(ctx: dict) -> str:
         blocks.append(f"""
 <div class="trust-block">
   <h3 class="trust-h">Проверка на истории</h3>
-  <p class="trust-hero">{escape(str(hit))} из {escape(str(n_int))} {word} — факт внутри 90%-интервала прогноза.</p>
+  <p class="trust-hero">{escape(str(hit))} из {escape(str(n_int))} {word} – факт внутри 90%-интервала прогноза.</p>
   <p class="trust-sub">Ошибка прогноза (MAPE): {float(bt.get("mape_model") or 0):.1f}%.{naive_line}
   {escape(str(bt.get("verdict_text") or ""))}</p>
   <table class="trust-table"><thead><tr>
@@ -1937,7 +2000,7 @@ def render_trust_loop(ctx: dict) -> str:
     <th>Канал</th><th>ROI: был → стал</th><th>Вердикт</th>
   </tr></thead><tbody>{rows}</tbody></table>
   <p class="trust-note">Обе версии модели пересчитаны на сегодняшних данных;
-  вердикт — по перекрытию интервалов неопределённости.</p>
+  вердикт – по перекрытию интервалов неопределённости.</p>
 </div>""")
 
     # ── E2: калибровка экспериментами ──
@@ -2014,15 +2077,15 @@ def render_forecast_plan(ctx: dict) -> str:
         ci_high_val = sc.get("total_kpi_ci_high")
         ci_str = (
             f"{int(ci_low_val):,} – {int(ci_high_val):,}".replace(",", " ")
-            if ci_low_val is not None and ci_high_val is not None else "—"
+            if ci_low_val is not None and ci_high_val is not None else "н/д"
         )
         budget = sc.get("total_spend_money")
         kpi = sc.get("total_kpi")
         roas = sc.get("roas_money")
-        budget_str = f"{int(budget):,}".replace(",", " ") if budget is not None else "—"
-        kpi_str = f"{int(kpi):,}".replace(",", " ") if kpi is not None else "—"
-        roas_str = f"{float(roas):.2f}" if roas is not None else "—"
-        name_str = escape(str(sc.get("name") or sc.get("variant_id") or "—"))
+        budget_str = f"{int(budget):,}".replace(",", " ") if budget is not None else "н/д"
+        kpi_str = f"{int(kpi):,}".replace(",", " ") if kpi is not None else "н/д"
+        roas_str = f"{float(roas):.2f}" if roas is not None else "н/д"
+        name_str = escape(str(sc.get("name") or sc.get("variant_id") or "н/д"))
         star = "★ " if is_accepted else ""
         bold_open = "<strong>" if is_accepted else ""
         bold_close = "</strong>" if is_accepted else ""
@@ -2131,7 +2194,7 @@ def render_retro_insights(ctx: dict) -> str:
         cov_sfx = (f" (покрытие {float(pp_cov):.0%})" if isinstance(pp_cov, (int, float)) else "")
         items.append(
             f"Априорные предположения расходятся с данными{cov_sfx} – "
-            "проверьте диапазоны adstock и насыщения на шаге Validate."
+            "проверьте диапазоны отложенного эффекта (adstock) и насыщения на шаге «Валидация»."
         )
 
     # 4. Низкое R² или высокий MAPE

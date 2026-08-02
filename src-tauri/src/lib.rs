@@ -1,5 +1,6 @@
 pub mod commands;
 pub mod crypto;
+pub mod durable_store;
 pub mod econ_sidecar;
 pub mod errors;
 pub mod metrics;
@@ -969,8 +970,13 @@ fn resolve_slash_command(message: &str, work_dir: &std::path::Path) -> String {
     }
 }
 
-// Auto-save (.md → .docx/.pdf/.xlsx) suppressed for all slash-commands.
-// Slash-commands produce their own exports; .md auto-save just duplicates chat content.
+// Авто-сохранение отчёта (.md → .docx/.pdf/.xlsx) подавляется ТОЛЬКО по явному
+// suppress_export=true (промежуточные шаги auto-continue из ChatPanel). Часть команд
+// econometrist отвечает в чат без self-export — им нужен именно этот авто-.md для
+// карточки «Оформить отчёт»; команды с явным self-export (Write в exports/) получат
+// дополнительный сырой .md-дубль — минорный побочный эффект, не потеря данных.
+// Рудимент `|| starts_with('/')` снят 2026-07-24 (CPD-17, пришёл sync-коммитом 43d0a8f,
+// глушил авто-.md для всех slash-команд).
 
 #[tauri::command]
 async fn send_message(
@@ -1314,7 +1320,7 @@ async fn send_message(
             cabinet_id.clone(),
             resume_for_attempt,
             state.active_pids.clone(),
-            suppress_export.unwrap_or(false) || message.trim().starts_with('/'),
+            suppress_export.unwrap_or(false),
             user_model.clone(),
         ).await;
 
@@ -1756,10 +1762,17 @@ fn delete_export_file(cabinet_id: String, filename: String, app_handle: tauri::A
 }
 
 #[tauri::command]
-fn save_chat_message(cabinet_id: String, role: String, content: String, ts: f64) -> Result<(), String> {
+fn save_chat_message(
+    cabinet_id: String,
+    role: String,
+    content: String,
+    ts: f64,
+    is_auto_continue: Option<bool>,
+    is_quick_reply: Option<bool>,
+) -> Result<(), String> {
     session::history::save_message(
         &cabinet_id,
-        session::history::ChatHistoryMessage { role, content, ts },
+        session::history::ChatHistoryMessage { role, content, ts, is_auto_continue, is_quick_reply },
     )
     .map_err(|e| e.to_string())
 }
@@ -3463,6 +3476,35 @@ fn build_app() -> Result<(), String> {
         .setup(|app| {
             let local_data_dir = app.path().app_local_data_dir().ok();
 
+            // CPD-30: страховочный повторный init() — обычно уже отработал раньше, в run()
+            // (см. LOCALAPPDATA+TAURI_ENV_IDENTIFIER там), до cleanup_stale_sessions() и
+            // SessionManager::new() в build_app(). OnceLock::set() второй раз молча не сработает,
+            // если первый уже прошёл; если LOCALAPPDATA был недоступен там — сработает здесь через
+            // штатный app_local_data_dir(). Без ни одного из двух — фолбэк по CARGO_PKG_NAME (см.
+            // durable_store::base_dir()), тоже per-app, но не под каталогом, что чистит деинсталлятор.
+            if let Some(ref ldd) = local_data_dir {
+                durable_store::init(ldd.clone());
+
+                // 🔴 Батч C (C10, Medium): единственный ВНЕШНИЙ источник правды об идентификаторе
+                // — `app_local_data_dir()` — до сих пор молча выбрасывался: `durable_store::init`
+                // уже отработал в `run()`, второй `OnceLock::set` ничего не делает. А сторож
+                // `build_identifier_matches_tauri_conf` живёт в системе координат самого дефекта:
+                // он сверяет значение СВОИМ разбором `tauri.conf.json`, тем же приёмом, что и
+                // `build.rs`, — ошибись разбор одинаково в обоих местах, тест зелёный, а состояние
+                // уходит в каталог, которого Tauri не знает (content-packs и claude-runtime при
+                // этом остаются в настоящем). Сверяем факт с фактом.
+                // 🔴 Здесь же покрывается ЛОКАЛЬНАЯ редакция (`com.aurora.econometrica.local`,
+                // оверлей `TAURI_CONFIG`): `app_local_data_dir()` считает каталог по СЛИТОЙ
+                // конфигурации, то есть отвалившийся разбор оверлея в `build.rs` виден именно
+                // отсюда. Ронять на клиенте нельзя: расхождение — не повод не запускать продукт,
+                // но оно обязано быть видно в журнале.
+                if let Some(mismatch) =
+                    durable_store::describe_base_mismatch(ldd, &durable_store::resolve_path(""))
+                {
+                    warn!("durable_store: {mismatch}");
+                }
+            }
+
             // One-time migration: content_version.txt → vault-versions.json
             if let (Some(config_dir), Some(data_dir)) = (
                 app.path().app_config_dir().ok(),
@@ -3744,8 +3786,51 @@ pub fn run() {
     commands::diagnostics::mark_app_start();
 
     // One-time data migration for identifier rename (ROSST → Aurora AI v0.8.0)
+    // 🔴 МИНА — НЕ переводить на `AURORA_APP_IDENTIFIER` без решения владельца (Р-1, 2026-07-30).
+    // Переменной `TAURI_ENV_IDENTIFIER` не существует (CPD-33), поэтому `tauri_id` ВСЕГДА равен
+    // запасному "com.aurora.agency". Из-за этого `migrate_if_needed` всё время отрабатывает ЧУЖУЮ
+    // пару таблицы IDENTIFIER_MIGRATIONS (com.aiagency.desktop → com.aurora.agency), а заявленные
+    // переносы вида com.rosst.legal → com.aurora.legal не выполнялись НИ РАЗУ ни у одного клиента.
+    // Почему это мина: рядом теперь стоит починенная переменная под новым именем
+    // (AURORA_APP_IDENTIFIER, кладёт build.rs), и «унификация имён» выглядит естественным шагом —
+    // но она разом ОЖИВИТ спящий перенос license.json и vault_salt.bin у всех продуктов линейки.
+    // 🔴 Удалять вызов тоже нельзя: для офлайн-клиента, ставящего новую версию поверх очень старой,
+    // это необратимое изменение поведения. Сначала зонд — что реально установлено у пилотных
+    // клиентов и была ли повторная выдача лицензий (папка `2_Выдача_лицензий`).
     let tauri_id = option_env!("TAURI_ENV_IDENTIFIER").unwrap_or("com.aurora.agency");
     commands::data_migration::migrate_if_needed(tauri_id);
+
+    // CPD-30: инициализация per-app базы durable_store ДО build_app() — cleanup_stale_sessions()
+    // и SessionManager::new() (session/{cleanup,manager}.rs) вызываются раньше .setup() hook,
+    // где обычно становится доступен app.path().app_local_data_dir().
+    // %LOCALAPPDATA%\<identifier> — ровно то значение, что вернул бы app_local_data_dir() (тот же
+    // идентификатор, та же база), просто вычисленное вручную, без ожидания AppHandle. Без этого
+    // durable_store ушёл бы в фолбэк по CARGO_PKG_NAME (см. durable_store::base_dir()) — тоже
+    // per-app, но не под каталогом, который чистит деинсталлятор.
+    // 🔴 Внешний аудит 2026-07-29 (Critical): база инициализируется ТОЛЬКО когда идентификатор
+    // пришёл из переменной сборки. Прежде здесь стоял `tauri_id`, у которого ОБЩИЙ фолбэк
+    // "com.aurora.agency": при сборке без tauri CLI (прямой `cargo build`, сборка в CI без
+    // tauri-cli) ВСЕ продукты линейки получали ОДНУ базу — и CPD-30 воспроизводился в новом
+    // каталоге, уже с маркером и перенесённой историей, то есть тише прежнего. Страховочный
+    // init в `.setup()` не спасал: OnceLock уже установлен здесь.
+    //
+    // 🔴 Вторая волна того же аудита: у той правки условие не выполнялось НИКОГДА.
+    // `TAURI_ENV_IDENTIFIER` не выставляет никто — ни сборщик Tauri (он задаёт TAURI_ENV_ARCH,
+    // _DEBUG, _FAMILY, _PLATFORM, _PLATFORM_TYPE, _PLATFORM_VERSION, _TARGET_TRIPLE и только их),
+    // ни `build.rs`, ни задание сборки. Значит `durable_store::init` не вызывался ни разу, и всё
+    // состояние уходило в запасной каталог по имени пакета — доказано на диске: каталог
+    // `%LOCALAPPDATA%\aurora-econometrica-gui` с перенесённой историей вместо
+    // `…\com.aurora.econometrica`. Коллизии продуктов там нет (имя пакета своё у каждого форка),
+    // но каталог не тот, где лежат остальные данные приложения, и его не чистит деинсталлятор —
+    // то есть заявленное в этом самом комментарии не выполнялось. Теперь идентификатор кладёт в
+    // бинарь наш `build.rs` (читает `tauri.conf.json`, а для локальной редакции — оверлей
+    // `TAURI_CONFIG` из `tauri.local.conf.json`), под собственным именем — чтобы его снова не
+    // приняли за переменную, которую якобы выставляет кто-то снаружи. Сторож —
+    // `durable_store::tests::build_identifier_matches_tauri_conf`.
+    if let Some(local_app_data) = std::env::var_os("LOCALAPPDATA") {
+        let build_identifier = env!("AURORA_APP_IDENTIFIER");
+        durable_store::init(std::path::PathBuf::from(local_app_data).join(build_identifier));
+    }
 
     // Fix interrupted pipelines from previous session
     commands::campaign::fix_interrupted_campaigns();

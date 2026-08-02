@@ -266,6 +266,12 @@ class AuroraPPTXBuilder:
         diag = self.data.get("diagnostics") or {}
         _d = (lambda key, preview: diag.get(key, None if self.is_live else preview))
         self.mqs_score = _d("mqs_score", 87)
+        # 2026-07-26: нечисло — это отсутствие оценки, а не низкий балл. NaN
+        # проходит float() без исключения, и карточка слайда печатала клиенту
+        # «nan / 100» гигантским шрифтом. Отсекаем здесь, у разбора данных, а не
+        # у каждого потребителя: иначе следующая поверхность повторит дефект.
+        if isinstance(self.mqs_score, float) and not math.isfinite(self.mqs_score):
+            self.mqs_score = None
         self.mqs_tier_label = _d("mqs_tier_label", "GOOD - готовность к production")
         self.r_squared = _d("r_squared", 0.872)
         self.mape_pct = _d("mape_pct", 8.3)
@@ -967,20 +973,40 @@ class AuroraPPTXBuilder:
             f4 = f"Портфель: {_ru_channels(scale_n)} к росту, {_ru_channels(cut_n)} к сокращению"
             s4 = f"Из {len(self.channels)} активных каналов - чёткая рекомендация по каждому"
 
-        # Finding 5 - MQS quality signal (guards None / non-numeric mqs_score)
+        # Finding 5 - MQS quality signal.
+        # 2026-07-25: нет числа - нет подписи. self.mqs_score=None (метрика не
+        # рассчитана для этого прогона) раньше тихо превращался в mqs=0.0 и
+        # рендерился как «MQS 0/100 - требует доработки» - правдоподобный
+        # приговор модели, хотя её просто не оценивали. Честное отсутствие
+        # оценки вместо фиктивного нуля - зеркалит aurora_html render_at_a_glance.
         try:
-            mqs = float(self.mqs_score) if self.mqs_score is not None else 0.0
+            mqs = float(self.mqs_score) if self.mqs_score is not None else None
         except (TypeError, ValueError):
-            mqs = 0.0
-        if mqs >= 80:
-            f5 = f"Качество модели: MQS {mqs:.0f}/100 - готовность к использованию"
-            s5 = "Можно опираться на рекомендации в планировании"
-        elif mqs >= 60:
-            f5 = f"Качество модели: MQS {mqs:.0f}/100 - приемлемо"
-            s5 = "Рекомендации валидны с учётом диагностических метрик"
+            mqs = None
+        # 2026-07-26: NaN проходит float() и получал вердикт как настоящий балл.
+        # Нечисло — это отсутствие оценки, а не её низкое значение.
+        if mqs is not None and not math.isfinite(mqs):
+            mqs = None
+        if mqs is None:
+            f5 = "Оценка качества модели (MQS) не выполнялась для этого расчёта"
+            s5 = "Итоговый балл недоступен - диагностические метрики см. на слайде «Данные и качество»"
         else:
-            f5 = f"Качество модели: MQS {mqs:.0f}/100 - требует доработки"
-            s5 = "Следует расширить период данных перед финальными решениями"
+            # 2026-07-26: пороги — из единого источника (utils.diagnostics),
+            # как это уже сделано в HTML-ветке. Своя лестница 80/60 здесь
+            # расходилась с каноном 85/70/55/40: MQS 70 давал «Хорошее» в
+            # отчёте и «приемлемо» на слайде, MQS 55-59 — «Приемлемое» против
+            # «требует доработки». Это ровно тот инцидент, ради которого SSOT
+            # и заводился (см. комментарий у _MQS_TIERS).
+            from utils.diagnostics import mqs_tier_info
+            _tier = mqs_tier_info(mqs)
+            f5 = f"Качество модели: MQS {mqs:.0f}/100 – {_tier['tier_label'].lower()}"
+            s5 = {
+                'excellent': "Можно опираться на рекомендации в планировании",
+                'good': "Можно опираться на рекомендации в планировании",
+                'acceptable': "Рекомендации валидны с учётом диагностических метрик",
+                'weak': "Следует расширить период данных перед финальными решениями",
+                'poor': "Следует расширить период данных перед финальными решениями",
+            }.get(_tier['tier'], "Рекомендации валидны с учётом диагностических метрик")
 
         return [
             ("01", f1, s1),
@@ -1309,7 +1335,7 @@ class AuroraPPTXBuilder:
             ("Разделов",         f"{self.total_sections}"),
             *([] if self.is_live else [("Таблиц", "3"), ("Графиков", "4"), ("Слов", "~2 800")]),
             ("MQS модели",       self._mstr(self.mqs_score, "{:.0f} / 100")),
-            ("Данные",           self.data_window_label or "—"),
+            ("Данные",           self.data_window_label or "н/д"),
         ]
         my = side_y + 0.7
         for label, val in meta:
@@ -2280,9 +2306,9 @@ class AuroraPPTXBuilder:
         ts = self.time_series if isinstance(self.time_series, dict) else None
         if ts and ts.get("dates"):
             dates_list = list(ts["dates"])
-            period_label = f"{dates_list[0]} - {dates_list[-1]}" if dates_list else (self.data_window_label or "—")
+            period_label = f"{dates_list[0]} - {dates_list[-1]}" if dates_list else (self.data_window_label or "н/д")
         else:
-            period_label = self.data_window_label or "—"
+            period_label = self.data_window_label or "н/д"
 
         # v1.3.2: timeline axis title per KPI unit (₽ / упак).
         if self.kpi["kpi_kind"] == "count":
@@ -2520,9 +2546,9 @@ class AuroraPPTXBuilder:
 
         # Source at bottom (unified position)
         # B1-fix R-02: период в подписи — timeline уже показывает реальные даты;
-        # используем ту же period_label-логику (реальные даты > мета > «—»).
+        # используем ту же period_label-логику (реальные даты > мета > «н/д»).
         _engine_decomp2 = "OLS MMM" if self.is_ols else "Bayesian MMM"
-        _tl_period = period_label if period_label and period_label != "—" else None
+        _tl_period = period_label if period_label and period_label != "н/д" else None
         _tl_period_part = f", продажи за период {_tl_period}" if _tl_period else ""
         self._source(
             slide, 6.87,
@@ -3111,27 +3137,56 @@ class AuroraPPTXBuilder:
             font=self.sans, size=10, bold=True, color=self.gold,
         )
 
-        # The big MQS score + /100 pair - centered vertically between
-        # title (top) and status hairline (bottom). Spacing balanced so
-        # "70 → /" gap ≈ "/ → 100" gap (visually symmetric pair).
-        self._text(
-            slide, card_x + 0.45, card_y + 0.30, 2.0, 1.8,
-            self._mstr(self.mqs_score, "{:.0f}", na="—"),
-            font=self.serif, size=120, color=self.deep_100, align=PP_ALIGN.RIGHT,
-        )
-        # "/ 100" left-aligned, gap to "70" matches gap "/" → "100"
-        self._text(
-            slide, card_x + 2.55, card_y + 1.10, 1.5, 0.5, "/ 100",
-            font=self.serif, size=32, color=self.deep_60,
-        )
+        # 2026-07-26, «нет числа — нет подписи» на карточке слайда. Прежде при
+        # несчитанной оценке рисовалось «— / 100» плюс ярлык уровня ниже:
+        # клиент видел форму измерения с пустым значением, а ярлык («Хорошее»
+        # из прошлого расчёта или «н/д») стоял рядом как его толкование.
+        # Длинное тире вдобавок нарушало правило клиентской типографики.
+        # Теперь при отсутствии метрики шкала «/ 100» и ярлык не рисуются
+        # вовсе, а на их месте — прямая формулировка отсутствия.
+        _mqs_value = self._mstr(self.mqs_score, "{:.0f}", na=None)
+        if _mqs_value is None:
+            self._text(
+                slide, card_x + 0.35, card_y + 0.9, card_w - 0.7, 1.2,
+                "Оценка не выполнялась\nдля этого расчёта",
+                font=self.serif, size=28, color=self.deep_60,
+            )
+            self._hairline(slide, card_x + 0.35, card_y + 2.55, card_w - 0.7, weight=0.5)
+            self._text(
+                slide, card_x + 0.35, card_y + 2.7, card_w - 0.7, 0.3,
+                "Диагностические метрики ниже",
+                font=self.sans, size=12, italic=True, color=self.deep_60,
+            )
+        else:
+            # The big MQS score + /100 pair - centered vertically between
+            # title (top) and status hairline (bottom). Spacing balanced so
+            # "70 → /" gap ≈ "/ → 100" gap (visually symmetric pair).
+            self._text(
+                slide, card_x + 0.45, card_y + 0.30, 2.0, 1.8, _mqs_value,
+                font=self.serif, size=120, color=self.deep_100, align=PP_ALIGN.RIGHT,
+            )
+            # "/ 100" left-aligned, gap to "70" matches gap "/" → "100"
+            self._text(
+                slide, card_x + 2.55, card_y + 1.10, 1.5, 0.5, "/ 100",
+                font=self.serif, size=32, color=self.deep_60,
+            )
 
-        # Status - below number with clear gap
-        self._hairline(slide, card_x + 0.35, card_y + 2.55, card_w - 0.7, weight=0.5)
-        self._text(
-            slide, card_x + 0.35, card_y + 2.7, card_w - 0.7, 0.3,
-            self.mqs_tier_label or "н/д",
-            font=self.sans, size=12, italic=True, color=self.deep_100,
-        )
+            # Status - below number with clear gap
+            self._hairline(slide, card_x + 0.35, card_y + 2.55, card_w - 0.7, weight=0.5)
+            # 2026-07-26 (внешний аудит, седьмая волна): ярлык уровня берётся из
+            # единого источника по посчитанному баллу, а не из поля бэкенда.
+            # Прежде при пришедшем балле и отсутствующем ярлыке одна и та же
+            # колода противоречила сама себе: слайд 3 печатал «MQS 70/100 –
+            # хорошее», а эта карточка — «уровень не определён». Слой
+            # представления своей шкалы не держит и чужой подписи не ждёт: балл
+            # есть — уровень выводится из него, как в findings выше.
+            from utils.diagnostics import mqs_tier_info
+            _card_tier = mqs_tier_info(float(self.mqs_score))
+            self._text(
+                slide, card_x + 0.35, card_y + 2.7, card_w - 0.7, 0.3,
+                _card_tier['tier_label'].lower(),
+                font=self.sans, size=12, italic=True, color=self.deep_100,
+            )
 
         # 4 key metrics inside card (2x2)
         # B1-fix R-01: _mstr (None → «н/д»); ESS дробный (min bulk/tail) → целое.
@@ -3182,10 +3237,10 @@ class AuroraPPTXBuilder:
             _n_obs = _cov.get("n_observations")
             _gaps = _cov.get("date_gaps")
             data_info = [
-                ("Период",           self.data_window_label or "—"),
-                ("Наблюдений",       f"{_n_obs}" if _n_obs else "—"),
-                ("Активных каналов", f"{active_count}" if active_count else "—"),
-                ("Частота",          _cov.get("frequency_label") or "—"),
+                ("Период",           self.data_window_label or "н/д"),
+                ("Наблюдений",       f"{_n_obs}" if _n_obs else "н/д"),
+                ("Активных каналов", f"{active_count}" if active_count else "н/д"),
+                ("Частота",          _cov.get("frequency_label") or "н/д"),
             ]
             if _gaps is not None:
                 data_info.append(
@@ -3485,7 +3540,7 @@ class AuroraPPTXBuilder:
             hit_mark = w_row.get("hit_total")
             self._text(
                 slide, right_x, ry, col_period_w, 0.24,
-                str(w_row.get("window") or "—"),
+                str(w_row.get("window") or "н/д"),
                 font=self.sans, size=9, color=self.deep_100,
             )
             self._text(
@@ -3501,7 +3556,7 @@ class AuroraPPTXBuilder:
             lo, hi = w_row.get("pi_low_total"), w_row.get("pi_high_total")
             interval = (
                 f"{lo:,.0f} – {hi:,.0f}".replace(",", " ")
-                if lo is not None and hi is not None else "—"
+                if lo is not None and hi is not None else "н/д"
             )
             self._text(
                 slide, right_x + col_period_w + 2 * col_num_w, ry,
@@ -3510,7 +3565,7 @@ class AuroraPPTXBuilder:
             )
             self._text(
                 slide, right_x + right_w - 0.4, ry, 0.4, 0.24,
-                "✓" if hit_mark else ("—" if hit_mark is None else "✕"),
+                "✓" if hit_mark else ("–" if hit_mark is None else "✕"),
                 font=self.sans, size=9, bold=True,
                 color=self.deep_100 if hit_mark else self.deep_60,
             )
@@ -3557,7 +3612,7 @@ class AuroraPPTXBuilder:
             font=self.sans, size=9, bold=True, color=self.gold,
         )
         self._hairline(slide, left_x, left_y + 0.28, 1.0, weight=0.75, color=self.gold)
-        _base_ts = (gc.get("baseline") or {}).get("timestamp") or "—"
+        _base_ts = (gc.get("baseline") or {}).get("timestamp") or "н/д"
         _rows = [
             (f"Сравнение с версией от {_base_ts[:8]}",
              {"font": self.sans, "size": 11, "color": self.deep_100}),
@@ -3602,7 +3657,7 @@ class AuroraPPTXBuilder:
                     return ""
                 return f" [{float(ci[0]):.1f}–{float(ci[1]):.1f}]"
             self._text(
-                slide, right_x, ry, name_w, 0.24, str(ch.get("name") or "—"),
+                slide, right_x, ry, name_w, 0.24, str(ch.get("name") or "н/д"),
                 font=self.sans, size=9, color=self.deep_100,
             )
             self._text(
@@ -3696,21 +3751,21 @@ class AuroraPPTXBuilder:
             ci_str = (
                 f"{ci_low_val:,.0f} – {ci_high_val:,.0f}".replace(",", " ")
                 if ci_low_val is not None and ci_high_val is not None
-                else "—"
+                else "н/д"
             )
             budget_str = (
                 f"{sc.get('total_spend_money'):,.0f}".replace(",", " ")
-                if sc.get("total_spend_money") is not None else "—"
+                if sc.get("total_spend_money") is not None else "н/д"
             )
             kpi_str = (
                 f"{sc.get('total_kpi'):,.0f}".replace(",", " ")
-                if sc.get("total_kpi") is not None else "—"
+                if sc.get("total_kpi") is not None else "н/д"
             )
             roas_str = (
                 f"{sc.get('roas_money'):.2f}"
-                if sc.get("roas_money") is not None else "—"
+                if sc.get("roas_money") is not None else "н/д"
             )
-            name_str = str(sc.get("name") or sc.get("variant_id") or "—")
+            name_str = str(sc.get("name") or sc.get("variant_id") or "н/д")
             if is_accepted:
                 name_str = f"★ {name_str}"
 

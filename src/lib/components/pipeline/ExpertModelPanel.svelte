@@ -6,6 +6,9 @@
    */
   import { modelData } from '$lib/project-state.js';
   import { mqsView } from '$lib/metric-views.js';
+  // MQS SSOT (2026-07-26): тон и текст шкалы — из канона, не своими порогами.
+  // «Нет числа — нет подписи»: mqsTone(null) → null, ни один класс не красится.
+  import { mqsTone, mqsScaleText } from '$lib/mqs-tiers.js';
 
   const diagnostics = $derived($modelData?.diagnostics);
   const channelParams = $derived($modelData?.channelParams);
@@ -37,7 +40,7 @@
     divs:  'Дивергенции (divergences) - количество шагов сэмплера NUTS, которые «соскочили» с траектории.\n\nЧто это: индикатор сложной геометрии posterior. Судить нужно по ДОЛЕ от общего числа draws (chains × draws), а не по абсолютному значению.\n\nКоличественные градации (industry standard, Stan/PyMC docs):\n• 0% - Чисто. Идеальная сходимость.\n• <0.5% - Низкая. Безопасно, R-hat и оценки надёжны.\n• 0.5–2% - Несколько. Внимание, но обычно ОК если R-hat ≤ 1.01.\n• 2–5% - Заметно. Стоит пересмотреть priors или увеличить tune.\n• ≥5% - Много. Модель не сошлась, оценки могут быть смещены.\n\nПример: 9 дивергенций при 4 chains × 2000 draws = 9/8000 ≈ 0.11% → Низкая, безопасно.',
     rSq:   'R² (коэффициент детерминации) - доля вариации KPI, объяснённая моделью.\n\nЧто это: 0 = модель не лучше среднего, 1 = идеальный fit. ≥ 0.7 - хорошо, ≥ 0.9 - отлично.\n\nПочему важно: показывает, насколько модель захватывает динамику продаж. Низкий R² = вы что-то упустили (промо, сезонность, конкуренты).',
     mape:  'MAPE (Mean Absolute Percentage Error) - средняя абсолютная ошибка прогноза в процентах.\n\nЧто это: на сколько процентов в среднем прогноз отличается от факта. < 10% - отлично, 10-20% - приемлемо, > 20% - плохо.\n\nПочему важно: дополняет R². Можно иметь высокий R² и большие отклонения в отдельных периодах - MAPE это ловит.',
-    mqs:   'MQS (Model Quality Score) - агрегированная оценка качества модели от 0 до 100.\n\nЧто это: взвешенная комбинация R² (40%), MAPE (30%) и сходимости MCMC (30%). ≥ 80 = отлично, 60-80 = хорошо.\n\nПочему важно: одно число для быстрой оценки - стоит ли доверять выводам модели.',
+    mqs:   `MQS (Model Quality Score) - агрегированная оценка качества модели от 0 до 100.\n\nЧто это: взвешенная комбинация R² (40%), MAPE (30%) и сходимости MCMC (30%). Шкала: ${mqsScaleText()}.\n\nПочему важно: одно число для быстрой оценки - стоит ли доверять выводам модели.`,
     alpha: 'α (Hill steepness) - крутизна кривой насыщения для канала.\n\nЧто это: контролирует, как быстро отдача от рекламы выходит на плато. α ≈ 1-2 - типичная saturation (плавный изгиб).\n\nПочему важно: высокая α = резкий cutoff (после порога каждый рубль почти не работает); низкая α = плавная saturation (отдача снижается медленно). Влияет на оптимальный бюджет канала.',
     gamma: 'γ (Hill half-saturation) - точка половинного насыщения, нормализованная на максимум канала.\n\nЧто это: при каком уровне расхода канал даёт половину своего максимального эффекта. γ ≈ 0.5 = половина при середине бюджета.\n\nПочему важно: маленькая γ = канал быстро насыщается (нет смысла лить много денег); большая γ = ещё далеко до saturation, можно докупать.',
     beta:  'β (channel coefficient) - сила эффекта канала на нормализованной шкале.\n\nЧто это: posterior mean коэффициента в Bayesian-регрессии. Чем больше β - тем сильнее канал влияет на KPI per единицу бюджета (после Adstock и Hill).\n\nПочему важно: внутренний параметр модели; для маркетёра важнее производный ROI (см. справа). β полезен для сравнения «силы сигнала» каналов между собой.',
@@ -114,6 +117,7 @@
     {@const mape = m.mape_pct ?? diagnostics.mape}
     {@const mqsScore = ssotMqs.score}
     {@const mqsTier = ssotMqs.label}
+    {@const mqsToneVal = mqsTone(mqsScore)}
     {@const totalDraws = (m.mcmc?.chains ?? 4) * (m.mcmc?.draws ?? 2000)}
     {@const rh = rHatLabel(rHat)}
     {@const dv = divsLabel(divs, totalDraws)}
@@ -161,10 +165,10 @@
       </div>
       <div class="diag-item">
         <span class="diag-label">MQS<span class="help-icon" title={HELP.mqs}>?</span></span>
-        <span class="diag-value" class:good={(mqsScore ?? 0) >= 80} class:warn={(mqsScore ?? 0) >= 60 && (mqsScore ?? 0) < 80} class:bad={(mqsScore ?? 0) < 60}>
+        <span class="diag-value" class:good={mqsToneVal === 'good'} class:warn={mqsToneVal === 'warn'} class:bad={mqsToneVal === 'bad'}>
           {mqsScore?.toFixed(0) ?? '-'}
         </span>
-        <span class="diag-tier" class:good={(mqsScore ?? 0) >= 80} class:warn={(mqsScore ?? 0) >= 60 && (mqsScore ?? 0) < 80} class:bad={(mqsScore ?? 0) < 60}>
+        <span class="diag-tier" class:good={mqsToneVal === 'good'} class:warn={mqsToneVal === 'warn'} class:bad={mqsToneVal === 'bad'}>
           {mqsTier}
         </span>
       </div>

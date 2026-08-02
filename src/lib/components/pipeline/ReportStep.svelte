@@ -27,6 +27,7 @@
   import { shouldShowOnboarding } from '$lib/onboarding-state.js';
   import { unitCosts, activeProject, valuePerCountUnit, kpiKind } from '$lib/project-state.js';
   import { mqsView, ratioView } from '$lib/metric-views.js';
+  import { mqsTierInfo, mqsTone, MQS_TIERS } from '$lib/mqs-tiers.js';
   import { periodUnit, periodThreshold, ruPeriodForm } from '$lib/period-format.js';
   import Tooltip from '$lib/components/Tooltip.svelte';
   import { TOOLTIPS } from '$lib/data/tooltip-texts.js';
@@ -264,7 +265,7 @@
     if (!mData?.diagnostics) return '';
     const parts = [];
     if (mqs != null) parts.push(`Качество модели: MQS ${mqs.toFixed(0)} (${mqsLabel})${rSq != null ? `, R² ${rSq.toFixed(3)}` : ''}${mape != null ? `, MAPE ${mape.toFixed(1)}%` : ''}.`);
-    if (basePct != null) parts.push(`Декомпозиция продаж: baseline ${basePct.toFixed(0)}%, медиа-вклад ${(100 - basePct).toFixed(0)}%.`);
+    if (basePct != null) parts.push(`Декомпозиция продаж: базовый спрос ${basePct.toFixed(0)}%, медиа-вклад ${(100 - basePct).toFixed(0)}%.`);
     if (topDriver) parts.push(`Главный драйвер - ${topDriver.name} (${topDriver.contribution_pct?.toFixed(0) ?? '-'}% от медиа-вклада, ROI ${topDriver.roi?.toFixed(2) ?? '-'}×).`);
     if (lift != null) {
       if (lift > 5) parts.push(`Оптимизация обещает +${lift.toFixed(1)}% KPI при текущем бюджете.`);
@@ -342,9 +343,18 @@
   const interpretationQuality = $derived.by(() => {
     if (!mData?.diagnostics || mqs == null) return '';
     const parts = [];
-    if (mqs >= 80) parts.push(`**Качество модели - отличное (MQS ${mqs.toFixed(0)}).** Можно уверенно использовать результаты для принятия решений, включая перераспределение бюджета.`);
-    else if (mqs >= 60) parts.push(`**Качество модели - хорошее (MQS ${mqs.toFixed(0)}).** Результаты надёжны для стратегических решений, но крайние значения ROI по отдельным каналам перепроверяйте.`);
-    else parts.push(`**Качество модели - требует доработки (MQS ${mqs.toFixed(0)}).** Используйте как первичный ориентир, но не делайте крупных перекладов бюджета без пилота.`);
+    // Уровень и его ярлык — из единого источника (mqs-tiers.js, зеркало канона
+    // 85/70/55/40). Прежде здесь жила своя лестница 80/60: один и тот же балл
+    // назывался «отличным» на экране и «Хорошим» в отчёте.
+    const _q = mqsTierInfo(mqs) ?? MQS_TIERS[MQS_TIERS.length - 1];
+    const _qGuidance = {
+      excellent: 'Можно уверенно использовать результаты для принятия решений, включая перераспределение бюджета.',
+      good: 'Результаты надёжны для стратегических решений, но крайние значения ROI по отдельным каналам перепроверяйте.',
+      acceptable: 'Выводы валидны с учётом диагностических метрик; крупные переклады бюджета подтверждайте пилотом.',
+      weak: 'Используйте как первичный ориентир, но не делайте крупных перекладов бюджета без пилота.',
+      poor: 'Используйте как первичный ориентир, но не делайте крупных перекладов бюджета без пилота.',
+    };
+    parts.push(`**Качество модели - ${_q.label.toLowerCase()} (MQS ${mqs.toFixed(0)}).** ${_qGuidance[_q.tier]}`);
     if (rSq != null) {
       if (rSq >= 0.9) parts.push(`R² = ${rSq.toFixed(3)} означает что модель объясняет ${(rSq * 100).toFixed(0)}% колебаний продаж - почти всю динамику.`);
       else if (rSq >= 0.7) parts.push(`R² = ${rSq.toFixed(3)} - модель объясняет ${(rSq * 100).toFixed(0)}% динамики продаж. Оставшиеся ${((1 - rSq) * 100).toFixed(0)}% - шум, внешние факторы или каналы которых нет в данных.`);
@@ -389,7 +399,7 @@
       else if (lift > 0.5 && !liftDrownsInBase) parts.push(`**Прирост +${lift.toFixed(1)}%** - план близок к оптимальному. Крупных неэффективностей нет.`);
       else if (liftDrownsInBase) {
         const share = Math.max(lift / /** @type {number} */ (mediaLift) * 100, 1);
-        parts.push(`**Итоговый прирост KPI ≈${lift.toFixed(1)}%, но эффективность медиа растёт на +${/** @type {number} */ (mediaLift).toFixed(1)}%** при перераспределении бюджета. Низкий итоговый процент — потому что органическая база доминирует (медиа даёт лишь ~${share.toFixed(0)}% продаж), а **не** потому что план уже оптимален. Действенный рычаг — структура медиа-сплита; перераспределение каналов реально улучшает медиа-отдачу.`);
+        parts.push(`**Итоговый прирост KPI ≈${lift.toFixed(1)}%, но эффективность медиа растёт на +${/** @type {number} */ (mediaLift).toFixed(1)}%** при перераспределении бюджета. Низкий итоговый процент – потому что органическая база доминирует (медиа даёт лишь ~${share.toFixed(0)}% продаж), а **не** потому что план уже оптимален. Действенный рычаг – структура медиа-сплита; перераспределение каналов реально улучшает медиа-отдачу.`);
       }
       else parts.push(`**Прирост ≈0%** - план уже оптимален в заданных ограничениях. Чтобы получить больше, нужно либо менять min/max % по каналам, либо увеличивать общий бюджет.`);
     }
@@ -435,15 +445,25 @@
 
     // Q: про качество модели
     if (mqs != null) {
-      if (mqs >= 80) {
+      const _qa = mqsTierInfo(mqs) ?? MQS_TIERS[MQS_TIERS.length - 1];
+      if (_qa.tier === 'excellent') {
         items.push({
           q: `Модель показывает MQS ${mqs.toFixed(0)} - это хорошо?`,
-          a: `Да, отличный результат. MQS ≥ 80 означает что прогнозы точны, правдоподобные диапазоны узкие, модель сошлась. Можно уверенно использовать для принятия бюджетных решений.`,
+          a: `Да, отличный результат: уровень «${_qa.label}». Прогнозы точны, правдоподобные диапазоны узкие, модель сошлась. Можно уверенно использовать для принятия бюджетных решений.`,
         });
-      } else if (mqs >= 60) {
+      } else if (_qa.tier === 'good') {
         items.push({
           q: `MQS ${mqs.toFixed(0)} - насколько надёжны выводы?`,
           a: `Хороший уровень для стратегических решений. Ключевые тренды (сильные/слабые каналы, необходимость перераспределения) - точны. Но крайние значения ROI по отдельным каналам (очень высокие или отрицательные) перепроверяйте через пилот.`,
+        });
+      } else if (_qa.tier === 'acceptable') {
+        // Отдельная ветка появилась вместе с переходом на канон: по прежней
+        // шкале 80/60 балл 60-69 считался «хорошим», по канону это «Приемлемое».
+        // Без этой ветки такой балл попадал бы в ответ «почему такой низкий» -
+        // формулировка несоразмерна уровню.
+        items.push({
+          q: `MQS ${mqs.toFixed(0)} - можно ли опираться на выводы?`,
+          a: `Уровень «${_qa.label}»: направление выводов (какие каналы работают, где перекос бюджета) читается, но точность оценок по отдельным каналам ограничена. Опирайтесь на выводы вместе с диагностическими метриками, а крупные переклады бюджета подтверждайте пилотом.`,
         });
       } else {
         items.push({
@@ -512,12 +532,12 @@
     if (basePct != null) {
       if (basePct > 60) {
         items.push({
-          q: `${basePct.toFixed(0)}% baseline - это нормально?`,
+          q: `${basePct.toFixed(0)}% базового спроса - это нормально?`,
           a: `Это показывает силу бренда. Высокая база (>60%) типична для зрелых брендов с лояльной аудиторией. Означает что даже без рекламы продажи не упадут до нуля - есть постоянный спрос. Фокус медиа - защищать долю и расти сверх базы.`,
         });
       } else if (basePct < 30) {
         items.push({
-          q: `Baseline ${basePct.toFixed(0)}% - почему так мало?`,
+          q: `Базовый спрос ${basePct.toFixed(0)}% - почему так мало?`,
           a: `Характерно для молодых брендов или категорий с импульсным спросом. Большая часть продаж идёт «в моменте» - от активной рекламы. Риск: при сокращении медиа-бюджета продажи упадут быстро. Долгосрочно - инвестируйте в brand-building чтобы растить базу.`,
         });
       }
@@ -573,7 +593,7 @@
       lines.push(isOls
         ? '- Спецификация модели - Линейная регрессия, Adstock + Hill, OLS · closed-form · bootstrap-правдоподобный диапазон'
         : '- Спецификация модели - Bayesian MMM, Adstock + Hill, MCMC');
-      lines.push('- Декомпозиция продаж - baseline vs медиа по каналам');
+      lines.push('- Декомпозиция продаж - базовый спрос и медиа по каналам');
       lines.push('- ROI-анализ - Share of Spend vs Share of Effect, Gap');
       lines.push('- Динамика по периодам - база, медиа, внешние факторы и конкуренты во времени');
       lines.push('- Сравнение сценариев (если сохранены)');
@@ -584,7 +604,7 @@
       lines.push('Структура файла (листы XLSX):');
       lines.push('- Executive Summary - ключевые метрики качества');
       lines.push('- Спецификация - параметры модели, priors, методология');
-      lines.push('- Декомпозиция - вклад baseline и каналов');
+      lines.push('- Декомпозиция - вклад базового спроса и каналов');
       lines.push('- ROI каналов - ROI, Gap, Efficiency');
       lines.push('- Spend vs Effect');
       lines.push('- Динамика - таблица + stacked-area chart');
@@ -600,8 +620,8 @@
       lines.push('- Интерактивные графики (ECharts): waterfall, ROI, Spend vs Effect, timeline, оптимизация');
       lines.push('- Tooltip на каждом графике, zoom/scroll по таймлайну');
       lines.push(isOls
-        ? '- KPI-панель сверху: MQS, R², MAPE, надёжность оценок, baseline, прирост, бюджет'
-        : '- KPI-панель сверху: MQS, R², MAPE, R-hat, baseline, прирост, бюджет');
+        ? '- KPI-панель сверху: MQS, R², MAPE, надёжность оценок, базовый спрос, прирост, бюджет'
+        : '- KPI-панель сверху: MQS, R², MAPE, R-hat, базовый спрос, прирост, бюджет');
       lines.push('- Сводная таблица по каналам с цветовой разметкой ROI/Gap');
       lines.push('- Сравнение сохранённых сценариев (если есть)');
       lines.push('');
@@ -809,7 +829,7 @@
         <Tooltip text={TOOLTIPS['metric.mqs']} position="top">
           <div class="metric-label" style="cursor:help;">MQS Score</div>
         </Tooltip>
-        <div class="metric-value" class:good={mqs != null && mqs >= 60} class:warn={mqs != null && mqs < 60}>
+        <div class="metric-value" class:good={mqsTone(mqs) === 'good'} class:warn={mqsTone(mqs) != null && mqsTone(mqs) !== 'good'}>
           {fmt(mqs)}
         </div>
         <div class="metric-sub">{mqsLabel}</div>

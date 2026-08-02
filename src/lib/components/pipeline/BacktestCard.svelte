@@ -97,7 +97,7 @@
       const dir = await projectDir();
       if (!dir) {
         cardState = 'error';
-        message = 'Проект не найден — переоткройте проект и повторите.';
+        message = 'Проект не найден – переоткройте проект и повторите.';
         return;
       }
       const res = /** @type {any} */ (await invoke('econ_backtest', { projectDir: dir }));
@@ -119,11 +119,11 @@
 
   /** @param {number | null | undefined} v */
   function fmtPct(v) {
-    return v == null ? '—' : `${(v * 100).toFixed(0)}%`;
+    return v == null ? '–' : `${(v * 100).toFixed(0)}%`;
   }
   /** @param {number | null | undefined} v */
   function fmtNum(v) {
-    return v == null ? '—' : Number(v).toLocaleString('ru-RU', { maximumFractionDigits: 0 });
+    return v == null ? '–' : Number(v).toLocaleString('ru-RU', { maximumFractionDigits: 0 });
   }
 </script>
 
@@ -133,7 +133,7 @@
     <div class="bt-title-block">
       <h3 class="bt-title">Проверка на истории</h3>
       <p class="bt-subtitle">
-        Модель переобучается на прошлом и предсказывает удержанные кварталы —
+        Модель переобучается на прошлом и предсказывает удержанные кварталы –
         затем прогноз сверяется с фактом. Это честный экзамен «вне выборки».
       </p>
     </div>
@@ -147,7 +147,7 @@
       <p class="bt-quiet">
         Проверка ещё не проводилась. Модель будет переобучена до 8 раз на
         исторических окнах: для байесовской модели это несколько минут,
-        для OLS — меньше минуты.
+        для OLS – меньше минуты.
       </p>
       <button class="bt-run" onclick={runBacktest}>Проверить модель на истории</button>
     </div>
@@ -156,7 +156,7 @@
     <div class="bt-running" role="status" aria-busy="true">
       <span class="bt-spinner" aria-hidden="true"><RefreshCw size={16} strokeWidth={1.6} /></span>
       Проверяем: модель переобучается на исторических окнах… Для байесовской
-      модели это несколько минут — можно продолжать работу в других шагах.
+      модели это несколько минут – можно продолжать работу в других шагах.
     </div>
 
   {:else if cardState === 'insufficient'}
@@ -176,7 +176,7 @@
     {#if isStale}
       <div class="bt-banner bt-warn" role="note">
         <TriangleAlert size={16} strokeWidth={1.6} aria-hidden="true" />
-        <span>Модель переобучена после этой проверки — результат устарел.
+        <span>Модель переобучена после этой проверки – результат устарел.
         Запустите проверку заново.</span>
         <button class="bt-retry" onclick={runBacktest}>Обновить</button>
       </div>
@@ -194,11 +194,11 @@
           {vitrina.windows_hit_total} из {vitrina.windows_with_interval}
         </div>
         <div class="bt-hero-caption">
-          {windowsWord} — факт внутри 90%-интервала прогноза
+          {windowsWord} – факт внутри 90%-интервала прогноза
         </div>
       {:else}
         <div class="bt-hero-caption">
-          Интервалы прогноза для этой модели недоступны — сверка по точности ниже.
+          Интервалы прогноза для этой модели недоступны – сверка по точности ниже.
         </div>
       {/if}
     </div>
@@ -207,7 +207,7 @@
       <li>
         Средняя ошибка прогноза (MAPE): <b>{vitrina.mape_model?.toFixed(1)}%</b>
         {#if vitrina.mape_naive_best != null}
-          — наивный прогноз: {vitrina.mape_naive_best.toFixed(1)}%{#if naiveGainPct != null && naiveGainPct > 0},
+          – наивный прогноз: {vitrina.mape_naive_best.toFixed(1)}%{#if naiveGainPct != null && naiveGainPct > 0},
             модель точнее на <b>{naiveGainPct.toFixed(0)}%</b>{/if}
         {/if}
       </li>
@@ -237,9 +237,9 @@
               <td>
                 {#if w.pi_low_total != null}
                   {fmtNum(w.pi_low_total)} – {fmtNum(w.pi_high_total)}
-                {:else}—{/if}
+                {:else}–{/if}
               </td>
-              <td class="bt-hit">{w.hit_total === null ? '—' : w.hit_total ? '✓' : '✕'}</td>
+              <td class="bt-hit">{w.hit_total === null ? '–' : w.hit_total ? '✓' : '✕'}</td>
             </tr>
           {/each}
         </tbody>
@@ -247,7 +247,7 @@
       <p class="bt-method">
         Метод: скользящее обучение без подглядывания в будущее
         ({vitrina.n_windows} окон по {vitrina.horizon_periods} периодов);
-        интервалы — {vitrina.pi_method === 'posterior_predictive_90' ? 'байесовские 90% предиктивные (параметры + шум наблюдения)'
+        интервалы – {vitrina.pi_method === 'posterior_predictive_90' ? 'байесовские 90% предиктивные (параметры + шум наблюдения)'
           : vitrina.pi_method === 'posterior_hdi_90_mean_only' ? 'байесовские 90% только по средней (шум наблюдения недоступен)'
           : vitrina.pi_method === 'conformal_90' ? 'конформные 90%' : 'приближение по остаткам (90%)'}.
       </p>

@@ -11,6 +11,7 @@ pub mod feedback;
 #[cfg(feature = "thin")]
 pub mod gateway_executor;
 pub mod license;
+pub mod mqs_tiers;
 pub mod online_auth;
 pub mod parser;
 pub mod pptx_processor;

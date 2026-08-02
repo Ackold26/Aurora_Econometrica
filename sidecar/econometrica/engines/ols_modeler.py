@@ -530,6 +530,23 @@ def train_ols(config: dict, project_dir: str, progress_callback=None) -> dict[st
     }
 
 
+def _honest_n_obs_tone(n_obs: int) -> str:
+    """Тон по объёму наблюдений — только от n, независимо от override.
+
+    Находка 6 (2026-07-26): объём наблюдений — свойство ДАННЫХ, а не движка.
+    Явный выбор движка (override) не делает 12 строк достаточными, поэтому
+    этот тон вычисляется по тем же порогам n<20/20≤n<30/n≥30 ВСЕГДА, в
+    отличие от 'banner_tone' ниже, который при override коротко замыкается
+    в 'good' (это управляет отдельной подсказкой интерфейса «ваш явный выбор
+    принят» и намеренно не трогается).
+    """
+    if n_obs < 20:
+        return 'bad'
+    if n_obs < 30:
+        return 'warn'
+    return 'good'
+
+
 def recommend_engine(n_obs: int, *, override: str | None = None) -> dict[str, Any]:
     """Auto-recommend Bayesian vs OLS based on sample size.
 
@@ -547,15 +564,37 @@ def recommend_engine(n_obs: int, *, override: str | None = None) -> dict[str, An
           'recommended': 'bayesian' | 'ols',
           'allowed': list of allowed modes,
           'reason': human-readable rationale,
-          'banner_tone': 'good' | 'warn' | 'bad'  (UI styling hint)
+          'banner_tone': 'good' | 'warn' | 'bad'  (UI styling hint; 'good' при
+              override — подсказка "ваш явный выбор принят", НЕ честность n),
+          'n_obs_tone': 'good' | 'warn' | 'bad'  (честный тон по n, не
+              зависит от override — см. _honest_n_obs_tone)
         }
     """
+    n_obs_tone = _honest_n_obs_tone(n_obs)
     if override in ('bayesian', 'ols'):
+        override_label = 'Bayesian MMM' if override == 'bayesian' else 'OLS'
+        reason = f'Явный выбор пользователя: {override_label}.'
+        # Находка 6 продолжение (2026-07-27): 'reason' теперь доезжает до
+        # клиента (server.py::preflight) всякий раз, когда n_obs_tone не
+        # 'good', - "выбор принят" сам по себе не объясняет вердикт, поэтому
+        # при малом n к тексту добавляется честная причина вместо голой
+        # констатации выбора.
+        if n_obs_tone == 'bad':
+            reason += (
+                f' n={n_obs}: данных недостаточно (нужно n≥20) для надёжной оценки – '
+                f'результаты могут быть ненадёжными вне зависимости от выбранного режима.'
+            )
+        elif n_obs_tone == 'warn':
+            reason += (
+                f' n={n_obs}: пограничная область (n<30) – результаты могут иметь '
+                f'широкие правдоподобные диапазоны.'
+            )
         return {
             'recommended': override,
             'allowed': ['bayesian', 'ols'],
-            'reason': f'User explicit choice: {override}',
+            'reason': reason,
             'banner_tone': 'good',
+            'n_obs_tone': n_obs_tone,
             'override_active': True,
         }
     if n_obs < 20:
@@ -568,6 +607,7 @@ def recommend_engine(n_obs: int, *, override: str | None = None) -> dict[str, An
                 f'с частотным диапазоном на β + predictive intervals на y.'
             ),
             'banner_tone': 'bad',
+            'n_obs_tone': n_obs_tone,
             'override_active': False,
         }
     if n_obs < 30:
@@ -580,6 +620,7 @@ def recommend_engine(n_obs: int, *, override: str | None = None) -> dict[str, An
                 f'Bayesian результаты могут иметь R-hat>1.05 и широкие правдоподобные диапазоны.'
             ),
             'banner_tone': 'warn',
+            'n_obs_tone': n_obs_tone,
             'override_active': False,
         }
     return {
@@ -590,5 +631,6 @@ def recommend_engine(n_obs: int, *, override: str | None = None) -> dict[str, An
             f'decay per channel + правдоподобный диапазон). OLS доступен как быстрый baseline.'
         ),
         'banner_tone': 'good',
+        'n_obs_tone': n_obs_tone,
         'override_active': False,
     }

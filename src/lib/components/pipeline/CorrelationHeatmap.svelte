@@ -213,7 +213,7 @@
       <h4>Корреляционная матрица</h4>
       {#if realHighCount > 0}
         <span class="high-count">
-          <TriangleAlert size={14} strokeWidth={1.5} style="vertical-align: -0.15em" /> {realHighCount} пар с |r| > 0.8{#if pairHighCount > 0} · ещё {pairHighCount} — пары каналов (ожидаемо){/if}
+          <TriangleAlert size={14} strokeWidth={1.5} style="vertical-align: -0.15em" /> {realHighCount} пар с |r| > 0.8{#if pairHighCount > 0} · ещё {pairHighCount} – пары каналов (ожидаемо){/if}
         </span>
       {:else if pairHighCount > 0}
         <span class="no-high"><Check size={14} strokeWidth={1.5} style="vertical-align: -0.15em" /> {pairHighCount} пар каналов «бюджет + метрика» (ожидаемо) · прочей мультиколлинеарности нет</span>
@@ -248,7 +248,7 @@
             </span>
             {#if Math.abs(tooltip.r) > 0.8}
               {#if isPair(tooltip.col1, tooltip.col2)}
-                <span class="r-pair">Пара канала — ожидаемо</span>
+                <span class="r-pair">Пара канала – ожидаемо</span>
               {:else}
                 <span class="r-warn">Мультиколлинеарность</span>
               {/if}
@@ -285,7 +285,7 @@
               r = {h.correlation.toFixed(3)}
             </span>
             {#if declared}
-              <span class="high-risk pair-note">Пара канала (бюджет ₽ + натуральная метрика) — ожидаемо: в модель уйдёт одна колонка пары</span>
+              <span class="high-risk pair-note">Пара канала (бюджет ₽ + натуральная метрика) – ожидаемо: в модель уйдёт одна колонка пары</span>
             {:else}
               <span class="high-risk">{h.risk}</span>
             {/if}

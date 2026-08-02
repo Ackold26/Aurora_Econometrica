@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Коды ошибок — Aurora AI Agency</title>
+<title>Коды ошибок – Aurora AI Agency</title>
 <style>
   body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; background: #0a0a0f; color: #e0e0e0; padding: 24px 32px; max-width: 900px; margin: 0 auto; line-height: 1.6; }
   h1 { font-size: 22px; margin-bottom: 8px; color: #fff; }
@@ -17,6 +17,15 @@
   .search { width: 100%; padding: 10px 14px; background: #12121e; border: 1px solid #1a1a2e; border-radius: 8px; color: #e0e0e0; font-size: 14px; margin-bottom: 20px; outline: none; }
   .search:focus { border-color: #2E5BFF; }
   .hidden { display: none; }
+  /* Типографский канон линейки (2026-07-26), §5 стандарта формата отчёта.
+     Одинокое слово на последней строке абзаца («вдова») и заголовок,
+     сломанный ступенькой в одно слово, — дефект вёрстки, а не мелочь:
+     клиент читает справку как документ продукта. Правила объявлены
+     последними в блоке, чтобы каскад страницы их не перекрыл.
+     На старом движке свойства игнорируются — вёрстка остаётся прежней. */
+  body { text-wrap: pretty; }
+  h1, h2, h3, h4, h5, h6 { text-wrap: balance; }
+  p, li { max-inline-size: 68ch; }
 </style>
 </head>
 <body>
@@ -26,66 +35,66 @@
 
 <input type="text" class="search" id="search" placeholder="Поиск по коду или описанию..." oninput="filterTable()">
 
-<h2>LI — Лицензия</h2>
+<h2>LI – Лицензия</h2>
 <table class="error-table">
 <tr><th>Код</th><th>Описание</th><th>Решение</th></tr>
-<tr><td><code>LI-001</code></td><td>Файл лицензии не найден</td><td>Настройки → Импортировать лицензию</td></tr>
-<tr><td><code>LI-002</code></td><td>Не удаётся прочитать файл лицензии</td><td>Проверьте права доступа. Переимпортируйте.</td></tr>
-<tr><td><code>LI-003</code></td><td>Невалидный JSON файл лицензии</td><td>Запросите новый файл у поставщика</td></tr>
+<tr><td><code>LI-001</code></td><td>Файл лицензии не найден</td><td>Настройки → Импортировать лицензию</td></tr>
+<tr><td><code>LI-002</code></td><td>Не удаётся прочитать файл лицензии</td><td>Проверьте права доступа. Переимпортируйте.</td></tr>
+<tr><td><code>LI-003</code></td><td>Невалидный JSON файл лицензии</td><td>Запросите новый файл у поставщика</td></tr>
 <tr><td><code>LI-004</code></td><td>Невалидный salt (base64)</td><td>Файл повреждён. Запросите новый.</td></tr>
-<tr><td><code>LI-005</code></td><td>Лицензия истекла</td><td>Запросите продление у поставщика</td></tr>
-<tr><td><code>LI-006</code></td><td>Лицензия привязана к другой машине</td><td>Нужна новая лицензия для этого ПК</td></tr>
+<tr><td><code>LI-005</code></td><td>Лицензия истекла</td><td>Запросите продление у поставщика</td></tr>
+<tr><td><code>LI-006</code></td><td>Лицензия привязана к другой машине</td><td>Нужна новая лицензия для этого ПК</td></tr>
 <tr><td><code>LI-007</code></td><td>Невалидная подпись лицензии</td><td>Файл повреждён. Запросите новый.</td></tr>
 <tr><td><code>LI-008</code></td><td>Неверный формат даты истечения</td><td>Файл повреждён. Запросите новый.</td></tr>
-<tr><td><code>LI-009</code></td><td>Некорректные системные часы</td><td>Проверьте дату и время на ПК</td></tr>
-<tr><td><code>LI-010</code></td><td>Ошибка валидации при импорте</td><td>См. подробности в сообщении</td></tr>
+<tr><td><code>LI-009</code></td><td>Некорректные системные часы</td><td>Проверьте дату и время на ПК</td></tr>
+<tr><td><code>LI-010</code></td><td>Ошибка валидации при импорте</td><td>См. подробности в сообщении</td></tr>
 </table>
 
-<h2>VT — Хранилище (Vault)</h2>
+<h2>VT – Хранилище (Vault)</h2>
 <table class="error-table">
 <tr><th>Код</th><th>Описание</th><th>Решение</th></tr>
-<tr><td><code>VT-001</code></td><td>Vault-файл не найден / не читается</td><td>Проверьте C:\ProgramData\AIAgency\vaults\</td></tr>
+<tr><td><code>VT-001</code></td><td>Vault-файл не найден / не читается</td><td>Проверьте C:\ProgramData\AIAgency\vaults\</td></tr>
 <tr><td><code>VT-002</code></td><td>Ошибка расшифрования vault</td><td>Vault для другой машины. Запросите новый.</td></tr>
-<tr><td><code>VT-003</code></td><td>Ошибка создания архива</td><td>Проверьте место на диске</td></tr>
-<tr><td><code>VT-004</code></td><td>Ошибка финализации архива</td><td>Проверьте место на диске</td></tr>
+<tr><td><code>VT-003</code></td><td>Ошибка создания архива</td><td>Проверьте место на диске</td></tr>
+<tr><td><code>VT-004</code></td><td>Ошибка финализации архива</td><td>Проверьте место на диске</td></tr>
 <tr><td><code>VT-005</code></td><td>Зашифрованные данные слишком короткие</td><td>Файл повреждён. Скопируйте заново.</td></tr>
 </table>
 
-<h2>CL — Claude CLI</h2>
+<h2>CL – Claude CLI</h2>
 <table class="error-table">
 <tr><th>Код</th><th>Описание</th><th>Решение</th></tr>
-<tr><td><code>CL-001</code></td><td>Claude CLI не найден</td><td>npm install -g @anthropic-ai/claude-code</td></tr>
-<tr><td><code>CL-002</code></td><td>Не удалось запустить Claude CLI</td><td>Перезапустите приложение</td></tr>
+<tr><td><code>CL-001</code></td><td>Claude CLI не найден</td><td>npm install -g @anthropic-ai/claude-code</td></tr>
+<tr><td><code>CL-002</code></td><td>Не удалось запустить Claude CLI</td><td>Перезапустите приложение</td></tr>
 <tr><td><code>CL-003</code></td><td>Ошибка перехвата вывода</td><td>Перезапустите приложение</td></tr>
-<tr><td><code>CL-004</code></td><td>Превышен лимит запросов</td><td>Подождите 1-2 минуты</td></tr>
-<tr><td><code>CL-005</code></td><td>Сервер перегружен</td><td>Подождите и повторите</td></tr>
+<tr><td><code>CL-004</code></td><td>Превышен лимит запросов</td><td>Подождите 1-2 минуты</td></tr>
+<tr><td><code>CL-005</code></td><td>Сервер перегружен</td><td>Подождите и повторите</td></tr>
 <tr><td><code>CL-006</code></td><td>Ошибка авторизации</td><td>Выполните: claude auth login</td></tr>
 <tr><td><code>CL-007</code></td><td>Ошибка сети</td><td>Проверьте интернет-соединение</td></tr>
-<tr><td><code>CL-008</code></td><td>Таймаут (30 мин)</td><td>Упростите запрос</td></tr>
+<tr><td><code>CL-008</code></td><td>Таймаут (30 мин)</td><td>Упростите запрос</td></tr>
 </table>
 
-<h2>FP — Идентификация машины</h2>
+<h2>FP – Идентификация машины</h2>
 <table class="error-table">
 <tr><th>Код</th><th>Описание</th><th>Решение</th></tr>
-<tr><td><code>FP-001</code></td><td>Не удалось получить ID оборудования</td><td>Проверьте WMI-службу Windows</td></tr>
+<tr><td><code>FP-001</code></td><td>Не удалось получить ID оборудования</td><td>Проверьте WMI-службу Windows</td></tr>
 <tr><td><code>FP-002</code></td><td>Ошибка COM/WMI</td><td>Перезагрузите ПК</td></tr>
-<tr><td><code>FP-003</code></td><td>ОС не поддерживается</td><td>Нужна Windows или macOS</td></tr>
+<tr><td><code>FP-003</code></td><td>ОС не поддерживается</td><td>Нужна Windows или macOS</td></tr>
 </table>
 
-<h2>UP — Обновление</h2>
+<h2>UP – Обновление</h2>
 <table class="error-table">
 <tr><th>Код</th><th>Описание</th><th>Решение</th></tr>
 <tr><td><code>UP-001</code></td><td>Сервер обновлений недоступен</td><td>Повторите позже</td></tr>
 <tr><td><code>UP-002</code></td><td>Ошибка скачивания</td><td>Проверьте интернет</td></tr>
-<tr><td><code>UP-003</code></td><td>Контрольная сумма не совпадает</td><td>Повторите скачивание</td></tr>
-<tr><td><code>UP-004</code></td><td>Ошибка установки</td><td>Закройте приложение и запустите установщик вручную</td></tr>
+<tr><td><code>UP-003</code></td><td>Контрольная сумма не совпадает</td><td>Повторите скачивание</td></tr>
+<tr><td><code>UP-004</code></td><td>Ошибка установки</td><td>Закройте приложение и запустите установщик вручную</td></tr>
 <tr><td><code>UP-005</code></td><td>Ошибка разбора версии</td><td>Обновите вручную</td></tr>
 </table>
 
-<h2>FB — Обратная связь</h2>
+<h2>FB – Обратная связь</h2>
 <table class="error-table">
 <tr><th>Код</th><th>Описание</th><th>Решение</th></tr>
-<tr><td><code>FB-001</code></td><td>Не удалось отправить отзыв</td><td>Проверьте интернет и попробуйте позже</td></tr>
+<tr><td><code>FB-001</code></td><td>Не удалось отправить отзыв</td><td>Проверьте интернет и попробуйте позже</td></tr>
 <tr><td><code>FB-002</code></td><td>Превышен лимит отправки</td><td>Подождите минуту перед повторной отправкой</td></tr>
 </table>
 

@@ -939,6 +939,15 @@ sup.fn-marker {
   color: var(--text-muted);
   font-weight: 600;
 }
+/* «Нет числа — нет подписи»: отсутствие оценки вместо шкалы «- /100» + ярлыка */
+.mqs-absent {
+  font-family: var(--font-serif);
+  font-size: 22px;
+  font-style: italic;
+  line-height: 1.35;
+  color: var(--text-muted);
+  margin: 24px 0 8px 0;
+}
 /* INV-50 F-DELIVERABLE-1: честная оговорка о тонких данных / переобучении */
 .mqs-caveat {
   margin-top: 12px;

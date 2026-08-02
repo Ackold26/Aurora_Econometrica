@@ -11,6 +11,8 @@ use serde_json::Value;
 use std::io::{Cursor, Read, Write};
 use std::path::{Path, PathBuf};
 
+use crate::commands::mqs_tiers;
+
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 /// Transliterate Cyrillic to Latin per GOST 7.79-2000 System B, then strip to
@@ -102,7 +104,7 @@ fn apply_print_setup(
     ws.set_landscape();
     ws.set_print_fit_to_pages(1, 0); // 1 wide, unlimited tall
     ws.set_margins(0.5, 0.5, 0.75, 0.75, 0.3, 0.3);
-    ws.set_header(format!("&LAurora AI Econometrica - {sheet_name}&R&D"));
+    ws.set_header(format!("&LAurora AI Econometrica – {sheet_name}&R&D"));
     ws.set_footer("&LConfidential | Aurora AI&CPage &P of &N&R&F");
     Ok(())
 }
@@ -117,6 +119,41 @@ fn diag_metric(model: &Value, nested_key: &str, flat_key: &str) -> f64 {
         .unwrap_or(0.0)
 }
 
+/// «Нет числа — нет подписи» (2026-07-26): дословно та же формулировка
+/// отсутствия оценки, что в `aurora_pptx/builder.py` (карточка MQS слайда)
+/// и `aurora_html/sections.py::render_sources` (карточка «Качество модели»).
+/// Единая точка текста для XLSX и markdown-отчёта — разнобой формулировок
+/// по поверхностям это тот же дефект в профиль.
+const MQS_ABSENT_TEXT: &str = "Оценка не выполнялась для этого расчёта";
+
+/// Значение ячейки MQS Score листа «Executive Summary» — либо реальное число,
+/// либо честный текст отсутствия (никогда фиктивный 0.0).
+enum MqsCell {
+    Value(f64),
+    Absent,
+}
+
+/// Строит содержимое строки MQS Score (ячейки B5/C5) и строки «MQS Tier»
+/// листа «Executive Summary» XLSX. Единая точка для build_xlsx — раньше
+/// `model["diagnostics"]["mqs"]["score"].as_f64().unwrap_or(0.0)` превращал
+/// несчитанную оценку в ноль, и лист печатал «MQS Score | 0 | Требует
+/// доработки» - приговор модели вместо отметки, что её не оценивали.
+/// Настоящий ноль (mqs == Some(0.0)) - валидное значение и сохраняется.
+fn mqs_xlsx_row(mqs: Option<f64>, mqs_label: Option<&str>) -> (MqsCell, &'static str, String) {
+    match mqs {
+        Some(v) => {
+            // Единый источник (INV-106 продолжение, 2026-07-27): раньше `grade`
+            // (своя лестница 80/60) и `tier_line` (сырой mqs_label) были ДВУМЯ
+            // независимыми ярлыками для одного и того же балла в одной строке
+            // листа - ровно рецидив L16 внутри одной функции. Теперь оба берут
+            // ОДИН резолвнутый ярлык канона (mqs_tiers).
+            let grade = mqs_tiers::resolve_mqs_label(v, mqs_label);
+            (MqsCell::Value(v), grade, format!("MQS Tier: {grade}"))
+        }
+        None => (MqsCell::Absent, "", MQS_ABSENT_TEXT.to_string()),
+    }
+}
+
 /// Pull the model spec from diagnostics; if backend didn't supply one (old
 /// trained models), fall back to the canonical Bayesian MMM spec hardcoded
 /// here. Keep priors in sync with sidecar `utils/model_spec.py`.
@@ -127,7 +164,7 @@ fn model_spec_value(model: &Value) -> Value {
     }
     serde_json::json!({
         "title": "Спецификация модели",
-        "subtitle": "Байесовская Media Mix Model с Adstock и Hill saturation",
+        "subtitle": "Байесовская Media Mix Model с отложенным эффектом (adstock) и Hill-насыщением",
         "engine": "PyMC + NumPyro (JAX) NUTS",
         "formula": "Sales_t = β₀ + Σᵢ βᵢ · Hill(Adstock(Media_i,t), αᵢ, γᵢ) + Σⱼ γⱼ · Control_j,t + ε_t",
         "transformations": [
@@ -147,7 +184,7 @@ fn model_spec_value(model: &Value) -> Value {
             "method": "NUTS (No-U-Turn Sampler) через NumPyro/JAX",
             "default_chains": 2, "default_draws": 500, "default_tune": 500,
         },
-        "normalization": "Media нормализованы Robyn-style (spend / mean(spend) после adstock); control z-нормализованы; y нормализован к std=1.",
+        "normalization": "Media нормализованы Robyn-style (spend / mean(spend) после отложенного эффекта (adstock)); control z-нормализованы; y нормализован к std=1.",
     })
 }
 
@@ -304,8 +341,11 @@ fn read_forecast(project_id: &str) -> Option<Value> {
 
 /// Build a full Markdown report from MMM pipeline data.
 fn build_markdown(model: &Value, decompose: &Value, optimize: &Value) -> String {
-    let mqs        = model["diagnostics"]["mqs"]["score"].as_f64().unwrap_or(0.0);
-    let mqs_label  = model["diagnostics"]["mqs"]["tier_label"].as_str().unwrap_or("N/A");
+    // «Нет числа — нет подписи» (INV-106, 2026-07-26): mqs остаётся Option -
+    // несчитанная оценка не должна превращаться в фиктивный 0.0 (см.
+    // MQS_ABSENT_TEXT выше). Настоящий ноль (Some(0.0)) - валидное значение.
+    let mqs        = model["diagnostics"]["mqs"]["score"].as_f64();
+    let mqs_label  = model["diagnostics"]["mqs"]["tier_label"].as_str();
     let r_squared  = diag_metric(model, "r_squared", "r_squared");
     let mape       = diag_metric(model, "mape_pct", "mape");
     let r_hat      = model["diagnostics"]["metrics"]["r_hat_max"]
@@ -335,18 +375,24 @@ fn build_markdown(model: &Value, decompose: &Value, optimize: &Value) -> String 
                 })
                 .and_then(|c| c["name"].as_str())
         })
-        .unwrap_or("N/A");
+        .unwrap_or("н/д");
 
     let now = Local::now().format("%d.%m.%Y %H:%M").to_string();
     let mut md = String::with_capacity(4096);
 
     // ── Title ────────────────────────────────────────────────
-    md.push_str("# Marketing Mix Model - Аналитический отчёт\n\n");
+    md.push_str("# Marketing Mix Model – Аналитический отчёт\n\n");
     md.push_str(&format!("*Сгенерировано: {now}*\n\n---\n\n"));
 
     // ── Executive Summary ────────────────────────────────────
     md.push_str("## EXECUTIVE SUMMARY\n\n");
-    md.push_str(&format!("- **Качество модели (MQS):** {mqs:.1} - {mqs_label}\n"));
+    match mqs {
+        Some(v) => md.push_str(&format!(
+            "- **Качество модели (MQS):** {v:.1} – {}\n",
+            mqs_tiers::resolve_mqs_label(v, mqs_label)
+        )),
+        None => md.push_str(&format!("- **Качество модели (MQS):** {MQS_ABSENT_TEXT}\n")),
+    }
     md.push_str(&format!("- **R²:** {r_squared:.4} (объяснённая дисперсия: {:.1}%)\n", r_squared * 100.0));
     md.push_str(&format!("- **MAPE:** {mape:.2}%\n"));
     md.push_str(&format!("- **Ожидаемый прирост от оптимизации:** {:+.1}%\n", lift));
@@ -360,8 +406,16 @@ fn build_markdown(model: &Value, decompose: &Value, optimize: &Value) -> String 
     md.push_str("## Качество модели\n\n");
     md.push_str("| Метрика | Значение |\n");
     md.push_str("|---------|----------|\n");
-    md.push_str(&format!("| MQS Score | {mqs:.1} |\n"));
-    md.push_str(&format!("| MQS Tier | {mqs_label} |\n"));
+    match mqs {
+        Some(v) => {
+            md.push_str(&format!("| MQS Score | {v:.1} |\n"));
+            md.push_str(&format!(
+                "| MQS Tier | {} |\n",
+                mqs_tiers::resolve_mqs_label(v, mqs_label)
+            ));
+        }
+        None => md.push_str(&format!("| MQS | {MQS_ABSENT_TEXT} |\n")),
+    }
     md.push_str(&format!("| R² | {r_squared:.4} |\n"));
     md.push_str(&format!("| MAPE | {mape:.2}% |\n"));
     if let Some(rh) = r_hat {
@@ -459,20 +513,40 @@ fn build_markdown(model: &Value, decompose: &Value, optimize: &Value) -> String 
     // ── Recommendations ──────────────────────────────────────
     md.push_str("## РЕКОМЕНДАЦИИ\n\n");
     if lift > 5.0 {
-        md.push_str(&format!("- [ВЫСОКАЯ] Перераспределить бюджет согласно оптимальному плану - ожидаемый прирост **{lift:+.1}%**\n"));
+        md.push_str(&format!("- [ВЫСОКАЯ] Перераспределить бюджет согласно оптимальному плану – ожидаемый прирост **{lift:+.1}%**\n"));
     } else if lift > 0.0 {
-        md.push_str(&format!("- [СРЕДНЯЯ] Рассмотреть корректировку бюджетного распределения - ожидаемый прирост {lift:+.1}%\n"));
+        md.push_str(&format!("- [СРЕДНЯЯ] Рассмотреть корректировку бюджетного распределения – ожидаемый прирост {lift:+.1}%\n"));
     }
     if r_squared < 0.7 {
-        md.push_str("- [СРЕДНЯЯ] R² ниже рекомендуемого порога 0.7 - рассмотреть добавление контрольных переменных\n");
+        md.push_str("- [СРЕДНЯЯ] R² ниже рекомендуемого порога 0.7 – рассмотреть добавление контрольных переменных\n");
     }
-    if mqs < 60.0 {
-        md.push_str("- [СРЕДНЯЯ] MQS Score ниже 60 - модель требует доработки или дополнительных данных\n");
+    // Вердикт по MQS печатается только когда оценка реально посчитана -
+    // при отсутствии (mqs == None) нет основания ни для «требует доработки»,
+    // ни для «надёжны» (было: фиктивный 0.0 всегда бил в первую ветку).
+    // Пороги 60/80 заменены на канон MQS (85/70/55/40, mqs_tiers) - раньше
+    // здесь жила третья, независимая лестница вдобавок к grade/tier_line.
+    // "требует доработки" = tier weak/poor (дословно WEAK_TIERS из
+    // utils/optimizer_honesty.py); "надёжны для решений" = tier good/excellent
+    // (дословно mqsIsDependable из src/lib/mqs-tiers.js). Уровень «Приемлемое»
+    // (2026-07-27, внешний аудит, Medium) раньше не получал НИ ОДНОЙ строки -
+    // молчание в разделе рекомендаций читается как «замечаний нет», то есть
+    // отсутствие вердикта работало как положительный. Была та же дыра и до
+    // смещения порогов на канон (диапазон между старыми 60/80 тоже молчал) -
+    // это давняя дыра, а не регресс правки порогов. `mqs_is_acceptable`
+    // (mqs_tiers) закрывает середину: три предиката покрывают все пять
+    // ступеней канона ровно по одному разу - см. регресс-тест в mqs_tiers.rs.
+    if let Some(v) = mqs {
+        if mqs_tiers::mqs_is_weak(v) {
+            md.push_str("- [СРЕДНЯЯ] MQS Score на уровне «Слабое» или «Ненадёжное» – модель требует доработки или дополнительных данных\n");
+        }
+        if mqs_tiers::mqs_is_acceptable(v) {
+            md.push_str("- [СРЕДНЯЯ] MQS Score на уровне «Приемлемое» – результаты пригодны для ориентировки, но не для точных решений\n");
+        }
+        if mqs_tiers::mqs_is_dependable(v) {
+            md.push_str("- [ВЫСОКАЯ] MQS Score на уровне «Хорошее» и выше – результаты модели надёжны для принятия решений\n");
+        }
     }
-    if mqs >= 80.0 {
-        md.push_str("- [ВЫСОКАЯ] Высокий MQS Score - результаты модели надёжны для принятия решений\n");
-    }
-    md.push_str(&format!("- [ВЫСОКАЯ] Приоритизировать канал **{top_ch}** - наивысший ROI в миксе\n"));
+    md.push_str(&format!("- [ВЫСОКАЯ] Приоритизировать канал **{top_ch}** – наивысший ROI в миксе\n"));
     md.push('\n');
 
     md
@@ -658,7 +732,7 @@ fn decomposition_timeline_columns(decompose: &Value) -> (Vec<String>, Vec<(Strin
         series.iter().filter_map(|s| {
             let role = s.get("role").and_then(|r| r.as_str()).unwrap_or("");
             let header = if role == "baseline" {
-                "Baseline".to_string()
+                "Базовый спрос".to_string()
             } else {
                 s.get("name").and_then(|n| n.as_str())?.to_string()
             };
@@ -671,7 +745,7 @@ fn decomposition_timeline_columns(decompose: &Value) -> (Vec<String>, Vec<(Strin
         // Legacy: baseline + media channels (старое поведение).
         let mut cols: Vec<(String, Vec<f64>)> = Vec::new();
         if let Some(bl) = ts.get("baseline").and_then(|b| b.as_array()) {
-            cols.push(("Baseline".to_string(),
+            cols.push(("Базовый спрос".to_string(),
                 bl.iter().map(|x| x.as_f64().unwrap_or(0.0)).collect()));
         }
         let channel_order: Vec<String> = decompose["channels"].as_array()
@@ -726,8 +800,8 @@ fn build_xlsx(
     // back to "Client" so DocProperties title is never malformed.
     let client_label = if project_id.is_empty() { "Client" } else { project_id };
     let props = DocProperties::new()
-        .set_title(format!("Aurora AI MMM - {client_label}"))
-        .set_subject("Marketing Mix Model - аналитический отчёт")
+        .set_title(format!("Aurora AI MMM – {client_label}"))
+        .set_subject("Marketing Mix Model – аналитический отчёт")
         .set_author("Aurora AI Econometrica")
         .set_company("Aurora AI")
         .set_category("Econometrics")
@@ -950,8 +1024,10 @@ fn build_xlsx(
         apply_base_cols(ws, &base_fmt)?;
         apply_print_setup(ws, "Executive Summary")?;
 
-        let mqs       = model["diagnostics"]["mqs"]["score"].as_f64().unwrap_or(0.0);
-        let mqs_label = model["diagnostics"]["mqs"]["tier_label"].as_str().unwrap_or("N/A");
+        // «Нет числа — нет подписи» (INV-106, 2026-07-26): mqs остаётся Option -
+        // см. mqs_xlsx_row выше. Настоящий ноль (Some(0.0)) - валидное значение.
+        let mqs       = model["diagnostics"]["mqs"]["score"].as_f64();
+        let mqs_label = model["diagnostics"]["mqs"]["tier_label"].as_str();
         let r_sq      = diag_metric(model, "r_squared", "r_squared");
         let mape      = diag_metric(model, "mape_pct", "mape");
         let r_hat     = model["diagnostics"]["metrics"]["r_hat_max"]
@@ -977,20 +1053,30 @@ fn build_xlsx(
         ws.write_with_format(3, 1, "Значение", &header_fmt).map_err(|e| format!("{e}"))?;
         ws.write_with_format(3, 2, "Оценка", &header_fmt).map_err(|e| format!("{e}"))?;
 
+        // MQS - строка 4 (B5/C5, см. define_name "MQS_Score" ниже) - отдельно
+        // от общего вектора: при отсутствии оценки значение не выражается
+        // числом f64 без лжи, и оценка-«вердикт» (col C) не рисуется вовсе.
+        let (mqs_cell, mqs_grade, mqs_tier_line) = mqs_xlsx_row(mqs, mqs_label);
+        ws.write(4, 0, "MQS Score").map_err(|e| format!("{e}"))?;
+        match mqs_cell {
+            MqsCell::Value(v) => { ws.write(4, 1, v).map_err(|e| format!("{e}"))?; }
+            MqsCell::Absent => { ws.write(4, 1, MQS_ABSENT_TEXT).map_err(|e| format!("{e}"))?; }
+        }
+        ws.write(4, 2, mqs_grade).map_err(|e| format!("{e}"))?;
+
         let metrics: Vec<(&str, f64, &str)> = vec![
-            ("MQS Score", mqs, if mqs >= 80.0 { "Отлично" } else if mqs >= 60.0 { "Хорошо" } else { "Требует доработки" }),
             ("R²", r_sq, if r_sq >= 0.8 { "Отлично" } else if r_sq >= 0.6 { "Хорошо" } else { "Слабо" }),
             ("MAPE (%)", mape, if mape <= 10.0 { "Отлично" } else if mape <= 20.0 { "Приемлемо" } else { "Высокая ошибка" }),
             ("Прирост от оптимизации (%)", lift, if lift > 10.0 { "Значительный" } else if lift > 3.0 { "Умеренный" } else { "Минимальный" }),
             ("Общий бюджет", budget, ""),
         ];
         for (i, (label, val, grade)) in metrics.iter().enumerate() {
-            let row = (i + 4) as u32;
+            let row = (i + 5) as u32;
             ws.write(row, 0, *label).map_err(|e| format!("{e}"))?;
             ws.write(row, 1, *val).map_err(|e| format!("{e}"))?;
             ws.write(row, 2, *grade).map_err(|e| format!("{e}"))?;
         }
-        ws.write(9, 0, format!("MQS Tier: {mqs_label}")).map_err(|e| format!("{e}"))?;
+        ws.write(9, 0, mqs_tier_line).map_err(|e| format!("{e}"))?;
         if let Some(rh) = r_hat {
             ws.write(10, 0, format!("R-hat (сходимость): {rh:.4}")).map_err(|e| format!("{e}"))?;
         }
@@ -1003,9 +1089,9 @@ fn build_xlsx(
         let ratio_eff = model["diagnostics"]["metrics"]["ratio"].as_f64();
         if let (Some(_cap), Some(ratio)) = (thinness_cap, ratio_eff) {
             let caveat = if ratio < 2.0 {
-                format!("⚠ Данных критически мало (Ratio {ratio:.1}:1) - высокий риск переобучения, результаты ненадёжны.")
+                format!("⚠ Данных критически мало (Ratio {ratio:.1}:1) – высокий риск переобучения, результаты ненадёжны.")
             } else {
-                format!("⚠ Данных мало (Ratio {ratio:.1}:1 < 4:1) - высокий R² может быть артефактом переобучения. Правдоподобные диапазоны будут широкими.")
+                format!("⚠ Данных мало (Ratio {ratio:.1}:1 < 4:1) – высокий R² может быть артефактом переобучения. Правдоподобные диапазоны будут широкими.")
             };
             ws.write(11, 0, caveat).map_err(|e| format!("{e}"))?;
         }
@@ -1689,7 +1775,7 @@ fn build_xlsx(
             let note_fmt = Format::new()
                 .set_font_color(Color::RGB(0xF59E0B))
                 .set_italic();
-            let note = "⚠ ROAS в native-единицах (TRP/GRP + ₽) - несопоставим между \
+            let note = "⚠ ROAS в native-единицах (TRP/GRP + ₽) – несопоставим между \
                         каналами разных единиц. Укажи CPP в блоке «Проверка» для перевода в ₽.";
             ws.merge_range(
                 note_row, 0,
@@ -1718,7 +1804,7 @@ fn build_xlsx(
 
         // Header row at row 2
         ws.write_with_format(2, 0, "Период", &header_fmt).map_err(|e| format!("{e}"))?;
-        ws.write_with_format(2, 1, "Baseline", &header_fmt).map_err(|e| format!("{e}"))?;
+        ws.write_with_format(2, 1, "Базовый спрос", &header_fmt).map_err(|e| format!("{e}"))?;
         for (i, name) in channel_names.iter().enumerate() {
             ws.write_with_format(2, (i + 2) as u16, name.as_str(), &header_fmt).map_err(|e| format!("{e}"))?;
         }
@@ -1753,8 +1839,8 @@ fn build_xlsx(
         let explainer_row = (n_periods + 5) as u32;
         ws.write_with_format(explainer_row, 0, "Как использовать лист:", &bold).map_err(|e| format!("{e}"))?;
         ws.write(explainer_row + 1, 0, "• Выделите колонки «Период» + нужные → Вставка → Диаграмма → получите график вклада канала по времени.").map_err(|e| format!("{e}"))?;
-        ws.write(explainer_row + 2, 0, "• Baseline - часть KPI без медиа (органический спрос, сезонность, бренд).").map_err(|e| format!("{e}"))?;
-        ws.write(explainer_row + 3, 0, "• Медиа-вклад = сумма по каналам. KPI = Baseline + Медиа-вклад (то что модель объясняет).").map_err(|e| format!("{e}"))?;
+        ws.write(explainer_row + 2, 0, "• Базовый спрос – часть KPI без медиа (органический спрос, сезонность, бренд).").map_err(|e| format!("{e}"))?;
+        ws.write(explainer_row + 3, 0, "• Медиа-вклад = сумма по каналам. KPI = Базовый спрос + Медиа-вклад (то что модель объясняет).").map_err(|e| format!("{e}"))?;
 
         // Widths - Данные (A = 1 cm ≈ 5.4 char; D = 2.2 cm ≈ 11.88 char, per Антон)
         ws.set_column_width(0, 5.4).map_err(|e| format!("{e}"))?;   // Период - 1 см
@@ -1780,13 +1866,20 @@ fn build_xlsx(
         ws.write_with_format(2, 0, "Термин", &header_fmt).map_err(|e| format!("{e}"))?;
         ws.write_with_format(2, 1, "Определение", &header_fmt).map_err(|e| format!("{e}"))?;
 
+        // Текст шкалы MQS собирается из канона (mqs_tiers::mqs_scale_text),
+        // а не пишется числами руками - иначе поведение (grade/tier_line
+        // выше в этом файле) и его описание в глоссарии расходятся молча.
+        let mqs_glossary_text = format!(
+            "Model Quality Score – комплексная оценка качества модели (0-100). {}.",
+            mqs_tiers::mqs_scale_text()
+        );
         let terms: &[(&str, &str)] = &[
-            ("MQS", "Model Quality Score - комплексная оценка качества модели (0-100). >80 = отлично, 60-80 = хорошо, <60 = требует доработки."),
-            ("R²", "Коэффициент детерминации - доля дисперсии KPI, объяснённая моделью. 1.0 = идеальная модель."),
-            ("MAPE", "Mean Absolute Percentage Error - средняя абсолютная ошибка в %. <10% = отлично."),
+            ("MQS", mqs_glossary_text.as_str()),
+            ("R²", "Коэффициент детерминации – доля дисперсии KPI, объяснённая моделью. 1.0 = идеальная модель."),
+            ("MAPE", "Mean Absolute Percentage Error – средняя абсолютная ошибка в %. <10% = отлично."),
             ("R-hat", "Статистика сходимости MCMC. Значение ~1.0 означает, что цепи сошлись. >1.05 = проблема."),
-            ("ROI", "Return on Investment - отношение инкрементального вклада канала к его расходу. ROI 2.0x = каждый рубль приносит 2 рубля."),
-            ("miROAS", "Marginal incremental ROAS - отдача от каждого СЛЕДУЮЩЕГО рубля. Показывает, стоит ли увеличивать расходы на канал."),
+            ("ROI", "Return on Investment – отношение инкрементального вклада канала к его расходу. ROI 2.0x = каждый рубль приносит 2 рубля."),
+            ("miROAS", "Marginal incremental ROAS – отдача от каждого СЛЕДУЮЩЕГО рубля. Показывает, стоит ли увеличивать расходы на канал."),
             ("Adstock", "Эффект запаздывания рекламы. TV-реклама влияет на продажи ещё 2-8 недель после показа."),
             ("Hill function", "Функция насыщения. Моделирует убывающую отдачу: первые рубли эффективнее последних."),
             // B1-fix R-07 (2026-07-03): фактический уровень интервалов движка —
@@ -1941,8 +2034,10 @@ mod tests {
         let (dates, cols) = decomposition_timeline_columns(&decompose);
         assert_eq!(dates, vec!["w1", "w2"]);
         let headers: Vec<&str> = cols.iter().map(|(h, _)| h.as_str()).collect();
-        // baseline переименован в "Baseline", факторы присутствуют как колонки.
-        assert_eq!(headers[0], "Baseline");
+        // baseline переименован в "Базовый спрос" (Фаза 3 покрытия, 2026-07-25:
+        // "Baseline" был голым англицизмом в клиентском XLSX — П8-2), факторы
+        // присутствуют как колонки.
+        assert_eq!(headers[0], "Базовый спрос");
         assert!(headers.contains(&"TV") && headers.contains(&"Digital"));
         assert!(headers.contains(&"Продажи в уп. конкуренты"));
         assert!(headers.contains(&"holiday_valentine"));
@@ -1963,6 +2058,165 @@ mod tests {
         let (dates, cols) = decomposition_timeline_columns(&decompose);
         assert_eq!(dates.len(), 2);
         let headers: Vec<&str> = cols.iter().map(|(h, _)| h.as_str()).collect();
-        assert_eq!(headers, vec!["Baseline", "TV"]);
+        assert_eq!(headers, vec!["Базовый спрос", "TV"]);
+    }
+
+    // ── «Нет числа — нет подписи» (INV-106, 2026-07-26, находка 3) ──────────
+    // Регресс-тест на дефект: несчитанный mqs.score превращался в фиктивный
+    // 0.0 (`.unwrap_or(0.0)`) и markdown/XLSX печатали приговор модели
+    // («Требует доработки», «MQS Score ниже 60») вместо честной отметки, что
+    // оценку не считали. Настоящий ноль (mqs.score == Some(0.0)) обязан
+    // оставаться валидным значением.
+
+    #[test]
+    fn markdown_mqs_absent_shows_honest_text_not_fake_zero() {
+        let model = json!({"diagnostics": {}});
+        let md = build_markdown(&model, &json!({}), &json!({}));
+        assert!(
+            md.contains(MQS_ABSENT_TEXT),
+            "ожидалась честная формулировка отсутствия MQS в markdown"
+        );
+        assert!(
+            !md.contains("Качество модели (MQS): 0.0"),
+            "MQS отсутствует, но markdown печатает фиктивный 0.0 как приговор модели"
+        );
+        assert!(
+            !md.contains("MQS Score на уровне «Слабое» или «Ненадёжное»"),
+            "MQS отсутствует - рекомендация про низкий балл не должна печататься"
+        );
+        assert!(
+            !md.contains("MQS Score на уровне «Хорошее» и выше"),
+            "MQS отсутствует - рекомендация про высокий балл не должна печататься"
+        );
+    }
+
+    #[test]
+    fn markdown_mqs_present_shows_real_score() {
+        // "Хорошее" - валидный канон-ярлык (dословно _MQS_TIERS), как реально
+        // присылает бэкенд через utils.diagnostics.mqs_tier_info().
+        let model = json!({"diagnostics": {"mqs": {"score": 70.0, "tier_label": "Хорошее"}}});
+        let md = build_markdown(&model, &json!({}), &json!({}));
+        assert!(md.contains("Качество модели (MQS):** 70.0 – Хорошее"));
+        assert!(md.contains("| MQS Score | 70.0 |"));
+        assert!(md.contains("| MQS Tier | Хорошее |"));
+        assert!(!md.contains(MQS_ABSENT_TEXT));
+    }
+
+    #[test]
+    fn markdown_mqs_alien_label_is_rejected_derived_from_score() {
+        // "Хорошо" - устаревший/чужой ярлык (не "Хорошее" канона _MQS_TIERS).
+        // Задача 2 (2026-07-27): внешний ярлык проверяется по набору канона,
+        // непустой строки недостаточно - значение вне набора отбрасывается,
+        // уровень пересчитывается из посчитанного балла.
+        let model = json!({"diagnostics": {"mqs": {"score": 70.0, "tier_label": "Хорошо"}}});
+        let md = build_markdown(&model, &json!({}), &json!({}));
+        assert!(md.contains("Качество модели (MQS):** 70.0 – Хорошее"));
+        assert!(md.contains("| MQS Tier | Хорошее |"));
+        assert!(!md.contains("- Хорошо\n"), "чужой ярлык не должен доехать до клиента как есть");
+    }
+
+    #[test]
+    fn markdown_mqs_real_zero_is_shown_not_treated_as_absent() {
+        // Различаем «оценка равна нулю» и «оценки нет» - настоящий ноль
+        // валиден и обязан идти в отчёт числом, с полагающейся рекомендацией.
+        let model = json!({"diagnostics": {"mqs": {"score": 0.0, "tier_label": "Ненадёжное"}}});
+        let md = build_markdown(&model, &json!({}), &json!({}));
+        assert!(md.contains("Качество модели (MQS):** 0.0 – Ненадёжное"));
+        assert!(
+            md.contains("MQS Score на уровне «Слабое» или «Ненадёжное»"),
+            "реальный низкий балл 0 (tier poor) обязан триггерить рекомендацию"
+        );
+        assert!(!md.contains(MQS_ABSENT_TEXT));
+    }
+
+    #[test]
+    fn markdown_mqs_acceptable_tier_gets_honest_middle_recommendation() {
+        // Внешний аудит, Medium (2026-07-27): уровень «Приемлемое» (канон
+        // 55 <= score < 70) не получал НИ ОДНОЙ рекомендации - ветвление шло
+        // только weak/poor и good/excellent. Молчание в разделе рекомендаций
+        // читается клиентом как «замечаний нет» - отсутствие вердикта
+        // работало как положительный. Регресс-тест на балле 60 (середина
+        // диапазона «Приемлемое»).
+        let model = json!({"diagnostics": {"mqs": {"score": 60.0, "tier_label": "Приемлемое"}}});
+        let md = build_markdown(&model, &json!({}), &json!({}));
+        assert!(
+            md.contains("MQS Score на уровне «Приемлемое» – результаты пригодны для ориентировки, но не для точных решений"),
+            "MQS 60 (tier acceptable) обязан получить честную среднюю рекомендацию, а не молчание"
+        );
+        assert!(
+            !md.contains("MQS Score на уровне «Слабое» или «Ненадёжное»"),
+            "балл 60 - не weak/poor, эта рекомендация не должна печататься"
+        );
+        assert!(
+            !md.contains("MQS Score на уровне «Хорошее» и выше"),
+            "балл 60 - не good/excellent, эта рекомендация не должна печататься"
+        );
+    }
+
+    #[test]
+    fn markdown_recommendations_use_short_dash_not_hyphen() {
+        // Задача C (2026-07-27): клиентские строки блока РЕКОМЕНДАЦИИ обязаны
+        // использовать короткое тире «–», не дефис-минус «-» (гейт гигиены
+        // ловит длинное тире «—», дефис не ловит вовсе - фиксируется явным
+        // регресс-тестом, а не только гейтом).
+        let model = json!({
+            "diagnostics": {"mqs": {"score": 40.0, "tier_label": "Слабое"}},
+        });
+        let decompose = json!({"channels": [{"name": "TV", "roi": 2.0}]});
+        let optimize = json!({"expected_lift_pct": 8.0});
+        let md = build_markdown(&model, &decompose, &optimize);
+        let recs = &md[md.find("## РЕКОМЕНДАЦИИ").expect("раздел рекомендаций обязан быть в отчёте")..];
+        assert!(
+            !recs.contains(" - "),
+            "в разделе рекомендаций остался дефис-минус вместо короткого тире:\n{recs}"
+        );
+    }
+
+    #[test]
+    fn xlsx_mqs_row_absent_is_honest_text() {
+        let (cell, grade, tier_line) = mqs_xlsx_row(None, None);
+        assert!(matches!(cell, MqsCell::Absent));
+        assert_eq!(grade, "");
+        assert_eq!(tier_line, MQS_ABSENT_TEXT);
+    }
+
+    #[test]
+    fn xlsx_mqs_row_present_is_value_with_grade() {
+        let (cell, grade, tier_line) = mqs_xlsx_row(Some(70.0), Some("Хорошее"));
+        match cell {
+            MqsCell::Value(v) => assert_eq!(v, 70.0),
+            MqsCell::Absent => panic!("оценка присутствует - ожидался MqsCell::Value"),
+        }
+        assert_eq!(grade, "Хорошее");
+        assert_eq!(tier_line, "MQS Tier: Хорошее");
+    }
+
+    #[test]
+    fn xlsx_mqs_row_rejects_alien_label_derives_from_score() {
+        // "Хорошо" не входит в набор канона ("Хорошее") - grade и tier_line
+        // обязаны совпасть и взяться из балла, а не эхом чужого текста.
+        let (_cell, grade, tier_line) = mqs_xlsx_row(Some(70.0), Some("Хорошо"));
+        assert_eq!(grade, "Хорошее");
+        assert_eq!(tier_line, "MQS Tier: Хорошее");
+    }
+
+    #[test]
+    fn xlsx_mqs_row_missing_label_derives_from_score_not_literal_na() {
+        // Балл посчитан, ярлыка от бэкенда нет вовсе (None) - раньше здесь
+        // печаталось "N/A" (англицизм); теперь уровень считается из балла.
+        let (_cell, grade, tier_line) = mqs_xlsx_row(Some(92.0), None);
+        assert_eq!(grade, "Отличное");
+        assert_eq!(tier_line, "MQS Tier: Отличное");
+        assert!(!tier_line.contains("N/A"));
+    }
+
+    #[test]
+    fn xlsx_mqs_row_real_zero_is_valid_value_not_absent() {
+        let (cell, grade, _tier_line) = mqs_xlsx_row(Some(0.0), Some("Ненадёжное"));
+        match cell {
+            MqsCell::Value(v) => assert_eq!(v, 0.0),
+            MqsCell::Absent => panic!("настоящий ноль - валидное значение, не отсутствие"),
+        }
+        assert_eq!(grade, "Ненадёжное");
     }
 }

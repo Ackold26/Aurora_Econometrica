@@ -343,7 +343,7 @@
 
 <div class="settings">
   <header class="header">
-    <a href="/" class="header-logo-link" title="На главную" aria-label="Aurora AI — на главную">
+    <a href="/" class="header-logo-link" title="На главную" aria-label="Aurora AI – на главную">
       <img src="/logo-horizon.png" alt="Aurora AI" class="header-logo" />
     </a>
     <a href="/" class="back-link">

@@ -43,8 +43,37 @@ if _sidecar_root not in sys.path:
     sys.path.insert(0, _sidecar_root)
 
 from fastapi import FastAPI, HTTPException, Request, UploadFile, File, Form
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse as _StarletteJSONResponse
 from pydantic import BaseModel, Field, field_validator
+
+from utils.safe_io import sanitize_nonfinite
+
+
+class JSONResponse(_StarletteJSONResponse):
+    """JSONResponse с дезинфекцией NaN/Inf/-Inf → None перед сериализацией.
+
+    Находка non-finite (2026-07-27, побочный эффект тестов A6/A7): /compute/preflight
+    падал 500-кой 'Out of range float values are not JSON compliant: inf' на
+    коллинеарных данных (quick_proxy_check::condition_number = inf) - stdlib json
+    внутри starlette при сборке ответа кидает ValueError. Ловится глобальным
+    _global_exception_handler, но клиент (ConfigPanel.svelte) на этой ошибке
+    fail-open проезжает БЕЗ гейта честности - без единого предупреждения ровно
+    там, где мультиколлинеарность делает предупреждение нужнее всего.
+
+    Аудит (грепом всех JSONResponse(content=...) в этом файле, 2026-07-27):
+    62 вызова, только 2 (train_model, decompose_sales) явно санировали результат
+    через sanitize_nonfinite вручную - 60 были уязвимы к тому же классу дефекта
+    при любом вычислении, дающем inf/NaN (деление на 0, log(0), вырожденная
+    модель). Точечная правка 60 мест повторила бы историю MQS-нуля (см. commit
+    70b5d99 - «закрывался поверхность за поверхностью и трижды возвращался с
+    другой стороны»). Вместо этого - переопределение базового класса ОДИН раз:
+    каждый существующий и будущий `JSONResponse(...)` в server.py дезинфицируется
+    автоматически, без правки вызывающих мест. Два места с ручным
+    sanitize_nonfinite(result) оставлены как есть - двойная санация идемпотентна
+    и безвредна, трогать их не было причины.
+    """
+    def render(self, content: Any) -> bytes:
+        return super().render(sanitize_nonfinite(content))
 
 
 def _friendly_error(e: Exception) -> str:
@@ -183,6 +212,18 @@ app = FastAPI(
     title='Aurora AI Econometrica Sidecar',
     version=VERSION,
     description='Local MMM computation engine (0 tokens)',
+    # default_response_class (2026-07-27): 14 обработчиков возвращают голый
+    # словарь (`return {...}`/`return result`) - FastAPI сериализует их сам,
+    # МИМО локального подкласса JSONResponse выше (тот закрывает только явные
+    # `JSONResponse(content=...)`, коих 62). Без этого параметра голый
+    # словарь идёт через стандартный `actual_response_class` FastAPI
+    # (обычный starlette JSONResponse без дезинфекции) - нечисло (NaN/Inf) из
+    # вырожденной модели валит ответ 500-кой ('Out of range float values are
+    # not JSON compliant'), см. /compute/model_history (история расчётов).
+    # default_response_class закрывает ВСЕ обработчики разом, включая
+    # будущие - без точечных правок каждого места (см. комментарий класса
+    # JSONResponse выше про историю с MQS-нулём).
+    default_response_class=JSONResponse,
 )
 
 
@@ -787,14 +828,22 @@ def validate_preview(req: PreviewRequest):
 _VALID_MODES = ('bayesian', 'ols')
 
 
-def _validate_mode(mode: str | None) -> tuple[str | None, dict | None]:
+def _validate_mode(mode: str | None, *, default: str | None = 'bayesian') -> tuple[str | None, dict | None]:
     """Audit H5 (2026-04-26): whitelist mode values + return user-friendly error.
 
     Returns (resolved_mode, error_response).
     error_response is None on success - caller proceeds with resolved_mode.
+
+    default: значение при mode=None. Дефолт 'bayesian' нужен вызывающим,
+    которые РОУТЯТ обучение (train/train_start) - там режим обязан
+    разрешиться во что-то исполнимое. Но когда результат уходит в
+    recommend_engine(override=...) как признак «пользователь выбрал явно»
+    (см. /compute/preflight), звать с default=None - иначе дефолт движка
+    неотличим от настоящего выбора, и recommend_engine никогда не видит
+    None, чтобы дать честную рекомендацию по n_obs.
     """
     if mode is None:
-        return 'bayesian', None
+        return default, None
     normalized = str(mode).strip().lower()
     if normalized not in _VALID_MODES:
         return None, {
@@ -892,6 +941,78 @@ class PreflightRequest(BaseModel):
     skip_prior_predictive: bool = False  # для fast iteration UI
 
 
+_TIER_RANK = {'reliable': 0, 'directional': 1, 'insufficient': 2}
+_TONE_TO_TIER = {'good': 'reliable', 'warn': 'directional', 'bad': 'insufficient'}
+_STATUS_TO_TIER = {'pass': 'reliable', 'warn': 'directional', 'fail': 'insufficient'}
+
+
+def aggregate_preflight_tier(
+    *,
+    recommend: dict,
+    quick_proxy: dict,
+    prior_predictive: dict | None,
+    actual_mode: str,
+    skip_prior_predictive: bool,
+) -> tuple[str, dict]:
+    """Худший из уровней + разметка ИСТОЧНИКА, которым он получен.
+
+    Conservative aggregation: tier = worst of (recommend, quick_proxy,
+    prior_predictive). Mapping:
+      recommend.n_obs_tone: good→reliable, warn→directional, bad→insufficient
+        (честный тон по n; НЕ recommend.banner_tone — тот при override всегда
+        'good', см. находка 6)
+      quick_proxy.tier: reliable | directional | insufficient (already correct)
+      prior_predictive.status: pass→reliable, warn→directional, fail→insufficient
+
+    Разметка источника (2026-07-26): клиенту существенно, КАКИМ основанием
+    получен уровень. Быстрая оценка и полная проверка предположений дают
+    одну и ту же подпись, но не одну и ту же доказательность; пропущенный
+    источник без явной отметки читается как «проверено и чисто» — тот же
+    класс дефекта, что несчитанная метрика, показанная нулём. Ключи —
+    внутренний контракт (английские), клиентские формулировки собирает
+    интерфейс (ConfigPanel.svelte::preflightBasisText).
+
+    actual_mode (регресс-находка 2026-07-27, было recommended_mode): движок,
+    которым РЕАЛЬНО пойдёт обучение, а НЕ честная рекомендация recommend_engine
+    по n_obs. Наша же правка default=None (находка 6) честно развела «не задано»
+    и «явный выбор» для recommend_engine — но потребитель здесь спрашивал совсем
+    другое: «этот прогон обучится байесом?». Раньше оба вопроса совпадали
+    случайно (дефолт движка 'bayesian' == честная рекомендация при n<30 была
+    недостижима до находки 6). После находки 6 при n<30 recommend_engine честно
+    советует 'ols', а интерфейс по умолчанию ВСЁ РАВНО обучает Bayesian
+    (ConfigPanel.svelte шлёт modeOverride=null для инженерного дефолта, но
+    train-config.js передаёт в /compute/train mode=engine='bayesian' буквально) —
+    проверка приоров пропадала («неприменима к выбранному способу», хотя способ
+    как раз применим) ровно там, где мало данных и она нужнее всего.
+    """
+    by_source = {
+        # Находка 6 (2026-07-26): 'banner_tone' коротко замыкается в 'good' при
+        # активном override (явный выбор движка ИЛИ default-подстановка
+        # _validate_mode), поэтому источник объёма наблюдений считается по
+        # честному 'n_obs_tone' — он зависит только от n, не от override.
+        'n_obs': _TONE_TO_TIER.get(recommend.get('n_obs_tone'), 'reliable'),
+        'quick_proxy': quick_proxy.get('tier', 'reliable'),
+    }
+    skipped: dict[str, str] = {}
+    if prior_predictive is not None:
+        by_source['prior_predictive'] = _STATUS_TO_TIER.get(
+            prior_predictive.get('status'), 'reliable',
+        )
+    elif actual_mode != 'bayesian':
+        skipped['prior_predictive'] = 'engine_not_bayesian'
+    elif skip_prior_predictive:
+        skipped['prior_predictive'] = 'disabled_by_user'
+    else:
+        skipped['prior_predictive'] = 'failed'
+
+    overall = max(by_source.values(), key=lambda t: _TIER_RANK.get(t, 0))
+    return overall, {
+        'decided_by': sorted(s for s, t in by_source.items() if t == overall),
+        'by_source': by_source,
+        'skipped': skipped,
+    }
+
+
 @app.post('/compute/preflight')
 def preflight(req: PreflightRequest):
     """Unified pre-train reliability pipeline (S1 audit synergy).
@@ -912,8 +1033,11 @@ def preflight(req: PreflightRequest):
     import logging as _logging
     _preflight_logger = _logging.getLogger(__name__)
 
-    # Validate mode override first
-    mode_override, mode_err = _validate_mode(req.mode_override)
+    # Validate mode override first. default=None: mode_override уходит в
+    # recommend_engine(override=...) как признак явного выбора пользователя -
+    # дефолт движка 'bayesian' не должен туда доезжать за настоящий выбор
+    # (см. docstring _validate_mode).
+    mode_override, mode_err = _validate_mode(req.mode_override, default=None)
     if mode_err is not None:
         return JSONResponse(content=mode_err)
 
@@ -945,6 +1069,17 @@ def preflight(req: PreflightRequest):
     recommend = recommend_engine(n_obs, override=mode_override)
     recommended_mode = recommend['recommended']
 
+    # Регресс-находка 2026-07-27: движок, которым РЕАЛЬНО пойдёт обучение, -
+    # отдельный факт от честной рекомендации (recommended_mode). Тот же сырой
+    # вход (mode_override), что и /compute/train резолвит через _validate_mode
+    # с default='bayesian' (server.py:828/1155, не тронуто) - actual_mode
+    # повторяет ИМЕННО эту логику, а не совет по n_obs. До этой правки прогон
+    # с n<30 и байесовским движком по умолчанию (интерфейс шлёт modeOverride=
+    # null, но обучает Bayesian) честно советовал 'ols' (находка 6) и из-за
+    # этого молча терял проверку приоров ровно там, где мало данных и она
+    # нужнее всего - см. aggregate_preflight_tier docstring.
+    actual_mode = mode_override or 'bayesian'
+
     # Step 3: A4 quick proxy на media matrix
     from utils.reliability_quick_proxy import quick_proxy_check
     media_matrix = df[req.media_columns].fillna(0).values.astype(float)
@@ -952,7 +1087,7 @@ def preflight(req: PreflightRequest):
 
     # Step 4: prior predictive (Bayesian only, optional skip)
     prior_predictive = None
-    if recommended_mode == 'bayesian' and not req.skip_prior_predictive:
+    if actual_mode == 'bayesian' and not req.skip_prior_predictive:
         try:
             from utils.reliability_a4 import prior_predictive_check
             y_obs = df[req.kpi_column].fillna(0).values.astype(float)
@@ -968,25 +1103,21 @@ def preflight(req: PreflightRequest):
             prior_predictive = None
 
     # ── Aggregate tier ──────────────────────────────────────────────────
-    # Conservative aggregation: tier = worst of (recommend, quick_proxy, prior_predictive).
-    # Mapping:
-    #   recommend.banner_tone: good→reliable, warn→directional, bad→insufficient
-    #   quick_proxy.tier: reliable | directional | insufficient (already correct)
-    #   prior_predictive.status: pass→reliable, warn→directional, fail→insufficient
-    tier_rank = {'reliable': 0, 'directional': 1, 'insufficient': 2}
-    tone_to_tier = {'good': 'reliable', 'warn': 'directional', 'bad': 'insufficient'}
-    status_to_tier = {'pass': 'reliable', 'warn': 'directional', 'fail': 'insufficient'}
-
-    tiers = ['reliable']  # baseline
-    tiers.append(tone_to_tier.get(recommend.get('banner_tone'), 'reliable'))
-    tiers.append(quick_proxy.get('tier', 'reliable'))
-    if prior_predictive is not None:
-        tiers.append(status_to_tier.get(prior_predictive.get('status'), 'reliable'))
-    overall_tier = max(tiers, key=lambda t: tier_rank.get(t, 0))
+    overall_tier, tier_basis = aggregate_preflight_tier(
+        recommend=recommend,
+        quick_proxy=quick_proxy,
+        prior_predictive=prior_predictive,
+        actual_mode=actual_mode,
+        skip_prior_predictive=bool(req.skip_prior_predictive),
+    )
 
     # Aggregate warnings + recommendation
     all_warnings = []
-    if recommend.get('reason') and recommend['banner_tone'] != 'good':
+    # Находка 6 продолжение (2026-07-27): ветвить по честному n_obs_tone, а не
+    # по banner_tone - тот при override всегда 'good' (см. _honest_n_obs_tone),
+    # поэтому раньше объяснение вердикта «данных недостаточно» глушилось
+    # ровно тогда, когда режим выбран явно, хотя вердикт остаётся плохим.
+    if recommend.get('reason') and recommend.get('n_obs_tone') != 'good':
         all_warnings.append(recommend['reason'])
     all_warnings.extend(quick_proxy.get('warnings', []))
     if prior_predictive and prior_predictive.get('warning'):
@@ -1008,6 +1139,7 @@ def preflight(req: PreflightRequest):
             'quick_proxy': quick_proxy,
             'prior_predictive': prior_predictive,
         },
+        'tier_basis': tier_basis,
         'warnings': all_warnings,
         'recommendation': _aggregate_recommendation(overall_tier, recommended_mode, len(all_warnings)),
     })
@@ -1883,10 +2015,16 @@ def model_history(req: ModelHistoryRequest):
             channels = list(data.get('channel_params', {}).keys())
             versions.append({
                 'timestamp': ts_str,
-                'mqs_score': mqs.get('score', 0),
+                # Нет числа - нет подписи (2026-07-26): несчитанная оценка
+                # остаётся отсутствующей и не превращается в ноль. Прежде версия
+                # без оценки попадала в список наравне с настоящими и была от них
+                # неотличима. Клиентская карточка истории балл сейчас не
+                # показывает, но контракт врать не должен - следующий потребитель
+                # получил бы приговор вместо отметки «не оценивали».
+                'mqs_score': mqs.get('score'),
                 'mqs_label': mqs.get('tier_label', ''),
-                'r_squared': metrics.get('r_squared', diag.get('r_squared', 0)),
-                'mape': metrics.get('mape_pct', diag.get('mape', 0)),
+                'r_squared': metrics.get('r_squared', diag.get('r_squared')),
+                'mape': metrics.get('mape_pct', diag.get('mape')),
                 'n_channels': len(channels),
                 'channels': channels,
                 'config': data.get('config', {}),

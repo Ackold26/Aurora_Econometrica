@@ -89,6 +89,24 @@ jobs:
       - name: Pytest discovery (unit + smoke)
         run: python -m pytest -n auto --tb=short -m "not requires_real_data and not slow"
 
+      # INV-99 (2026-07-25): pytest.ini задаёт testpaths = tools, а прогон выше
+      # запускается от корня без явного пути — значит sidecar/econometrica/tests/
+      # (гигиена текста отчёта, переполнение вёрстки pptx, KPI-совместимость и
+      # др., 49 файлов) в облаке НЕ выполнялся вовсе, только вручную локально.
+      # Отдельный шаг с явным путём вместо расширения testpaths — не тянет
+      # незапланированный долг из tools/ в общий прогон. PYTHONPATH обязателен:
+      # без него импорты пакета sidecar/econometrica не резолвятся. Явная
+      # проверка каталога — громкий отказ вместо тихого пропуска, если путь
+      # когда-нибудь переедет.
+      - name: Sidecar report-layer tests (sidecar/econometrica/tests)
+        env:
+          PYTHONPATH: sidecar/econometrica
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -d sidecar/econometrica/tests || { echo "::error::sidecar/econometrica/tests не найден — проверка не должна молча пропускаться"; exit 1; }
+          python -m pytest sidecar/econometrica/tests -n auto --tb=short -m "not requires_real_data and not slow"
+
       # Note: Heavy MCMC integration tests (require full sidecar deps) — оставляем
       # local-only через `pip install -r sidecar/econometrica/requirements.txt`.
       # CI runs только pytest-discoverable tests без MCMC training.
@@ -205,6 +223,7 @@ jobs:
           if ($existingSha) { $body.sha = $existingSha }
 
           gh api -X PUT "repos/ackold26/rosst-updates/contents/$path" --input - <<< ($body | ConvertTo-Json)
+          if ($LASTEXITCODE -ne 0) { exit 1 }
           Write-Host "Manifest updated: $product v$version"
         shell: pwsh
 

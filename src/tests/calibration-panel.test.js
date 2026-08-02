@@ -1,5 +1,5 @@
 /**
- * E2 (2026-07-03): CalibrationPanel — форма «Результат эксперимента» +
+ * E2 (2026-07-03): CalibrationPanel – форма «Результат эксперимента» +
  * calibration-store (persist per-project) + включение в train-конфиг.
  */
 import { describe, it, expect, beforeEach } from 'vitest';
@@ -38,7 +38,7 @@ beforeEach(() => {
 });
 
 describe('validateCalibrationEntry', () => {
-  it('валидная запись → null; ошибки — по-русски и по делу', () => {
+  it('валидная запись → null; ошибки – по-русски и по делу', () => {
     expect(validateCalibrationEntry(VALID)).toBeNull();
     expect(validateCalibrationEntry({ ...VALID, channel: '' })).toMatch(/канал/i);
     expect(validateCalibrationEntry({ ...VALID, date_to: '2025-12-01' }))
@@ -51,7 +51,7 @@ describe('validateCalibrationEntry', () => {
 });
 
 describe('calibration-store persist', () => {
-  it('persist/load по проекту; чужой проект — пусто', () => {
+  it('persist/load по проекту; чужой проект – пусто', () => {
     calibrations.set([VALID]);
     // persist вызывается компонентом; проверяем функции напрямую
     loadCalibrations('p-none');
@@ -85,7 +85,7 @@ describe('CalibrationPanel UI', () => {
     await fireEvent.input(screen.getByLabelText('Верхняя граница'), { target: { value: '700' } });
     await fireEvent.click(screen.getByRole('button', { name: /Добавить/ }));
     await waitFor(() => {
-      expect(screen.getByText(/2026-01-01 — 2026-03-01/)).toBeInTheDocument();
+      expect(screen.getByText(/2026-01-01 – 2026-03-01/)).toBeInTheDocument();
     });
     expect(get(calibrations)).toHaveLength(1);
     expect(JSON.parse(localStorage.getItem('aurora-econ-calibrations:p1') ?? '[]'))

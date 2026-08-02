@@ -113,7 +113,7 @@
       icon: Target,
       title: 'Главная рекомендация',
       text: `Переложите ${formatMoney(shiftAmount)} из «${from.name}» (перенасыщен, gap ${from.efficiency_gap.toFixed(0)}%) в «${to.name}» (недонасыщен, gap +${to.efficiency_gap.toFixed(0)}%).`,
-      detail: 'Точный расчёт прироста — на шаге «Оптимизация» через оптимизатор. Расчёт от цели позволит задать целевое значение продаж.',
+      detail: 'Точный расчёт прироста – на шаге «Оптимизация» через оптимизатор. Расчёт от цели позволит задать целевое значение продаж.',
       tone: 'success',
     };
   });
@@ -522,7 +522,7 @@
       <div class="reliability-warn-banner" role="alert">
         <span class="reliability-warn-icon" aria-hidden="true">⚠</span>
         <span class="reliability-warn-text">
-          Модель помечена как ориентировочная — вердикты ниже трактуйте осторожно.
+          Модель помечена как ориентировочная – вердикты ниже трактуйте осторожно.
           {#if modelHonestyVerdict === 'unreliable'}Высокий R-hat или много расходящихся цепей.{:else}Узкие данные или слабый prior-coverage.{/if}
         </span>
       </div>

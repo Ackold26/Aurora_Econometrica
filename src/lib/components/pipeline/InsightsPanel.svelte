@@ -498,7 +498,7 @@
     resetScenario();
     const chans = scenarioChannels();
     if (chans.length === 0) {
-      scenarioError = 'Сначала выполните декомпозицию — нужны каналы модели.';
+      scenarioError = 'Сначала выполните декомпозицию – нужны каналы модели.';
       return;
     }
     const names = chans.map(/** @param {any} c */ (c) => c.name);
@@ -530,7 +530,7 @@
     scenarioInterpret = '';
     scenarioUngrounded = [];
     if (scenarioConfig.kind !== 'scenario') {
-      scenarioError = 'Оптимизация запускается на шаге «Оптимизация». Здесь — сценарии «что если».';
+      scenarioError = 'Оптимизация запускается на шаге «Оптимизация». Здесь – сценарии «что если».';
       return;
     }
     const chans = scenarioChannels();

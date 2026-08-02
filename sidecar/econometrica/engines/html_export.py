@@ -4,8 +4,10 @@ engines.html_export - thin adapter over aurora_html (v1.0.12 HTML tier-1).
 Previously 612 LOC of one-shot HTML generation with generic dark theme.
 Refactored 2026-04-24 to delegate rendering to
 `econometrica.aurora_html.build_html(data, raw_model, raw_decompose,
-raw_optimize, scenarios)`, which produces the tier-1 14-section interactive
-HTML deliverable defined in `Standards/CLIENT_READY_ANATOMY_HTML.md`.
+raw_optimize, scenarios)`, which produces the tier-1 17-section interactive
+HTML deliverable defined in `Standards/CLIENT_READY_ANATOMY_HTML.md` (file
+missing from this repo; current requirements source:
+`aurora-meta/STANDARDS/REPORTING_STANDARD.md`).
 
 Public signature preserved for backward compat with Rust callers and
 server.py::export_html.
@@ -82,8 +84,9 @@ def build_html(
 ) -> dict[str, Any]:
     """Build a tier-1 interactive HTML deliverable from MMM pipeline data.
 
-    Delegates to aurora_html.build_html which renders the 14-section report
-    per Standards/CLIENT_READY_ANATOMY_HTML.md.
+    Delegates to aurora_html.build_html which renders the 17-section report
+    per Standards/CLIENT_READY_ANATOMY_HTML.md (file missing from this repo;
+    current requirements source: aurora-meta/STANDARDS/REPORTING_STANDARD.md).
 
     Args:
         model_data: pipeline model output (diagnostics, metrics, MQS, spec).

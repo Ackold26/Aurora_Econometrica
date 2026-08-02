@@ -68,7 +68,7 @@
 
 <div class="causal-page">
   <header class="page-header">
-    <a href="/" class="header-logo-link" title="На главную" aria-label="Aurora AI — на главную">
+    <a href="/" class="header-logo-link" title="На главную" aria-label="Aurora AI – на главную">
       <img src="/logo-horizon.png" alt="Aurora AI" class="header-logo" />
     </a>
     <div class="title-row">

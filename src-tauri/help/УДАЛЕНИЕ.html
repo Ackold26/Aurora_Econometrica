@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>AURORA AI AGENCY - ROSST — Удаление</title>
+<title>AURORA AI AGENCY - ROSST – Удаление</title>
 <style>
   :root {
     --red: #EF4444;
@@ -57,14 +57,23 @@
   .cmd-block .comment { color: #6B7280; }
 
   footer { text-align: center; color: var(--text-light); font-size: 12px; margin-top: 48px; }
+  /* Типографский канон линейки (2026-07-26), §5 стандарта формата отчёта.
+     Одинокое слово на последней строке абзаца («вдова») и заголовок,
+     сломанный ступенькой в одно слово, — дефект вёрстки, а не мелочь:
+     клиент читает справку как документ продукта. Правила объявлены
+     последними в блоке, чтобы каскад страницы их не перекрыл.
+     На старом движке свойства игнорируются — вёрстка остаётся прежней. */
+  body { text-wrap: pretty; }
+  h1, h2, h3, h4, h5, h6 { text-wrap: balance; }
+  p, li { max-inline-size: 68ch; }
 </style>
 </head>
 <body>
 <div class="container">
 
   <div class="header">
-    <h1>AURORA AI AGENCY – ROSST</h1>
-    <div class="subtitle">Инструкция по удалению приложения</div>
+    <h1>AURORA AI AGENCY – ROSST</h1>
+    <div class="subtitle">Инструкция по удалению приложения</div>
     <div class="badge">Версия 1.0</div>
   </div>
 
@@ -74,7 +83,7 @@
       <span class="section-num num-primary">1</span>
       <h2>Удаление через Windows</h2>
     </div>
-    <p style="margin-bottom:16px; color: var(--text-light);">Основной способ — стандартные средства Windows. Удаляет приложение и регистрационные записи.</p>
+    <p style="margin-bottom:16px; color: var(--text-light);">Основной способ – стандартные средства Windows. Удаляет приложение и регистрационные записи.</p>
     <ol class="steps">
       <li>
         <div class="step-text">
@@ -84,25 +93,25 @@
       </li>
       <li>
         <div class="step-text">
-          <strong>Перейдите в раздел Приложения</strong>
+          <strong>Перейдите в раздел Приложения</strong>
           Выберите «Приложения» → «Установленные приложения»
         </div>
       </li>
       <li>
         <div class="step-text">
-          <strong>Найдите приложение в списке</strong>
-          В поиске введите <span class="path">AURORA AI AGENCY</span> или <span class="path">ROSST</span>
+          <strong>Найдите приложение в списке</strong>
+          В поиске введите <span class="path">AURORA AI AGENCY</span> или <span class="path">ROSST</span>
         </div>
       </li>
       <li>
         <div class="step-text">
           <strong>Нажмите «⋯» → «Удалить»</strong>
-          Подтвердите удаление и следуйте инструкциям деинсталлятора
+          Подтвердите удаление и следуйте инструкциям деинсталлятора
         </div>
       </li>
     </ol>
     <div class="info-box">
-      <p>После этого шага приложение удалено. Но некоторые файлы данных остаются на диске — для их удаления выполните Шаг 2.</p>
+      <p>После этого шага приложение удалено. Но некоторые файлы данных остаются на диске – для их удаления выполните Шаг 2.</p>
     </div>
   </div>
 
@@ -115,10 +124,10 @@
 
     <div class="warning-box">
       <span class="icon">⚠️</span>
-      <p>Выполняйте только <strong>после</strong> удаления приложения через Windows (Шаг 1). Действие необратимо — vault-файлы, лицензия и временные данные будут удалены безвозвратно.</p>
+      <p>Выполняйте только <strong>после</strong> удаления приложения через Windows (Шаг 1). Действие необратимо – vault-файлы, лицензия и временные данные будут удалены безвозвратно.</p>
     </div>
 
-    <p style="margin-bottom:14px;">Следующие файлы НЕ удаляются стандартным деинсталлятором:</p>
+    <p style="margin-bottom:14px;">Следующие файлы НЕ удаляются стандартным деинсталлятором:</p>
     <ul class="file-list">
       <li>
         <div>
@@ -140,9 +149,9 @@
       </li>
     </ul>
 
-    <p style="margin-top:20px; margin-bottom:12px;">Для очистки: запустите скрипт <span class="path">uninstall-cleanup.ps1</span> из этой же папки (правой кнопкой → «Выполнить с помощью PowerShell»):</p>
+    <p style="margin-top:20px; margin-bottom:12px;">Для очистки: запустите скрипт <span class="path">uninstall-cleanup.ps1</span> из этой же папки (правой кнопкой → «Выполнить с помощью PowerShell»):</p>
     <div class="cmd-block">
-      <span class="comment"># Путь к скрипту в папке с программой:</span><br>
+      <span class="comment"># Путь к скрипту в папке с программой:</span><br>
       C:\Program Files\AURORA AI AGENCY - ROSST\resources\help\uninstall-cleanup.ps1
     </div>
   </div>
@@ -151,11 +160,11 @@
   <div class="section">
     <div class="section-header">
       <span class="section-num num-secondary">?</span>
-      <h2>Если приложение не удаляется стандартным способом</h2>
+      <h2>Если приложение не удаляется стандартным способом</h2>
     </div>
     <p style="margin-bottom:14px;">Попробуйте найти деинсталлятор вручную:</p>
     <div class="cmd-block">
-      <span class="comment"># Найти деинсталлятор в Проводнике:</span><br>
+      <span class="comment"># Найти деинсталлятор в Проводнике:</span><br>
       C:\Program Files\AURORA AI AGENCY - ROSST\<br>
       <span class="comment"># Запустить файл: Uninstall AURORA AI AGENCY - ROSST.exe</span>
     </div>
@@ -163,7 +172,7 @@
   </div>
 
   <footer>
-    AURORA AI AGENCY – ROSST &nbsp;|&nbsp; www.sipovich.pro
+    AURORA AI AGENCY – ROSST &nbsp;|&nbsp; www.sipovich.pro
   </footer>
 </div>
 </body>

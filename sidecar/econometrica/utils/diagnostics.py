@@ -2,8 +2,11 @@
 Model diagnostics for MMM quality assessment.
 MQS (Model Quality Score), convergence checks, fit metrics.
 """
+import logging
 import numpy as np
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 
 def compute_r_squared(y_true: np.ndarray, y_pred: np.ndarray) -> float:
@@ -95,6 +98,74 @@ def per_control_contraction(control_betas_post_sd, prior_control_sd, control_col
     return out
 
 
+# SSOT тиры MQS (score, tier, tier_label, color) — единственный источник порогов
+# 85/70/55/40. Рассинхрон копии этих чисел в слое представления (aurora_html)
+# уже ловили в бою (L16, 2026-04-29: MQS=70 показывал «Хорошее» в одном месте
+# и «приемлемо» в другом при разных порогах). Presentation-слой обязан читать
+# тир через `mqs_tier_info()`, а не держать свою копию порогов.
+_MQS_TIERS = (
+    (85, 'excellent', 'Отличное', '#22c55e'),
+    (70, 'good', 'Хорошее', '#3b82f6'),
+    (55, 'acceptable', 'Приемлемое', '#f59e0b'),
+    (40, 'weak', 'Слабое', '#f97316'),
+    (0, 'poor', 'Ненадёжное', '#ef4444'),
+)
+
+
+#: Клиентские ярлыки уровней — набор для проверки того, что пришло извне.
+#: Заведён 2026-07-26: слой представления доверял полю `mqs_tier_label` как есть,
+#: и значение ключа `tier` («excellent» вместо «Отличное») доехало бы до клиента
+#: английским, да ещё сбив подбор пояснения на «Приемлемо» при отличной модели.
+#: Проверять принадлежность этому набору, а не просто непустоту строки.
+MQS_TIER_LABELS = frozenset(label for _threshold, _tier, label, _color in _MQS_TIERS)
+
+
+def mqs_tier_info(mqs: float) -> dict:
+    """SSOT-классификация посчитанного MQS в {tier, tier_label, color}.
+
+    Единственный владелец порогов 85/70/55/40 — presentation-слой (aurora_html/
+    aurora_pptx) обязан звать эту функцию вместо локальной копии диапазонов.
+    Вызывать только когда mqs реально посчитан (не None) — отсутствие метрики
+    обрабатывается на уровне вызывающего кода, не здесь.
+    """
+    for threshold, tier, label, color in _MQS_TIERS:
+        if mqs >= threshold:
+            return {'tier': tier, 'tier_label': label, 'color': color}
+    return {'tier': 'poor', 'tier_label': 'Ненадёжное', 'color': '#ef4444'}
+
+
+def resolve_mqs_tier_label(score: float, external_label: str | None) -> str:
+    """Ярлык уровня для показа: внешний — только если он ещё и СОВПАДАЕТ с
+    тем, что канон даёт для этого балла; иначе — производный от балла.
+
+    Находка внешнего аудита (2026-07-27): `aurora_html/sections.py` (два
+    места) проверял(и) только ПРИНАДЛЕЖНОСТЬ пришедшего `mqs_tier_label`
+    набору `MQS_TIER_LABELS`, не сверяя с самим баллом — валидный ярлык
+    канона, но не для ЭТОГО балла (например из старого/частично обновлённого
+    расчёта на диске — `results/model-diagnostics.json` не подписан и уже
+    имеет прецедент внешней точечной правки, см. `tools/recompute_mqs.py`),
+    проходил как есть. `resolve_mqs_tier_label(42.0, 'Отличное')` раньше
+    возвращал `'Отличное'`, хотя канон для 42.0 даёт `'Слабое'`.
+
+    Данные первичны: при расхождении уровень считается ИЗ БАЛЛА. Расхождение
+    не проглатывается молча — уходит в лог (диагностика, НЕ клиентский
+    текст). Единственная точка этой проверки — оба места в sections.py
+    обязаны звать эту функцию, а не дублировать `in MQS_TIER_LABELS` у себя
+    (дубль этой самой проверки и был находкой). Симметричный Rust-фикс —
+    `src-tauri/src/commands/mqs_tiers.rs::resolve_mqs_label`.
+    """
+    canon_label = mqs_tier_info(score)['tier_label']
+    if external_label in MQS_TIER_LABELS:
+        if external_label == canon_label:
+            return external_label
+        logger.warning(
+            'MQS: внешний ярлык %r не соответствует канону для балла %.1f '
+            '(канон: %r) - используется ярлык из балла',
+            external_label, score, canon_label,
+        )
+    return canon_label
+
+
 def model_quality_score(r_squared: float, mape: float, r_hat_max: float,
                         divergences: int = 0, ratio: float | None = None) -> dict:
     """Compute Model Quality Score (MQS) with tier classification.
@@ -128,17 +199,9 @@ def model_quality_score(r_squared: float, mape: float, r_hat_max: float,
             thinness_cap = 70
     mqs = min(raw_mqs, thinness_cap) if thinness_cap is not None else raw_mqs
 
-    # Tier classification
-    if mqs >= 85:
-        tier, label, color = 'excellent', 'Отличное', '#22c55e'
-    elif mqs >= 70:
-        tier, label, color = 'good', 'Хорошее', '#3b82f6'
-    elif mqs >= 55:
-        tier, label, color = 'acceptable', 'Приемлемое', '#f59e0b'
-    elif mqs >= 40:
-        tier, label, color = 'weak', 'Слабое', '#f97316'
-    else:
-        tier, label, color = 'poor', 'Ненадёжное', '#ef4444'
+    # Tier classification (SSOT lookup — см. mqs_tier_info выше).
+    _tier_info = mqs_tier_info(mqs)
+    tier, label, color = _tier_info['tier'], _tier_info['tier_label'], _tier_info['color']
 
     return {
         'score': round(mqs, 1),

@@ -114,12 +114,12 @@ export function getUsageHint(cabinetId) {
 
   // Первый визит в кабинет
   if (cabinetUses === 0 && totalUses > 0) {
-    return { text: 'Первый раз в этом кабинете - загрузите файлы и отправьте задание', isPersonal: true };
+    return { text: 'Первый раз в этом кабинете – загрузите файлы и отправьте задание', isPersonal: true };
   }
 
   // Редкий пользователь (мало запросов к этому кабинету)
   if (cabinetUses > 0 && cabinetUses < 3 && totalUses > 20) {
-    return { text: 'Вы здесь нечасто - попробуйте разные команды справа', isPersonal: true };
+    return { text: 'Вы здесь нечасто – попробуйте разные команды справа', isPersonal: true };
   }
 
   // Частый пользователь этого кабинета - подсказать next steps
@@ -127,7 +127,7 @@ export function getUsageHint(cabinetId) {
     const next = _nextSteps[cabinetId];
     if (next && next.length > 0) {
       const suggestion = next[Math.floor(Math.random() * next.length)];
-      return { text: `Совет: после работы здесь попробуйте «${suggestion.label}» - ${suggestion.reason.toLowerCase()}`, isPersonal: true };
+      return { text: `Совет: после работы здесь попробуйте «${suggestion.label}» – ${suggestion.reason.toLowerCase()}`, isPersonal: true };
     }
   }
 
@@ -293,7 +293,7 @@ const EMPATHETIC_ERRORS = {
   'CL-004': {
     emoji: '\u23F3',
     message: 'Сервер перегружен запросами',
-    tip: 'Подождите минуту - обычно это проходит быстро. Ваш запрос не потерялся.',
+    tip: 'Подождите минуту – обычно это проходит быстро. Ваш запрос не потерялся.',
   },
   'CL-005': {
     emoji: '\u26A1',
@@ -303,17 +303,17 @@ const EMPATHETIC_ERRORS = {
   'CL-006': {
     emoji: '\uD83D\uDD11',
     message: 'Проблема с авторизацией',
-    tip: 'Проверьте лицензию в настройках. Если проблема повторяется - обратитесь в поддержку.',
+    tip: 'Проверьте лицензию в настройках. Если проблема повторяется – обратитесь в поддержку.',
   },
   'CL-007': {
     emoji: '\uD83C\uDF10',
     message: 'Нет подключения к серверу',
-    tip: 'Проверьте интернет-соединение. Как только связь восстановится - всё заработает.',
+    tip: 'Проверьте интернет-соединение. Как только связь восстановится – всё заработает.',
   },
   'CL-008': {
     emoji: '\uD83D\uDEE0\uFE0F',
     message: 'Что-то пошло не так',
-    tip: 'Попробуйте повторить запрос. Если ошибка повторяется - очистите чат и начните заново.',
+    tip: 'Попробуйте повторить запрос. Если ошибка повторяется – очистите чат и начните заново.',
   },
 };
 
@@ -369,12 +369,12 @@ export function getEndowedProgressMessage(fileCount, fileName, cabinetId = undef
     const onbState = get(cabinetOnboarding);
     const cab = onbState[cabinetId];
     if (cab && !cab.completed && (cab.step ?? 0) === 0) {
-      return 'Файл загружен - переходим к анализу';
+      return 'Файл загружен – переходим к анализу';
     }
   }
   if (fileCount === 1 && fileName) {
     const ext = fileName.split('.').pop()?.toLowerCase();
-    if (ext === 'pptx') return `Презентация загружена. Этап 1 из 5 выполнен - выберите команду для анализа.`;
+    if (ext === 'pptx') return `Презентация загружена. Этап 1 из 5 выполнен – выберите команду для анализа.`;
     if (ext === 'xlsx' || ext === 'csv') return `Данные загружены. Готово к анализу.`;
   }
   return `${fileCount} ${pluralRu(fileCount, 'файл загружен', 'файла загружено', 'файлов загружено')}. Выберите команду для работы.`;
@@ -704,9 +704,9 @@ export function getContextInsight(content, cabinetId) {
   if (esovMatch) {
     const v = parseMetricValue(esovMatch[1]);
     if (!isNaN(v)) {
-      if (v > 0) return `ESOV +${v}% - бренд опережает рынок по голосу`;
-      if (v < 0) return `ESOV ${v}% - голос ниже SOM, давление конкурентов`;
-      return `ESOV ≈ 0% - нейтральная медиапозиция`;
+      if (v > 0) return `ESOV +${v}% – бренд опережает рынок по голосу`;
+      if (v < 0) return `ESOV ${v}% – голос ниже SOM, давление конкурентов`;
+      return `ESOV ≈ 0% – нейтральная медиапозиция`;
     }
   }
 
@@ -720,7 +720,7 @@ export function getContextInsight(content, cabinetId) {
       const esov = Math.round((sov - som) * 10) / 10;
       if (esov > 0) return `SOV ${sov}% vs SOM ${som}% → ESOV +${esov}%`;
       if (esov < 0) return `SOV ${sov}% vs SOM ${som}% → ESOV ${esov}%`;
-      return `SOV = SOM ${sov}% - нейтральная позиция`;
+      return `SOV = SOM ${sov}% – нейтральная позиция`;
     }
   }
 
@@ -728,9 +728,9 @@ export function getContextInsight(content, cabinetId) {
   if (sovMatch) {
     const v = parseMetricValue(sovMatch[1]);
     if (!isNaN(v)) {
-      if (v >= 30) return `SOV ${v}% - сильное медиаприсутствие в категории`;
-      if (v >= 10) return `SOV ${v}% - умеренное медиаприсутствие`;
-      return `SOV ${v}% - низкий голос в категории`;
+      if (v >= 30) return `SOV ${v}% – сильное медиаприсутствие в категории`;
+      if (v >= 10) return `SOV ${v}% – умеренное медиаприсутствие`;
+      return `SOV ${v}% – низкий голос в категории`;
     }
   }
 
@@ -741,9 +741,9 @@ export function getContextInsight(content, cabinetId) {
     const v = parseInt(rawNum, 10);
     const label = (grpMatch[2] || 'GRP').toUpperCase();
     if (!isNaN(v) && v > 0 && v < 100000) {
-      if (v >= 500) return `${v} ${label} - высокое медиадавление`;
-      if (v >= 200) return `${v} ${label} - умеренное медиадавление`;
-      return `${v} ${label} - низкое медиадавление`;
+      if (v >= 500) return `${v} ${label} – высокое медиадавление`;
+      if (v >= 200) return `${v} ${label} – умеренное медиадавление`;
+      return `${v} ${label} – низкое медиадавление`;
     }
   }
 
@@ -752,9 +752,9 @@ export function getContextInsight(content, cabinetId) {
   if (reachMatch) {
     const v = parseMetricValue(reachMatch[1]);
     if (!isNaN(v) && v > 0 && v <= 100) {
-      if (v >= 70) return `Охват ${v}% - широкое покрытие аудитории`;
+      if (v >= 70) return `Охват ${v}% – широкое покрытие аудитории`;
       if (v >= 40) return `Охват ${v}% целевой аудитории`;
-      return `Охват ${v}% - ниже рекомендуемых 60%`;
+      return `Охват ${v}% – ниже рекомендуемых 60%`;
     }
   }
 

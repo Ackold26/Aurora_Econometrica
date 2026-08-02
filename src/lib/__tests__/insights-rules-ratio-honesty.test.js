@@ -55,10 +55,29 @@ describe('INV-50: modelInsights берёт честный effective ratio, не 
       },
       channelParams: { OLV: {}, Banners: {}, Social: {}, Performance: {}, TRPs: {} },
     };
+    // Где проверяем. Блок качества reportInsights печатает «Ratio N:1» в любой
+    // ветке, поэтому запасной путь там наблюдаем всегда. В modelInsights число
+    // появляется только в ветке сниженного балла: прежде тест ловил его там,
+    // потому что MQS 70 попадал в ветку «приемлемое качество» по старой шкале
+    // 80/60. По канону (85/70/55/40) 70 — это «Хорошее», ветка другая, и
+    // подстроки там нет. Инвариант теста прежний, изменилась поверхность
+    // наблюдения — сам запасной путь исправен (см. проверку ниже).
+    const rep = reportInsights({
+      mod: data,
+      dec: { baseline_pct: 83, channels: [] },
+      opt: { expected_lift_pct: 5.7, total_budget_money: 2_342_802_669 },
+      ssotRatio: SSOT_OPTIMISTIC,
+    });
+    const modelLine = rep.find((/** @type {any} */ i) => /Модель:/.test(i.text));
+    expect(modelLine).toBeTruthy();
+    expect(modelLine?.text).toMatch(/Ratio 4\.4:1/);
+
+    // 4.4 классифицируется как «достаточный» → варнинга переобучения нет,
+    // и честное 2.4 из backend'а не подставляется (его в этих данных нет).
     const insights = modelInsights(data, SSOT_OPTIMISTIC);
     const text = insights.map((/** @type {any} */ i) => `${i.text}\n${i.tip || ''}`).join('\n');
-    // 4.4 классифицируется как «достаточный» → варнинга переобучения нет, ratio 4.4
-    expect(text).toMatch(/Ratio 4\.4:1/);
+    expect(text).not.toMatch(/Ratio 2\.4:1/);
+    expect(text).not.toMatch(/Данных мало/);
   });
 });
 

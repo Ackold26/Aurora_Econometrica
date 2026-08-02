@@ -63,7 +63,7 @@
   height={H}
   viewBox="0 0 {W} {H}"
   class="adstock-preview"
-  aria-label="Adstock curve: {type}"
+  aria-label="Кривая отложенного эффекта (adstock): {type}"
 >
   <!-- Gradient fill -->
   <defs>

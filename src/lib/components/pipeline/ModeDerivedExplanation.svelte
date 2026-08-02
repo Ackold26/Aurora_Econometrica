@@ -64,9 +64,9 @@
 
   /** @type {Record<AnalysisMode, string>} */
   const MODE_DESC = {
-    roi:           'Все каналы в ₽-бюджетах — модель оценивает ROI (₽ выручки / ₽ затрат)',
-    effectiveness: 'Все каналы в физических контактах — модель оценивает долю в продажах',
-    mixed:         'Смешанный ввод — кросс-канальное сравнение через долю в продажах',
+    roi:           'Все каналы в ₽-бюджетах – модель оценивает ROI (₽ выручки / ₽ затрат)',
+    effectiveness: 'Все каналы в физических контактах – модель оценивает долю в продажах',
+    mixed:         'Смешанный ввод – кросс-канальное сравнение через долю в продажах',
   };
 
   // ─── Derived data from stores ──────────────────────────────────────
@@ -166,7 +166,7 @@
   /** Форматирование числа → читаемый вид */
   /** @param {number} n */
   function fmtNumber(n) {
-    if (n == null) return '—';
+    if (n == null) return '–';
     if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(1)} млрд`;
     if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)} млн`;
     if (n >= 1_000) return `${(n / 1_000).toFixed(0)} тыс`;
@@ -179,8 +179,8 @@
     const warnings = $validateData?.result?.warnings ?? [];
     // Ищем предупреждение для этой колонки
     const w = warnings.find((/** @type {any} */ w) => w?.column === col.name);
-    if (w?.type === 'high_zeros') return `${col?.stats?.zeros_pct ?? ''}% нулей — слишком мало данных`;
-    if (w?.type === 'low_variance') return 'Вариативность <5% — канал не информативен';
+    if (w?.type === 'high_zeros') return `${col?.stats?.zeros_pct ?? ''}% нулей – слишком мало данных`;
+    if (w?.type === 'low_variance') return 'Вариативность <5% – канал не информативен';
     if (col?.role === 'excluded') return 'Исключена пользователем';
     return 'Не используется в модели';
   }
@@ -225,7 +225,7 @@
               </span>
             {/if}
           {:else}
-            —
+            –
           {/if}
         </span>
       </div>
@@ -242,7 +242,7 @@
     </h3>
 
     {#if mediaColumns.length === 0}
-      <p class="empty-note">Медиа-каналы не обнаружены — проверьте шаг Импорт.</p>
+      <p class="empty-note">Медиа-каналы не обнаружены – проверьте шаг Импорт.</p>
     {:else}
       <div class="table-wrap">
         <table class="media-table">
@@ -280,7 +280,7 @@
                     {:else if row.rawSum != null}
                       <span class="sum-units">{fmtNumber(row.rawSum)} ед</span>
                     {:else}
-                      —
+                      –
                     {/if}
                   </td>
                 {/if}
@@ -295,7 +295,7 @@
                   {#if totalMediaRub > 0}
                     {fmtNumber(totalMediaRub)} ₽
                   {:else}
-                    —
+                    –
                   {/if}
                 </td>
               </tr>
@@ -314,7 +314,7 @@
         <span class="count-badge">{controlColumns.length}</span>
         <span
           class="help-icon"
-          title="Контрольные переменные — сезонность, праздники, промо-активности. Они объясняют движение KPI, не связанное с медиа-расходами."
+          title="Контрольные переменные – сезонность, праздники, промо-активности. Они объясняют движение KPI, не связанное с медиа-расходами."
           aria-label="Что такое внешние факторы"
         >?</span>
       </h3>
@@ -357,14 +357,14 @@
       <!-- Ratio -->
       <div class="quality-card tone-{ratioStatus}" aria-label="Запас данных">
         <span class="qc-label">Запас данных (Ratio)</span>
-        <span class="qc-value">{detectedRatio > 0 ? detectedRatio.toFixed(1) + ':1' : '—'}</span>
+        <span class="qc-value">{detectedRatio > 0 ? detectedRatio.toFixed(1) + ':1' : '–'}</span>
         <span class="qc-status">{ratioStatusLabel}</span>
       </div>
 
       <!-- Период -->
       <div class="quality-card {periodWarn ? 'tone-warn' : 'tone-ok'}" aria-label="Период">
         <span class="qc-label">Период</span>
-        <span class="qc-value">{nObs > 0 ? nObs + ' нед' : '—'}</span>
+        <span class="qc-value">{nObs > 0 ? nObs + ' нед' : '–'}</span>
         <span class="qc-status">{periodWarn ? '< 52 нед' : nObs >= 104 ? 'Отлично' : 'Достаточно'}</span>
       </div>
 
