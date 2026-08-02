@@ -114,6 +114,102 @@ export function usedGatewayNames() {
   return names;
 }
 
+/**
+ * Методы общего слоя, которые продукт зовёт НЕ через use-импорт, а на уже
+ * импортированном значении: `err.is_resend_inputs()`, `state.is_success()`.
+ *
+ * 🔴 Находка П-5, продолжение (аудит 4): `usedGatewayNames()` видит только
+ * `use aurora_gateway::cloud::{…}` — свободные ИМЕНА. Метод — другое дело, и
+ * различить «метод Core» от метода `String`/`Vec`/`Option` голым текстом,
+ * без разбора типов, НАДЁЖНО нельзя: типы Core в адаптере обычно выводятся
+ * компилятором и ни разу не названы буквально (`CloudError`/`JobState` не
+ * встречаются в тексте продукта ни разу, хотя их методы зовутся), а голая
+ * `\.(\w+)\(` даёт по 40+ разных имён на один файл адаптера — `clone`,
+ * `lock`, `unwrap_or_else`, `and_then`, `emit`, `path` и так далее; список
+ * исключений для стандартной библиотеки никогда не станет полным и был бы
+ * либо дырой (пропущенное новое имя), либо источником ложных находок.
+ *
+ * Поэтому список — явный и по каждому имени с пояснением, а не молчаливый
+ * фильтр: не «всё, что может быть методом Core», а то, что РЕАЛЬНО зовёт хоть
+ * один продукт сегодня. Пропуск здесь — не дыра: метод, которого гейт не
+ * знает, всё равно поймает настоящий `cargo check`, только медленнее и без
+ * этого текста на входе.
+ */
+const KNOWN_GATEWAY_METHODS = {
+  is_resend_inputs: 'CloudError — вложения диалога не найдены на сервере, продукт решает, пересылать ли их заново',
+  needs_inputs_resend: 'JobState — то же решение со стороны состояния уже принятого задания',
+  cancel_unconfirmed: 'JobState — отмена не подтверждена сервером',
+  is_success: 'JobState — задание завершилось успешно',
+  failure_text: 'JobState — текст отказа для человека (и скрытая диагностика узла)',
+  user_text: 'CloudError — текст для человека, без внутренних подробностей',
+};
+
+/** Методы общего слоя из {@link KNOWN_GATEWAY_METHODS}, реально вызванные в коде продукта. */
+export function usedGatewayMethods() {
+  const names = new Set();
+  const patterns = Object.keys(KNOWN_GATEWAY_METHODS).map(
+    (name) => [name, new RegExp(`\\.${name}\\s*\\(`)],
+  );
+  const walk = (dir) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const full = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        walk(full);
+      } else if (entry.name.endsWith('.rs')) {
+        const source = readFileSync(full, 'utf8');
+        for (const [name, pattern] of patterns) {
+          if (pattern.test(source)) names.add(name);
+        }
+      }
+    }
+  };
+  walk(join(TAURI_DIR, 'src'));
+  return names;
+}
+
+/**
+ * `pub fn <имя>` где-либо в дереве исходников крейта — не только в mod.rs:
+ * методы Core живут в impl-блоках `client.rs`/`protocol.rs`, а mod.rs несёт
+ * только re-export свободных имён.
+ */
+export function definedFunctionNames(crateSrcDir) {
+  const names = new Set();
+  const walk = (dir) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const full = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        walk(full);
+      } else if (entry.name.endsWith('.rs')) {
+        const source = readFileSync(full, 'utf8');
+        for (const m of source.matchAll(/\bpub\s+fn\s+([A-Za-z_][A-Za-z0-9_]*)/g)) {
+          names.add(m[1]);
+        }
+      }
+    }
+  };
+  walk(crateSrcDir);
+  return names;
+}
+
+/**
+ * Сверить, что продукт не зовёт метода общего слоя, которого в этой версии
+ * крейта нет. Отдельно от {@link assertContractSurface}: имена и методы —
+ * разные пространства (свободное имя может быть на месте, а метод на нём —
+ * ещё нет), и сверка одного не подменяет сверку другого.
+ */
+export function assertContractMethods(definedNames, describeSource) {
+  const used = usedGatewayMethods();
+  const missing = [...used].filter((name) => !definedNames.has(name));
+  if (missing.length > 0) {
+    fail(
+      `${describeSource} не содержит ${missing.join(', ')}`,
+      'метод общего слоя, который продукт зовёт, отсутствует в этой версии крейта — ' +
+        'сверьте путь/метку фрагмента и повторите, либо дождитесь новой метки Core',
+    );
+  }
+  return used.size;
+}
+
 /** Признак крейта шлюза: его присутствие в базовом манифесте — уже дефект (Н-01). */
 const GATEWAY_MARK = 'aurora_gateway';
 
@@ -485,9 +581,13 @@ export function verifyGatewaySource(source) {
       );
     }
     const modSource = readFileSync(modRs, 'utf8');
-    rmSync(tmpDir, { recursive: true, force: true });
+    // Имена и методы читаются, ПОКА клон ещё жив: методы разбросаны по
+    // impl-блокам client.rs/protocol.rs, а не только в mod.rs.
     const surface = gatewaySurface(modSource);
+    const definedMethods = definedFunctionNames(join(tmpDir, 'aurora_gateway', 'src'));
+    rmSync(tmpDir, { recursive: true, force: true });
     const size = assertContractSurface(surface, `крейт по метке ${source.tag}`);
+    assertContractMethods(definedMethods, `метка ${source.tag}`);
     info(`контракт по метке ${source.tag} проверен (продукт берёт ${size} имён, все на месте)`);
     return;
   }
@@ -504,6 +604,7 @@ export function verifyGatewaySource(source) {
   }
   const surface = gatewaySurface(readFileSync(modRs, 'utf8'));
   const size = assertContractSurface(surface, `крейт по пути ${crateDir}`);
+  assertContractMethods(definedFunctionNames(join(crateDir, 'src')), `крейт по пути ${crateDir}`);
   info(`крейт шлюза проверен: ${crateDir} (продукт берёт ${size} имён, все на месте)`);
 }
 
