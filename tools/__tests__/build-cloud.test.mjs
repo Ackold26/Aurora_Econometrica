@@ -387,6 +387,16 @@ describe('definedFunctionNames — три способа промолчать (H
     });
   });
 
+  // 🔴 Находка внешнего аудита: `blankNonCode` гасит строковые литералы вместе с
+  // кавычками, поэтому к разбору `pub extern "C" fn` приходит как
+  // `pub extern     fn`. Требование кавычек давало ложное КРАСНОЕ на исправном
+  // крейте — беда зеркальная той, ради которой формы и расширяли.
+  it('видит pub extern "C" fn — кавычки к этому месту уже погашены', () => {
+    withTree({ 'a.rs': 'impl Foo {\n    pub extern "C" fn ffi_name(&self) {}\n}\n' }, (names) => {
+      expect(names.has('Foo::ffi_name')).toBe(true);
+    });
+  });
+
   it('НЕ считает объявлением помощника из тестового модуля', () => {
     withTree({
       'a.rs': 'impl Foo {\n    pub fn real(&self) {}\n}\n'

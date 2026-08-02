@@ -316,7 +316,12 @@ export function implTypeName(header) {
  */
 export function definedFunctionNames(crateSrcDir) {
   const names = new Set();
-  const declaration = /\bpub\s+(?:const\s+|async\s+|unsafe\s+|extern\s+"[^"]*"\s+)*fn\s+([A-Za-z_][A-Za-z0-9_]*)/g;
+  // 🔴 У `extern` кавычки НЕОБЯЗАТЕЛЬНЫ (находка внешнего аудита): `blankNonCode`
+  // гасит строковые литералы вместе с кавычками ещё до этого разбора, поэтому
+  // `pub extern "C" fn` приходит сюда как `pub extern     fn`. Требование кавычек
+  // означало ложное КРАСНОЕ на исправном крейте — та самая зеркальная беда, ради
+  // которой формы объявления и расширяли.
+  const declaration = /\bpub\s+(?:const\s+|async\s+|unsafe\s+|extern\s+(?:"[^"]*"\s+)?)*fn\s+([A-Za-z_][A-Za-z0-9_]*)/g;
   const walk = (dir) => {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
       const full = join(dir, entry.name);
