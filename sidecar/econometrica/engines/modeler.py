@@ -1698,6 +1698,21 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
             'channel_adstock_types': dict(adstock_config),
         }
 
+        # ─── P0.5 (2026-08-03): sensitivity tornado at-fit-time ───
+        # Движок (sensitivity.py, 673 строки) и график (SensitivityTornado.svelte)
+        # существовали без единого вызывающего — «функция есть» ≠ «функция
+        # подключена». Считаем сразу после сборки model_data (channel_params /
+        # normalization / config уже готовы, переобучение не требуется) и
+        # кладём в diagnostics — тот же SSOT, что preflight/reproducibility.
+        # Non-fatal: тонкие/вырожденные модели получают пустой результат
+        # (guard внутри compute_sensitivity_tornado), не роняют обучение.
+        try:
+            from engines.sensitivity import compute_sensitivity_tornado
+            diagnostics['sensitivity_tornado'] = compute_sensitivity_tornado(model_data)
+        except Exception as _sens_err:  # noqa: BLE001
+            logger.warning(f'Sensitivity tornado failed (не блокирует обучение): {_sens_err}')
+            diagnostics['sensitivity_tornado'] = None
+
         # ─── Phase 2 (Planning Mode) at-fit-time persistence ───
         # Audit pass 2 2026-05-02: persist granularity + x_norm quantiles +
         # seasonality detection so planning mode requests skip lazy inference

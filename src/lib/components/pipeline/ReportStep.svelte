@@ -23,6 +23,7 @@
     validationHeaderMetrics,
   } from '$lib/project-state.js';
   import PipelineOnboarding from '$lib/components/pipeline/PipelineOnboarding.svelte';
+  import SensitivityTornado from '$lib/components/pipeline/SensitivityTornado.svelte';
   import { TOURS } from '$lib/pipeline-tours.js';
   import { shouldShowOnboarding } from '$lib/onboarding-state.js';
   import { unitCosts, activeProject, valuePerCountUnit, kpiKind } from '$lib/project-state.js';
@@ -877,6 +878,16 @@
         <div class="metric-sub">руб.</div>
       </div>
     </div>
+
+    <!-- P0.5: торнадо чувствительности — ответ на «а если модель ошиблась
+         на 20%». Только Bayesian: OLS не имеет апостериорных параметров,
+         которые можно варьировать (sensitivity.py считает по posterior mean). -->
+    {#if !isOls && mData?.diagnostics?.sensitivity_tornado?.parameters?.length}
+      <div class="card">
+        <div class="card-title">Тест устойчивости</div>
+        <SensitivityTornado tornadoData={mData.diagnostics.sensitivity_tornado} />
+      </div>
+    {/if}
   {:else}
     {@const missing = [!mData?.diagnostics && 'модель', !dData && 'декомпозиция', !oData && 'оптимизация'].filter(Boolean).join(', ')}
     <div class="no-data-banner">
