@@ -420,6 +420,11 @@ class TrainRequest(BaseModel):
     # И в train-config.js buildTrainConfig — иначе поле теряется (F-AUD-1).
     # Стережёт tools/test_frontend_schema_parity.py.
     use_seasonality: bool = True
+    # P0.2 (воспроизводимость): зерно MCMC. None → utils/seeding.resolve_seed
+    # берёт из переменной среды либо значение по умолчанию. F-AUD-1: без
+    # явного объявления Pydantic v2 молча отбросил бы поле — та же ловушка,
+    # что и с use_holidays.
+    seed: int | None = None
 
 
 class TrainStartRequest(BaseModel):
@@ -449,6 +454,8 @@ class TrainStartRequest(BaseModel):
     use_holidays: bool = True
     disabled_holidays: list[str] = []
     use_seasonality: bool = True
+    # P0.2: см. TrainRequest.seed — async-путь (GUI) обязан нести то же поле.
+    seed: int | None = None
 
 
 class DecomposeRequest(BaseModel):
