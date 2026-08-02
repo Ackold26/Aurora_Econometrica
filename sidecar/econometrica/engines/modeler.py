@@ -1066,7 +1066,13 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
                         return_inferencedata=True,
                         progressbar=True,
                         nuts_sampler='numpyro',
-                        chain_method=_chain_method,
+                        # 🔴 Раскладка цепей едет ТОЛЬКО через nuts_sampler_kwargs.
+                        # Прямой аргумент chain_method= PyMC 5.28 молча
+                        # проглатывает (_sample_external_nuts пробрасывает во
+                        # внешний сэмплер лишь nuts_sampler_kwargs) — тогда
+                        # берётся дефолт 'parallel', а вся логика выбора выше
+                        # становится мёртвой. Проверено зондом 2026-08-03.
+                        nuts_sampler_kwargs={'chain_method': _chain_method},
                         target_accept=0.95,  # Phase 0.1 live-test: funnel posterior на тонких данных требует tighter step (default 0.8 даёт 70+ divergences)
                     )
                     mark_sampler_tier(reproducibility, TIER_NUMPYRO)

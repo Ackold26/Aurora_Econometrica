@@ -174,6 +174,45 @@ def test_no_global_numpy_seed_in_engine():
     )
 
 
+def test_chain_method_goes_through_nuts_sampler_kwargs():
+    """Раскладка цепей передаётся через nuts_sampler_kwargs, не прямым аргументом.
+
+    PyMC 5.28 пробрасывает во внешний сэмплер (numpyro) ТОЛЬКО содержимое
+    nuts_sampler_kwargs. Прямой аргумент pm.sample(chain_method=...) молча
+    проглатывается: ошибки нет, но применяется дефолт 'parallel', а вся
+    логика выбора раскладки в modeler.py становится мёртвой. Именно так и
+    было до 2026-08-03 – поймано зондом с перехватом вызова, не тестами.
+    """
+    tree = _parse_file(_MODELER_PY)
+    calls = _find_pm_sample_calls(tree)
+    assert len(calls) >= 3, 'обход дерева не нашёл вызовов pm.sample – почини тест'
+
+    direct_chain_method = []
+    numpyro_calls_without_kwargs = []
+    for call in calls:
+        kw = {k.arg: k.value for k in call.keywords if k.arg is not None}
+        if 'chain_method' in kw:
+            direct_chain_method.append(call.lineno)
+        sampler = kw.get('nuts_sampler')
+        is_numpyro = (
+            isinstance(sampler, ast.Constant) and sampler.value == 'numpyro'
+        )
+        if is_numpyro and 'nuts_sampler_kwargs' not in kw:
+            numpyro_calls_without_kwargs.append(call.lineno)
+
+    assert not direct_chain_method, (
+        'pm.sample(chain_method=...) прямым аргументом в modeler.py, строки: '
+        f'{direct_chain_method} – PyMC его молча проглотит, раскладка возьмётся '
+        'дефолтная, а логика выбора выше станет мёртвой. Передавать через '
+        'nuts_sampler_kwargs={"chain_method": ...}.'
+    )
+    assert not numpyro_calls_without_kwargs, (
+        'вызов numpyro-сэмплера без nuts_sampler_kwargs в modeler.py, строки: '
+        f'{numpyro_calls_without_kwargs} – раскладка цепей до сэмплера не '
+        'доедет, паспорт воспроизводимости будет обещать несделанное.'
+    )
+
+
 def test_backtest_seeds_retraining_config_at_least_twice():
     """backtest.py кладёт зерно в train_config не меньше двух раз."""
     tree = _parse_file(_BACKTEST_PY)
