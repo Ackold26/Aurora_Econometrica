@@ -18,6 +18,9 @@ import {
   weightedPhrase as _weightedPhrase,
   underBreakevenPhrase as _underBreakeven,
   topMetricBenchmark as _topBenchmark,
+  // База окупаемости — общая с экранами и советником: слово «окупается» без
+  // указания базы читается как вывод о прибыли, а в режиме выручки это оборот.
+  roiBaseNote as _roiBaseNote,
 } from './kpi-aware-formatting.js';
 // v2.1.0 (пилот 2026-05-16): SSOT-классификатор ratio для согласованности
 // меток с RatioInfoCard / sticky header / Контроль качества.
@@ -1926,9 +1929,10 @@ export function optimizeInsights(data, ctx = {}) {
       // результата: для count это штуки (лиды/упаковки), НЕ ₽ (аудит 2026-07-11) → подпись
       // из паспорта kpi.targetUnit ('₽' для monetary, 'лид.'/'упак.' для count).
       text: `${portfolioPhrase} – ${roiComment}. На ${Math.round(totalSpendDec).toLocaleString('ru-RU')}₽ обучающего расхода – медиа-вклад ${Math.round(totalContribDec).toLocaleString('ru-RU')} ${kpi.targetUnit || '₽'} (без baseline).`,
-      tip: kpi.isLegacy
+      tip: (kpi.isLegacy
         ? 'ROI рассчитан на обучающих данных (вся история). Прогноз для бюджета планирования может отличаться – см. блок B Прогноз KPI.\n\nBenchmark: ROI ≥ 2× – отлично; 1-2× – приемлемо, нужно улучшать микс; < 1× – медиа в среднем работает в убыток, требуется пересмотр каналов или креатива.'
-        : `Метрика рассчитана на обучающих данных (вся история). Прогноз для бюджета планирования может отличаться.\n\nBenchmark: ${_topBenchmark(kpi)} – отлично; на грани с ценностью – приемлемо; выше ценности – убыточно.`,
+        : `Метрика рассчитана на обучающих данных (вся история). Прогноз для бюджета планирования может отличаться.\n\nBenchmark: ${_topBenchmark(kpi)} – отлично; на грани с ценностью – приемлемо; выше ценности – убыточно.`
+      ) + `\n\n${_roiBaseNote(kpi)}`,
     });
   }
 

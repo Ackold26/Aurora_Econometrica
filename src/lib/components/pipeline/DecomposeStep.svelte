@@ -22,10 +22,12 @@
     unitCostInflation,
     // v1.3.0 stores (per ADR-015, ADR-016)
     kpiKind,
+    kpiType,
     derivedMode,
     valuePerCountUnit,
     modelStaleStatus,
   } from '$lib/project-state.js';
+  import { roiBaseNote } from '$lib/kpi-aware-formatting.js';
   import WaterfallChart from '$lib/components/pipeline/WaterfallChart.svelte';
   import ChannelComparisonChart from '$lib/components/pipeline/ChannelComparisonChart.svelte';
   import RecommendationCard from '$lib/components/pipeline/RecommendationCard.svelte';
@@ -249,6 +251,17 @@
   const modelIsUnreliable = $derived(
     modelHonestyVerdict === 'unreliable' || modelHonestyVerdict === 'uncertain'
   );
+
+  // Пояснение базы окупаемости. Подсказки ниже говорят «окупается» и «убыточен»,
+  // но в режиме выручки это окупаемость ПО ОБОРОТУ, из которой прибыльность не
+  // следует. Базу считает общий `roiBaseNote` — тот же, что у советника и у
+  // детерминированных инсайтов, чтобы формулировки не разошлись между экранами.
+  const roiNote = $derived(roiBaseNote({
+    kpiKind: $kpiKind,
+    kpiType: $kpiType,
+    vpcu: $valuePerCountUnit,
+    mode: $derivedMode,
+  }));
 
   // Help-tooltips для основной таблицы «Детализация по каналам».
   const CH_HELP = {
@@ -603,11 +616,11 @@
               <th class="num">Расходы<span class="help-icon" title={CH_HELP.spend}>?</span></th>
               <th class="num">Вклад<span class="help-icon" title={CH_HELP.contrib}>?</span></th>
               <th class="num">
-                {metricLabel[displayMetric]}<span class="help-icon" title={CH_HELP.roi}>?</span>
+                {metricLabel[displayMetric]}<span class="help-icon" title={`${CH_HELP.roi}\n\n${roiNote}`}>?</span>
               </th>
               <th class="num">Gap<span class="help-icon" title={CH_HELP.gap}>?</span></th>
               <th class="num">Decay<span class="help-icon" title="Adstock decay - доля медиа-эффекта переносимая на следующий период. 0 = моментальный эффект (1 период), 0.7 ≈ 3-4 периода эффективной длительности (long brand). 50%-й правдоподобный диапазон показывает posterior uncertainty (Trust Level 3, v1.1.0).">?</span></th>
-              <th>Вердикт<span class="help-icon" title={CH_HELP.verdict}>?</span></th>
+              <th>Вердикт<span class="help-icon" title={`${CH_HELP.verdict}\n\n${roiNote}`}>?</span></th>
             </tr>
           </thead>
           <tbody>

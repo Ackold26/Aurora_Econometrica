@@ -16,6 +16,10 @@
  */
 
 import { buildHelpContext } from './program-help.js';
+// База окупаемости считается ОДНОЙ функцией на весь фронт: её же читают экраны
+// и детерминированные инсайты. Своя копия здесь завела бы второй источник —
+// ровно тот дефект, который лечили на ярусах MQS.
+import { roiBase } from './kpi-aware-formatting.js';
 import { humanizeSource } from './rag-query.js';
 
 /** Шаги пайплайна (совпадает с $pipelineCurrentStep в InsightsPanel). */
@@ -168,37 +172,6 @@ function stripOptTelemetry(opt) {
 }
 
 /**
- * База, по которой считается окупаемость канала — от неё зависит, законно ли
- * называть канал прибыльным.
- *
- * ЗАЧЕМ. ROI=1 в режиме «Выручка» означает окупаемость ПО ОБОРОТУ: канал вернул
- * потраченное выручкой, но прибылен ли он — из этого не следует (себестоимость в
- * выручке не вычтена). Советник же до 2026-08-02 говорил «прибылен канал или
- * убыточен» безотносительно выбранной метрики, то есть выдавал окупаемость по
- * обороту за прибыльность. Расчёт при этом корректен — неточна была речь.
- *
- * Режимы берутся из реестра `utils/kpi_registry.py`: `profit` отличается от
- * `sales`/`revenue` только данными (вычтен COGS), модель внутренне одна и та же.
- * В счётном режиме ценность единицы — это маржа («Маржа на упаковку, ₽»), значит
- * база тоже прибыль; без неё абсолютные пороги окупаемости в движке честно
- * отключаются (`engines/channel_action.py`, ветка `money_roi_unavailable`), и
- * называть базу нечем.
- *
- * @param {{kpiType?: string, kpiKind?: string, valuePerCountUnit?: number|null}} p
- * @returns {'оборот'|'прибыль'|'не определена'}
- */
-export function resolveRoiBase({ kpiType, kpiKind, valuePerCountUnit } = {}) {
-  if (kpiKind === 'count') {
-    return typeof valuePerCountUnit === 'number' && valuePerCountUnit > 0
-      ? 'прибыль'
-      : 'не определена';
-  }
-  if (kpiType === 'profit') return 'прибыль';
-  if (kpiType === 'sales' || kpiType === 'revenue') return 'оборот';
-  return 'не определена';
-}
-
-/**
  * Собрать Tier-2 контекст для текущего шага.
  * facts = компактная сводка (фокус промпта). grounding.jsonFacts = ПОЛНЫЕ
  * факты шага (богатый набор, чтобы guard не флагал легитимное цитирование).
@@ -260,7 +233,7 @@ export function buildTier2Context(input) {
   // База окупаемости — единственный источник для правила 7: слово «прибыльный»
   // законно только когда база «прибыль». Кладётся ПОСЛЕ switch: там facts
   // присваивается целиком, и поле, добавленное раньше, потерялось бы.
-  facts.roi_base = resolveRoiBase({ kpiType, kpiKind, valuePerCountUnit });
+  facts.roi_base = roiBase({ kpiType, kpiKind, vpcu: valuePerCountUnit });
 
   // Справочный контекст программы (карта + релевантные термины). Идёт в промпт
   // И в grounding: его числа — методологические нормативы из справки (пороги

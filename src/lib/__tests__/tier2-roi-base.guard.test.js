@@ -16,49 +16,72 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import {
-  buildTier2Context,
-  resolveRoiBase,
-  STEP,
-  TIER2_SYSTEM_RULES,
-} from '../tier2-context.js';
+import { roiBase, roiBaseNote } from '../kpi-aware-formatting.js';
+import { buildTier2Context, STEP, TIER2_SYSTEM_RULES } from '../tier2-context.js';
 
-describe('resolveRoiBase — база выводится из выбранной метрики', () => {
+describe('roiBase — база выводится из выбранной метрики', () => {
   it('режим «Выручка» → оборот', () => {
-    expect(resolveRoiBase({ kpiType: 'sales', kpiKind: 'monetary' })).toBe('оборот');
+    expect(roiBase({ kpiType: 'sales', kpiKind: 'monetary' })).toBe('оборот');
   });
 
   it('устаревший ключ revenue → тоже оборот', () => {
     // Старые проекты сохраняли kpi_type='revenue' (дубликат убран из выбора
     // в v2.1.0, но в сохранённых проектах остался) — они не должны провалиться
     // в «не определена» и потерять слова про окупаемость.
-    expect(resolveRoiBase({ kpiType: 'revenue', kpiKind: 'monetary' })).toBe('оборот');
+    expect(roiBase({ kpiType: 'revenue', kpiKind: 'monetary' })).toBe('оборот');
+  });
+
+  it('денежный проект без паспорта KPI (legacy) → оборот, а не «не определена»', () => {
+    // У старых проектов kpiType нет вовсе, а ROI исторически считался от продаж
+    // в рублях. Уронить их в «не определена» значило бы отобрать слова про
+    // окупаемость без причины — регресс там, где ошибки не было.
+    expect(roiBase({ kpiKind: 'monetary', kpiType: null })).toBe('оборот');
   });
 
   it('режим «Прибыль» → прибыль', () => {
-    expect(resolveRoiBase({ kpiType: 'profit', kpiKind: 'monetary' })).toBe('прибыль');
+    expect(roiBase({ kpiType: 'profit', kpiKind: 'monetary' })).toBe('прибыль');
   });
 
   it('счётный режим с маржой на единицу → прибыль', () => {
-    expect(
-      resolveRoiBase({ kpiType: 'sales_packs', kpiKind: 'count', valuePerCountUnit: 42 }),
-    ).toBe('прибыль');
+    expect(roiBase({ kpiType: 'sales_packs', kpiKind: 'count', vpcu: 42 })).toBe('прибыль');
   });
 
   it('счётный режим без маржи → база не определена (пороги в движке отключены)', () => {
-    expect(resolveRoiBase({ kpiType: 'leads', kpiKind: 'count' })).toBe('не определена');
-    expect(
-      resolveRoiBase({ kpiType: 'leads', kpiKind: 'count', valuePerCountUnit: 0 }),
-    ).toBe('не определена');
+    expect(roiBase({ kpiType: 'leads', kpiKind: 'count' })).toBe('не определена');
+    expect(roiBase({ kpiType: 'leads', kpiKind: 'count', vpcu: 0 })).toBe('не определена');
   });
 
-  it('метрика неизвестна или не выбрана → база не определена, а не «оборот» по умолчанию', () => {
-    // Недоказанное не выдаём за доказанное: молчаливый дефолт «оборот» вернул бы
-    // ровно ту ошибку, ради которой заведён этот сторож.
-    expect(resolveRoiBase({})).toBe('не определена');
-    expect(resolveRoiBase({ kpiType: 'share_of_market', kpiKind: 'proportional' })).toBe(
+  it('режим эффективности считает доли, а не деньги → базы нет', () => {
+    expect(roiBase({ kpiKind: 'monetary', kpiType: 'sales', mode: 'effectiveness' })).toBe(
       'не определена',
     );
+  });
+
+  it('ничего не известно → база не определена', () => {
+    expect(roiBase({})).toBe('не определена');
+    expect(roiBase(null)).toBe('не определена');
+    expect(roiBase({ kpiType: 'share_of_market', kpiKind: 'proportional' })).toBe(
+      'не определена',
+    );
+  });
+});
+
+describe('roiBaseNote — пояснение соответствует базе', () => {
+  it('при обороте прямо предупреждает, что прибыльность не следует', () => {
+    const note = roiBaseNote({ kpiType: 'sales', kpiKind: 'monetary' });
+    expect(note).toContain('по обороту');
+    expect(note).toContain('не следует');
+  });
+
+  it('при прибыли говорит о прибыли и не путает базы', () => {
+    const note = roiBaseNote({ kpiType: 'profit', kpiKind: 'monetary' });
+    expect(note).toContain('по прибыли');
+    expect(note).not.toContain('по обороту');
+  });
+
+  it('без экономики честно называет пороги отключёнными', () => {
+    const note = roiBaseNote({ kpiType: 'leads', kpiKind: 'count' });
+    expect(note).toContain('отключены');
   });
 });
 
