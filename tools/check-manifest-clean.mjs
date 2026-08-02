@@ -29,6 +29,18 @@ const LEFTOVERS = [
 /** Замок живого прогона: он же брошенный след, если прогон мёртв. */
 const RUN_LOCK = join(ROOT, 'src-tauri', '.cloud-build-running');
 
+/** Жив ли процесс с таким номером (проверка существования, без посылки сигнала). */
+function alive(pid) {
+  if (!Number.isInteger(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (e) {
+    // EPERM — процесс есть, но чужой: значит жив.
+    return e && e.code === 'EPERM';
+  }
+}
+
 const problems = [];
 
 if (!existsSync(MANIFEST)) {
