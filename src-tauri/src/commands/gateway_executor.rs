@@ -28,8 +28,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use anyhow::Result;
 use aurora_gateway::cloud::{
     cabinets_mismatch_text, inputs_fingerprint, check_cabinets_version, decide_ticket, missing_exports_text,
-    CabinetsVersionCheck, CloudClient, CloudError, DeviceIdentity, IdentityStore, InputFile,
-    JobRequest, JobState, TicketDecision, TicketProblem,
+    unconfirmed_cancel_text, CabinetsVersionCheck, CloudClient, CloudError, DeviceIdentity,
+    IdentityStore, InputFile, JobRequest, JobState, TicketDecision, TicketProblem,
 };
 use log::{debug, info, warn};
 use tauri::{Emitter, Manager};
@@ -404,6 +404,29 @@ fn should_resend_inputs(went_without_files: bool, outcome: &Result<JobState, Clo
     went_without_files && matches!(outcome, Err(e) if e.is_resend_inputs())
 }
 
+/// Номер работы, снятие которой сервер НЕ подтвердил, — из отказа, который
+/// программа исправляет сама.
+///
+/// 🔴 Без этого автоповтор глотал отказ целиком, а вместе с ним и номер:
+/// осиротевшее задание остаётся на узле, занимает место среди одновременных, и
+/// следующий вопрос человека упирается в потолок работ без объяснимой причины —
+/// хотя не выполняется ничего. Отдельной функцией, чтобы решение проверялось
+/// таблицей, а не только глазами в теле цикла.
+fn stray_job_of(outcome: &Result<JobState, CloudError>) -> Option<String> {
+    outcome.as_ref().err().and_then(|e| e.stray_job()).map(str::to_string)
+}
+
+/// Приписка к ответу, когда остановка не доехала до сервера.
+///
+/// 🔴 Пометка `cancel_unconfirmed` жила в состоянии задания с прошлого блока, а
+/// текст к ней (`unconfirmed_cancel_text`) не звал никто: человек нажимал
+/// «Остановить», работа могла остаться идти — и об этом ему не говорили вовсе.
+fn cancel_notice(state: &JobState) -> Option<String> {
+    state
+        .cancel_unconfirmed()
+        .then(|| unconfirmed_cancel_text(&state.job_id))
+}
+
 /// Что сделать с памятью набора после успешной работы.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum InputsVerdict {
@@ -742,6 +765,10 @@ async fn execute(
     // разбирает причину машинно и отправляет их заново сама.
     let mut keep = unchanged;
     let mut shown = String::new();
+    // Номер работы, снятие которой сервер не подтвердил при автоповторе. Живёт
+    // ВНЕ цикла: сам повтор отказ выбрасывает, и рассказать о нём человеку можно
+    // только в конце, вместе с ответом.
+    let mut stray_job: Option<String> = None;
     let (inputs, skipped, outcome) = loop {
         let (inputs, skipped) = if keep {
             info!("Вложения диалога уже на сервере [{cabinet_id}]: файлы не перечитываются");
@@ -828,6 +855,14 @@ async fn execute(
         // прийти не может. Больше одного значило бы гонять вложения по кругу.
         if should_resend_inputs(keep, &outcome) {
             info!("Сервер не нашёл вложений диалога [{cabinet_id}]: отправляю их заново");
+            // 🔴 Отказ программа исправляет сама, но одну его подробность глотать
+            // нельзя: задание, снятие которого сервер не подтвердил, осталось на
+            // узле и занимает место среди одновременных. Молчание здесь означает,
+            // что человек упрётся в потолок работ без объяснимой причины.
+            if let Some(id) = stray_job_of(&outcome) {
+                warn!("Прежняя работа не снята сервером [{cabinet_id}]: {id}");
+                stray_job = Some(id);
+            }
             keep = false;
             shown.clear();
             continue;
@@ -888,7 +923,14 @@ async fn execute(
                 serde_json::json!({ "exit_code": 0, "cancelled": true }),
             );
         }
-        return Ok((None, state.text));
+        // 🔴 Остановка, которую сервер не подтвердил, обязана быть названа: работа
+        // могла остаться идти и занимать место среди одновременных.
+        let mut text = state.text.clone();
+        if let Some(notice) = cancel_notice(&state) {
+            warn!("Остановка не подтверждена сервером [{cabinet_id}]: {}", state.job_id);
+            text.push_str(&notice);
+        }
+        return Ok((None, text));
     }
     if !state.is_success() {
         let (text, hidden) = state.failure_text();
@@ -939,6 +981,13 @@ async fn execute(
     // общий для линейки и живёт в Core.
     if let Some(notice) = missing_exports_text(&failed) {
         text.push_str(&notice);
+    }
+    // 🔴 Работа, оставшаяся на узле после автоповтора, называется здесь — это
+    // единственное место, где о ней вообще можно сказать: сам отказ повтор уже
+    // выбросил, а следующий вопрос упрётся в потолок работ без объяснимой
+    // причины.
+    if let Some(id) = &stray_job {
+        text.push_str(&unconfirmed_cancel_text(id));
     }
 
     if !suppress_done {
@@ -1438,6 +1487,55 @@ mod tests {
             "после неуспеха память обязана сняться: иначе следующий вопрос уйдёт с тем же \
              признаком, получит тот же отказ, и человек попадёт в круг, из которого сам не выйдет",
         );
+    }
+
+    #[test]
+    fn resend_does_not_swallow_the_number_of_the_stray_job() {
+        // 🔴 Автоповтор выбрасывает отказ целиком — и вместе с ним номер работы,
+        // снятие которой сервер не подтвердил. Она осталась на узле и занимает
+        // место среди одновременных: следующий вопрос человека упрётся в потолок
+        // работ без объяснимой причины, хотя не выполняется ничего.
+        let stray: Result<JobState, CloudError> =
+            Err(CloudError::ResendInputs { stray_job: Some("job-77".to_string()) });
+        assert_eq!(
+            stray_job_of(&stray).as_deref(),
+            Some("job-77"),
+            "номер осиротевшей работы потерян — человеку сказать будет нечего",
+        );
+
+        // Работа успела закончиться сама: снимать было нечего, и говорить не о чем.
+        let clean: Result<JobState, CloudError> =
+            Err(CloudError::ResendInputs { stray_job: None });
+        assert_eq!(stray_job_of(&clean), None);
+
+        // Чужие исходы номера не выдумывают.
+        let broken: Result<JobState, CloudError> = Err(CloudError::Connection("обрыв".into()));
+        assert_eq!(stray_job_of(&broken), None);
+        let done: Result<JobState, CloudError> = Ok(JobState::default());
+        assert_eq!(stray_job_of(&done), None);
+    }
+
+    #[test]
+    fn unconfirmed_stop_is_named_to_the_person() {
+        // 🔴 Пометка о неподтверждённой остановке жила в состоянии задания, а
+        // текст к ней не звал никто: человек нажимал «Остановить», работа могла
+        // остаться идти — и об этом ему не говорили вовсе.
+        let unconfirmed = JobState {
+            job_id: "job-9".to_string(),
+            status: "cancelled".to_string(),
+            error_code: Some("cancel_unconfirmed".to_string()),
+            ..JobState::default()
+        };
+        let notice = cancel_notice(&unconfirmed).expect("остановка не подтверждена, а человек не извещён");
+        assert!(notice.contains("job-9"), "номер работы не назван: {notice}");
+
+        // Обычная отмена подтверждена сервером — тревожить человека нечем.
+        let plain = JobState {
+            job_id: "job-9".to_string(),
+            status: "cancelled".to_string(),
+            ..JobState::default()
+        };
+        assert_eq!(cancel_notice(&plain), None);
     }
 
     #[test]
