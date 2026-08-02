@@ -1442,7 +1442,7 @@ mod tests {
 
     #[test]
     fn resend_answers_only_the_missing_inputs_refusal() {
-        let missing: Result<JobState, CloudError> = Err(CloudError::ResendInputs);
+        let missing: Result<JobState, CloudError> = Err(CloudError::ResendInputs { stray_job: None });
         assert!(
             should_resend_inputs(true, &missing),
             "шли без файлов, сервер их не нашёл — единственный отказ, который программа \

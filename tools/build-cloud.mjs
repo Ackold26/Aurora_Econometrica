@@ -51,6 +51,7 @@
 import { spawn, spawnSync } from 'node:child_process';
 import {
   existsSync, readFileSync, readdirSync, writeFileSync, copyFileSync, rmSync, mkdtempSync,
+  realpathSync,
 } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -135,13 +136,19 @@ export function usedGatewayNames() {
  * знает, всё равно поймает настоящий `cargo check`, только медленнее и без
  * этого текста на входе.
  */
-const KNOWN_GATEWAY_METHODS = {
-  is_resend_inputs: 'CloudError — вложения диалога не найдены на сервере, продукт решает, пересылать ли их заново',
-  needs_inputs_resend: 'JobState — то же решение со стороны состояния уже принятого задания',
-  cancel_unconfirmed: 'JobState — отмена не подтверждена сервером',
-  is_success: 'JobState — задание завершилось успешно',
-  failure_text: 'JobState — текст отказа для человека (и скрытая диагностика узла)',
-  user_text: 'CloudError — текст для человека, без внутренних подробностей',
+export const KNOWN_GATEWAY_METHODS = {
+  is_resend_inputs: {
+    type: 'CloudError',
+    why: 'вложения диалога не найдены на сервере, продукт решает, пересылать ли их заново',
+  },
+  needs_inputs_resend: {
+    type: 'JobState',
+    why: 'то же решение со стороны состояния уже принятого задания',
+  },
+  cancel_unconfirmed: { type: 'JobState', why: 'отмена не подтверждена сервером' },
+  is_success: { type: 'JobState', why: 'задание завершилось успешно' },
+  failure_text: { type: 'JobState', why: 'текст отказа для человека (и скрытая диагностика узла)' },
+  user_text: { type: 'CloudError', why: 'текст для человека, без внутренних подробностей' },
 };
 
 /** Методы общего слоя из {@link KNOWN_GATEWAY_METHODS}, реально вызванные в коде продукта. */
@@ -168,21 +175,168 @@ export function usedGatewayMethods() {
 }
 
 /**
- * `pub fn <имя>` где-либо в дереве исходников крейта — не только в mod.rs:
- * методы Core живут в impl-блоках `client.rs`/`protocol.rs`, а mod.rs несёт
- * только re-export свободных имён.
+ * Заменить пробелами всё, что кодом не является: комментарии и литералы.
+ *
+ * 🔴 Длина текста сохраняется в точности — позиции найденного в очищенном тексте
+ * годятся и для исходного. Нужно это ради двух бед сразу: `#[cfg(test)]` внутри
+ * строки или комментария не должен гасить живой код, а фигурная скобка в
+ * литерале не должна сбивать счёт вложенности при поиске конца блока.
+ */
+export function blankNonCode(source) {
+  const out = source.split('');
+  const blank = (from, to) => {
+    for (let k = from; k < to && k < out.length; k += 1) {
+      if (out[k] !== '\n') out[k] = ' ';
+    }
+  };
+  let i = 0;
+  while (i < source.length) {
+    const two = source.slice(i, i + 2);
+    if (two === '//') {
+      let end = source.indexOf('\n', i);
+      if (end === -1) end = source.length;
+      blank(i, end);
+      i = end;
+    } else if (two === '/*') {
+      // Блочные комментарии в Rust вкладываются друг в друга.
+      let depth = 1;
+      let k = i + 2;
+      while (k < source.length && depth > 0) {
+        if (source.slice(k, k + 2) === '/*') { depth += 1; k += 2; } else if (source.slice(k, k + 2) === '*/') { depth -= 1; k += 2; } else k += 1;
+      }
+      blank(i, k);
+      i = k;
+    } else if (source[i] === 'r' && /["#]/.test(source[i + 1] || '')) {
+      // Сырая строка: r"…" либо r#"…"# с любым числом решёток.
+      let k = i + 1;
+      let hashes = 0;
+      while (source[k] === '#') { hashes += 1; k += 1; }
+      if (source[k] !== '"') { i += 1; continue; }
+      const closing = `"${'#'.repeat(hashes)}`;
+      const end = source.indexOf(closing, k + 1);
+      const stop = end === -1 ? source.length : end + closing.length;
+      blank(i, stop);
+      i = stop;
+    } else if (source[i] === '"') {
+      let k = i + 1;
+      while (k < source.length && source[k] !== '"') k += source[k] === '\\' ? 2 : 1;
+      blank(i, k + 1);
+      i = k + 1;
+    } else if (source[i] === "'") {
+      // 🔴 Апостроф в Rust — либо символьный литерал, либо имя времени жизни
+      // (`'a`), у которого закрывающей кавычки нет вовсе. Гасить время жизни
+      // как строку значило бы съесть весь остаток файла до следующего
+      // апострофа — вместе с объявлениями, которые ищем.
+      const isChar = source[i + 1] === '\\' || source[i + 2] === "'";
+      if (!isChar) { i += 1; continue; }
+      let k = i + 1;
+      while (k < source.length && source[k] !== "'") k += source[k] === '\\' ? 2 : 1;
+      blank(i, k + 1);
+      i = k + 1;
+    } else i += 1;
+  }
+  return out.join('');
+}
+
+/** Конец блока, начинающегося фигурной скобкой на позиции `open` (текст без литералов). */
+function blockEnd(code, open) {
+  let depth = 0;
+  for (let k = open; k < code.length; k += 1) {
+    if (code[k] === '{') depth += 1;
+    else if (code[k] === '}') {
+      depth -= 1;
+      if (depth === 0) return k + 1;
+    }
+  }
+  return code.length;
+}
+
+/**
+ * Погасить тела `#[cfg(test)]`: набор проверок крейта контрактом не является.
+ *
+ * 🔴 Находка пятого аудита: без этого одноимённый помощник в тестовом модуле
+ * («`fn is_success()` для удобства проверок») зеленил гейт на крейте, где
+ * настоящего метода уже нет. Приём взят у `check_ui_seam.py`: атрибут перед
+ * формой БЕЗ тела (`mod tests;`) ничего не прячет — различаем по тому, что
+ * встретится раньше, `;` или `{`.
+ */
+export function stripTestModules(code) {
+  const attr = /#\[\s*cfg\s*\([^\]]*\btest\b[^\]]*\)\s*\]/g;
+  let text = code;
+  let from = 0;
+  for (;;) {
+    attr.lastIndex = from;
+    const found = attr.exec(text);
+    if (!found) return text;
+    const after = found.index + found[0].length;
+    const brace = text.indexOf('{', after);
+    const semi = text.indexOf(';', after);
+    if (brace === -1 || (semi !== -1 && semi < brace)) {
+      from = after;
+      continue;
+    }
+    const stop = blockEnd(text, brace);
+    const gap = text.slice(found.index, stop).replace(/[^\n]/g, ' ');
+    text = text.slice(0, found.index) + gap + text.slice(stop);
+    from = stop;
+  }
+}
+
+/** Имя типа из заголовка impl-блока: `impl<'a> Foo<'a>` → Foo, `impl Trait for X` → X. */
+export function implTypeName(header) {
+  let text = header;
+  const forAt = text.search(/\bfor\b/);
+  if (forAt !== -1) text = text.slice(forAt + 3);
+  // Дженерики снимаются вместе с вложенными: `Foo<Bar<Baz>>` → `Foo`.
+  for (let pass = 0; pass < 4 && /</.test(text); pass += 1) {
+    text = text.replace(/<[^<>]*>/g, ' ');
+  }
+  text = text.split(/\bwhere\b/)[0];
+  const parts = text.trim().split(/\s+/).filter(Boolean);
+  const last = parts.length > 0 ? parts[parts.length - 1] : '';
+  const segments = last.split('::').filter(Boolean);
+  const name = segments.length > 0 ? segments[segments.length - 1] : '';
+  return /^[A-Za-z_][A-Za-z0-9_]*$/.test(name) ? name : '';
+}
+
+/**
+ * Объявления крейта: и голое имя, и `Тип::имя` для методов в impl-блоках.
+ *
+ * 🔴 Три находки пятого аудита разом, все класса «зелёное на сломанном контракте»:
+ *
+ *   1. Метод искался по всему дереву БЕЗ привязки к типу — а `user_text` в Core
+ *      определён и у `CloudError`, и у `TicketProblem`. Пропади нужный —
+ *      гейт молчал бы, потому что имя в дереве осталось.
+ *   2. Тестовые модули считались наравне с рабочим кодом (см. stripTestModules).
+ *   3. Форму `pub async fn` / `pub const fn` регулярка не видела вовсе — это
+ *      зеркальная беда, ложное КРАСНОЕ на исправном крейте.
+ *
+ * `pub(crate) fn` намеренно НЕ считается объявлением: снаружи такой метод
+ * недоступен, и продукт его позвать не может.
  */
 export function definedFunctionNames(crateSrcDir) {
   const names = new Set();
+  const declaration = /\bpub\s+(?:const\s+|async\s+|unsafe\s+|extern\s+"[^"]*"\s+)*fn\s+([A-Za-z_][A-Za-z0-9_]*)/g;
   const walk = (dir) => {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
       const full = join(dir, entry.name);
       if (entry.isDirectory()) {
         walk(full);
       } else if (entry.name.endsWith('.rs')) {
-        const source = readFileSync(full, 'utf8');
-        for (const m of source.matchAll(/\bpub\s+fn\s+([A-Za-z_][A-Za-z0-9_]*)/g)) {
-          names.add(m[1]);
+        const code = stripTestModules(blankNonCode(readFileSync(full, 'utf8')));
+        for (const m of code.matchAll(declaration)) names.add(m[1]);
+        const impls = /\bimpl\b/g;
+        let found = impls.exec(code);
+        while (found) {
+          const brace = code.indexOf('{', found.index);
+          if (brace === -1) break;
+          const type = implTypeName(code.slice(found.index + 4, brace));
+          const body = code.slice(brace, blockEnd(code, brace));
+          if (type) {
+            for (const m of body.matchAll(declaration)) names.add(`${type}::${m[1]}`);
+          }
+          impls.lastIndex = brace + 1;
+          found = impls.exec(code);
         }
       }
     }
@@ -199,7 +353,14 @@ export function definedFunctionNames(crateSrcDir) {
  */
 export function assertContractMethods(definedNames, describeSource) {
   const used = usedGatewayMethods();
-  const missing = [...used].filter((name) => !definedNames.has(name));
+  // 🔴 Спрашиваем ИМЕННО `Тип::метод`: голое имя в дереве крейта ничего не
+  // доказывает — оно может принадлежать другому типу (в Core `user_text` есть
+  // и у `CloudError`, и у `TicketProblem`).
+  const qualified = (name) => {
+    const type = KNOWN_GATEWAY_METHODS[name] && KNOWN_GATEWAY_METHODS[name].type;
+    return type ? `${type}::${name}` : name;
+  };
+  const missing = [...used].map(qualified).filter((name) => !definedNames.has(name));
   if (missing.length > 0) {
     fail(
       `${describeSource} не содержит ${missing.join(', ')}`,
@@ -536,17 +697,103 @@ export function fetchGatewaySourceAtTag(url, tag) {
   return dir;
 }
 
+/**
+ * Запись, на которую метка указывает СЕЙЧАС, из вывода `git ls-remote --tags`.
+ *
+ * У аннотированной метки строк две: сам объект метки и разыменованная запись
+ * (`^{}`) — брать надо вторую, потому что именно её пишет в замок зависимостей
+ * cargo. У лёгкой метки строка одна и она же и есть запись.
+ */
+export function tagCommitFromLsRemote(stdout, tag) {
+  let plain = null;
+  for (const line of String(stdout || '').split('\n')) {
+    const m = line.match(/^([0-9a-f]{40})\s+refs\/tags\/(.+?)(\^\{\})?\s*$/);
+    if (!m || m[2] !== tag) continue;
+    if (m[3]) return m[1];
+    plain = m[1];
+  }
+  return plain;
+}
+
+/**
+ * Крейт шлюза в замке зависимостей: по какой метке и на какой записи он взят.
+ *
+ * Возвращает `null`, если крейта в замке нет вовсе, и `{ tag, sha }` — если есть
+ * (любое из полей может быть `null`, когда строку источника разобрать не вышло:
+ * гейт обязан такое НАЗЫВАТЬ, а не пропускать).
+ */
+export function lockedGatewayCommit(lockText) {
+  for (const block of String(lockText || '').split('[[package]]')) {
+    if (!/^\s*name\s*=\s*"aurora_gateway"\s*$/m.test(block)) continue;
+    const source = block.match(/^\s*source\s*=\s*"([^"]+)"\s*$/m);
+    if (!source) return { tag: null, sha: null, source: null };
+    const parsed = source[1].match(/[?&]tag=([^#&]+)[^#]*#([0-9a-f]{40})/);
+    if (!parsed) return { tag: null, sha: null, source: source[1] };
+    return { tag: decodeURIComponent(parsed[1]), sha: parsed[2] };
+  }
+  return null;
+}
+
+/**
+ * Сверить, что сборка взяла крейт с той самой записи, на которую метка указывает
+ * сейчас.
+ *
+ * 🔴 Находка пятого аудита. Состав контракта гейт сверял по СВЕЖЕМУ клону метки,
+ * а cargo собирает по записи из `Cargo.lock`: пока строка источника в замке
+ * отвечает требованию манифеста, cargo к удалённому репозиторию не ходит вовсе.
+ * Переставленная метка (или зафиксированная прежде запись) давала зелёный гейт на
+ * составе, которого в сборке нет, — ровно тот класс «сотни зелёных проверок при
+ * прежнем крейте», ради которого сверку и заводили.
+ *
+ * Зовётся ПОСЛЕ прогона cargo и ДО восстановления дерева: замок вернётся из
+ * резерва, и доказывать будет нечем.
+ */
+export function assertBuiltFromTag(expected, lockText) {
+  const locked = lockedGatewayCommit(lockText);
+  if (!locked) {
+    fail(
+      `сборка прошла, но в замке зависимостей нет крейта шлюза — по какой записи собрано, доказать нечем (метка ${expected.tag})`,
+      'проверьте, что признак облачной поставки действительно включён и Cargo.lock пишется в корень продукта',
+    );
+  }
+  if (!locked.sha) {
+    fail(
+      `строку источника крейта в замке зависимостей разобрать не вышло: ${locked.source || '(источника нет вовсе)'}`,
+      'ожидалась зависимость по метке вида git+…?tag=<метка>#<запись> — ' +
+        'если форма записи cargo изменилась, научите этот гейт её читать, а не обходите его',
+    );
+  }
+  if (locked.tag !== expected.tag || locked.sha !== expected.sha) {
+    fail(
+      `сборка взяла крейт по метке ${locked.tag} на записи ${locked.sha.slice(0, 12)}, `
+        + `а метка ${expected.tag} указывает сейчас на ${expected.sha.slice(0, 12)}`,
+      'состав контракта сверен по свежему клону метки, а собрано по другой записи: '
+        + 'метку переставили либо замок зависимостей держит прежнюю. '
+        + 'Снимите след облачной сборки (git checkout -- Cargo.lock) и повторите',
+    );
+  }
+  info(`сборка взяла крейт по метке ${expected.tag} на записи ${expected.sha.slice(0, 12)} — совпало с меткой в репозитории`);
+}
+
 /** Источник крейта пригоден: дерево на месте с нужным составом либо метка существует
- *  и на ней тот же состав, каким пользуется продукт. */
+ *  и на ней тот же состав, каким пользуется продукт.
+ *  Возвращает `{ tag, sha }` для ветки метки (для сверки после сборки) либо `null`. */
 export function verifyGatewaySource(source) {
   if (source.kind === 'tag') {
     // Живость метки — быстрый признак, проверяем его первым: нет доступа к
     // репозиторию или метки не существует — отказ приходит немедленно, без
     // траты времени на клон.
-    const found = spawnSync('git', ['ls-remote', '--tags', source.url, source.tag], {
-      cwd: ROOT,
-      encoding: 'utf8',
-    });
+    // 🔴 Образца ДВА, и второй обязателен. `ls-remote` отбирает строки по имени
+    // ссылки, а разыменованная запись аннотированной метки называется
+    // `refs/tags/<метка>^{}` — под образец `<метка>` она не подходит и в ответ не
+    // попадает вовсе. Метки Core аннотированные, поэтому с одним образцом сюда
+    // приходил объект МЕТКИ, а cargo пишет в замок зависимостей КОММИТ: сверка
+    // краснела на исправной сборке. Поймано боевым прогоном на Oracle.
+    const found = spawnSync(
+      'git',
+      ['ls-remote', '--tags', source.url, source.tag, `${source.tag}^{}`],
+      { cwd: ROOT, encoding: 'utf8' },
+    );
     if (found.status !== 0) {
       fail(
         `метку ${source.tag} не удалось проверить в ${source.url}`,
@@ -560,7 +807,17 @@ export function verifyGatewaySource(source) {
         'метка не отправлена: git push origin ' + source.tag + ' — либо поправьте её имя во фрагменте',
       );
     }
-    info(`крейт шлюза берётся по метке ${source.tag} (метка на месте)`);
+    // Запись метки снимается ЗДЕСЬ: после сборки метку могли бы уже переставить,
+    // а сверять надо ровно с тем состоянием, по которому проверен состав.
+    const tagSha = tagCommitFromLsRemote(found.stdout, source.tag);
+    if (!tagSha) {
+      fail(
+        `в ответе о метке ${source.tag} не нашлось записи, на которую она указывает`,
+        'ожидалась строка вида "<40 знаков> refs/tags/<метка>" — '
+          + `git ls-remote ответил: ${(found.stdout || '').trim() || '(пусто)'}`,
+      );
+    }
+    info(`крейт шлюза берётся по метке ${source.tag} (метка на месте, запись ${tagSha.slice(0, 12)})`);
 
     // 🔴 Метка существует — не значит, что состав контракта на месте: сверяем
     // тем же способом, что и ветка пути, а не просто фактом существования метки.
@@ -589,7 +846,7 @@ export function verifyGatewaySource(source) {
     const size = assertContractSurface(surface, `крейт по метке ${source.tag}`);
     assertContractMethods(definedMethods, `метка ${source.tag}`);
     info(`контракт по метке ${source.tag} проверен (продукт берёт ${size} имён, все на месте)`);
-    return;
+    return { tag: source.tag, sha: tagSha };
   }
 
   const crateDir = source.dir;
@@ -606,6 +863,9 @@ export function verifyGatewaySource(source) {
   const size = assertContractSurface(surface, `крейт по пути ${crateDir}`);
   assertContractMethods(definedFunctionNames(join(crateDir, 'src')), `крейт по пути ${crateDir}`);
   info(`крейт шлюза проверен: ${crateDir} (продукт берёт ${size} имён, все на месте)`);
+  // Ветка пути: сверять после сборки нечего — крейт берётся с диска, и запись в
+  // замке зависимостей у него местная.
+  return null;
 }
 
 /**
@@ -765,7 +1025,7 @@ async function main() {
   const base = readFileSync(MANIFEST, 'utf8');
   const fragment = readFileSync(FRAGMENT, 'utf8');
 
-  verifyGatewaySource(gatewaySourceFromFragment(fragment));
+  const expectedTag = verifyGatewaySource(gatewaySourceFromFragment(fragment));
 
   const composed = composeManifest(base, fragment);
   backupPristineWorkspace(base);
@@ -827,6 +1087,11 @@ async function main() {
   if (passThrough.length > 0) info(`доп-аргументы: ${passThrough.join(' ')}`);
 
   const code = await runBuild(cmd, args, useShell);
+  // 🔴 Сверка ДО восстановления: `restoreWorkspace` вернёт замок зависимостей из
+  // резерва, и следа того, по какой записи собрано, не останется вовсе.
+  if (code === 0 && expectedTag) {
+    assertBuiltFromTag(expectedTag, existsSync(LOCKFILE) ? readFileSync(LOCKFILE, 'utf8') : '');
+  }
   restoreWorkspace('сборка закончена');
   if (code !== 0) fail(`сборка завершилась с кодом ${code}`);
   if (restoreFailed) {
@@ -837,7 +1102,30 @@ async function main() {
   info('готово');
 }
 
+/**
+ * Запущен ли файл напрямую (а не импортирован набором проверок).
+ *
+ * 🔴 Находка пятого аудита: сравнение «в лоб» ломается на junction и символической
+ * ссылке. `fileURLToPath(import.meta.url)` Node отдаёт уже разыменованным, а
+ * `resolve(process.argv[1])` — как написано в командной строке; из каталога,
+ * заведённого через `mklink /J` (обычная практика для параллельных рабочих
+ * деревьев), пути не совпадают, и скрипт молча выходит кодом ноль: сборки нет,
+ * установщик прежний, а вызывающая сторона считает сборку успешной.
+ */
+export function startedDirectly(entryPath) {
+  if (!entryPath) return false;
+  const self = fileURLToPath(import.meta.url);
+  const entry = resolve(entryPath);
+  if (self === entry) return true;
+  try {
+    return realpathSync(self) === realpathSync(entry);
+  } catch {
+    // Файла по одному из путей нет — значит это не наш запуск.
+    return false;
+  }
+}
+
 // Гард запуска: при импорте (тесты) main НЕ выполняется.
-if (process.argv[1] && fileURLToPath(import.meta.url) === resolve(process.argv[1])) {
+if (startedDirectly(process.argv[1])) {
   main();
 }

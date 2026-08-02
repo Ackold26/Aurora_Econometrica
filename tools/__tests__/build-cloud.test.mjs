@@ -25,12 +25,52 @@ import {
   assertContractSurface,
   assertContractMethods,
   verifyGatewaySource,
+  KNOWN_GATEWAY_METHODS,
+  blankNonCode,
+  stripTestModules,
+  implTypeName,
+  tagCommitFromLsRemote,
+  lockedGatewayCommit,
+  assertBuiltFromTag,
+  startedDirectly,
 } from '../build-cloud.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
 function git(cwd, ...args) {
   execFileSync('git', args, { cwd, stdio: 'pipe' });
+}
+
+/** Тип, на котором объявлен метод общего слоя. Единый источник — сам гейт. */
+function typeOf(method) {
+  return (KNOWN_GATEWAY_METHODS[method] && KNOWN_GATEWAY_METHODS[method].type) || 'CloudError';
+}
+
+/** Квалифицированное имя, в котором гейт теперь и спрашивает контракт. */
+function qualified(method) {
+  return `${typeOf(method)}::${method}`;
+}
+
+/**
+ * Исходник крейта-фикстуры: методы разложены по СВОИМ типам.
+ *
+ * 🔴 Прежде фикстура сваливала все методы в один `impl CloudError`, и это
+ * работало ровно потому, что гейт типа не различал. Раскладка по типам — часть
+ * доказательства правки: сверка спрашивает `Тип::метод`.
+ */
+function implSource(methods) {
+  const byType = new Map();
+  for (const method of methods) {
+    const type = typeOf(method);
+    if (!byType.has(type)) byType.set(type, []);
+    byType.get(type).push(method);
+  }
+  const blocks = [...byType.entries()].map(([type, names]) => (
+    `pub struct ${type};\nimpl ${type} {\n${
+      names.map((n) => `    pub fn ${n}(&self) -> bool { true }`).join('\n')
+    }\n}\n`
+  ));
+  return blocks.join('\n');
 }
 
 /**
@@ -104,13 +144,7 @@ describe('verifyGatewaySource — ветка пути (регресс после
       // Методы (находка П-5, продолжение) — отдельное пространство от имён:
       // без impl-файла usedGatewayMethods() нашла бы имена на месте, а методы
       // ни на чём не определены, и проверка ложно покраснела бы.
-      writeFileSync(
-        join(dir, 'src', 'cloud', 'client.rs'),
-        `pub struct CloudError;\nimpl CloudError {\n${
-          usedMethods.map((n) => `    pub fn ${n}(&self) -> bool { true }`).join('\n')
-        }\n}\n`,
-        'utf8',
-      );
+      writeFileSync(join(dir, 'src', 'cloud', 'client.rs'), implSource(usedMethods), 'utf8');
       const { threw } = withExitTrapped(() => verifyGatewaySource({ kind: 'path', dir }));
       expect(threw).toBeNull();
     } finally {
@@ -158,14 +192,7 @@ describe('verifyGatewaySource — ветка метки (находка П-5, а
     // П-5, продолжение) тоже нужны здесь: без них проверка методов покраснела
     // бы на этой же метке по СВОЕЙ, отдельной причине.
     writeFileSync(join(cloudDir, 'mod.rs'), `pub use protocol::{${usedNames.join(', ')}};\n`, 'utf8');
-    const usedMethodsForNameFixture = [...usedGatewayMethods()];
-    writeFileSync(
-      join(cloudDir, 'client.rs'),
-      `pub struct CloudError;\nimpl CloudError {\n${
-        usedMethodsForNameFixture.map((n) => `    pub fn ${n}(&self) -> bool { true }`).join('\n')
-      }\n}\n`,
-      'utf8',
-    );
+    writeFileSync(join(cloudDir, 'client.rs'), implSource([...usedGatewayMethods()]), 'utf8');
     git(repoDir, 'add', '.');
     git(repoDir, 'commit', '--quiet', '-m', 'полный состав');
     git(repoDir, 'tag', 'good-tag');
@@ -238,21 +265,37 @@ describe('usedGatewayMethods (находка П-5, продолжение — а
 });
 
 describe('assertContractMethods', () => {
-  it('молчит, когда определения крейта содержат все вызванные методы', () => {
+  it('молчит, когда определения крейта содержат все вызванные методы на своих типах', () => {
     const used = usedGatewayMethods();
     expect(used.size).toBeGreaterThan(0);
-    const { threw } = withExitTrapped(() => assertContractMethods(new Set(used), 'тестовый источник'));
+    const defined = new Set([...used].map(qualified));
+    const { threw } = withExitTrapped(() => assertContractMethods(defined, 'тестовый источник'));
     expect(threw).toBeNull();
   });
 
   it('краснеет и называет метод, которого крейт не содержит — ровно форма беды is_resend_inputs на v0.5.0', () => {
     const used = usedGatewayMethods();
     const missingMethod = [...used][0];
-    const defined = new Set(used);
-    defined.delete(missingMethod);
+    const defined = new Set([...used].map(qualified));
+    defined.delete(qualified(missingMethod));
     const { threw, errors } = withExitTrapped(() => assertContractMethods(defined, 'тестовый источник'));
     expect(threw).not.toBeNull();
     expect(errors).toContain(missingMethod);
+  });
+
+  // 🔴 Находка пятого аудита: имя метода само по себе ничего не доказывает.
+  // В Core `user_text` определён и у `CloudError`, и у `TicketProblem` — пропади
+  // нужный, прежняя сверка молчала бы, потому что имя в дереве осталось.
+  it('краснеет, когда метод есть, но на ЧУЖОМ типе', () => {
+    const used = [...usedGatewayMethods()];
+    const method = used[0];
+    const defined = new Set(used.map(qualified));
+    defined.delete(qualified(method));
+    defined.add(`СовсемДругойТип::${method}`);
+    defined.add(method); // и голое имя в дереве тоже есть — прежней сверке хватало
+    const { threw, errors } = withExitTrapped(() => assertContractMethods(defined, 'тестовый источник'));
+    expect(threw).not.toBeNull();
+    expect(errors).toContain(qualified(method));
   });
 });
 
@@ -275,9 +318,7 @@ describe('verifyGatewaySource — метод общего слоя отсутс�
     mkdirSync(cloudDir, { recursive: true });
     writeFileSync(join(cloudDir, 'mod.rs'), `pub use protocol::{${usedNames.join(', ')}};\n`, 'utf8');
 
-    const implOf = (names) => `pub struct CloudError;\nimpl CloudError {\n${
-      names.map((n) => `    pub fn ${n}(&self) -> bool { true }`).join('\n')
-    }\n}\n`;
+    const implOf = (names) => implSource(names);
 
     writeFileSync(join(cloudDir, 'client.rs'), implOf(usedMethods), 'utf8');
     git(repoDir, 'add', '.');
@@ -319,5 +360,291 @@ describe('checkFrontendTypes вызывается не только в --test (�
     const source = readFileSync(join(HERE, '..', 'build-cloud.mjs'), 'utf8');
     expect(source).not.toMatch(/if\s*\(\s*testOnly\s*\)\s*checkFrontendTypes\(\)/);
     expect(source).toMatch(/^\s*checkFrontendTypes\(\);\s*$/m);
+  });
+});
+
+// ── Находки пятого аудита (2026-08-02) ───────────────────────────────────────
+
+describe('definedFunctionNames — три способа промолчать (High пятого аудита)', () => {
+  const withTree = (files, check) => {
+    const dir = mkdtempSync(join(tmpdir(), 'gw-defs5-'));
+    try {
+      for (const [name, text] of Object.entries(files)) {
+        writeFileSync(join(dir, name), text, 'utf8');
+      }
+      check(definedFunctionNames(dir));
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  };
+
+  it('видит pub async fn и pub const fn — иначе ложное КРАСНОЕ на исправном крейте', () => {
+    withTree({
+      'a.rs': 'impl Foo {\n    pub async fn shipped(&self) {}\n    pub const fn counted() -> u8 { 1 }\n}\n',
+    }, (names) => {
+      expect(names.has('Foo::shipped')).toBe(true);
+      expect(names.has('Foo::counted')).toBe(true);
+    });
+  });
+
+  it('НЕ считает объявлением помощника из тестового модуля', () => {
+    withTree({
+      'a.rs': 'impl Foo {\n    pub fn real(&self) {}\n}\n'
+        + '#[cfg(test)]\nmod tests {\n    impl Foo {\n        pub fn only_in_tests(&self) {}\n    }\n}\n',
+    }, (names) => {
+      expect(names.has('Foo::real')).toBe(true);
+      expect(names.has('Foo::only_in_tests')).toBe(false);
+      expect(names.has('only_in_tests')).toBe(false);
+    });
+  });
+
+  it('различает одноимённые методы разных типов', () => {
+    withTree({
+      'a.rs': 'impl CloudError {\n    pub fn user_text(&self) {}\n}\n'
+        + 'impl TicketProblem {\n    pub fn user_text(&self) {}\n}\n',
+    }, (names) => {
+      expect(names.has('CloudError::user_text')).toBe(true);
+      expect(names.has('TicketProblem::user_text')).toBe(true);
+    });
+  });
+
+  it('НЕ считает объявлением pub(crate) fn — снаружи такой метод недоступен', () => {
+    withTree({ 'a.rs': 'impl Foo {\n    pub(crate) fn hidden(&self) {}\n}\n' }, (names) => {
+      expect(names.has('Foo::hidden')).toBe(false);
+      expect(names.has('hidden')).toBe(false);
+    });
+  });
+
+  it('не обманывается объявлением внутри строки или комментария', () => {
+    withTree({
+      'a.rs': 'impl Foo {\n    // pub fn commented(&self) {}\n'
+        + '    pub fn real(&self) -> &str { "pub fn inside_string() {}" }\n}\n',
+    }, (names) => {
+      expect(names.has('Foo::real')).toBe(true);
+      expect(names.has('Foo::commented')).toBe(false);
+      expect(names.has('Foo::inside_string')).toBe(false);
+    });
+  });
+});
+
+describe('stripTestModules', () => {
+  it('гасит тело #[cfg(test)] и НЕ уносит с собой живой код ниже', () => {
+    const code = blankNonCode(
+      'pub fn before() {}\n#[cfg(test)]\nmod tests {\n    pub fn inside() {}\n}\npub fn after() {}\n',
+    );
+    const stripped = stripTestModules(code);
+    expect(stripped).toContain('pub fn before');
+    expect(stripped).toContain('pub fn after');
+    expect(stripped).not.toContain('pub fn inside');
+  });
+
+  it('объявление БЕЗ тела (mod tests;) не прячет следующий блок', () => {
+    const code = blankNonCode('#[cfg(test)]\nmod tests;\nimpl Foo {\n    pub fn alive(&self) {}\n}\n');
+    expect(stripTestModules(code)).toContain('pub fn alive');
+  });
+
+  it('гасит и второй тестовый модуль, а не только первый', () => {
+    const code = blankNonCode(
+      '#[cfg(test)]\nmod a { pub fn one() {} }\npub fn between() {}\n'
+      + '#[cfg(test)]\nmod b { pub fn two() {} }\npub fn tail() {}\n',
+    );
+    const stripped = stripTestModules(code);
+    expect(stripped).toContain('pub fn between');
+    expect(stripped).toContain('pub fn tail');
+    expect(stripped).not.toContain('pub fn one');
+    expect(stripped).not.toContain('pub fn two');
+  });
+});
+
+describe('implTypeName', () => {
+  it('снимает дженерики, путь и форму "for"', () => {
+    expect(implTypeName(' CloudError ')).toBe('CloudError');
+    expect(implTypeName("<'a> Borrowed<'a> ")).toBe('Borrowed');
+    expect(implTypeName(' std::fmt::Debug for DeviceIdentity ')).toBe('DeviceIdentity');
+    expect(implTypeName(' Default for WaitLimits ')).toBe('WaitLimits');
+  });
+});
+
+describe('tagCommitFromLsRemote (High пятого аудита: запись метки)', () => {
+  it('у аннотированной метки берёт разыменованную запись, а не объект метки', () => {
+    const out = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\trefs/tags/v1\n'
+      + 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\trefs/tags/v1^{}\n';
+    expect(tagCommitFromLsRemote(out, 'v1')).toBe('bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb');
+  });
+
+  // 🔴 Порядок строк ОБРАТНЫЙ намеренно. При обычном порядке (объект метки, затем
+  // разыменованная запись) правило «бери последнюю подходящую» даёт тот же ответ,
+  // что и правильное, — и проверка зеленела бы, ничего не проверяя: мутация
+  // «игнорировать ^{}» её пережила. Здесь верный ответ достижим ТОЛЬКО через ^{}.
+  it('берёт запись по признаку ^{}, а не по месту строки в ответе', () => {
+    const out = 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb\trefs/tags/v1^{}\n'
+      + 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\trefs/tags/v1\n';
+    expect(tagCommitFromLsRemote(out, 'v1')).toBe('bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb');
+  });
+
+  it('у лёгкой метки берёт единственную строку', () => {
+    const out = 'cccccccccccccccccccccccccccccccccccccccc\trefs/tags/v2\n';
+    expect(tagCommitFromLsRemote(out, 'v2')).toBe('cccccccccccccccccccccccccccccccccccccccc');
+  });
+
+  it('не путает метку с чужой, чьё имя начинается так же', () => {
+    const out = 'dddddddddddddddddddddddddddddddddddddddd\trefs/tags/v2-rc1\n';
+    expect(tagCommitFromLsRemote(out, 'v2')).toBeNull();
+  });
+});
+
+describe('lockedGatewayCommit (High пятого аудита: чем собрано на самом деле)', () => {
+  const lockWith = (source) => `[[package]]\nname = "serde"\nversion = "1.0"\n\n`
+    + `[[package]]\nname = "aurora_gateway"\nversion = "0.1.0"\nsource = "${source}"\n`;
+
+  it('читает метку и запись из строки источника', () => {
+    const sha = 'e'.repeat(40);
+    const got = lockedGatewayCommit(lockWith(
+      `git+https://example.com/core.git?tag=aurora_gateway-v0.6.1#${sha}`,
+    ));
+    expect(got.tag).toBe('aurora_gateway-v0.6.1');
+    expect(got.sha).toBe(sha);
+  });
+
+  it('отдаёт null, когда крейта в замке нет вовсе', () => {
+    expect(lockedGatewayCommit('[[package]]\nname = "serde"\nversion = "1.0"\n')).toBeNull();
+  });
+
+  it('НЕ выдаёт запись, когда источник не по метке — форму, которую не понял, гейт обязан назвать', () => {
+    const got = lockedGatewayCommit(lockWith('git+https://example.com/core.git?branch=main#' + 'f'.repeat(40)));
+    expect(got).not.toBeNull();
+    expect(got.sha).toBeNull();
+  });
+});
+
+describe('assertBuiltFromTag (High пятого аудита: гейт сверял клон, cargo собирал по замку)', () => {
+  const sha = 'a'.repeat(40);
+  const other = 'b'.repeat(40);
+  const lockFor = (tag, commit) => `[[package]]\nname = "aurora_gateway"\nversion = "0.1.0"\n`
+    + `source = "git+https://example.com/core.git?tag=${tag}#${commit}"\n`;
+
+  it('молчит, когда собрано ровно по той записи, на которую метка указывает сейчас', () => {
+    const { threw } = withExitTrapped(
+      () => assertBuiltFromTag({ tag: 'v0.6.1', sha }, lockFor('v0.6.1', sha)),
+    );
+    expect(threw).toBeNull();
+  });
+
+  it('краснеет, когда замок держит ПРЕЖНЮЮ запись той же метки — метку переставили', () => {
+    const { threw, errors } = withExitTrapped(
+      () => assertBuiltFromTag({ tag: 'v0.6.1', sha }, lockFor('v0.6.1', other)),
+    );
+    expect(threw).not.toBeNull();
+    expect(errors).toContain(other.slice(0, 12));
+  });
+
+  it('краснеет, когда собрано по ДРУГОЙ метке', () => {
+    const { threw, errors } = withExitTrapped(
+      () => assertBuiltFromTag({ tag: 'v0.6.1', sha }, lockFor('v0.6.0', sha)),
+    );
+    expect(threw).not.toBeNull();
+    expect(errors).toContain('v0.6.0');
+  });
+
+  it('краснеет, когда крейта в замке нет вовсе — доказать нечем', () => {
+    const { threw } = withExitTrapped(
+      () => assertBuiltFromTag({ tag: 'v0.6.1', sha }, '[[package]]\nname = "serde"\n'),
+    );
+    expect(threw).not.toBeNull();
+  });
+});
+
+describe('ветка метки на НАСТОЯЩЕМ вызове git (метки Core аннотированные)', () => {
+  // 🔴 Разбор `tagCommitFromLsRemote` проверялся на сочинённом выводе, где строка
+  // `^{}` была. А настоящий вызов её не получал: `ls-remote` отбирает по имени
+  // ссылки, и под образец `<метка>` разыменованная запись `<метка>^{}` не
+  // подходит. Гейт брал объект МЕТКИ, cargo писал в замок КОММИТ — сверка
+  // краснела на исправной сборке. Поймано боевым прогоном, а не этим набором,
+  // поэтому проверка здесь идёт через настоящий git, а не через строку.
+  let repoDir;
+  let commitSha;
+
+  beforeAll(() => {
+    const usedNames = [...usedGatewayNames()];
+    repoDir = mkdtempSync(join(tmpdir(), 'gw-annotated-'));
+    git(repoDir, 'init', '--quiet');
+    git(repoDir, 'config', 'user.email', 'test@example.com');
+    git(repoDir, 'config', 'user.name', 'test');
+    const cloudDir = join(repoDir, 'aurora_gateway', 'src', 'cloud');
+    mkdirSync(cloudDir, { recursive: true });
+    writeFileSync(join(cloudDir, 'mod.rs'), `pub use protocol::{${usedNames.join(', ')}};\n`, 'utf8');
+    writeFileSync(join(cloudDir, 'client.rs'), implSource([...usedGatewayMethods()]), 'utf8');
+    git(repoDir, 'add', '.');
+    git(repoDir, 'commit', '--quiet', '-m', 'полный состав');
+    // Метка АННОТИРОВАННАЯ — как все метки Core.
+    git(repoDir, 'tag', '-a', 'annotated-tag', '-m', 'метка выпуска');
+    commitSha = execFileSync('git', ['rev-parse', 'annotated-tag^{}'], { cwd: repoDir, encoding: 'utf8' }).trim();
+  });
+
+  afterAll(() => {
+    rmSync(repoDir, { recursive: true, force: true });
+  });
+
+  it('возвращает запись КОММИТА, а не объекта метки', () => {
+    let got = null;
+    const { threw } = withExitTrapped(() => {
+      got = verifyGatewaySource({ kind: 'tag', url: repoDir, tag: 'annotated-tag' });
+    });
+    expect(threw).toBeNull();
+    expect(got).not.toBeNull();
+    expect(got.sha).toBe(commitSha);
+    // Объект метки — другая запись, и именно её брал прежний вызов.
+    const tagObject = execFileSync('git', ['rev-parse', 'annotated-tag'], { cwd: repoDir, encoding: 'utf8' }).trim();
+    expect(tagObject).not.toBe(commitSha);
+    expect(got.sha).not.toBe(tagObject);
+  });
+});
+
+describe('порядок сверки в main (иначе доказывать нечем)', () => {
+  it('assertBuiltFromTag зовётся ДО восстановления дерева', () => {
+    const source = readFileSync(join(HERE, '..', 'build-cloud.mjs'), 'utf8');
+    const check = source.indexOf('assertBuiltFromTag(expectedTag');
+    const restore = source.indexOf("restoreWorkspace('сборка закончена')");
+    expect(check).toBeGreaterThan(-1);
+    expect(restore).toBeGreaterThan(-1);
+    expect(check).toBeLessThan(restore);
+  });
+});
+
+describe('startedDirectly (High пятого аудита: гард запуска на junction)', () => {
+  it('узнаёт прямой запуск по обычному пути', () => {
+    expect(startedDirectly(join(HERE, '..', 'build-cloud.mjs'))).toBe(true);
+  });
+
+  it('не считает прямым запуском чужой файл', () => {
+    expect(startedDirectly(join(HERE, 'build-cloud.test.mjs'))).toBe(false);
+    expect(startedDirectly(undefined)).toBe(false);
+  });
+
+  // 🔴 Ровно тот случай, ради которого правка: из каталога, заведённого через
+  // `mklink /J`, скрипт молча выходил кодом ноль — сборки нет, установщик
+  // прежний, вызывающая сторона видит успех.
+  it('узнаёт запуск через junction/символическую ссылку на каталог', () => {
+    const toolsDir = join(HERE, '..');
+    const linkDir = join(mkdtempSync(join(tmpdir(), 'gw-junction-')), 'tools-link');
+    let made = false;
+    try {
+      if (process.platform === 'win32') {
+        execFileSync('cmd', ['/c', 'mklink', '/J', linkDir, toolsDir], { stdio: 'pipe' });
+      } else {
+        execFileSync('ln', ['-s', toolsDir, linkDir], { stdio: 'pipe' });
+      }
+      made = true;
+    } catch (e) {
+      // Стечение обязано СОСТОЯТЬСЯ: молча зеленеть здесь — то же самое, чем
+      // болел сам гард.
+      expect.fail(`ссылку на каталог создать не удалось, стечение не воспроизведено: ${e.message}`);
+    }
+    try {
+      const viaLink = join(linkDir, 'build-cloud.mjs');
+      expect(startedDirectly(viaLink)).toBe(true);
+    } finally {
+      if (made) rmSync(dirname(linkDir), { recursive: true, force: true });
+    }
   });
 });
