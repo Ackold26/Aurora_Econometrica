@@ -315,11 +315,15 @@ fn inbox_signature(work_dir: &Path) -> Vec<(String, u64, u64)> {
         let Ok(meta) = entry.metadata() else {
             return Vec::new();
         };
+        // 🔴 Наносекунды, а не секунды: усечение до секунды даёт ложное «набор не
+        // менялся» для правки в пределах той же секунды с тем же размером — и
+        // работа пойдёт по ПРЕЖНЕЙ версии файла, выглядя законченной (INV-50).
+        // Найдено внешним аудитом; сама точность бесплатна, `SystemTime` её несёт.
         let modified = meta
             .modified()
             .ok()
             .and_then(|t| t.duration_since(UNIX_EPOCH).ok())
-            .map(|d| d.as_secs())
+            .map(|d| d.as_nanos() as u64)
             .unwrap_or(0);
         items.push((name, meta.len(), modified));
     }
