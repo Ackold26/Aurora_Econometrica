@@ -402,6 +402,12 @@
       dec: $decomposeData,
       opt: $optimizeData,
       methodology,
+      // Выбранная метрика: от неё зависит база окупаемости, а значит — вправе ли
+      // советник называть канал прибыльным (правило 7). Считает её один
+      // `resolveRoiBase`, экран лишь передаёт исходные значения.
+      kpiType: $kpiType,
+      kpiKind: $kpiKind,
+      valuePerCountUnit: $valuePerCountUnit,
     });
     const prompt = buildTier2Prompt(ctx, askQuestion);
 
