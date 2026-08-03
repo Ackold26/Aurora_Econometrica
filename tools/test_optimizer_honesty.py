@@ -46,8 +46,19 @@ def test_uncertain_thin_data_kagocel_like():
                                         divergences=1, tier='good'))
     assert v['verdict'] == 'uncertain'
     assert v['refused'] is False
-    assert any('тонк' in r.lower() or 'ratio' in r.lower() for r in v['reasons'])
+    assert any('ограничен' in r.lower() or 'ratio' in r.lower() for r in v['reasons'])
     assert v['caveat_text']  # непустой баннер
+
+
+def test_thin_data_tone_mentions_priors_not_broken():
+    """McElreath (regularizing priors): при тонких данных тон — «модель сдержана,
+    опирается на priors», а не «сломана/высокий риск переобучения»."""
+    v = model_reliability_verdict(_diag(ratio_ok=False, ratio=2.4, r_hat=1.0,
+                                        divergences=0, tier='good'))
+    joined = (' '.join(v['reasons']) + ' ' + v['caveat_text']).lower()
+    assert 'априорн' in joined or 'prior' in joined or 'сдержан' in joined
+    # старый пугающий тон «высокий риск переобучения» как главный посыл — ушёл
+    assert 'высокий риск переобучения' not in joined
 
 
 def test_uncertain_weak_tier_even_if_ratio_ok():
@@ -129,7 +140,7 @@ def test_holidays_excluded_adds_ovb_on_thin():
     v = model_reliability_verdict(_diag(ratio_ok=False, ratio=2.4,
                                         holidays_excluded=True))
     assert v['verdict'] == 'uncertain'
-    assert any('тонк' in r.lower() for r in v['reasons'])
+    assert any('ограничен' in r.lower() for r in v['reasons'])
     assert any('праздник' in r.lower() for r in v['reasons'])
 
 

@@ -1,0 +1,64 @@
+/* ═══════════════════════════════════════════════════
+   Aurora canon-namespace alias  (--ui-* / --brand-*  →  живые локальные токены)
+   ───────────────────────────────────────────────────
+   Канон aurora_design (aurora-platform-core) и его компоненты/паттерны
+   (InsightCard, Stepper, Button, Card, Badge, Modal) написаны на --ui-* / --brand-*.
+   Эконометрика держит свой ЖИВОЙ Aether Mesh в app.css на --bg-*/--accent-*/--text-*
+   (3066 использований). tokens.generated.css (namespace --color-ui-*) НЕ импортирован
+   и НЕ используется — мёртвый артефакт другого генератора.
+
+   Этот файл — тонкий мост: канон-namespace ссылается на ЖИВЫЕ значения app.css
+   (через var, без хардкода hex). Позволяет канон-элементы и порты (InsightCard,
+   Stepper…) ложиться drop-in, не переписывая существующий UI на --bg-*.
+   Импортируется в +layout.svelte ПОСЛЕ app.css (значения --bg-* уже определены).
+   Design-sync 2026-06-20: цель — сходимость Эконометрики на канон-namespace --ui-*.
+
+   ⚠ Значения = единый источник app.css (локальный Aether Mesh). При правке палитры
+   менять ТОЛЬКО app.css — alias подхватит через var(). Не дублировать hex здесь. */
+:root {
+  /* ── Surfaces ── */
+  --ui-surface-bg-primary:    var(--bg-primary);
+  --ui-surface-bg-secondary:  var(--bg-secondary);
+  --ui-surface-bg-tertiary:   var(--bg-tertiary);
+  --ui-surface-bg-card:       var(--bg-card);
+  --ui-surface-bg-card-hover: var(--bg-card-hover);
+  --ui-surface-bg-glass:      var(--bg-glass);
+
+  /* ── Accent ── */
+  --ui-accent-primary:        var(--accent-primary);
+  --ui-accent-primary-hover:  var(--accent-hover);
+  --ui-accent-secondary:      var(--accent-secondary);
+  --ui-accent-glow:           var(--accent-glow);
+  --ui-accent-glow-strong:    var(--accent-glow-strong);
+
+  /* ── Signature lime (brand namespace) — sacred: только focus/active/Badge-lime ── */
+  --brand-signature-lime:     var(--accent-secondary);
+
+  /* ── Functional ── */
+  --ui-functional-info:       var(--color-info);
+  --ui-functional-completion: var(--color-completion);
+  --ui-functional-success:    var(--success);
+  --ui-functional-warning:    var(--warning);
+  --ui-functional-danger:     var(--danger);
+
+  /* ── Text ── */
+  --ui-text-primary:          var(--text-primary);
+  --ui-text-secondary:        var(--text-secondary);
+  --ui-text-muted:            var(--text-muted);   /* #9090A8 — WCAG-bump Эконометрики */
+
+  /* ── Border ── */
+  --ui-border-default:        var(--border);
+  --ui-border-subtle:         var(--border-subtle);
+  --ui-border-active:         var(--border-active);
+
+  /* ── Radius — маппинг по ЗНАЧЕНИЮ (Эконометрика --radius-lg=16 ≠ канон lg=14) ── */
+  --ui-radius-sm:  var(--radius-sm);   /* 8  */
+  --ui-radius-md:  var(--radius-md);   /* 12 */
+  --ui-radius-lg:  var(--radius);      /* 14 = канон lg (НЕ локальный --radius-lg=16) */
+  --ui-radius-xl:  var(--radius-lg);   /* 16 */
+  --ui-radius-2xl: var(--radius-xl);   /* 20 */
+
+  /* ── Typography ── */
+  --ui-typography-sans: var(--font-sans);
+  --ui-typography-mono: var(--font-mono);
+}

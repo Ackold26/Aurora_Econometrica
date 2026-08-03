@@ -429,7 +429,7 @@ export function getTerm(termId) {
 
 /**
  * Get all terms as array (for search/listing UI).
- * @returns {Array<object>}
+ * @returns {Array<{id: string, term: string, short: string, long: string, example: string, related: string[]}>}
  */
 export function getAllTerms() {
   return Object.values(GLOSSARY);

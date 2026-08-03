@@ -29,7 +29,10 @@ FAT = generate_diagnostics_summary(
     n_obs=200, n_params=20, effective_params=18.0,
 )
 
-CAVEAT_RE = re.compile(r"переобуч|данных мало|артефакт", re.I)
+# Тон McElreath (2026-06-20): оговорка про «модель сдержана / опирается на
+# priors / ориентировочные», а не про «артефакт переобучения». Обе ветки
+# format_thinness_caveat начинаются с «Данных мало».
+CAVEAT_RE = re.compile(r"данных мало|сдержан|априорн|ориентировочн", re.I)
 
 
 def _payload(diag):
@@ -97,3 +100,217 @@ def test_pptx_deliverable_carries_caveat_when_capped():
     # PPTX дробит текст по run'ам → ищем по стрипнутому тексту.
     stripped = re.sub(r"<[^>]+>", "", txt)
     assert CAVEAT_RE.search(stripped), "PPTX отчёт обязан нести оговорку при data-thinness cap"
+
+
+def test_no_overfitting_artefact_wording_in_caveat():
+    """Анти-регрессия тона (Волна 1, McElreath): старый алармизм «артефакт
+    переобучения / высокий риск переобучения» в клиентской оговорке недопустим."""
+    for r in (1.5, 2.4, 3.5):
+        cav = format_thinness_caveat(r, 70, leading_space=False).lower()
+        assert "артефакт" not in cav
+        assert "высокий риск переобуч" not in cav
+        assert "ненадёжны" not in cav
+
+
+def test_unreliable_channel_roi_blanked_in_payload():
+    """Волна 1 Шаг 2 (data-level заглушка): битый ROI-канал в payload обнулён
+    (mroas/roi=None, action_reasoning без сырого числа) → ни один билдер
+    (HTML/PPTX/XLSX) не покажет абсурдные 15525×. INV-50."""
+    dec = {"channels": [
+        {"name": "TRPs бренд", "spend": 22100, "contribution": 409e6, "roi": 18500,
+         "mroi_current": 15525, "unit_smell": True, "verdict": "ROI завышен (не рубли?)"},
+        {"name": "Social", "spend": 100e6, "contribution": 1345e6, "roi": 13.4,
+         "mroi_current": 1.5, "verdict": "Высокоэффективен"},
+    ]}
+    payload = _map_pipeline_to_builder_data(
+        model_data={}, decompose_data=dec, optimize_data={}, scenarios=[], project_id="t")
+    trp = next(c for c in payload["channels"] if "TRP" in (c.get("name") or ""))
+    assert trp["roi_unreliable"] is True
+    assert trp["mroas"] is None and trp["roi"] is None
+    reasoning = trp.get("action_reasoning") or ""
+    assert "15525" not in reasoning and "18500" not in reasoning
+    # надёжный канал не тронут
+    social = next(c for c in payload["channels"] if "Social" in (c.get("name") or ""))
+    assert social.get("roi_unreliable") is False
+
+
+# ── Волна 1 пункт 2 (2026-06-20): плашка надёжности модели в отчётах ──────────
+# Решение 1b (Антон): плашка ТОЛЬКО при verdict != reliable; caveat_text идёт
+# VERBATIM из SSOT (optimizer_honesty, тот же текст в UI — INV-50, без рассинхрона).
+
+MR_UNCERTAIN = {
+    "verdict": "uncertain", "refused": False,
+    "caveat_text": "Рекомендации ориентировочные: опирайтесь на доверительные интервалы.",
+    "reasons": ["Ограниченные данные (Ratio 2.4:1 < 4:1): модель сдержана, опирается на priors."],
+}
+MR_RELIABLE = {"verdict": "reliable", "refused": False, "caveat_text": "", "reasons": []}
+
+
+def _payload_opt(opt):
+    return _map_pipeline_to_builder_data(
+        model_data={"diagnostics": FAT}, decompose_data={}, optimize_data=opt,
+        scenarios=[], project_id="test",
+    )
+
+
+def test_seam_carries_model_reliability_when_uncertain():
+    """Мост доносит model_reliability в diagnostics при verdict != reliable, текст verbatim."""
+    pdiag = _payload_opt({"model_reliability": MR_UNCERTAIN})["diagnostics"]
+    mr = pdiag.get("model_reliability")
+    assert mr is not None, "мост обязан донести model_reliability при uncertain"
+    assert mr["verdict"] == "uncertain"
+    assert mr["caveat_text"] == MR_UNCERTAIN["caveat_text"]  # VERBATIM (INV-50)
+    assert mr["reasons"]
+
+
+def test_seam_drops_model_reliability_when_reliable():
+    """При reliable плашки нет — не зашумляем хороший отчёт (решение 1b)."""
+    pdiag = _payload_opt({"model_reliability": MR_RELIABLE}).get("diagnostics", {})
+    assert "model_reliability" not in pdiag
+
+
+def test_html_carries_reliability_plaque_when_uncertain():
+    """HTML несёт плашку надёжности (verdict != reliable) с текстом verbatim."""
+    from engines.html_export import build_html
+    out = tempfile.gettempdir() + "/test_mr_uncertain.html"
+    build_html(model_data={"diagnostics": FAT}, decompose_data={},
+               optimize_data={"model_reliability": MR_UNCERTAIN},
+               output_path=out, project_id="test")
+    html = open(out, encoding="utf-8").read()
+    assert "mqs-reliability" in html, "HTML обязан нести плашку надёжности при uncertain"
+    assert "Ограниченная надёжность модели" in html
+    assert MR_UNCERTAIN["caveat_text"] in html  # verbatim из SSOT
+
+
+def test_html_no_reliability_plaque_when_reliable():
+    from engines.html_export import build_html
+    out = tempfile.gettempdir() + "/test_mr_reliable.html"
+    build_html(model_data={"diagnostics": FAT}, decompose_data={},
+               optimize_data={"model_reliability": MR_RELIABLE},
+               output_path=out, project_id="test")
+    html = open(out, encoding="utf-8").read()
+    assert "mqs-reliability" not in html, "при reliable плашку фабриковать нельзя"
+
+
+def test_pptx_carries_reliability_plaque_when_uncertain():
+    from aurora_pptx.builder import AuroraPPTXBuilder
+    b = AuroraPPTXBuilder(_payload_opt({"model_reliability": MR_UNCERTAIN}))
+    prs = b.build()
+    out = tempfile.gettempdir() + "/test_mr_uncertain.pptx"
+    prs.save(out)
+    import zipfile
+    z = zipfile.ZipFile(out)
+    txt = " ".join(z.read(n).decode("utf-8", "ignore") for n in z.namelist() if n.endswith(".xml"))
+    stripped = re.sub(r"<[^>]+>", "", txt)
+    assert re.search(r"надёжност|ориентировочн", stripped, re.I), \
+        "PPTX обязан нести плашку надёжности при uncertain"
+
+
+# ── Волна 1 пункт 3 (2026-06-20): синхрон вердиктов — honesty-потолок (2a) ─────
+# Решение 2a (Антон): глобальная надёжность модели смягчает ДИРЕКТИВНОСТЬ
+# канального вердикта по МОДАЛЬНОСТИ, сохраняя НАПРАВЛЕНИЕ. Снимает противоречие
+# «Scale в отчёте vs Uncertain в декомпозиции».
+
+def test_soften_verdict_display_preserves_direction():
+    from engines.channel_action import soften_verdict_display
+    # reliable / нет вердикта → директивный label
+    assert soften_verdict_display("Scale", "reliable") == ("Увеличить", "firm")
+    assert soften_verdict_display("Scale", None) == ("Увеличить", "firm")
+    # uncertain/unknown → направление сохранено + «(предв.)»
+    lbl, mod = soften_verdict_display("Scale", "uncertain")
+    assert "Увеличить" in lbl and "предв" in lbl and mod == "tentative"
+    lbl, _ = soften_verdict_display("Cut", "unknown")
+    assert "Остановить" in lbl and "предв" in lbl
+    # нейтральные (Watch/Uncertain) — без суффикса, уже неуверенные
+    assert soften_verdict_display("Watch", "uncertain") == ("Наблюдать", "tentative")
+    # unreliable → нейтрализация: направление НЕ показываем (модель не сошлась)
+    assert soften_verdict_display("Scale", "unreliable") == ("Требует переобучения", "refused")
+
+
+_DEC_DIRECTIVE = {"channels": [
+    {"name": "TV", "spend": 100e6, "contribution": 200e6, "roi": 2.0,
+     "mroas": 1.5, "optimal_spend": 130e6, "current_spend": 100e6},
+    {"name": "Social", "spend": 50e6, "contribution": 120e6, "roi": 2.4, "mroas": 1.6},
+]}
+
+
+def test_seam_channel_verdict_softened_when_uncertain():
+    """Мост смягчает verdict_display при не-reliable; machine-key verdict цел (counts)."""
+    payload = _map_pipeline_to_builder_data(
+        model_data={}, decompose_data=_DEC_DIRECTIVE,
+        optimize_data={"model_reliability": MR_UNCERTAIN}, scenarios=[], project_id="t")
+    for ch in payload["channels"]:
+        assert ch.get("verdict_modality") == "tentative"
+        assert ch.get("verdict") in ("Scale", "Hold", "Watch", "Reduce", "Cut", "Uncertain")
+    # хотя бы один директивный канал смягчён до «(предв.)»
+    assert any("предв" in (ch.get("verdict_display") or "") for ch in payload["channels"])
+
+
+def test_seam_channel_verdict_firm_when_reliable():
+    """При reliable вердикты остаются директивными (без «(предв.)»)."""
+    payload = _map_pipeline_to_builder_data(
+        model_data={}, decompose_data=_DEC_DIRECTIVE,
+        optimize_data={"model_reliability": MR_RELIABLE}, scenarios=[], project_id="t")
+    for ch in payload["channels"]:
+        assert ch.get("verdict_modality") == "firm"
+        assert "предв" not in (ch.get("verdict_display") or "")
+
+
+# ── Волна 3 (2026-06-20): гигиена клиентского текста ──────────────────────────
+
+def test_sanitize_slug_no_service_word_leak():
+    """Служебные слова slug НЕ текут в «Подготовлено для»; имя ≤2 токенов."""
+    from engines.narrative_adapter import _sanitize_project_slug
+    cl, _ = _sanitize_project_slug('кагоцел-рф--данные-для-эконометрики---на-ммх-2006-26--3')
+    assert cl == 'Кагоцел Рф'
+    assert 'Данные' not in cl and 'Эконометрики' not in cl and '2006' not in cl
+    # дата-маркер ммх (2404 = 24 апр) не год → не протекает в имя
+    assert _sanitize_project_slug('венарус-ммх-2404-26--2')[0] == 'Венарус'
+    # настоящий год-диапазон сохраняется
+    assert '2021-2025' in _sanitize_project_slug('mmx-2021-2025-исходник-26--4')[0]
+
+
+def test_seam_carries_analysis_mode_labels():
+    """Волна 3: мост доносит метку режима анализа + типа KPI из decompose."""
+    payload = _map_pipeline_to_builder_data(
+        model_data={}, decompose_data={
+            "derived_mode": "effectiveness", "kpi_kind": "count",
+            "channels": [{"name": "A", "mroas": 1.2}, {"name": "B", "mroas": 1.0}]},
+        optimize_data={}, scenarios=[], project_id="t")
+    d = payload["diagnostics"]
+    assert d["analysis_mode_label"] == "Эффективность (доля вклада)"
+    assert d["kpi_kind_label"] == "количественный"
+    # дефолт (нет полей) → ROI/денежный
+    payload2 = _map_pipeline_to_builder_data(
+        model_data={}, decompose_data={"channels": [{"name": "A", "mroas": 1.2}, {"name": "B"}]},
+        optimize_data={}, scenarios=[], project_id="t")
+    assert payload2["diagnostics"]["analysis_mode_label"] == "ROI (деньги)"
+
+
+def test_channel_reasoning_no_anglicisms():
+    """Волна 3: клиентский reasoning без англицизмов (saturation/breakeven/Optimizer)."""
+    from engines.channel_action import compute_channel_action
+    samples = [
+        {"name": "A", "mroas": 0.5, "current_spend": 100, "optimal_spend": 100},   # Cut
+        {"name": "B", "mroas": 1.3, "current_spend": 100, "optimal_spend": 70},     # Reduce (saturation)
+        {"name": "C", "mroas": 1.4, "current_spend": 100, "optimal_spend": 140},    # Scale
+    ]
+    for ch in samples:
+        r = compute_channel_action(ch).reasoning.lower()
+        for bad in ("saturation", "breakeven", "optimizer"):
+            assert bad not in r, f"англицизм '{bad}' в reasoning: {r}"
+
+
+def test_merge_channels_preserves_unit_smell():
+    """Волна 1: honesty-поля (unit_smell/smell_flags) доходят через мост до
+    hero-гарда; иначе битый ROI-канал (TRP, не рубли) коронуется «лучшим»."""
+    from engines.narrative_adapter import _merge_channels
+    decomp = [
+        {"name": "TRPs бренд", "spend": 22100, "contribution": 409e6, "roi": 18500,
+         "unit_smell": True, "smell_flags": [{"type": "roi_max"}], "category": "brand"},
+        {"name": "Social", "spend": 100e6, "contribution": 1345e6, "roi": 13.4},
+    ]
+    merged = _merge_channels(decomp, [])
+    trp = next(c for c in merged if "TRP" in (c.get("name") or ""))
+    assert trp.get("unit_smell") is True
+    assert trp.get("smell_flags")

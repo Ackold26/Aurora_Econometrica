@@ -1,5 +1,6 @@
 <script>
   import '../app.css';
+  import '../aurora-ui-alias.css';  // канон-namespace --ui-* → живые токены app.css (design-sync 2026-06-20)
   import { invoke } from '@tauri-apps/api/core';
   import { get } from 'svelte/store';
   import { page } from '$app/stores';
@@ -13,6 +14,8 @@
   import Toast from '$lib/components/Toast.svelte';
   import CommandPalette from '$lib/components/CommandPalette.svelte';
   import NavRail from '$lib/components/NavRail.svelte';
+  import BrandChip from '$lib/components/BrandChip.svelte';  // чип названия приложения (стандарт Aurora Core, левый верхний угол, все страницы)
+  import SessionTimer from '$lib/components/SessionTimer.svelte';  // таймер сессии (countdown), сквозной на всех внутренних страницах
   import GlossaryPanel from '$lib/components/GlossaryPanel.svelte';
   import IntroTutorial from '$lib/components/IntroTutorial.svelte';
   import { showGlossaryPanel, glossaryInitialTerm, showIntroTutorial } from '$lib/project-state.js';
@@ -278,6 +281,14 @@
     />
   {/if}
   <div class="main-content">
+    <!-- Брендинг-чип на внутренних страницах в потоке (на главной — свой topbar
+         с BrandChip). Стандарт Aurora Core: название приложения, левый верхний угол. -->
+    {#if $page.url.pathname !== '/'}
+      <div class="global-topbar">
+        <BrandChip />
+        <div class="gt-timer"><SessionTimer /></div>
+      </div>
+    {/if}
     {#key $page.url.pathname}
       <div class="page-transition">
         {@render children()}
@@ -296,6 +307,29 @@
 
 <style>
   /* v1.3.2 audit: .glossary-fab removed (см. template comment). */
+
+  /* Брендинг-топбар на внутренних страницах (в потоке, sticky) — чип названия
+     приложения в левом верхнем углу (стандарт Aurora Core). Контент уходит ниже,
+     без наезда. На главной свой topbar — этот скрыт условием маршрута. */
+  .global-topbar {
+    display: flex;
+    align-items: center;
+    padding: 8px 18px;
+    position: sticky;
+    top: 0;
+    z-index: 30;
+    background: var(--bg-glass);
+    backdrop-filter: var(--glass-blur);
+    border-bottom: 1px solid var(--border-subtle);
+  }
+  /* Таймер сессии — по центру топбара, независимо от ширины чипа (как на главной). */
+  .gt-timer {
+    position: absolute;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+  }
 
   .toast-container {
     position: fixed;

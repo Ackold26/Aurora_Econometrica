@@ -864,7 +864,7 @@ def bootstrap_js(
 
     panel.innerHTML =
       '<summary style="cursor:pointer;font-weight:600;color:var(--text);padding:4px 0;font-size:14px;">' +
-        'Бюджет what-if · Hill saturation model' +
+        'Бюджет «что если» · модель насыщения (Hill)' +
       '</summary>' +
       '<div style="padding-top:12px;">' +
         '<div style="font-size:12px;color:var(--text-muted);margin-bottom:8px;">' +
