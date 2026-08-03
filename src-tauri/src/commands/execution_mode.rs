@@ -156,6 +156,35 @@ static LOCAL_PROBE: Mutex<Option<LocalProbe>> = Mutex::new(None);
 /// недоступным С ПРИЧИНОЙ до следующей успешной работы, а не молча отказывал каждый раз.
 static CLOUD_REFUSAL: Mutex<String> = Mutex::new(String::new());
 
+/// Шла ли работа этого запуска программы локальным путём хоть раз.
+///
+/// 🔴 Находка внешнего аудита (Critical). Без этой памяти автоопределение молча меняло
+/// маршрут данных: человек без явного выбора работал локально и видел «ваш Claude Code»
+/// с обещанием «материалы не проходят через серверы Платформы Аврора»; ЛЮБОЙ отказ
+/// прогона — хоть ошибка записи отчёта — помечал локальный путь недоступным, и
+/// следующий же вопрос уходил на шлюз. Согласия никто не спрашивал, а показанный текст
+/// утверждал обратное.
+///
+/// Асимметрия §4 не про то, был ли выбор ЯВНЫМ, а про то, что круг видящих не
+/// расширяется без ведома человека. Поэтому один раз пойдя локально, автоопределение
+/// в облако само уже не уходит: отказ называется причиной, переход — только выбором.
+static LOCAL_ENGAGED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+fn local_engaged() -> bool {
+    LOCAL_ENGAGED.load(std::sync::atomic::Ordering::Relaxed)
+}
+
+/// Отметить, что работа пошла локальным путём. Зовётся в момент РЕШЕНИЯ, а не успеха:
+/// человек уже увидел признак «ваш Claude Code» и вправе считать обещание действующим.
+fn mark_local_engaged() {
+    LOCAL_ENGAGED.store(true, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// Снять память о локальной работе — только явный выбор человека вправе это сделать.
+fn forget_local_engagement() {
+    LOCAL_ENGAGED.store(false, std::sync::atomic::Ordering::Relaxed);
+}
+
 fn cached_probe() -> Option<(bool, String)> {
     let guard = LOCAL_PROBE.lock().ok()?;
     let probe = guard.as_ref()?;
@@ -289,6 +318,11 @@ pub fn set_explicit_choice(
     let mut config = crate::commands::user_config::load(&config_dir);
     config.execution_mode = mode.map(|m| m.as_str().to_string());
     crate::commands::user_config::save(&config_dir, &config)?;
+    // Явный выбор облака — согласие человека расширить круг видящих. Только оно снимает
+    // память о локальной работе: сама программа этого сделать не вправе.
+    if mode == Some(ExecutionMode::Cloud) {
+        forget_local_engagement();
+    }
     match mode {
         Some(m) => info!("Режим исполнения выбран человеком: {}", m.human()),
         None => info!("Режим исполнения возвращён к автоопределению"),
@@ -311,7 +345,11 @@ pub async fn resolve(app_handle: &tauri::AppHandle) -> ModeDecision {
     } else {
         local_available().await
     };
-    decide(explicit, cloud_built_in(), local_ok, &why_not)
+    let decision = decide_with_history(explicit, cloud_built_in(), local_ok, &why_not, local_engaged());
+    if decision.mode == ExecutionMode::Local {
+        mark_local_engaged();
+    }
+    decision
 }
 
 /// Само правило приоритета — без обращения к среде.
@@ -325,6 +363,21 @@ pub(crate) fn decide(
     cloud_built_in: bool,
     local_ok: bool,
     why_not: &str,
+) -> ModeDecision {
+    decide_with_history(explicit, cloud_built_in, local_ok, why_not, false)
+}
+
+/// То же правило, но с памятью о том, шла ли работа локально в этом запуске программы.
+///
+/// 🔴 `local_engaged` появился после находки внешнего аудита: без него автоопределение
+/// уводило человека на шлюз при первом же отказе локального прогона — включая отказы,
+/// не имеющие к доступности Claude Code никакого отношения.
+pub(crate) fn decide_with_history(
+    explicit: Option<ExecutionMode>,
+    cloud_built_in: bool,
+    local_ok: bool,
+    why_not: &str,
+    local_engaged: bool,
 ) -> ModeDecision {
     if let Some(chosen) = explicit {
         // 🔴 Явный выбор облачного режима в сборке без облачного пути — не отказ
@@ -357,6 +410,24 @@ pub(crate) fn decide(
             explanation: "Работа идёт через ваш Claude Code: материалы не проходят через \
                           серверы Платформы Аврора."
                 .to_string(),
+        };
+    }
+
+    // 🔴 Работа уже шла локально в этом запуске — в облако автоопределение НЕ уходит
+    // (находка внешнего аудита, Critical). Человек видел признак «ваш Claude Code» и
+    // обещание, что материалы не проходят через наши серверы; отказ прогона — любой,
+    // хоть ошибка записи отчёта — не даёт права расширить круг видящих без его ведома.
+    // Отказ называется причиной, переход остаётся выбором.
+    if local_engaged {
+        return ModeDecision {
+            mode: ExecutionMode::Local,
+            source: ModeSource::Auto,
+            explanation: format!(
+                "{}. Работа продолжает идти через ваш Claude Code: сами на шлюз Авроры мы вас \
+                 не переводим — это расширило бы круг тех, кто видит материалы. Переключить \
+                 можно в настройках.",
+                if why_not.is_empty() { "Локальный запуск сейчас недоступен" } else { why_not }
+            ),
         };
     }
 
@@ -406,8 +477,9 @@ pub fn local_failure_text(reason: &str) -> String {
         format!(
             "{reason}\n\nРабота НЕ была отправлена на шлюз Авроры: в локальном режиме ваши \
              материалы не проходят через наши серверы, и менять это без вашего согласия мы не \
-             станем. Если сейчас это допустимо — переключите режим на «шлюз Авроры» в настройках \
-             и повторите вопрос."
+             станем — повторный вопрос тоже пойдёт через ваш Claude Code. Если сейчас участие \
+             наших серверов допустимо, переключите режим на «шлюз Авроры» в настройках, и тогда \
+             повторите вопрос."
         )
     } else {
         reason.to_string()
@@ -488,6 +560,32 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// 🔴 Находка внешнего аудита (Critical): автоопределение уводило человека на шлюз
+    /// при первом же отказе локального прогона — включая отказы, не связанные с
+    /// доступностью Claude Code (ошибка записи отчёта, отмена, сетевой сбой внутри
+    /// локального пути). Человек согласия не давал, а на экране стояло обещание, что
+    /// материалы не проходят через наши серверы.
+    #[test]
+    fn autodetection_never_moves_to_cloud_after_working_locally() {
+        // Работа уже шла локально, теперь локальный путь «недоступен» — остаёмся локально.
+        let d = decide_with_history(None, true, false, "Сессия Claude истекла", true);
+        assert_eq!(
+            d.mode,
+            ExecutionMode::Local,
+            "после локальной работы автоопределение не вправе уйти на шлюз без согласия",
+        );
+        assert!(
+            d.explanation.contains("не переводим"),
+            "человеку обязана называться причина, по которой маршрут НЕ изменился: {}",
+            d.explanation,
+        );
+
+        // А первый выбор при недоступном локальном пути по-прежнему может быть облачным:
+        // это не ПЕРЕХОД, а начальное решение — круг видящих не расширяется задним числом.
+        let d = decide_with_history(None, true, false, "Claude Code не найден", false);
+        assert_eq!(d.mode, ExecutionMode::Cloud, "первичный выбор при отсутствии локального пути");
     }
 
     /// Сборка без облачного пути не притворяется, что умеет ходить на шлюз.
