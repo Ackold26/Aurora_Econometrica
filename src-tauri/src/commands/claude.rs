@@ -583,6 +583,24 @@ pub(crate) fn auto_save_response(
     if final_text.trim().is_empty() {
         return;
     }
+    // 🔴 CPD-32: файл-результат не имеет права нести текст отказа. До правки единственным
+    // условием была непустота, поэтому сообщение оборвавшегося канала сохранялось как отчёт —
+    // с именем по шаблону команды, датой и признаками выполненной работы — и через неделю
+    // становилось неотличимо от настоящего разбора, не открыв его. Отказ здесь ГРОМКИЙ:
+    // молчаливый пропуск вернул бы нас к родственному дефекту «файла нет, и никто не знает
+    // почему» (CPD-17).
+    if let Some(reason) = failure_notice_reason(final_text) {
+        warn!("Ответ не сохранён [{cabinet_id}]: {reason}");
+        let _ = app_handle.emit(
+            &format!("claude-stream-{cabinet_id}"),
+            serde_json::json!({
+                "type": "error",
+                "message": "Ответ не дошёл целиком, файл не сохранён – повторите команду."
+            })
+            .to_string(),
+        );
+        return;
+    }
     let slug = extract_command_slug(prompt);
     let timestamp = chrono::Local::now().format("%Y%m%d-%H%M%S");
     let suffix = if partial_suffix { "-partial" } else { "" };
@@ -605,6 +623,49 @@ pub(crate) fn auto_save_response(
         }
         Err(e) => warn!("Failed to auto-save response: {e}"),
     }
+}
+
+/// Порог, ниже которого текст не может быть содержательным ответом кабинета вместе с маркером
+/// отказа. Ответы советника — развёрнутые разборы; сообщение об обрыве канала укладывается в
+/// одну-две строки. Величина продуктовая, не научная, и намеренно щедрая.
+const FAILURE_NOTICE_MAX_CHARS: usize = 400;
+
+/// Маркеры отказа КАНАЛА (не содержания). Сверяются с началом текста, регистр не важен.
+const FAILURE_NOTICE_MARKERS: &[&str] = &[
+    "api error",
+    "error:",
+    "request timed out",
+    "connection closed",
+    "connection error",
+    "stream closed",
+    "fetch failed",
+];
+
+/// Является ли текст сообщением об отказе, а не ответом кабинета (CPD-32).
+///
+/// 🔴 Почему маркер И длина, а не «либо-либо». Предложение записи реестра допускало отказ по
+/// одной лишь краткости, но короткий ответ бывает настоящим («Да, риск есть: пункт 4.2»), и
+/// выбрасывать его — терять работу клиента. Маркер сам по себе тоже не доказательство: разбор
+/// вопроса «что означает API Error 500» законно начинается этими словами, но он длинный.
+/// Совпадение обоих признаков — короткий текст, начинающийся с маркера отказа канала, — не
+/// оставляет места содержательному ответу.
+///
+/// Возвращает причину для журнала, чтобы отказ можно было разобрать по следам, а не гадать.
+fn failure_notice_reason(text: &str) -> Option<&'static str> {
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return Some("пустой ответ");
+    }
+    // Считаем символы, а не байты: у кириллицы их по два на символ, и порог в байтах
+    // отрезал бы русские ответы вдвое раньше английских.
+    if trimmed.chars().count() > FAILURE_NOTICE_MAX_CHARS {
+        return None;
+    }
+    let head: String = trimmed.chars().take(80).collect::<String>().to_lowercase();
+    FAILURE_NOTICE_MARKERS
+        .iter()
+        .any(|m| head.starts_with(m))
+        .then_some("текст начинается маркером отказа канала и короче порога содержательности")
 }
 
 /// Extract a short slug from the user prompt for use in the filename.
@@ -854,6 +915,102 @@ fn convert_to_pdf(md_path: &std::path::Path) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 🔴 Сторож CPD-32 (блокирующий, ложное утверждение продукта о себе). Эталонный случай —
+    /// дословный текст из находки Legal Center 0.12.1: ответ оборвался, а продукт сохранил
+    /// сообщение об обрыве как отчёт с именем по шаблону команды и датой.
+    #[test]
+    fn broken_channel_notice_is_not_a_result() {
+        assert!(
+            failure_notice_reason("API Error: Connection closed mid-response").is_some(),
+            "сообщение об обрыве канала обязано быть распознано: иначе оно ляжет в папку клиента \
+             файлом со всеми признаками выполненной работы"
+        );
+        assert!(failure_notice_reason("Error: request failed").is_some());
+        assert!(failure_notice_reason("Request timed out after 600s").is_some());
+        assert!(failure_notice_reason("   ").is_some(), "пустой ответ — тоже не результат");
+    }
+
+    /// 🔴 Негативный контроль: короткий ответ бывает НАСТОЯЩИМ, и выбрасывать его — терять
+    /// работу клиента. Без этого случая правило удовлетворялось бы отказом по одной краткости.
+    #[test]
+    fn short_but_real_answer_is_kept() {
+        assert!(
+            failure_notice_reason("Да, риск есть: пункт 4.2 договора.").is_none(),
+            "короткий содержательный ответ обязан сохраняться"
+        );
+        assert!(
+            failure_notice_reason("Вклад телевидения — 32 %, это верхняя граница правдоподобного \
+                                   диапазона.")
+                .is_none()
+        );
+    }
+
+    /// 🔴 Второй негативный контроль: маркер сам по себе не доказательство. Разбор вопроса
+    /// «что означает API Error 500» законно начинается этими словами — но он длинный.
+    #[test]
+    fn long_explanation_starting_with_a_marker_is_kept() {
+        let long_answer = format!(
+            "API Error 500 — это ответ сервера, а не отказ вашего канала. {}",
+            "Ниже разбор причин и порядок действий. ".repeat(12)
+        );
+        assert!(
+            long_answer.chars().count() > FAILURE_NOTICE_MAX_CHARS,
+            "фикстура обязана быть длиннее порога, иначе случай проверяет не то"
+        );
+        assert!(
+            failure_notice_reason(&long_answer).is_none(),
+            "развёрнутый разбор не имеет права быть принят за отказ канала"
+        );
+    }
+
+    /// 🔴 Порог считается в СИМВОЛАХ, не байтах: у кириллицы два байта на символ, и байтовый
+    /// счёт отрезал бы русские ответы вдвое раньше английских — при этом на английских
+    /// фикстурах разница не видна вовсе.
+    #[test]
+    fn threshold_counts_characters_not_bytes() {
+        let russian = "Разбор ".repeat(40); // ~280 символов, но ~520 байт
+        assert!(russian.chars().count() < FAILURE_NOTICE_MAX_CHARS);
+        assert!(russian.len() > FAILURE_NOTICE_MAX_CHARS, "фикстура обязана быть длиннее в БАЙТАХ");
+        assert!(
+            failure_notice_reason(&format!("API Error: {russian}")).is_some(),
+            "русский текст в пределах порога по символам обязан проверяться маркером так же, \
+             как английский"
+        );
+    }
+
+    /// 🔴 Сторож СВЯЗИ, а не только логики (урок Ф-04 внешнего аудита: вынесенная функция была
+    /// покрыта, а её вызов — нет, и дефект жил дальше). Проверка обязана стоять МЕЖДУ входом в
+    /// автосохранение и записью файла: если её вынести за пределы этого промежутка, распознавание
+    /// останется рабочим, а отказ снова ляжет на диск отчётом.
+    ///
+    /// Тест разбирает собственный исходник — тот же приём, что у сторожа паритета ярусов
+    /// качества (`test_mqs_tier_rust_single_source.py`), потому что вызов `auto_save_response`
+    /// требует живого `AppHandle` и юнит-тестом не строится.
+    #[test]
+    fn auto_save_checks_whether_the_answer_happened_before_writing() {
+        let src = include_str!("claude.rs");
+        let start = src
+            .find("pub(crate) fn auto_save_response")
+            .expect("функция auto_save_response не найдена — разметка переехала");
+        let tail = &src[start..];
+        let write_at = tail
+            .find("std::fs::write(&export_path")
+            .expect("запись файла в auto_save_response не найдена — разметка переехала");
+        let window = &tail[..write_at];
+
+        assert!(
+            window.contains("failure_notice_reason"),
+            "между входом в автосохранение и записью файла нет проверки «состоялся ли ответ» — \
+             сообщение об обрыве канала снова ляжет в папку клиента файлом с признаками \
+             выполненной работы (CPD-32)"
+        );
+        assert!(
+            window.contains("claude-stream-"),
+            "отказ обязан быть ГРОМКИМ: молчаливый пропуск возвращает к родственному дефекту \
+             «файла нет, и никто не знает почему» (CPD-17)"
+        );
+    }
 
     #[test]
     fn slug_from_slash_command() {
