@@ -34,6 +34,9 @@ OUT_JS = ROOT / "src" / "lib" / "glossary.js"
 
 # ── id-карта: заголовок md → стабильный id (overlap с legacy → legacy id) ──
 ID_MAP = {
+    "Запас данных": "data_ratio",
+    "Взаимосвязь каналов (VIF)": "vif",
+    "Оценка данных (MQS)": "mqs",
     "ROAS (Возврат на рекламные расходы)": "roas",
     "ROI (Возврат на вложения)": "roi",
     "Декомпозиция (Decomposition)": "decomposition",

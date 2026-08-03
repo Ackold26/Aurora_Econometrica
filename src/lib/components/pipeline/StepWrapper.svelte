@@ -39,20 +39,20 @@
     <h2 class="step-title">{stepDef.labelRu}</h2>
     {#if validationMetrics}
       <div class="key-metrics" aria-label="Ключевые параметры валидации">
-        <span class="metric-chip light-{validationMetrics.ratioStatus}" title="Запас данных (Ratio) - наблюдений на параметр, устойчивость оценок. ≥10 отлично, 4–10 приемлемо (интервалы шире), <4 рискованно (переобучение).">
+        <span class="metric-chip light-{validationMetrics.ratioStatus}" title="Запас данных – сколько наблюдений приходится на один оцениваемый параметр модели. От него зависит устойчивость оценок: ≥10 отлично, 4–10 приемлемо (диапазоны шире), <4 рискованно (модель подстроится под шум).">
           <span class="metric-label">Запас данных</span>
           <span class="metric-value">{validationMetrics.ratio.toFixed(1)}:1</span>
         </span>
-        <span class="metric-chip light-{validationMetrics.vifStatus}" title="VIF max - коллинеарность медиа-каналов. ≤5 каналы независимы, 5–10 умеренная collinearity (диапазон шире), >10 модель не разделит вклады каналов.">
-          <span class="metric-label">VIF max</span>
+        <span class="metric-chip light-{validationMetrics.vifStatus}" title="Взаимосвязь каналов (VIF, коэффициент вздутия дисперсии) – насколько бюджеты каналов меняются синхронно. ≤5 каналы независимы, 5–10 умеренная связь (диапазоны шире), >10 модель не сможет разделить их вклады.">
+          <span class="metric-label">Взаимосвязь каналов</span>
           <span class="metric-value">{validationMetrics.maxVif == null ? 'н/д' : validationMetrics.maxVif.toFixed(1)}</span>
         </span>
-        <span class="metric-chip light-{validationMetrics.periodStatus}" title="Период наблюдений. ≥24 захват 2+ сезонов, 12–24 один сезон, <12 недостаточно для оценки сезонности.">
+        <span class="metric-chip light-{validationMetrics.periodStatus}" title="Период наблюдений – сколько точек истории загружено. ≥24 захватываются два сезона и больше, 12–24 один сезон, <12 недостаточно, чтобы увидеть сезонность.">
           <span class="metric-label">Период</span>
           <span class="metric-value">{validationMetrics.nObs}</span>
         </span>
-        <span class="metric-chip light-{validationMetrics.mqsStatus}" title="MQS прогноз - комбинированная оценка готовности данных до обучения (на основе Ratio, VIF, периода). Шкала: {mqsScaleText()}. Реальный MQS уточнится после обучения.">
-          <span class="metric-label">MQS прогноз</span>
+        <span class="metric-chip light-{validationMetrics.mqsStatus}" title="Оценка данных (MQS) – комбинированный балл готовности данных до обучения: считается по запасу данных, взаимосвязи каналов и длине периода. Шкала: {mqsScaleText()}. После обучения оценка уточняется по самой модели.">
+          <span class="metric-label">Оценка данных (MQS)</span>
           <span class="metric-value">{validationMetrics.mqs}</span>
         </span>
       </div>
