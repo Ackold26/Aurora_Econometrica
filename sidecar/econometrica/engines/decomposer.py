@@ -608,11 +608,16 @@ def _build_methodology_certificate(
             model_data, decompose_result, manifest, diagnostics,
         )
     except Exception as exc:  # noqa: BLE001 — расчёт важнее заверения
+        # 🔴 Аудит F-08: имя класса исключения уезжало клиенту прямо в отчёт
+        # («Заверение недоступно: Сертификат не удалось собрать:
+        # FloatDomainError»). Технические подробности — в журнал, клиенту —
+        # заранее написанная человеческая формулировка.
         logger.warning('Сертификат: непредвиденная ошибка (%s): %s',
                        type(exc).__name__, exc)
         return {
             'status': 'unavailable',
-            'reason': f'Сертификат не удалось собрать: {type(exc).__name__}.',
+            'reason': 'Не удалось собрать заверение для этого расчёта. '
+                      'Подробности — в журнале программы.',
             'payload': None,
             'hash': None,
         }

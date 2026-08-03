@@ -150,26 +150,65 @@ def _extract_v13_payload(
     # четырёх клиентских моделей `diagnostics` == {}), поэтому сборка из полей
     # модели — основной путь, а не запасной. Дефолтов нет: отсутствие типа KPI
     # или вида правдоподобия означает, что модель нечем описать.
+    # 🔴 Внешний аудит блока, F-01 Critical: читать описание модели из
+    # `model_data` НЕЛЬЗЯ. `load_model_with_compat` подставляет туда
+    # `kpi_type='sales'` и `kpi_likelihood='normal'` (`persistence.py:191-192`)
+    # ДО того, как сертификат проверит наличие полей, — то есть проверка
+    # «нет величины → отказ» не срабатывала никогда, а в хеш уезжала
+    # подстановка. У модели режима малых данных (OLS) верхнеуровневых полей нет
+    # вовсе, и модель, обученная на знании марки, заверялась как модель продаж.
+    # Настоящее значение живёт в конфигурации обучения.
     diagnostics = model_data.get('diagnostics') or {}
     model_spec_raw = diagnostics.get('model_spec') or {}
     if not model_spec_raw:
-        kpi_type = model_data.get('kpi_type')
-        kpi_likelihood = model_data.get('kpi_likelihood')
-        missing = [name for name, val in
-                   (('kpi_type', kpi_type), ('kpi_likelihood', kpi_likelihood))
-                   if not val]
-        if missing:
+        config = model_data.get('config') or {}
+        это_ols = str(model_data.get('model_version') or '').endswith('ols')
+        # Конфигурация обучения — первичный источник: там лежит то, что выбрал
+        # пользователь. Запись самого обучения (`modeler.py:1696`) — законный
+        # запасной путь для байесовской ветки: она пишет фактически применённое
+        # значение, и если пользователь тип не задавал, обучение и расчёт шли по
+        # одному и тому же значению. А вот у режима малых данных обучение
+        # верхний уровень не пишет вовсе — там всё, что видно, подставил
+        # загрузчик, и доверять ему нельзя (в этом и была находка F-01).
+        kpi_type = config.get('kpi_type')
+        if not kpi_type and not это_ols:
+            kpi_type = model_data.get('kpi_type')
+        if not kpi_type:
             raise CertificateUnavailable(
-                f'В модели нет обязательных полей описания: {", ".join(missing)}. '
-                f'Подставлять значения по умолчанию нельзя — сертификат описывал '
-                f'бы не ту модель, которую обучили.'
+                'В конфигурации модели нет типа целевой метрики. Подставлять '
+                'значение по умолчанию нельзя — сертификат описывал бы не ту '
+                'модель, которую обучили.'
             )
         model_spec_raw = {
             'kpi_type': str(kpi_type),
-            'kpi_likelihood': str(kpi_likelihood),
             'num_channels': len(model_data.get('channel_params') or {}),
-            'adstock_types': dict(model_data.get('channel_adstock_types') or {}),
         }
+
+        # Вид правдоподобия существует только у байесовской ветки: закрытая
+        # формула МНК его не использует, и печатать «normal» для неё значило бы
+        # описывать модель, которой нет.
+        if not str(model_data.get('model_version') or '').endswith('ols'):
+            likelihood = config.get('kpi_likelihood') or model_data.get('kpi_likelihood')
+            if likelihood:
+                model_spec_raw['kpi_likelihood'] = str(likelihood)
+
+        # F-09: карта адстоков заполняется ФАКТИЧЕСКИ применёнными типами.
+        # Пустой словарь (пользователь не выбирал тип явно) утверждал бы
+        # «адстоков нет», хотя модель применила геометрический.
+        adstock_types = dict(model_data.get('channel_adstock_types') or {})
+        каналы_модели = list((model_data.get('channel_params') or {}).keys())
+        if not adstock_types and каналы_модели:
+            try:
+                from engines.persistence import get_adstock_type
+                adstock_types = {
+                    str(канал): str(get_adstock_type(model_data, канал))
+                    for канал in каналы_модели
+                }
+            except Exception as exc:  # noqa: BLE001 — лучше без ключа, чем с выдумкой
+                logger.warning('Сертификат: типы адстока не восстановлены: %s', exc)
+                adstock_types = {}
+        if adstock_types:
+            model_spec_raw['adstock_types'] = adstock_types
 
     # ── decomposition_summary ───────────────────────────────────────────────
     # 🔴 Прежний код итерировал `waterfall` как список словарей с ключом
@@ -184,14 +223,36 @@ def _extract_v13_payload(
             'Результат декомпозиции неполон (нет общих продаж, базы или '
             'каналов) — заверять нечего.'
         )
+    total_sales = float(total_sales)
+    if total_sales != total_sales or total_sales in (float('inf'), float('-inf')):
+        raise CertificateUnavailable(
+            'Итог по целевой метрике — не число, заверять такую разбивку нельзя.'
+        )
+
+    def _конечное(значение: Any, что: str) -> float:
+        """Число или отказ с человеческой причиной.
+
+        🔴 Аудит F-08: канонизация RFC 8785 не умеет `nan`/`inf` и поднимает
+        свою ошибку, которая до правки уезжала клиенту в отчёт технической
+        строкой («Сертификат не удалось собрать: FloatDomainError»). Вырожденный
+        канал в продукте — известный случай, ради него живёт `sanitize_nonfinite`.
+        """
+        число = float(значение)
+        if число != число or число in (float('inf'), float('-inf')):
+            raise CertificateUnavailable(
+                f'{что} — не число, заверять такую разбивку нельзя. '
+                f'Проверьте данные канала: расчёт мог не сойтись.'
+            )
+        return число
 
     def _pct_of_total(value: float) -> float:
         return round(value / float(total_sales) * 100, 2)
 
+    КЛЮЧ_БАЗЫ = 'Base'
     decomp_summary: dict[str, Any] = {
-        'Base': {
-            'value': float(baseline),
-            'contribution_pct': _pct_of_total(float(baseline)),
+        КЛЮЧ_БАЗЫ: {
+            'value': _конечное(baseline, 'Базовый уровень'),
+            'contribution_pct': _pct_of_total(_конечное(baseline, 'Базовый уровень')),
         }
     }
     for ch in channels_raw:
@@ -202,9 +263,20 @@ def _extract_v13_payload(
                 'В разбивке есть канал без имени или без вклада — '
                 'заверять неполную разбивку нельзя.'
             )
+        # 🔴 Аудит F-07: имя канала приходит из столбца пользовательской
+        # таблицы. Совпадение с ключом базы затирало её запись целиком, и в
+        # хеш уезжала сводка, где под словом «Base» стоит число канала —
+        # неверное число под верным именем, без единого предупреждения.
+        if str(name) == КЛЮЧ_БАЗЫ:
+            raise CertificateUnavailable(
+                f'Канал назван «{КЛЮЧ_БАЗЫ}» — этим именем в сертификате '
+                f'обозначается базовый уровень. Переименуйте столбец, иначе '
+                f'заверенная разбивка окажется неверной.'
+            )
+        вклад = _конечное(contribution, f'Вклад канала «{name}»')
         decomp_summary[str(name)] = {
-            'value': float(contribution),
-            'contribution_pct': _pct_of_total(float(contribution)),
+            'value': вклад,
+            'contribution_pct': _pct_of_total(вклад),
         }
 
     # ── channel_roi ─────────────────────────────────────────────────────────
@@ -215,12 +287,23 @@ def _extract_v13_payload(
             # Режим эффективности и счётный KPI без стоимости единицы дают
             # разбивку без ROI — это законно, канал просто не попадает в раздел.
             continue
-        entry: dict[str, Any] = {'roi': float(roi)}
+        # 🔴 Аудит F-04: канал без бюджета либо без обучаемой дисперсии получает
+        # от декомпозера `roi = 0.0` и маркер неприменимости — но расчёт не
+        # утверждал, что окупаемость нулевая, он утверждал, что она НЕ
+        # ОПРЕДЕЛЕНА. В сочетании `zero_spend` туда же дописывались границы
+        # `[0; 0]`, которых модель не считала. В сводке вкладов такой канал
+        # остаётся (нулевой вклад — факт), а в разделе окупаемости его нет.
+        if ch.get('ci_skip_reason'):
+            continue
+        имя_канала = ch.get('name')
+        entry: dict[str, Any] = {
+            'roi': _конечное(roi, f'Окупаемость канала «{имя_канала}»'),
+        }
         ci_low = ch.get('roi_ci_low')
         ci_high = ch.get('roi_ci_high')
         if ci_low is not None and ci_high is not None:
-            entry['roi_ci_low'] = float(ci_low)
-            entry['roi_ci_high'] = float(ci_high)
+            entry['roi_ci_low'] = _конечное(ci_low, f'Нижняя граница по каналу «{имя_канала}»')
+            entry['roi_ci_high'] = _конечное(ci_high, f'Верхняя граница по каналу «{имя_канала}»')
         channel_roi[str(ch.get('name'))] = entry
 
     return {
@@ -452,7 +535,9 @@ def generate_methodology_certificate(
     # полноценно нельзя: зерно сэмплера не записано, повторить прогон
     # побитово невозможно. Хеш при этом честен для тех полей, что есть, —
     # поэтому статус, а не отказ.
-    attested = reproducibility.get('status') == 'recorded'
+    # Заверение полное в двух случаях: паспорт записан (байесовская ветка) либо
+    # расчёт детерминирован по построению (закрытая формула, аудит F-02).
+    attested = reproducibility.get('status') in ('recorded', 'deterministic')
 
     return {
         'status': 'issued' if attested else 'not_attested',
@@ -481,6 +566,15 @@ def _extract_reproducibility(model_data: dict[str, Any]) -> dict[str, Any]:
         diag = model_data.get('diagnostics') or {}
         snapshot = diag.get('reproducibility') if isinstance(diag, dict) else None
     if not isinstance(snapshot, dict) or not snapshot:
+        # 🔴 Аудит F-02: «паспорта нет» — не одна причина, а две. Режим малых
+        # данных (закрытая формула МНК) паспорта не пишет вовсе и не может:
+        # случайного сэмплера у него нет, а зерно бутстрапа и конформных
+        # интервалов зашито в код (`ols_modeler.py:300,320`, `seed=42`). То есть
+        # расчёт воспроизводим по построению, и говорить клиенту «модель
+        # обучена в ранней версии программы» — ложь: он обучил её только что,
+        # а совет переобучить не поможет, малые данные снова уйдут в тот же режим.
+        if str(model_data.get('model_version') or '').endswith('ols'):
+            return {'status': 'deterministic'}
         return {'status': 'absent'}
 
     versions = snapshot.get('versions') or {}

@@ -141,6 +141,33 @@ from .kpi_helpers import (
 )
 
 
+def строки_сертификата(cert) -> list[tuple[str, str]]:
+    """Строки сертификата для блока диагностики слайда методологии (P0.7 шаг 15).
+
+    Вынесена из метода слайда, чтобы её можно было прокрасить мутацией:
+    внешний аудит показал (F-10), что код внутри слайда не покрыт ни одним
+    сторожем, и обращение по ключу упало бы `KeyError`, если бы гейт по хешу
+    случайно сняли.
+
+    Строки добавляются ТОЛЬКО когда сертификат реально посчитан — иначе слайд
+    молчит, а не печатает прочерки (тот же принцип, что у витрин доверия).
+    """
+    if not isinstance(cert, dict) or not cert.get("hash"):
+        return []
+    строки: list[tuple[str, str]] = [("Отпечаток", str(cert["hash"])[:12] + "…")]
+    паспорт = cert.get("reproducibility") or {}
+    зерно = паспорт.get("seed")
+    if паспорт.get("status") == "recorded" and зерно is not None:
+        строки.append(("Зерно генератора", str(зерно)))
+    elif паспорт.get("status") == "deterministic":
+        # Режим малых данных: закрытая формула, случайного подбора нет —
+        # зерна не бывает, и «неполное заверение» здесь было бы неправдой.
+        строки.append(("Повторяемость", "расчёт без случайного подбора"))
+    elif cert.get("status") == "not_attested":
+        строки.append(("Заверение", "неполное"))
+    return строки
+
+
 class AuroraPPTXBuilder:
     """Production PPTX builder for Aurora AI Econometrica MMM reports.
 
@@ -3010,19 +3037,8 @@ class AuroraPPTXBuilder:
                 ("ESS (min)",         _ess_str),
             ]
 
-        # P0.7 шаг 15: воспроизводимость и сертификат. Строки добавляются
-        # ТОЛЬКО когда сертификат реально посчитан — иначе блок молчит, а не
-        # печатает прочерки (тот же принцип, что у витрин доверия).
-        _cert = self.data.get("certificate") or {}
-        if _cert.get("hash"):
-            diag.append(("Отпечаток", str(_cert["hash"])[:12] + "…"))
-            _паспорт = _cert.get("reproducibility") or {}
-            if _паспорт.get("status") == "recorded" and _паспорт.get("seed") is not None:
-                diag.append(("Зерно генератора", str(_паспорт["seed"])))
-            elif _cert.get("status") == "not_attested":
-                # Честнее промолчать о зерне, но сказать, что заверение неполное:
-                # модель обучена до того, как параметры прогона стали записываться.
-                diag.append(("Заверение", "неполное"))
+        # P0.7 шаг 15: воспроизводимость и сертификат.
+        diag.extend(строки_сертификата(self.data.get("certificate")))
         dy = diag_y + 0.4
         for label, val in diag:
             self._text(
