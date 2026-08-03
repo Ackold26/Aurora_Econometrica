@@ -1,446 +1,779 @@
-diff --git a/docs/GLOSSARY_v2_1_0.md b/docs/GLOSSARY_v2_1_0.md
-index 2dc85cd..bd50c64 100644
---- a/docs/GLOSSARY_v2_1_0.md
-+++ b/docs/GLOSSARY_v2_1_0.md
-@@ -486,11 +486,11 @@
+diff --git a/src-tauri/src/commands/claude.rs b/src-tauri/src/commands/claude.rs
+index bdb64e4..407f8e8 100644
+--- a/src-tauri/src/commands/claude.rs
++++ b/src-tauri/src/commands/claude.rs
+@@ -30,6 +30,10 @@ pub struct ChatMessage {
+ pub enum ClaudeError {
+     RateLimit,
+     Overloaded,
++    /// 🔴 CPD-10: исчерпана подписочная квота. Отдельно от `RateLimit` намеренно: ограничение
++    /// частоты проходит само через минуты, а квота — нет, до конца расчётного окна. Свести их
++    /// в одно значило бы обещать клиенту автоматический повтор, который никогда не сработает.
++    UsageLimit,
+     AuthError,
+     NetworkError,
+     Unknown(String),
+@@ -37,6 +41,9 @@ pub enum ClaudeError {
  
- **MQS** (Model Quality Score, балл качества)
+ impl ClaudeError {
+     /// Whether this error type is worth retrying.
++    ///
++    /// 🔴 `UsageLimit` НЕ повторяется: квота не восстанавливается ожиданием в пределах запроса,
++    /// и повтор лишь потратит время клиента, показав тот же отказ (эталон SA `ec6a89b`, OR `0d3f3fc`).
+     pub fn is_retryable(&self) -> bool {
+         matches!(self, ClaudeError::RateLimit | ClaudeError::Overloaded | ClaudeError::NetworkError)
+     }
+@@ -46,9 +53,30 @@ impl ClaudeError {
+ pub fn classify_stderr(line: &str) -> Option<ClaudeError> {
+     let lower = line.to_lowercase();
  
--**Что это.** Сводный балл готовности данных к моделированию, от 0 до 100. Считается по запасу данных, взаимосвязи каналов и длине периода – то есть отвечает на вопрос «можно ли на этих данных строить выводы», ещё до обучения модели.
-+**Что это.** Сводный балл от 0 до 100, который отвечает на вопрос «насколько можно доверять выводам». 🔴 Важно: балл считается **по-разному до и после обучения**, и это два разных показателя под одной аббревиатурой. До обучения – прогноз по данным: запас данных, взаимосвязь каналов, длина периода. После обучения – качество самой модели: точность на истории (R²), средняя ошибка (MAPE) и сходимость расчёта.
++    // 🔴 CPD-10, порядок значим: квота проверяется ДО ограничения частоты. «Usage limit reached»
++    // подстроку «rate limit» не содержит, но родственные формулировки поставщика меняются, и
++    // ошибка отнесения здесь дороже обычного — клиенту пообещали бы автоматический повтор.
++    if lower.contains("usage limit")
++        || lower.contains("quota")
++        || lower.contains("limit reached")
++        || lower.contains("out of credits")
++    {
++        return Some(ClaudeError::UsageLimit);
++    }
+     if lower.contains("rate limit") || lower.contains("rate_limit") || lower.contains("429") {
+         return Some(ClaudeError::RateLimit);
+     }
++    // 🔴 CPD-10: протухший вход. Формы СТРОГИЕ — голое слово «login» встречается в обычном
++    // тексте (например, в разборе чужого кода), и широкий образец объявлял бы отказом входа
++    // всё подряд. Негативный контроль на это есть в сторожах.
++    if lower.contains("not logged in")
++        || lower.contains("logged out")
++        || lower.contains("claude login")
++        || lower.contains("please log in")
++        || lower.contains("/login")
++    {
++        return Some(ClaudeError::AuthError);
++    }
+     if lower.contains("overloaded") || lower.contains("529") || lower.contains("capacity") {
+         return Some(ClaudeError::Overloaded);
+     }
+@@ -73,6 +101,14 @@ pub fn classify_stderr(line: &str) -> Option<ClaudeError> {
+ pub fn user_message(err: &ClaudeError) -> String {
+     match err {
+         ClaudeError::RateLimit => coded(ErrorCode::CL004, "Превышен лимит запросов. Повторная попытка..."),
++        // 🔴 CPD-10: текст честный в обе стороны — называет причину и НЕ обещает повтора,
++        // потому что его не будет (is_retryable = false). Обещание «повторная попытка…»
++        // здесь было бы ложным утверждением продукта о себе.
++        ClaudeError::UsageLimit => coded(
++            ErrorCode::CL010,
++            "Исчерпан лимит подписки Claude. Работа возобновится после обновления лимита – \
++             автоматического повтора не будет.",
++        ),
+         ClaudeError::Overloaded => coded(ErrorCode::CL005, "Сервер перегружен. Повторная попытка..."),
+         ClaudeError::AuthError => coded(ErrorCode::CL006, "Ошибка авторизации. Проверьте API-ключ."),
+         ClaudeError::NetworkError => coded(ErrorCode::CL007, "Ошибка сети. Проверьте подключение к интернету."),
+@@ -583,6 +619,24 @@ pub(crate) fn auto_save_response(
+     if final_text.trim().is_empty() {
+         return;
+     }
++    // 🔴 CPD-32: файл-результат не имеет права нести текст отказа. До правки единственным
++    // условием была непустота, поэтому сообщение оборвавшегося канала сохранялось как отчёт —
++    // с именем по шаблону команды, датой и признаками выполненной работы — и через неделю
++    // становилось неотличимо от настоящего разбора, не открыв его. Отказ здесь ГРОМКИЙ:
++    // молчаливый пропуск вернул бы нас к родственному дефекту «файла нет, и никто не знает
++    // почему» (CPD-17).
++    if let Some(reason) = failure_notice_reason(final_text) {
++        warn!("Ответ не сохранён [{cabinet_id}]: {reason}");
++        let _ = app_handle.emit(
++            &format!("claude-stream-{cabinet_id}"),
++            serde_json::json!({
++                "type": "error",
++                "message": "Ответ не дошёл целиком, файл не сохранён – повторите команду."
++            })
++            .to_string(),
++        );
++        return;
++    }
+     let slug = extract_command_slug(prompt);
+     let timestamp = chrono::Local::now().format("%Y%m%d-%H%M%S");
+     let suffix = if partial_suffix { "-partial" } else { "" };
+@@ -607,6 +661,49 @@ pub(crate) fn auto_save_response(
+     }
+ }
  
--**Пример.** 60 недель, четыре канала без сильной взаимосвязи – балл около 78, уровень «Хорошее». Те же каналы на 20 неделях дают около 50 – «Слабое»: выводы будут неустойчивыми.
-+**Пример.** 60 недель и четыре канала без сильной взаимосвязи дают прогнозный балл около 75 – «Хорошее»: данных достаточно, чтобы начинать. После обучения та же модель может получить и выше, и ниже – там измеряется уже не подготовка данных, а то, насколько модель воспроизводит историю.
++/// Порог, ниже которого текст не может быть содержательным ответом кабинета вместе с маркером
++/// отказа. Ответы советника — развёрнутые разборы; сообщение об обрыве канала укладывается в
++/// одну-две строки. Величина продуктовая, не научная, и намеренно щедрая.
++const FAILURE_NOTICE_MAX_CHARS: usize = 400;
++
++/// Маркеры отказа КАНАЛА (не содержания). Сверяются с началом текста, регистр не важен.
++const FAILURE_NOTICE_MARKERS: &[&str] = &[
++    "api error",
++    "error:",
++    "request timed out",
++    "connection closed",
++    "connection error",
++    "stream closed",
++    "fetch failed",
++];
++
++/// Является ли текст сообщением об отказе, а не ответом кабинета (CPD-32).
++///
++/// 🔴 Почему маркер И длина, а не «либо-либо». Предложение записи реестра допускало отказ по
++/// одной лишь краткости, но короткий ответ бывает настоящим («Да, риск есть: пункт 4.2»), и
++/// выбрасывать его — терять работу клиента. Маркер сам по себе тоже не доказательство: разбор
++/// вопроса «что означает API Error 500» законно начинается этими словами, но он длинный.
++/// Совпадение обоих признаков — короткий текст, начинающийся с маркера отказа канала, — не
++/// оставляет места содержательному ответу.
++///
++/// Возвращает причину для журнала, чтобы отказ можно было разобрать по следам, а не гадать.
++fn failure_notice_reason(text: &str) -> Option<&'static str> {
++    let trimmed = text.trim();
++    if trimmed.is_empty() {
++        return Some("пустой ответ");
++    }
++    // Считаем символы, а не байты: у кириллицы их по два на символ, и порог в байтах
++    // отрезал бы русские ответы вдвое раньше английских.
++    if trimmed.chars().count() > FAILURE_NOTICE_MAX_CHARS {
++        return None;
++    }
++    let head: String = trimmed.chars().take(80).collect::<String>().to_lowercase();
++    FAILURE_NOTICE_MARKERS
++        .iter()
++        .any(|m| head.starts_with(m))
++        .then_some("текст начинается маркером отказа канала и короче порога содержательности")
++}
++
+ /// Extract a short slug from the user prompt for use in the filename.
+ /// "/ad-variants some extra text" → "ad-variants"
+ /// "some free text" → "response"
+@@ -855,6 +952,172 @@ fn convert_to_pdf(md_path: &std::path::Path) {
+ mod tests {
+     use super::*;
  
--**Когда увидите в Aurora.** В шапке каждого шага как «Оценка данных (MQS)» и в отчёте после обучения, где балл уточняется по самой модели. Рядом с баллом программа всегда показывает уровень словами – от отличного до ненадёжного – и подсказку с границами уровней: числа берутся из единого источника, поэтому здесь они не повторяются.
-+**Когда увидите в Aurora.** В шапке каждого шага как «Оценка данных (MQS)» – это прогноз до обучения. В отчёте и на карточке модели – балл после обучения, посчитанный по другой формуле. Рядом с баллом программа всегда показывает уровень словами – от отличного до ненадёжного – и подсказку с границами уровней: числа берутся из единого источника, поэтому здесь они не повторяются.
++    /// 🔴 Сторож CPD-10 (блокирующий). До правки отказ по исчерпанной подписке и по протухшему
++    /// входу не попадал ни в одну категорию, и наружу уходила СЫРАЯ английская строка CLI —
++    /// отказ был подан не как отказ. Эталон линейки: SA `ec6a89b`, OR `0d3f3fc`.
++    #[test]
++    fn usage_limit_is_classified_and_never_retried() {
++        for line in [
++            "Claude usage limit reached. Try again after 3pm",
++            "You have reached your quota for this billing period",
++            "Error: out of credits",
++        ] {
++            let err = classify_stderr(line)
++                .unwrap_or_else(|| panic!("отказ по квоте обязан классифицироваться: {line}"));
++            assert_eq!(err, ClaudeError::UsageLimit, "строка: {line}");
++            assert!(
++                !err.is_retryable(),
++                "квота не восстанавливается ожиданием — повтор лишь потратит время клиента"
++            );
++        }
++    }
++
++    /// 🔴 Порядок отнесения: квота идёт ДО ограничения частоты. Иначе клиенту пообещали бы
++    /// автоматический повтор, которого не будет.
++    #[test]
++    fn usage_limit_wins_over_rate_limit() {
++        assert_eq!(
++            classify_stderr("Claude usage limit reached (429)"),
++            Some(ClaudeError::UsageLimit),
++            "исчерпанная подписка не имеет права быть принята за ограничение частоты"
++        );
++        assert_eq!(
++            classify_stderr("rate limit exceeded, slow down"),
++            Some(ClaudeError::RateLimit),
++            "обычное ограничение частоты обязано остаться повторяемым"
++        );
++    }
++
++    /// 🔴 Протухший вход — строгими формами. Негативный контроль обязателен: голое слово
++    /// «login» встречается в обычном тексте, и широкий образец объявлял бы отказом входа всё
++    /// подряд (требование самой записи реестра).
++    #[test]
++    fn stale_login_is_classified_by_strict_forms_only() {
++        for line in [
++            "You are not logged in. Run `claude login`",
++            "Session logged out",
++            "Please log in to continue",
++        ] {
++            assert_eq!(
++                classify_stderr(line),
++                Some(ClaudeError::AuthError),
++                "протухший вход обязан классифицироваться: {line}"
++            );
++        }
++        assert_ne!(
++            classify_stderr("Описан порядок login в разделе README"),
++            Some(ClaudeError::AuthError),
++            "обычное упоминание слова «login» не имеет права считаться отказом входа"
++        );
++    }
++
++    /// Клиентский текст отказа по квоте не имеет права обещать повтор, которого не будет.
++    #[test]
++    fn usage_limit_message_promises_no_retry() {
++        let text = user_message(&ClaudeError::UsageLimit);
++        assert!(text.contains("CL-010"), "код отказа обязан быть назван: {text}");
++        assert!(
++            !text.contains("Повторная попытка"),
++            "текст обещает автоматический повтор, которого не будет — ложное утверждение о себе: {text}"
++        );
++    }
++
++    /// 🔴 Сторож CPD-32 (блокирующий, ложное утверждение продукта о себе). Эталонный случай —
++    /// дословный текст из находки Legal Center 0.12.1: ответ оборвался, а продукт сохранил
++    /// сообщение об обрыве как отчёт с именем по шаблону команды и датой.
++    #[test]
++    fn broken_channel_notice_is_not_a_result() {
++        assert!(
++            failure_notice_reason("API Error: Connection closed mid-response").is_some(),
++            "сообщение об обрыве канала обязано быть распознано: иначе оно ляжет в папку клиента \
++             файлом со всеми признаками выполненной работы"
++        );
++        assert!(failure_notice_reason("Error: request failed").is_some());
++        assert!(failure_notice_reason("Request timed out after 600s").is_some());
++        assert!(failure_notice_reason("   ").is_some(), "пустой ответ — тоже не результат");
++    }
++
++    /// 🔴 Негативный контроль: короткий ответ бывает НАСТОЯЩИМ, и выбрасывать его — терять
++    /// работу клиента. Без этого случая правило удовлетворялось бы отказом по одной краткости.
++    #[test]
++    fn short_but_real_answer_is_kept() {
++        assert!(
++            failure_notice_reason("Да, риск есть: пункт 4.2 договора.").is_none(),
++            "короткий содержательный ответ обязан сохраняться"
++        );
++        assert!(
++            failure_notice_reason("Вклад телевидения — 32 %, это верхняя граница правдоподобного \
++                                   диапазона.")
++                .is_none()
++        );
++    }
++
++    /// 🔴 Второй негативный контроль: маркер сам по себе не доказательство. Разбор вопроса
++    /// «что означает API Error 500» законно начинается этими словами — но он длинный.
++    #[test]
++    fn long_explanation_starting_with_a_marker_is_kept() {
++        let long_answer = format!(
++            "API Error 500 — это ответ сервера, а не отказ вашего канала. {}",
++            "Ниже разбор причин и порядок действий. ".repeat(12)
++        );
++        assert!(
++            long_answer.chars().count() > FAILURE_NOTICE_MAX_CHARS,
++            "фикстура обязана быть длиннее порога, иначе случай проверяет не то"
++        );
++        assert!(
++            failure_notice_reason(&long_answer).is_none(),
++            "развёрнутый разбор не имеет права быть принят за отказ канала"
++        );
++    }
++
++    /// 🔴 Порог считается в СИМВОЛАХ, не байтах: у кириллицы два байта на символ, и байтовый
++    /// счёт отрезал бы русские ответы вдвое раньше английских — при этом на английских
++    /// фикстурах разница не видна вовсе.
++    #[test]
++    fn threshold_counts_characters_not_bytes() {
++        let russian = "Разбор ".repeat(40); // ~280 символов, но ~520 байт
++        assert!(russian.chars().count() < FAILURE_NOTICE_MAX_CHARS);
++        assert!(russian.len() > FAILURE_NOTICE_MAX_CHARS, "фикстура обязана быть длиннее в БАЙТАХ");
++        assert!(
++            failure_notice_reason(&format!("API Error: {russian}")).is_some(),
++            "русский текст в пределах порога по символам обязан проверяться маркером так же, \
++             как английский"
++        );
++    }
++
++    /// 🔴 Сторож СВЯЗИ, а не только логики (урок Ф-04 внешнего аудита: вынесенная функция была
++    /// покрыта, а её вызов — нет, и дефект жил дальше). Проверка обязана стоять МЕЖДУ входом в
++    /// автосохранение и записью файла: если её вынести за пределы этого промежутка, распознавание
++    /// останется рабочим, а отказ снова ляжет на диск отчётом.
++    ///
++    /// Тест разбирает собственный исходник — тот же приём, что у сторожа паритета ярусов
++    /// качества (`test_mqs_tier_rust_single_source.py`), потому что вызов `auto_save_response`
++    /// требует живого `AppHandle` и юнит-тестом не строится.
++    #[test]
++    fn auto_save_checks_whether_the_answer_happened_before_writing() {
++        let src = include_str!("claude.rs");
++        let start = src
++            .find("pub(crate) fn auto_save_response")
++            .expect("функция auto_save_response не найдена — разметка переехала");
++        let tail = &src[start..];
++        let write_at = tail
++            .find("std::fs::write(&export_path")
++            .expect("запись файла в auto_save_response не найдена — разметка переехала");
++        let window = &tail[..write_at];
++
++        assert!(
++            window.contains("failure_notice_reason"),
++            "между входом в автосохранение и записью файла нет проверки «состоялся ли ответ» — \
++             сообщение об обрыве канала снова ляжет в папку клиента файлом с признаками \
++             выполненной работы (CPD-32)"
++        );
++        assert!(
++            window.contains("claude-stream-"),
++            "отказ обязан быть ГРОМКИМ: молчаливый пропуск возвращает к родственному дефекту \
++             «файла нет, и никто не знает почему» (CPD-17)"
++        );
++    }
++
+     #[test]
+     fn slug_from_slash_command() {
+         assert_eq!(extract_command_slug("/ad-variants"), "ad-variants");
+diff --git a/src-tauri/src/errors.rs b/src-tauri/src/errors.rs
+index 1529d61..7c3ca36 100644
+--- a/src-tauri/src/errors.rs
++++ b/src-tauri/src/errors.rs
+@@ -36,6 +36,11 @@ pub enum ErrorCode {
+     CL006, // Auth error
+     CL007, // Network error
+     CL008, // Execution timeout
++    // 🔴 CPD-10: номер взят НЕ следующим по порядку (CL-009 пропущен намеренно). Код ошибки —
++    // кросс-продуктная величина: у Smart Analytica и Oracle исчерпание подписочной квоты уже
++    // выпущено клиентам под CL-010, и тот же отказ обязан называться так же во всей линейке.
++    // Согласованность с выпущенным важнее плотности нумерации.
++    CL010, // Исчерпана подписочная квота Claude (НЕ повторяется автоматически)
  
- **Связанные термины:** [Запас данных](#запас-данных), [Взаимосвязь каналов (VIF)](#взаимосвязь-каналов-vif).
+     // ── Fingerprint ──
+     FP001, // WMI / hardware ID collection failed
+@@ -98,6 +103,7 @@ impl ErrorCode {
+             Self::CL006 => "CL-006",
+             Self::CL007 => "CL-007",
+             Self::CL008 => "CL-008",
++            Self::CL010 => "CL-010",
  
-diff --git a/docs/glossary.json b/docs/glossary.json
-index ba7e989..306d4fa 100644
---- a/docs/glossary.json
-+++ b/docs/glossary.json
-@@ -445,10 +445,10 @@
-       "id": "mqs",
-       "term": "Оценка данных (MQS)",
-       "en": "Model Quality Score, балл качества",
--      "short": "Сводный балл готовности данных к моделированию, от 0 до 100.",
--      "what": "Сводный балл готовности данных к моделированию, от 0 до 100. Считается по запасу данных, взаимосвязи каналов и длине периода – то есть отвечает на вопрос «можно ли на этих данных строить выводы», ещё до обучения модели.",
--      "example": "60 недель, четыре канала без сильной взаимосвязи – балл около 78, уровень «Хорошее». Те же каналы на 20 неделях дают около 50 – «Слабое»: выводы будут неустойчивыми.",
--      "where": "В шапке каждого шага как «Оценка данных (MQS)» и в отчёте после обучения, где балл уточняется по самой модели. Рядом с баллом программа всегда показывает уровень словами – от отличного до ненадёжного – и подсказку с границами уровней: числа берутся из единого источника, поэтому здесь они не повторяются.",
-+      "short": "Сводный балл от 0 до 100, который отвечает на вопрос «насколько можно доверять выводам».",
-+      "what": "Сводный балл от 0 до 100, который отвечает на вопрос «насколько можно доверять выводам». 🔴 Важно: балл считается **по-разному до и после обучения**, и это два разных показателя под одной аббревиатурой. До обучения – прогноз по данным: запас данных, взаимосвязь каналов, длина периода. После обучения – качество самой модели: точность на истории (R²), средняя ошибка (MAPE) и сходимость расчёта.",
-+      "example": "60 недель и четыре канала без сильной взаимосвязи дают прогнозный балл около 75 – «Хорошее»: данных достаточно, чтобы начинать. После обучения та же модель может получить и выше, и ниже – там измеряется уже не подготовка данных, а то, насколько модель воспроизводит историю.",
-+      "where": "В шапке каждого шага как «Оценка данных (MQS)» – это прогноз до обучения. В отчёте и на карточке модели – балл после обучения, посчитанный по другой формуле. Рядом с баллом программа всегда показывает уровень словами – от отличного до ненадёжного – и подсказку с границами уровней: числа берутся из единого источника, поэтому здесь они не повторяются.",
-       "related": [
-         "data_ratio",
-         "vif"
-diff --git a/sidecar/econometrica/aurora_html/sections.py b/sidecar/econometrica/aurora_html/sections.py
-index 6adca04..33c6917 100644
---- a/sidecar/econometrica/aurora_html/sections.py
-+++ b/sidecar/econometrica/aurora_html/sections.py
-@@ -1702,13 +1702,18 @@ _ПРОВЕРКА_БАЗЫ = {
-     # есть, но порогами не гейтится).
-     'passed': 'Средний базовый уровень уверенно положителен: вероятность того, что он '
-               'отрицателен, ниже 20 %.',
--    'watch': 'Базовый уровень близок к нулю на части периода – стоит перепроверить '
--             'полноту факторов.',
--    'failed': 'Базовый уровень уходит в минус – вклад каналов завышен, модель требует '
--              'пересмотра.',
--    # 🔴 Аудит F-06: метрика называется по факту проекта, а не «продажами» —
--    # признак считается по любому KPI, и у модели знания марки клиент читал про
--    # продажи, которых в проекте нет. Подстановка имени — в `_render_certificate_block`.
-+    # 🔴 Аудит починки, Ф-02: все три вердикта присваиваются по ОДНОЙ величине —
-+    # вероятности того, что средний по периодам базовый уровень отрицателен.
-+    # Из «пройдено» по-периодные утверждения убрали, а в соседних они остались
-+    # слово в слово, включая ту самую фразу «вклад каналов завышен».
-+    'watch': 'Средний базовый уровень близок к нулю: вероятность того, что он '
-+             'отрицателен, от 20 до 80 %. Стоит перепроверить полноту факторов.',
-+    'failed': 'Средний базовый уровень отрицателен с вероятностью выше 80 %. Такую '
-+              'модель нужно пересмотреть: часть вклада каналов может быть мнимой.',
-+    # 🔴 Аудит F-06: метрика не называется продажами — признак считается по любому
-+    # KPI, и у модели знания марки клиент читал бы про продажи, которых в проекте
-+    # нет. Имя метрики не подставляется: формулировка обобщена, подписи
-+    # `utils/kpi_labels` тянуть в блок не понадобилось.
-     'not_applicable': 'Проверка неприменима на этих данных: разброс значений целевой '
-                       'метрики слишком мал, чтобы отличить положительный базовый '
-                       'уровень от отрицательного.',
-@@ -1776,23 +1781,37 @@ def _render_certificate_block(ctx: dict) -> str:
-     if not пояснение and not строки:
-         return ""
+             Self::FP001 => "FP-001",
+             Self::FP002 => "FP-002",
+@@ -161,6 +167,7 @@ mod tests {
+             ErrorCode::VT001, ErrorCode::VT002, ErrorCode::VT003, ErrorCode::VT004, ErrorCode::VT005,
+             ErrorCode::CL001, ErrorCode::CL002, ErrorCode::CL003, ErrorCode::CL004,
+             ErrorCode::CL005, ErrorCode::CL006, ErrorCode::CL007, ErrorCode::CL008,
++            ErrorCode::CL010,
+             ErrorCode::FP001, ErrorCode::FP002, ErrorCode::FP003,
+             ErrorCode::SY001, ErrorCode::SY002, ErrorCode::SY003,
+             ErrorCode::UP001, ErrorCode::UP002, ErrorCode::UP003, ErrorCode::UP004, ErrorCode::UP005,
+diff --git a/src-tauri/src/session/manager.rs b/src-tauri/src/session/manager.rs
+index f82f2ec..45d4834 100644
+--- a/src-tauri/src/session/manager.rs
++++ b/src-tauri/src/session/manager.rs
+@@ -298,12 +298,14 @@ impl SessionManager {
+             let dst = session.user_workspace.join("exports");
+             drop(sessions);
  
--    список = "\n".join(
--        f'<li><span class="diag-label">{escape(метка)}</span>'
--        f'<span class="diag-value">{escape(значение)}</span></li>'
--        for метка, значение in строки
--    )
-+    # 🔴 Аудит починки, Ф-06: список и подвал печатались всегда — и там, где
-+    # отпечатка не выдали вовсе: клиент читал «Отпечаток покрывает файл модели»
-+    # ровно на отказе, да ещё рядом с пустым списком.
-+    # 🔴 Ф-09: подвал теперь говорит прямо, что отпечаток принадлежит конкретному
-+    # файлу модели — при повторном обучении числа те же, а отпечаток другой
-+    # (в манифест файла входит время его создания).
-+    список = ''
-+    подвал = ''
-+    if строки:
-+        пункты = "\n".join(
-+            f'<li><span class="diag-label">{escape(метка)}</span>'
-+            f'<span class="diag-value">{escape(значение)}</span></li>'
-+            for метка, значение in строки
-+        )
-+        список = f'<ul class="diag-list">\n{пункты}\n  </ul>'
-+    if отпечаток:
-+        подвал = (
-+            '<p style="margin-top:12px;font-size:11px;font-style:italic;'
-+            'color:var(--text-muted);">Отпечаток покрывает файл обученной модели и '
-+            'результаты разбивки. Исходная выгрузка данных в него не входит. Базовый '
-+            'уровень взят до выноса отдельных факторов, поэтому может отличаться от '
-+            'полосы «Базовый уровень» на графике разбивки. При повторном обучении на '
-+            'тех же данных числа сохранятся, а отпечаток станет другим: он '
-+            'принадлежит конкретному файлу модели.</p>'
-+        )
-     return f"""
- <div style="margin-top:32px;">
-   <div class="method-col-label">Воспроизводимость и сертификат</div>
-   <p style="margin:8px 0 12px;font-size:12px;">{escape(пояснение or '')}</p>
--  <ul class="diag-list">
--{список}
--  </ul>
--  <p style="margin-top:12px;font-size:11px;font-style:italic;color:var(--text-muted);">
--    Отпечаток покрывает файл обученной модели и результаты разбивки. Исходная выгрузка
--    данных в него не входит. Базовый уровень взят до выноса отдельных факторов, поэтому
--    может отличаться от полосы «Базовый уровень» на графике разбивки.
--  </p>
-+  {список}
-+  {подвал}
- </div>"""
+-            // Sync from exports/ and all vault-specific output directories
+-            sync_dir_to(&work_dir.join("exports"), &dst)?;
++            // Sync from exports/ and all vault-specific output directories.
++            // 🔴 CPD-39: копирование БЕЗ зеркального удаления — выгрузки клиента только
++            // накапливаются. Зеркало здесь сносило ранее выданные файлы с Рабочего стола.
++            copy_dir_into(&work_dir.join("exports"), &dst)?;
+             for dir_name in &["pretensions", "nda", "contracts", "reports"] {
+                 let src = work_dir.join(dir_name);
+                 if src.exists() {
+-                    sync_dir_to(&src, &dst)?;
++                    copy_dir_into(&src, &dst)?;
+                 }
+             }
+         }
+@@ -540,8 +542,38 @@ fn clear_inbox(workspace: &Path) {
+     }
+ }
  
++/// Копирование файлов src → dst (один уровень, без рекурсии) **без удаления** лишнего в приёмнике.
++///
++/// 🔴 CPD-39: направление «выдать наружу» не имеет права стирать чужое. `sync_dir_to` ниже —
++/// ЗЕРКАЛО, и для входящих (Рабочий стол → рабочий каталог) это верно: пользователь убрал файл из
++/// `inbox`, значит кабинет не должен его видеть. Для выгрузок направление обратное, и зеркало
++/// уничтожало результаты клиента: рабочий каталог сессии временный и при открытии создаётся ПУСТЫМ
++/// (`open_session`), а `exports` на Рабочем столе — постоянное хранилище. Первое же сообщение новой
++/// сессии зеркалило пустоту наружу и сносило всё, что продукт выдал клиенту раньше.
++///
++/// Второе следствие того же корня: `sync_exports` зовёт синхронизацию до пяти раз в ОДИН приёмник
++/// (`exports`, `pretensions`, `nda`, `contracts`, `reports`) — при зеркальном удалении каждый
++/// следующий вызов сносил то, что положил предыдущий. Копирование без удаления снимает и это.
++fn copy_dir_into(src: &Path, dst: &Path) -> Result<()> {
++    if !src.exists() {
++        return Ok(());
++    }
++    std::fs::create_dir_all(dst)?;
++    for entry in std::fs::read_dir(src)? {
++        let entry = entry?;
++        if entry.file_type()?.is_file() {
++            let dst_file = dst.join(entry.file_name());
++            std::fs::copy(entry.path(), &dst_file)?;
++        }
++    }
++    Ok(())
++}
++
+ /// Mirror-sync files from src to dst (one level, no recursion).
+ /// Copies new/updated files AND removes files in dst not present in src.
++///
++/// 🔴 Применять ТОЛЬКО к входящим (Рабочий стол → рабочий каталог сессии). Для выгрузок —
++/// `copy_dir_into`: см. CPD-39 в докстринге выше.
+ fn sync_dir_to(src: &Path, dst: &Path) -> Result<()> {
+     if !src.exists() {
+         return Ok(());
+@@ -820,3 +852,122 @@ mod wipe_tests {
+         assert!(!dir.exists(), "каталог сессии обязан быть снесён целиком");
+     }
+ }
++
++#[cfg(test)]
++mod export_sync_tests {
++    use super::*;
++
++    /// Собрать управляющего сессиями с ОДНОЙ готовой сессией, не трогая реальный профиль
++    /// пользователя. `SessionManager::new()` резолвит настоящий per-app каталог, поэтому в тесте
++    /// он запрещён — образец взят у `durable_store::migrate_into` и `history::save_message_at`:
++    /// логика отделена от резолва пути, чтобы проверка не могла задеть живые данные.
++    fn manager_with_session(work_dir: &Path, user_workspace: &Path, root: &Path) -> SessionManager {
++        let manager = SessionManager {
++            sessions: Mutex::new(HashMap::new()),
++            sessions_root: root.to_path_buf(),
++        };
++        manager.sessions.lock().unwrap().insert(
++            "econometrist".to_string(),
++            Session {
++                cabinet_id: "econometrist".to_string(),
++                work_dir: work_dir.to_path_buf(),
++                temp_dir: root.join("temp"),
++                user_workspace: user_workspace.to_path_buf(),
++                first_message_sent: false,
++                claude_session_id: None,
++                lock: None,
++            },
++        );
++        manager
++    }
++
++    /// 🔴 Сторож CPD-39 (блокирующий, потеря данных клиента). Воспроизводит рутинный сценарий
++    /// целиком: советник выдал файл в прошлый раз → продукт перезапущен → рабочий каталог сессии
++    /// создан ПУСТЫМ → пришло первое сообщение → вызывается `sync_exports`.
++    ///
++    /// До правки зеркальная синхронизация сносила из `exports` на Рабочем столе всё, чего нет в
++    /// пустом рабочем каталоге, — то есть все ранее выданные клиенту результаты, молча и без следа
++    /// в интерфейсе. Проверяется через ВЫЗОВ `sync_exports`, а не саму функцию копирования: иначе
++    /// сторож остался бы зелёным при возврате зеркала в вызывающем месте (урок Ф-04 — вынесенная
++    /// функция покрыта, а её вызов нет).
++    #[test]
++    fn previous_exports_survive_first_message_of_a_new_session() {
++        let tmp = tempfile::tempdir().unwrap();
++        let work_dir = tmp.path().join("session-work");
++        let desktop = tmp.path().join("Рабочий стол/Aurora/econometrist");
++
++        // Рабочий каталог новой сессии: exports существует и ПУСТ — так его создаёт open_session.
++        std::fs::create_dir_all(work_dir.join("exports")).unwrap();
++
++        // На Рабочем столе клиента лежат результаты прошлых сессий.
++        let previous = desktop.join("exports");
++        std::fs::create_dir_all(&previous).unwrap();
++        let earlier = [
++            previous.join("разбор-модели-20260715-101500.md"),
++            previous.join("разбор-модели-20260715-101500.docx"),
++        ];
++        for f in &earlier {
++            std::fs::write(f, "результат, выданный клиенту ранее").unwrap();
++        }
++
++        let manager = manager_with_session(&work_dir, &desktop, tmp.path());
++        manager.sync_exports("econometrist").expect("синхронизация выгрузок обязана пройти");
++
++        for f in &earlier {
++            assert!(
++                f.exists(),
++                "ранее выданный клиенту результат обязан пережить новую сессию: {} исчез — это \
++                 молчаливая потеря данных клиента (CPD-39)",
++                f.display()
++            );
++        }
++    }
++
++    /// Позитивный контроль к сторожу выше: без него правило «ничего не удалять» удовлетворялось бы
++    /// и функцией, которая вообще ничего не делает. Новый результат обязан доехать до клиента.
++    #[test]
++    fn fresh_export_reaches_the_user_workspace() {
++        let tmp = tempfile::tempdir().unwrap();
++        let work_dir = tmp.path().join("session-work");
++        let desktop = tmp.path().join("Рабочий стол/Aurora/econometrist");
++        std::fs::create_dir_all(work_dir.join("exports")).unwrap();
++        std::fs::write(work_dir.join("exports/новый-отчёт.md"), "свежий результат").unwrap();
++
++        let manager = manager_with_session(&work_dir, &desktop, tmp.path());
++        manager.sync_exports("econometrist").expect("синхронизация выгрузок обязана пройти");
++
++        let delivered = desktop.join("exports/новый-отчёт.md");
++        assert!(delivered.exists(), "новый результат обязан доехать до Рабочего стола клиента");
++        assert_eq!(
++            std::fs::read_to_string(&delivered).unwrap(),
++            "свежий результат",
++            "содержимое обязано совпадать с выданным"
++        );
++    }
++
++    /// 🔴 Второе следствие того же корня (CPD-39): `sync_exports` кладёт в ОДИН приёмник до пяти
++    /// источников подряд. При зеркальном удалении каждый следующий вызов сносил результат
++    /// предыдущего, и до клиента доезжал только последний каталог.
++    #[test]
++    fn several_source_dirs_do_not_erase_each_other_in_one_destination() {
++        let tmp = tempfile::tempdir().unwrap();
++        let work_dir = tmp.path().join("session-work");
++        let desktop = tmp.path().join("Рабочий стол/Aurora/econometrist");
++        std::fs::create_dir_all(work_dir.join("exports")).unwrap();
++        std::fs::create_dir_all(work_dir.join("reports")).unwrap();
++        std::fs::write(work_dir.join("exports/из-выгрузок.md"), "первый источник").unwrap();
++        std::fs::write(work_dir.join("reports/из-отчётов.md"), "второй источник").unwrap();
++
++        let manager = manager_with_session(&work_dir, &desktop, tmp.path());
++        manager.sync_exports("econometrist").expect("синхронизация выгрузок обязана пройти");
++
++        assert!(
++            desktop.join("exports/из-выгрузок.md").exists(),
++            "результат из exports обязан уцелеть: следующий источник не имеет права его сносить"
++        );
++        assert!(
++            desktop.join("exports/из-отчётов.md").exists(),
++            "результат из reports обязан доехать вместе с первым, а не вместо него"
++        );
++    }
++}
+diff --git a/src/lib/__tests__/chat-message-field-parity.coverage.test.js b/src/lib/__tests__/chat-message-field-parity.coverage.test.js
+index 616448e..53a4b13 100644
+--- a/src/lib/__tests__/chat-message-field-parity.coverage.test.js
++++ b/src/lib/__tests__/chat-message-field-parity.coverage.test.js
+@@ -43,7 +43,13 @@ const CHAT_PANEL = path.join(process.cwd(), 'src/lib/components/ChatPanel.svelte
+  * реестр пуст, но остаётся на случай появления такого поля в будущем.
+  * @type {Record<string, string>}
+  */
+-const EPHEMERAL_FIELDS = {};
++const EPHEMERAL_FIELDS = {
++  unsaved:
++    'CPD-41: признак ОТКАЗА сохранения. Персистентным быть не может по определению — поле ' +
++    'означает, что сообщение на диск не легло, поэтому его пара в файле истории существовать ' +
++    'не способна. Живёт до перезагрузки ленты, и это верно: после перезапуска сообщения нет ' +
++    'вовсе, а не «есть с пометкой».',
++};
  
-diff --git a/sidecar/econometrica/engines/methodology_cert.py b/sidecar/econometrica/engines/methodology_cert.py
-index 86f7291..bacaafc 100644
---- a/sidecar/econometrica/engines/methodology_cert.py
-+++ b/sidecar/econometrica/engines/methodology_cert.py
-@@ -87,7 +87,7 @@ def compute_cert_hash(payload: dict[str, Any]) -> str:
-     except ImportError as exc:
-         raise CertificateUnavailable(
-             'Канонизация JCS недоступна: пакет rfc8785 не установлен. '
--            'Сертификат не выдан — хеш без канонизации не сошёлся бы '
-+            'Сертификат не выдан – хеш без канонизации не сошёлся бы '
-             'у проверяющей стороны.'
-         ) from exc
+ /** @param {string} camel @returns {string} */
+ function toSnakeCase(camel) {
+diff --git a/src/lib/__tests__/chat-save-failure.guard.test.js b/src/lib/__tests__/chat-save-failure.guard.test.js
+new file mode 100644
+index 0000000..91e0bef
+--- /dev/null
++++ b/src/lib/__tests__/chat-save-failure.guard.test.js
+@@ -0,0 +1,105 @@
++// @ts-nocheck — node-side часть теста (fs/path/process), тот же паттерн, что в остальных
++// *.guard.test.js этого продукта.
++/**
++ * Сторож CPD-41 (блокирующий, тихая потеря данных клиента).
++ *
++ * Дефект: сохранение реплики вызывалось как
++ *   `try { await invoke('save_chat_message', …) } catch { /* non-critical *\/ }`
++ * — бэкенд отказ возвращал исправно, а интерфейс его отбрасывал. Пользователь видел успешный
++ * экран, а сообщение на диск не легло; узнать о пропаже можно было только перезапустив продукт.
++ *
++ * 🔴 Отдельная тяжесть: на предпосылке «клиент видит отказ и повторит отправку» построено
++ * проектное решение ядра (батч C, пункт C4) — при занятом замке реплика пользователя сознательно
++ * отклоняется. Интерфейс эту предпосылку отменял, то есть решение ядра держалось на условии,
++ * которое не наступало.
++ *
++ * Гейт проверяет ОБА слоя, потому что каждый по отдельности обходится:
++ *  1. поведение — чистая функция пометки (её можно позвать и проверить);
++ *  2. связь — что `catch` у вызова сохранения действительно эту функцию зовёт. Без второго
++ *     возврат к `catch {}` оставил бы функцию покрытой, а продукт — молчащим (урок Ф-04:
++ *     вынесенная функция покрыта, её вызов — нет).
++ */
++import { describe, it, expect } from 'vitest';
++import fs from 'node:fs';
++import path from 'node:path';
++import { markMessageUnsaved } from '../chat-save-status.js';
++
++const CHAT_PANEL = path.join(process.cwd(), 'src/lib/components/ChatPanel.svelte');
++
++describe('сторож CPD-41: отказ сохранения переписки виден пользователю', () => {
++  it('помечает ровно то сообщение, сохранение которого не удалось', () => {
++    const lenta = [
++      { role: 'user', content: 'первый вопрос', ts: 100 },
++      { role: 'assistant', content: 'ответ', ts: 200 },
++      { role: 'user', content: 'второй вопрос', ts: 300 },
++    ];
++
++    const after = markMessageUnsaved(lenta, 'user', 300);
++
++    expect(after[2].unsaved, 'несохранённое сообщение обязано быть помечено').toBe(true);
++    expect(after[0].unsaved, 'чужая реплика не имеет права получить пометку').toBeUndefined();
++    expect(after[1].unsaved, 'ответ модели не имеет права получить пометку').toBeUndefined();
++  });
++
++  it('различает сообщения с совпадающей отметкой времени по роли', () => {
++    // Реплика пользователя и быстрый ответ могут лечь в одну миллисекунду. Пометить чужой
++    // пузырь — соврать пользователю о противоположном: он бы решил, что потерян ответ.
++    const lenta = [
++      { role: 'user', content: 'спасибо', ts: 500 },
++      { role: 'assistant', content: 'Пожалуйста!', ts: 500, isQuickReply: true },
++    ];
++
++    const after = markMessageUnsaved(lenta, 'assistant', 500);
++
++    expect(after[1].unsaved).toBe(true);
++    expect(after[0].unsaved, 'совпадение отметки времени не должно задевать другую роль').toBeUndefined();
++  });
++
++  it('не изменяет исходную ленту', () => {
++    const lenta = [{ role: 'user', content: 'вопрос', ts: 100 }];
++    markMessageUnsaved(lenta, 'user', 100);
++    expect(lenta[0].unsaved, 'исходный массив обязан остаться нетронутым').toBeUndefined();
++  });
++
++  it('связь: отказ сохранения в ChatPanel не глотается, а помечает сообщение и говорит пользователю', () => {
++    const src = fs.readFileSync(CHAT_PANEL, 'utf8');
++
++    // Окно — от объявления saveMsg до следующей функции. Границу НЕ ставим по «\n}» :
++    // файлы хранятся с переводом строки Windows, и выражение не срабатывает вовсе, оставляя
++    // сторож ложно-красным (та же грабля, что поймана в chat-message-field-parity 2026-07-29).
++    const saveBlock = src.match(/async function saveMsg[\s\S]*?async function clearHistory/);
++    expect(saveBlock, 'функция saveMsg не найдена в ChatPanel.svelte — разметка переехала').toBeTruthy();
++    const window = saveBlock[0];
++    expect(
++      /invoke\(\s*['"]save_chat_message['"]/.test(window),
++      'в saveMsg нет вызова save_chat_message — окно поймало не ту функцию',
++    ).toBe(true);
++
++    // Комментарии вырезаем: внутри обработки отказа прежняя форма процитирована намеренно —
++    // она объясняет, что именно было дефектом. Без вырезания сторож ловил бы объяснение вместо
++    // кода и краснел на верной правке (поймано первым же прогоном).
++    const code = window.split('\n').map((line) => line.replace(/\/\/.*/, '')).join('\n');
++    expect(
++      /catch\s*(\([^)]*\))?\s*\{\s*(\/\*[\s\S]*?\*\/)?\s*\}/.test(code),
++      'отказ сохранения снова глотается пустым catch — это тихая потеря переписки клиента (CPD-41)',
++    ).toBe(false);
++
++    expect(
++      /markMessageUnsaved\s*\(/.test(window),
++      'в обработке отказа нет пометки сообщения: пользователь не узнает, ЧТО именно не сохранилось',
++    ).toBe(true);
++
++    expect(
++      /toast\s*\(/.test(window),
++      'в обработке отказа нет уведомления пользователю: молчать при потере данных нельзя (INV-50)',
++    ).toBe(true);
++  });
++
++  it('связь: лента показывает признак несохранённого сообщения', () => {
++    const src = fs.readFileSync(CHAT_PANEL, 'utf8');
++    expect(
++      /\{#if\s+msg\.unsaved\}/.test(src),
++      'в разметке ленты нет ветки msg.unsaved — пометка ставится, но пользователю не видна',
++    ).toBe(true);
++  });
++});
+diff --git a/src/lib/chat-save-status.js b/src/lib/chat-save-status.js
+new file mode 100644
+index 0000000..b281e3d
+--- /dev/null
++++ b/src/lib/chat-save-status.js
+@@ -0,0 +1,31 @@
++/**
++ * Признак несохранённого сообщения переписки (CPD-41).
++ *
++ * 🔴 Зачем вынесено отдельной функцией, а не написано внутри `catch` в ChatPanel.
++ * До правки отказ сохранения глотался целиком: `catch { /* non-critical *\/ }`. Комментарий
++ * противоречил существу — теряется переписка клиента, и узнать об этом можно было только
++ * перезапустив продукт. Хуже того, на предпосылке «клиент видит отказ и повторит отправку»
++ * построено проектное решение ядра (батч C, пункт C4): при занятом замке реплика пользователя
++ * сознательно отклоняется. Интерфейс эту предпосылку отменял — клиент не видел ничего.
++ *
++ * Логика вынесена сюда, чтобы её можно было проверить сторожем: внутри разметки Svelte она
++ * осталась бы непокрытой, а структурная проверка «есть ли что-то в catch» удовлетворяется
++ * любой строкой.
++ */
++
++/**
++ * Пометить сообщение как несохранённое — по паре (роль, отметка времени).
++ *
++ * Пара, а не одна отметка: у быстрого ответа и реплики пользователя отметки времени
++ * различаются, но совпадение двух значений в пределах одной ленты возможно (два вызова в
++ * одну миллисекунду), и пометить чужой пузырь — соврать пользователю о противоположном.
++ *
++ * @param {import('./store.js').ChatMsg[]} list лента сообщений
++ * @param {string} role роль сообщения, сохранение которого не удалось
++ * @param {number} ts отметка времени этого сообщения
++ * @returns {import('./store.js').ChatMsg[]} новая лента; исходная не изменяется
++ */
++export function markMessageUnsaved(list, role, ts) {
++  if (!Array.isArray(list)) return list;
++  return list.map((m) => (m.role === role && m.ts === ts ? { ...m, unsaved: true } : m));
++}
+diff --git a/src/lib/components/ChatPanel.svelte b/src/lib/components/ChatPanel.svelte
+index f20753e..6534f8e 100644
+--- a/src/lib/components/ChatPanel.svelte
++++ b/src/lib/components/ChatPanel.svelte
+@@ -7,6 +7,7 @@
+   import { attachmentsSkippedText } from '$lib/cloud-warning-text.js';
+   import { getNextSteps, getRandomInsight, getCurrentPhase, trackRequest, getEmpathyError, getTimeGreeting, getUsageHint, startSession, incrementSessionMessages, endSession, pluralRu, getResponseActions, getSafetyTimeout, getEndowedProgressMessage, getContextInsight } from '$lib/psy.js';
+   import { classifyMessage } from '$lib/chat-classifier.js';
++  import { markMessageUnsaved } from '$lib/chat-save-status.js';
+   import { isEconometrica } from '$lib/creative-store.js';
+   import { activeProject, modelData, decomposeData, optimizeData, validateData, unitCosts } from '$lib/project-state.js';
+   import { ECON_DATA_COMMANDS, buildProjectDataBlock } from '$lib/econ-project-context.js';
+@@ -372,7 +373,16 @@
+     if (!cabinetId) return;
+     try {
+       await invoke('save_chat_message', { cabinetId, role, content, ts, isAutoContinue: flags.isAutoContinue, isQuickReply: flags.isQuickReply });
+-    } catch { /* non-critical */ }
++    } catch (err) {
++      // 🔴 CPD-41: молчать здесь нельзя. Прежний `catch { /* non-critical */ }` превращал потерю
++      // переписки клиента в успешный экран — узнать о пропаже можно было только после перезапуска.
++      // На предпосылке «клиент видит отказ и повторит» построено решение ядра (батч C, C4): при
++      // занятом замке реплика пользователя сознательно отклоняется. Интерфейс эту предпосылку
++      // отменял. Признак честности успеха — тот же INV-50, что и для чисел.
++      console.error('Сообщение не сохранено:', err);
++      messages.update(list => markMessageUnsaved(list, role, ts));
++      toast('Сообщение не сохранено – после перезапуска оно исчезнет из переписки', 'error', 6000);
++    }
+   }
  
-@@ -140,7 +140,7 @@ def _extract_v13_payload(
-                       if not str(k).startswith('_cert')}
-     if not clean_manifest:
-         raise CertificateUnavailable(
--            'Манифест файла модели недоступен — сертификату не к чему '
-+            'Манифест файла модели недоступен – сертификату не к чему '
-             'привязаться. Файл модели старого формата либо повреждён.'
-         )
-     bundle_hash = compute_cert_hash(clean_manifest)
-@@ -176,7 +176,7 @@ def _extract_v13_payload(
-         if not kpi_type:
-             raise CertificateUnavailable(
-                 'В конфигурации модели нет типа целевой метрики. Подставлять '
--                'значение по умолчанию нельзя — сертификат описывал бы не ту '
-+                'значение по умолчанию нельзя – сертификат описывал бы не ту '
-                 'модель, которую обучили.'
-             )
-         model_spec_raw = {
-@@ -193,20 +193,36 @@ def _extract_v13_payload(
-                 model_spec_raw['kpi_likelihood'] = str(likelihood)
+   async function clearHistory() {
+@@ -1170,6 +1180,14 @@
+               </div>
+             {/if}
+           {/if}
++          <!-- 🔴 CPD-41: отказ сохранения обязан быть виден. Признак живёт у самого сообщения,
++               а не только во всплывающем уведомлении: уведомление гаснет, а вопрос «что именно
++               не сохранилось» остаётся. -->
++          {#if msg.unsaved}
++            <div class="message-unsaved" role="status">
++              Не сохранено – после перезапуска это сообщение исчезнет. Отправьте заново.
++            </div>
++          {/if}
+         </div>
+       {/each}
+       {#if $isLoading && !statusText && !progressPhase}
+@@ -2345,6 +2363,15 @@
+     background: var(--text-muted, #7A7A90) !important;
+   }
  
-         # F-09: карта адстоков заполняется ФАКТИЧЕСКИ применёнными типами.
--        # Пустой словарь (пользователь не выбирал тип явно) утверждал бы
--        # «адстоков нет», хотя модель применила геометрический.
-+        # 🔴 Аудит починки, Ф-01 High: первая версия достраивала её через
-+        # `persistence.get_adstock_type`, а тот читает ровно ту же пустую карту
-+        # и отдаёт `geometric` ВСЕМ каналам. У модели режима малых данных карты
-+        # не бывает никогда — значит в хеш всегда уезжал бы `geometric`, даже
-+        # когда пользователь выбрал Вейбулла и расчёт шёл по Вейбуллу. То есть
-+        # починка сама сделала ровно то, ради чего чинили F-01: подставила
-+        # умолчание в заверенное описание модели.
-+        # Настоящее значение лежит в двух местах, оба независимы от карты.
-+        # ⚠️ Долг продукта (зонд 2026-08-03): модель хранит НАСТРОЙКУ, а не
-+        # результат её применения — на реальных проектах здесь стоит `'auto'`,
-+        # и фактически применённый тип (геометрический по откату) нигде не
-+        # записан. Сертификат отражает записанное и не домысливает: вывести тип
-+        # из пустоты весовых параметров значило бы вернуть ту самую подстановку.
-+        # Лечение — чтобы обучение сохраняло разрешённый тип рядом с настройкой.
-         adstock_types = dict(model_data.get('channel_adstock_types') or {})
--        каналы_модели = list((model_data.get('channel_params') or {}).keys())
--        if not adstock_types and каналы_модели:
--            try:
--                from engines.persistence import get_adstock_type
--                adstock_types = {
--                    str(канал): str(get_adstock_type(model_data, канал))
--                    for канал in каналы_модели
--                }
--            except Exception as exc:  # noqa: BLE001 — лучше без ключа, чем с выдумкой
--                logger.warning('Сертификат: типы адстока не восстановлены: %s', exc)
--                adstock_types = {}
-+        if not adstock_types:
-+            из_конфига = dict((config.get('adstock_config') or {}))
-+            параметры = model_data.get('channel_params') or {}
-+            восстановленные: dict[str, str] = {}
-+            for канал, параметр in параметры.items():
-+                тип = из_конфига.get(канал)
-+                if not тип and isinstance(параметр, dict):
-+                    тип = ((параметр.get('adstock') or {}).get('type')
-+                           if isinstance(параметр.get('adstock'), dict) else None)
-+                if тип:
-+                    восстановленные[str(канал)] = str(тип)
-+            # Ключ не кладётся вовсе, если тип известен не для всех каналов:
-+            # частичная карта утверждала бы об остальных то, чего мы не знаем.
-+            if восстановленные and len(восстановленные) == len(параметры):
-+                adstock_types = восстановленные
-         if adstock_types:
-             model_spec_raw['adstock_types'] = adstock_types
++  /* CPD-41: признак несохранённого сообщения. Приглушённый, но читаемый — это предупреждение
++     о потере данных, а не украшение, поэтому цвет отказа и без прозрачности. */
++  .message-unsaved {
++    margin-top: 4px;
++    font-size: 12px;
++    line-height: 1.35;
++    color: var(--danger, #C03030);
++  }
++
+   .auto-continue-icon {
+     font-size: 12px;
+   }
+diff --git a/src/lib/store.js b/src/lib/store.js
+index 0c902b2..c841c39 100644
+--- a/src/lib/store.js
++++ b/src/lib/store.js
+@@ -4,7 +4,10 @@ import { writable, get } from 'svelte/store';
+ export const activeCabinet = writable(null);
  
-@@ -221,12 +237,12 @@ def _extract_v13_payload(
-     if total_sales in (None, 0) or baseline is None or not channels_raw:
-         raise CertificateUnavailable(
-             'Результат декомпозиции неполон (нет общих продаж, базы или '
--            'каналов) — заверять нечего.'
-+            'каналов) – заверять нечего.'
-         )
-     total_sales = float(total_sales)
-     if total_sales != total_sales or total_sales in (float('inf'), float('-inf')):
-         raise CertificateUnavailable(
--            'Итог по целевой метрике — не число, заверять такую разбивку нельзя.'
-+            'Итог по целевой метрике – не число, заверять такую разбивку нельзя.'
-         )
+ /**
+- * @typedef {{role: string, content: string, ts: number, isQuickReply?: boolean, isAutoContinue?: boolean}} ChatMsg
++ * `unsaved` — признак ОТКАЗА сохранения (CPD-41): сообщение показано в ленте, но на диск не
++ * легло. Поле сознательно эфемерное — в файле истории его быть не может по определению, см.
++ * реестр EPHEMERAL_FIELDS в `__tests__/chat-message-field-parity.coverage.test.js`.
++ * @typedef {{role: string, content: string, ts: number, isQuickReply?: boolean, isAutoContinue?: boolean, unsaved?: boolean}} ChatMsg
+  */
  
-     def _конечное(значение: Any, что: str) -> float:
-@@ -240,7 +256,7 @@ def _extract_v13_payload(
-         число = float(значение)
-         if число != число or число in (float('inf'), float('-inf')):
-             raise CertificateUnavailable(
--                f'{что} — не число, заверять такую разбивку нельзя. '
-+                f'{что} – не число, заверять такую разбивку нельзя. '
-                 f'Проверьте данные канала: расчёт мог не сойтись.'
-             )
-         return число
-@@ -260,7 +276,7 @@ def _extract_v13_payload(
-         contribution = ch.get('contribution')
-         if not name or contribution is None:
-             raise CertificateUnavailable(
--                'В разбивке есть канал без имени или без вклада — '
-+                'В разбивке есть канал без имени или без вклада – '
-                 'заверять неполную разбивку нельзя.'
-             )
-         # 🔴 Аудит F-07: имя канала приходит из столбца пользовательской
-@@ -269,7 +285,7 @@ def _extract_v13_payload(
-         # неверное число под верным именем, без единого предупреждения.
-         if str(name) == КЛЮЧ_БАЗЫ:
-             raise CertificateUnavailable(
--                f'Канал назван «{КЛЮЧ_БАЗЫ}» — этим именем в сертификате '
-+                f'Канал назван «{КЛЮЧ_БАЗЫ}» – этим именем в сертификате '
-                 f'обозначается базовый уровень. Переименуйте столбец, иначе '
-                 f'заверенная разбивка окажется неверной.'
-             )
-diff --git a/sidecar/econometrica/tests/test_certificate_in_reports.py b/sidecar/econometrica/tests/test_certificate_in_reports.py
-index 664d96a..7c89f9a 100644
---- a/sidecar/econometrica/tests/test_certificate_in_reports.py
-+++ b/sidecar/econometrica/tests/test_certificate_in_reports.py
-@@ -205,3 +205,65 @@ def test_слайд_различает_три_состояния_заверен
-     неполное = dict(строки_сертификата(_сертификат(
-         status='not_attested', reproducibility={'status': 'absent'})))
-     assert неполное['Заверение'] == 'неполное'
-+
-+
-+# ── 8. Находки аудита ПОЧИНКИ (2026-08-03) ───────────────────────────────────
-+
-+def test_вердикты_базы_говорят_об_одной_и_той_же_величине():
-+    """🔴 Ф-02. Все три вердикта присваиваются по вероятности того, что СРЕДНИЙ
-+    по периодам базовый уровень отрицателен. Из «пройдено» по-периодные
-+    утверждения убрали, а в соседних они оставались слово в слово — включая
-+    «вклад каналов завышен», ту самую фразу, которую вычистили."""
-+    for состояние in ('watch', 'failed'):
-+        вывод = _render_certificate_block({'certificate': _сертификат(
-+            checks={'negative_baseline': состояние})})
-+        assert 'на части периода' not in вывод, состояние
-+        assert 'вклад каналов завышен' not in вывод, состояние
-+        assert 'Средний базовый уровень' in вывод, состояние
-+
-+
-+def test_подвал_печатается_только_вместе_с_отпечатком():
-+    """🔴 Ф-06. Оговорка «Отпечаток покрывает файл модели» печаталась и на
-+    отказе, где отпечатка клиенту не выдали, да ещё рядом с пустым списком."""
-+    отказ = _render_certificate_block({'certificate': {
-+        'status': 'unavailable', 'reason': 'Заверять нечего.', 'hash': None,
-+        'reproducibility': {'status': 'absent'},
-+        'checks': {'negative_baseline': 'absent'},
-+    }})
-+    assert 'Заверение недоступно' in отказ
-+    assert 'Отпечаток покрывает' not in отказ
-+    assert 'до выноса' not in отказ
-+    assert '<ul' not in отказ, 'пустой список в разметке'
-+
-+
-+def test_подвал_предупреждает_о_смене_отпечатка_при_переобучении():
-+    """🔴 Ф-09. «Повтор даёт те же числа» — правда, но отпечаток при повторном
-+    обучении другой: в манифест файла модели входит время его создания."""
-+    вывод = _render_certificate_block({'certificate': _сертификат()})
-+    assert 'отпечаток станет другим' in вывод
-+
-+
-+def test_клиенту_не_уходит_длинное_тире():
-+    """🔴 Ф-05. В продукте принято короткое тире. Причины отказа, добавленные
-+    починкой, писались длинным — в одном абзаце оказывались оба знака."""
-+    from engines.methodology_cert import CertificateUnavailable, build_cert_payload
-+    причины = []
-+    try:
-+        build_cert_payload({'config': {'kpi_type': 'sales'}}, {}, {})
-+    except CertificateUnavailable as отказ:
-+        причины.append(str(отказ))
-+    вывод = _render_certificate_block({'certificate': _сертификат(
-+        status='unavailable', hash=None, reason=причины[0] if причины else 'причина')})
-+    assert '—' not in вывод, 'длинное тире в клиентском тексте блока'
-+
-+
-+def test_слайд_методологии_действительно_зовёт_строки_сертификата():
-+    """🔴 Ф-04. Починка вынесла логику в функцию и покрыла её, но единственную
-+    строку, связывающую функцию со слайдом, не проверял никто."""
-+    import inspect
-+    from aurora_pptx.builder import AuroraPPTXBuilder
-+    исходник = inspect.getsource(AuroraPPTXBuilder.s10_methodology)
-+    assert 'строки_сертификата' in исходник, (
-+        'слайд методологии больше не зовёт строки сертификата — блок молча '
-+        'исчезнет из презентации'
-+    )
-diff --git a/sidecar/econometrica/tests/test_methodology_cert.py b/sidecar/econometrica/tests/test_methodology_cert.py
-index 3364c2a..41d83a2 100644
---- a/sidecar/econometrica/tests/test_methodology_cert.py
-+++ b/sidecar/econometrica/tests/test_methodology_cert.py
-@@ -287,12 +287,24 @@ def test_у_закрытой_формулы_правдоподобия_нет():
-     assert 'kpi_likelihood' in build_cert_payload(байес, _разбивка(), _манифест())['model_spec']
- 
- 
--def test_карта_адстоков_не_уходит_пустой():
--    """🔴 F-09. Пустая карта утверждала бы «адстоков нет», хотя модель
--    применила геометрический по умолчанию."""
--    без_карты = _модель(channel_adstock_types={})
--    spec = build_cert_payload(без_карты, _разбивка(), _манифест())['model_spec']
--    assert spec['adstock_types'] == {'ТВ': 'geometric', 'Диджитал': 'geometric'}
-+def test_карта_адстоков_восстанавливается_из_конфигурации():
-+    """🔴 F-09 и его починка после аудита (Ф-01 High).
-+
-+    Пустая карта не должна утверждать «адстоков нет» — но и заполнять её
-+    умолчанием нельзя: это ровно та подстановка, ради которой чинили Critical.
-+    Настоящий источник — конфигурация обучения; нет его — ключа нет вовсе.
-+    """
-+    из_конфига = _модель(
-+        channel_adstock_types={},
-+        config={'kpi_type': 'sales',
-+                'adstock_config': {'ТВ': 'geometric', 'Диджитал': 'weibull'}},
-+    )
-+    spec = build_cert_payload(из_конфига, _разбивка(), _манифест())['model_spec']
-+    assert spec['adstock_types'] == {'ТВ': 'geometric', 'Диджитал': 'weibull'}
-+
-+    вовсе_без_источника = _модель(channel_adstock_types={}, config={'kpi_type': 'sales'})
-+    spec2 = build_cert_payload(вовсе_без_источника, _разбивка(), _манифест())['model_spec']
-+    assert 'adstock_types' not in spec2, 'подставлено умолчание вместо отказа от ключа'
- 
- 
- def test_режим_малых_данных_заверяется_как_детерминированный():
-@@ -382,3 +394,47 @@ def test_округление_доли_зафиксировано_на_неро
-     сводка = payload['decomposition_summary']
-     assert сводка['Base']['contribution_pct'] == 61.23
-     assert сводка['ТВ']['contribution_pct'] == 28.77
-+
-+
-+def test_карта_адстоков_берётся_из_настоящего_источника():
-+    """🔴 Аудит починки, Ф-01 High: первая версия достраивала карту через
-+    `get_adstock_type`, а тот читает ту же пустую карту и отдаёт `geometric`
-+    всем. У режима малых данных карты не бывает никогда — в хеш уезжало бы
-+    `geometric` даже там, где пользователь выбрал Вейбулла.
-+    """
-+    ols = _модель(
-+        model_version='1.0-ols',
-+        channel_adstock_types={},
-+        config={'kpi_type': 'sales',
-+                'adstock_config': {'ТВ': 'weibull', 'Диджитал': 'geometric'}},
-+    )
-+    spec = build_cert_payload(ols, _разбивка(), _манифест())['model_spec']
-+    assert spec['adstock_types'] == {'ТВ': 'weibull', 'Диджитал': 'geometric'}, (
-+        'в заверенное описание уехал подставленный тип адстока'
-+    )
-+
-+
-+def test_карта_адстоков_не_собирается_наполовину():
-+    """Частичная карта утверждала бы об остальных каналах то, чего мы не знаем."""
-+    неполная = _модель(
-+        model_version='1.0-ols',
-+        channel_adstock_types={},
-+        config={'kpi_type': 'sales', 'adstock_config': {'ТВ': 'weibull'}},
-+    )
-+    spec = build_cert_payload(неполная, _разбивка(), _манифест())['model_spec']
-+    assert 'adstock_types' not in spec
-+
-+
-+def test_причина_отказа_не_содержит_имени_исключения():
-+    """🔴 Ф-03. Клиентская половина починки F-08 — замена технической строки в
-+    широком перехвате декомпозера — не была покрыта ничем."""
-+    from engines.decomposer import _build_methodology_certificate
-+
-+    class ЛомающаясяМодель(dict):
-+        def get(self, *args, **kwargs):  # noqa: D102
-+            raise RuntimeError('внутренний сбой')
-+
-+    итог = _build_methodology_certificate(ЛомающаясяМодель(), _разбивка(), Path('нет.pkl'))
-+    assert итог['status'] == 'unavailable'
-+    assert 'Error' not in итог['reason'] and 'error' not in итог['reason']
-+    assert итог['hash'] is None
-diff --git a/src/lib/components/pipeline/StepWrapper.svelte b/src/lib/components/pipeline/StepWrapper.svelte
-index 81eeb6b..ec63a1b 100644
---- a/src/lib/components/pipeline/StepWrapper.svelte
-+++ b/src/lib/components/pipeline/StepWrapper.svelte
-@@ -51,7 +51,7 @@
-           <span class="metric-label">Период</span>
-           <span class="metric-value">{validationMetrics.nObs}</span>
-         </span>
--        <span class="metric-chip light-{validationMetrics.mqsStatus}" title="Оценка данных (MQS) – комбинированный балл готовности данных до обучения: считается по запасу данных, взаимосвязи каналов и длине периода. Шкала: {mqsScaleText()}. После обучения оценка уточняется по самой модели.">
-+        <span class="metric-chip light-{validationMetrics.mqsStatus}" title="Оценка данных (MQS) – комбинированный балл готовности данных до обучения: считается по запасу данных, взаимосвязи каналов и длине периода. Шкала: {mqsScaleText()}. После обучения показывается другой балл под тем же именем – он считается по самой модели: точность на истории, средняя ошибка и сходимость расчёта.">
-           <span class="metric-label">Оценка данных (MQS)</span>
-           <span class="metric-value">{validationMetrics.mqs}</span>
-         </span>
-diff --git a/src/lib/glossary.js b/src/lib/glossary.js
-index cad1a02..e7c24ca 100644
---- a/src/lib/glossary.js
-+++ b/src/lib/glossary.js
-@@ -267,9 +267,9 @@ export const GLOSSARY = {
-   mqs: {
-     id: 'mqs',
-     term: 'Оценка данных (MQS)',
--    short: 'Сводный балл готовности данных к моделированию, от 0 до 100.',
--    long: 'Сводный балл готовности данных к моделированию, от 0 до 100. Считается по запасу данных, взаимосвязи каналов и длине периода – то есть отвечает на вопрос «можно ли на этих данных строить выводы», ещё до обучения модели.\n\nГде в Aurora: В шапке каждого шага как «Оценка данных (MQS)» и в отчёте после обучения, где балл уточняется по самой модели. Рядом с баллом программа всегда показывает уровень словами – от отличного до ненадёжного – и подсказку с границами уровней: числа берутся из единого источника, поэтому здесь они не повторяются.',
--    example: '60 недель, четыре канала без сильной взаимосвязи – балл около 78, уровень «Хорошее». Те же каналы на 20 неделях дают около 50 – «Слабое»: выводы будут неустойчивыми.',
-+    short: 'Сводный балл от 0 до 100, который отвечает на вопрос «насколько можно доверять выводам».',
-+    long: 'Сводный балл от 0 до 100, который отвечает на вопрос «насколько можно доверять выводам». 🔴 Важно: балл считается **по-разному до и после обучения**, и это два разных показателя под одной аббревиатурой. До обучения – прогноз по данным: запас данных, взаимосвязь каналов, длина периода. После обучения – качество самой модели: точность на истории (R²), средняя ошибка (MAPE) и сходимость расчёта.\n\nГде в Aurora: В шапке каждого шага как «Оценка данных (MQS)» – это прогноз до обучения. В отчёте и на карточке модели – балл после обучения, посчитанный по другой формуле. Рядом с баллом программа всегда показывает уровень словами – от отличного до ненадёжного – и подсказку с границами уровней: числа берутся из единого источника, поэтому здесь они не повторяются.',
-+    example: '60 недель и четыре канала без сильной взаимосвязи дают прогнозный балл около 75 – «Хорошее»: данных достаточно, чтобы начинать. После обучения та же модель может получить и выше, и ниже – там измеряется уже не подготовка данных, а то, насколько модель воспроизводит историю.',
-     related: ['data_ratio', 'vif'],
-   },
-   ovb: {
-diff --git a/tools/help_pdf_manifest.json b/tools/help_pdf_manifest.json
-index a365b54..b33960a 100644
---- a/tools/help_pdf_manifest.json
-+++ b/tools/help_pdf_manifest.json
-@@ -1,6 +1,6 @@
- {
-   "version": "2.4.4",
--  "generated": "2026-08-03T11:02:43Z",
-+  "generated": "2026-08-03T11:33:38Z",
-   "sources": {
-     "about.html": "d341856678790fe296783eb6296b499fde5df8ec32c5cbd5d74caf7c2a1707b0",
-     "data-preparation.html": "f6e446f52ee9bf079bc1eee0d12923f8e84aa8ec9748f635e387407896bc3b48",
-@@ -8,7 +8,7 @@
-     "error-codes.html": "30c1c2a56367e27e7f5af3fc528f5cd37e82a7f442e63d0a462d79d91c9e541d",
-     "faq.html": "74209fcf4715614b074665cee5cdcc0417960c7aeb89b58948397a1eaa1b4337",
-     "features.html": "28d84c961725299e7285f4a033f623d35642f5d5e975bb2647be0340720bc064",
--    "glossary.html": "f9642d44e37b37b61399c3a95a562b46dc93edf648ef7b4c399c818fada2a0c1",
-+    "glossary.html": "c4a572dbefe3e0ae8f7435f1228087638cf7e85f2d8325525c98732a539c92cb",
-     "index.html": "e8d6ff1bc961ede6db38b99d7c31a2678e407060cd3f947e01195537af7caef4",
-     "install.html": "b307ed229c10d9a801d559c0399f3293eab14786049049bc85a0b162d591cf7e",
-     "interpretation.html": "fbc86093348c511c9e17a3576973023dcb12ee95cb1311491529f779df8b10b5",
+ /**
