@@ -5,7 +5,7 @@
   import { messages, isLoading, activeCabinet, pendingCommand, stickyContext, cabinetCommands, inboxFiles as inboxFilesStore } from '$lib/store.js';
   import { toast } from '$lib/toast.js';
   import { attachmentsSkippedText } from '$lib/cloud-warning-text.js';
-  import { cancelledTailAction } from '$lib/cancelled-run.js';
+  import { cancelledTailAction, insertBeforeActiveBubble } from '$lib/cancelled-run.js';
   import { getNextSteps, getRandomInsight, getCurrentPhase, trackRequest, getEmpathyError, getTimeGreeting, getUsageHint, startSession, incrementSessionMessages, endSession, pluralRu, getResponseActions, getSafetyTimeout, getEndowedProgressMessage, getContextInsight } from '$lib/psy.js';
   import { classifyMessage } from '$lib/chat-classifier.js';
   import { isEconometrica } from '$lib/creative-store.js';
@@ -448,19 +448,21 @@
       let tail = null;
       try { tail = JSON.parse(event.payload); } catch { tail = null; }
       if (tail?.cancelled_run) {
-        const action = cancelledTailAction($isLoading, tail.notice);
-        if (action !== 'apply') {
-          if (action === 'notice') {
-            messages.update(msgs => [...msgs, {
-              role: 'system', content: tail.notice, ts: Date.now(),
-            }]);
-            if (isNearBottom()) scrollToBottom();
-          }
-          return;
+        // 🔴 Хвост остановленной работы НИКОГДА не продолжает ленту (второй заход
+        // аудита). Прежде решение принималось по `$isLoading` — то есть снова по
+        // памяти приёмника, только переменную сменили: стоило следующему вопросу
+        // успеть ответить, и текст остановленной работы дописывался в конец ЕГО
+        // ответа. Полный текст уже показан потоком; дойти обязана приписка, и она
+        // встаёт ПЕРЕД активным пузырём, чтобы не рвать накопительную склейку.
+        if (cancelledTailAction(tail.notice) === 'notice') {
+          messages.update(msgs => insertBeforeActiveBubble(msgs, {
+            role: 'system', content: tail.notice, ts: Date.now(),
+          }));
+          if (isNearBottom()) scrollToBottom();
         }
-      } else if (cancelled) {
         return;
       }
+      if (cancelled) return;
       try {
         const data = JSON.parse(event.payload);
 
@@ -881,7 +883,11 @@
       // погасил бы её защитный таймер, прогресс и признак занятости. Сам текст отказа
       // человеку показать обязаны — работа, которую он запускал, не удалась.
       const stale = myTurn !== turnSeq;
-      messages.update(msgs => [...msgs, { role: 'system', content: `Ошибка: ${err}`, ts: Date.now() }]);
+      // Отказ прошлого хода встаёт ПЕРЕД активным пузырём: приписанный в конец, он
+      // разорвал бы накопительную склейку текущего ответа и тот показался бы дважды.
+      messages.update(msgs => insertBeforeActiveBubble(msgs, {
+        role: 'system', content: `Ошибка: ${err}`, ts: Date.now(),
+      }));
       if (stale) return;
       clearTimeout(safetyTimer);
       isLoading.set(false);
