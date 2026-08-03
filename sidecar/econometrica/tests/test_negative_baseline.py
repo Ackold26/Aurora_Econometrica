@@ -37,18 +37,47 @@ def _samples(intercept_mu: float, n_draws: int = 500, sd: float = 0.1, seed: int
 # ── Сам расчёт ──────────────────────────────────────────────────────────────
 
 def test_здоровая_модель_молчит():
-    """База уверенно положительна → вердикт «годно», вероятность около нуля."""
+    """База уверенно положительна, разброс достаточный → «годно»."""
+    res = compute_negative_baseline(
+        intercept_samples=_samples(-0.5),
+        control_betas_samples=np.zeros((0, 500)),
+        x_control_norm=np.zeros((30, 0)),
+        y_mean=5000.0, y_std=5000.0,
+    )
+    assert res is not None
+    assert res['prob_negative'] == 0.0
+    assert res['verdict'] == 'ok'
+    assert res['detectable'] is True
+
+
+def test_низкий_разброс_даёт_неприменимо_а_не_годно():
+    """🔴 Замер 2026-08-03: на типовом проекте проверка НЕ МОЖЕТ провалиться.
+
+    Свободный член имеет приор Normal(0, 0.5) в нормализованной шкале, поэтому
+    при разбросе продаж 8% от среднего база уходит в минус только на 26 сигмах
+    приора. Живой прогон подтвердил: три набора, построенные как заведомо
+    больные, дали «годно». Подавать такой результат как «проверено» — ложное
+    утверждение продукта о себе, поэтому вердикт «проверка неприменима».
+    """
     res = compute_negative_baseline(
         intercept_samples=_samples(-0.5),
         control_betas_samples=np.zeros((0, 500)),
         x_control_norm=np.zeros((30, 0)),
         y_mean=6800.0, y_std=525.0,
     )
-    assert res is not None
-    assert res['prob_negative'] == 0.0
-    assert res['verdict'] == 'ok'
-    # Восстановление масштаба: (−0,5)·525 + 6800 ≈ 6537.
+    assert res['verdict'] == 'not_applicable'
+    assert res['detectable'] is False
+    assert res['sigmas_needed'] > 20
+    # Восстановление масштаба на месте: (−0,5)·525 + 6800 ≈ 6537.
     assert 6400 < res['baseline_mean'] < 6700
+
+
+def test_провал_засчитывается_даже_при_низкой_чувствительности():
+    """Если база УЖЕ в минусе — это факт, а не вопрос чувствительности."""
+    res = compute_negative_baseline(
+        _samples(-14.0, sd=0.2), None, None, 6800.0, 525.0)
+    assert res['verdict'] == 'fail'
+    assert res['detectable'] is False
 
 
 def test_завышенный_вклад_медиа_ловится():
@@ -73,12 +102,12 @@ def test_завышенный_вклад_медиа_ловится():
 
 def test_пограничный_случай_попадает_в_смотреть():
     """База около нуля → «смотреть», а не «годно» и не «провал»."""
-    # intercept ≈ −13,6 → база ≈ 6800 − 6800 = 0, половина выборок ниже нуля.
+    # intercept ≈ −1,0 → база ≈ 5000 − 5000 = 0, половина выборок ниже нуля.
     res = compute_negative_baseline(
-        intercept_samples=_samples(-13.6, sd=0.5, seed=3),
+        intercept_samples=_samples(-1.0, sd=0.05, seed=3),
         control_betas_samples=np.zeros((0, 500)),
         x_control_norm=np.zeros((30, 0)),
-        y_mean=6800.0, y_std=500.0,
+        y_mean=5000.0, y_std=5000.0,
     )
     assert res is not None
     assert 0.2 <= res['prob_negative'] <= 0.8, res['prob_negative']
@@ -123,7 +152,7 @@ def test_пороги_объявлены_в_ответе():
     поэтому они и записаны явно, а не зашиты в чужой словарь.
     """
     res = compute_negative_baseline(
-        _samples(-0.5), None, None, 6800.0, 525.0)
+        _samples(-0.5), None, None, 5000.0, 5000.0)
     assert res['thresholds'] == {'ok_below': 0.2, 'fail_above': 0.8}
     assert res['basis'] == 'displayed_baseline_mean'
 
@@ -222,7 +251,7 @@ def test_ключ_переживает_запись_и_чтение_диагно
 
     diag = {
         'negative_baseline': compute_negative_baseline(
-            _samples(-0.5), None, None, 6800.0, 525.0),
+            _samples(-0.5), None, None, 5000.0, 5000.0),
     }
     path = tmp_path / 'model-diagnostics.json'
     path.write_text(json.dumps(sanitize_nonfinite(diag), ensure_ascii=False), encoding='utf-8')
