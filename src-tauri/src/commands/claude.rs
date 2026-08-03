@@ -30,6 +30,10 @@ pub struct ChatMessage {
 pub enum ClaudeError {
     RateLimit,
     Overloaded,
+    /// 🔴 CPD-10: исчерпана подписочная квота. Отдельно от `RateLimit` намеренно: ограничение
+    /// частоты проходит само через минуты, а квота — нет, до конца расчётного окна. Свести их
+    /// в одно значило бы обещать клиенту автоматический повтор, который никогда не сработает.
+    UsageLimit,
     AuthError,
     NetworkError,
     Unknown(String),
@@ -37,6 +41,9 @@ pub enum ClaudeError {
 
 impl ClaudeError {
     /// Whether this error type is worth retrying.
+    ///
+    /// 🔴 `UsageLimit` НЕ повторяется: квота не восстанавливается ожиданием в пределах запроса,
+    /// и повтор лишь потратит время клиента, показав тот же отказ (эталон SA `ec6a89b`, OR `0d3f3fc`).
     pub fn is_retryable(&self) -> bool {
         matches!(self, ClaudeError::RateLimit | ClaudeError::Overloaded | ClaudeError::NetworkError)
     }
@@ -46,8 +53,29 @@ impl ClaudeError {
 pub fn classify_stderr(line: &str) -> Option<ClaudeError> {
     let lower = line.to_lowercase();
 
+    // 🔴 CPD-10, порядок значим: квота проверяется ДО ограничения частоты. «Usage limit reached»
+    // подстроку «rate limit» не содержит, но родственные формулировки поставщика меняются, и
+    // ошибка отнесения здесь дороже обычного — клиенту пообещали бы автоматический повтор.
+    if lower.contains("usage limit")
+        || lower.contains("quota")
+        || lower.contains("limit reached")
+        || lower.contains("out of credits")
+    {
+        return Some(ClaudeError::UsageLimit);
+    }
     if lower.contains("rate limit") || lower.contains("rate_limit") || lower.contains("429") {
         return Some(ClaudeError::RateLimit);
+    }
+    // 🔴 CPD-10: протухший вход. Формы СТРОГИЕ — голое слово «login» встречается в обычном
+    // тексте (например, в разборе чужого кода), и широкий образец объявлял бы отказом входа
+    // всё подряд. Негативный контроль на это есть в сторожах.
+    if lower.contains("not logged in")
+        || lower.contains("logged out")
+        || lower.contains("claude login")
+        || lower.contains("please log in")
+        || lower.contains("/login")
+    {
+        return Some(ClaudeError::AuthError);
     }
     if lower.contains("overloaded") || lower.contains("529") || lower.contains("capacity") {
         return Some(ClaudeError::Overloaded);
@@ -73,6 +101,14 @@ pub fn classify_stderr(line: &str) -> Option<ClaudeError> {
 pub fn user_message(err: &ClaudeError) -> String {
     match err {
         ClaudeError::RateLimit => coded(ErrorCode::CL004, "Превышен лимит запросов. Повторная попытка..."),
+        // 🔴 CPD-10: текст честный в обе стороны — называет причину и НЕ обещает повтора,
+        // потому что его не будет (is_retryable = false). Обещание «повторная попытка…»
+        // здесь было бы ложным утверждением продукта о себе.
+        ClaudeError::UsageLimit => coded(
+            ErrorCode::CL010,
+            "Исчерпан лимит подписки Claude. Работа возобновится после обновления лимита – \
+             автоматического повтора не будет.",
+        ),
         ClaudeError::Overloaded => coded(ErrorCode::CL005, "Сервер перегружен. Повторная попытка..."),
         ClaudeError::AuthError => coded(ErrorCode::CL006, "Ошибка авторизации. Проверьте API-ключ."),
         ClaudeError::NetworkError => coded(ErrorCode::CL007, "Ошибка сети. Проверьте подключение к интернету."),
@@ -915,6 +951,76 @@ fn convert_to_pdf(md_path: &std::path::Path) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 🔴 Сторож CPD-10 (блокирующий). До правки отказ по исчерпанной подписке и по протухшему
+    /// входу не попадал ни в одну категорию, и наружу уходила СЫРАЯ английская строка CLI —
+    /// отказ был подан не как отказ. Эталон линейки: SA `ec6a89b`, OR `0d3f3fc`.
+    #[test]
+    fn usage_limit_is_classified_and_never_retried() {
+        for line in [
+            "Claude usage limit reached. Try again after 3pm",
+            "You have reached your quota for this billing period",
+            "Error: out of credits",
+        ] {
+            let err = classify_stderr(line)
+                .unwrap_or_else(|| panic!("отказ по квоте обязан классифицироваться: {line}"));
+            assert_eq!(err, ClaudeError::UsageLimit, "строка: {line}");
+            assert!(
+                !err.is_retryable(),
+                "квота не восстанавливается ожиданием — повтор лишь потратит время клиента"
+            );
+        }
+    }
+
+    /// 🔴 Порядок отнесения: квота идёт ДО ограничения частоты. Иначе клиенту пообещали бы
+    /// автоматический повтор, которого не будет.
+    #[test]
+    fn usage_limit_wins_over_rate_limit() {
+        assert_eq!(
+            classify_stderr("Claude usage limit reached (429)"),
+            Some(ClaudeError::UsageLimit),
+            "исчерпанная подписка не имеет права быть принята за ограничение частоты"
+        );
+        assert_eq!(
+            classify_stderr("rate limit exceeded, slow down"),
+            Some(ClaudeError::RateLimit),
+            "обычное ограничение частоты обязано остаться повторяемым"
+        );
+    }
+
+    /// 🔴 Протухший вход — строгими формами. Негативный контроль обязателен: голое слово
+    /// «login» встречается в обычном тексте, и широкий образец объявлял бы отказом входа всё
+    /// подряд (требование самой записи реестра).
+    #[test]
+    fn stale_login_is_classified_by_strict_forms_only() {
+        for line in [
+            "You are not logged in. Run `claude login`",
+            "Session logged out",
+            "Please log in to continue",
+        ] {
+            assert_eq!(
+                classify_stderr(line),
+                Some(ClaudeError::AuthError),
+                "протухший вход обязан классифицироваться: {line}"
+            );
+        }
+        assert_ne!(
+            classify_stderr("Описан порядок login в разделе README"),
+            Some(ClaudeError::AuthError),
+            "обычное упоминание слова «login» не имеет права считаться отказом входа"
+        );
+    }
+
+    /// Клиентский текст отказа по квоте не имеет права обещать повтор, которого не будет.
+    #[test]
+    fn usage_limit_message_promises_no_retry() {
+        let text = user_message(&ClaudeError::UsageLimit);
+        assert!(text.contains("CL-010"), "код отказа обязан быть назван: {text}");
+        assert!(
+            !text.contains("Повторная попытка"),
+            "текст обещает автоматический повтор, которого не будет — ложное утверждение о себе: {text}"
+        );
+    }
 
     /// 🔴 Сторож CPD-32 (блокирующий, ложное утверждение продукта о себе). Эталонный случай —
     /// дословный текст из находки Legal Center 0.12.1: ответ оборвался, а продукт сохранил

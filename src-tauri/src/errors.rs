@@ -36,6 +36,11 @@ pub enum ErrorCode {
     CL006, // Auth error
     CL007, // Network error
     CL008, // Execution timeout
+    // 🔴 CPD-10: номер взят НЕ следующим по порядку (CL-009 пропущен намеренно). Код ошибки —
+    // кросс-продуктная величина: у Smart Analytica и Oracle исчерпание подписочной квоты уже
+    // выпущено клиентам под CL-010, и тот же отказ обязан называться так же во всей линейке.
+    // Согласованность с выпущенным важнее плотности нумерации.
+    CL010, // Исчерпана подписочная квота Claude (НЕ повторяется автоматически)
 
     // ── Fingerprint ──
     FP001, // WMI / hardware ID collection failed
@@ -98,6 +103,7 @@ impl ErrorCode {
             Self::CL006 => "CL-006",
             Self::CL007 => "CL-007",
             Self::CL008 => "CL-008",
+            Self::CL010 => "CL-010",
 
             Self::FP001 => "FP-001",
             Self::FP002 => "FP-002",
@@ -161,6 +167,7 @@ mod tests {
             ErrorCode::VT001, ErrorCode::VT002, ErrorCode::VT003, ErrorCode::VT004, ErrorCode::VT005,
             ErrorCode::CL001, ErrorCode::CL002, ErrorCode::CL003, ErrorCode::CL004,
             ErrorCode::CL005, ErrorCode::CL006, ErrorCode::CL007, ErrorCode::CL008,
+            ErrorCode::CL010,
             ErrorCode::FP001, ErrorCode::FP002, ErrorCode::FP003,
             ErrorCode::SY001, ErrorCode::SY002, ErrorCode::SY003,
             ErrorCode::UP001, ErrorCode::UP002, ErrorCode::UP003, ErrorCode::UP004, ErrorCode::UP005,
