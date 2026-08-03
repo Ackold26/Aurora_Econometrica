@@ -584,6 +584,10 @@ class AuroraHTMLBuilder:
                 "generation_compare": self.data.get("generation_compare"),
                 "promises_summary": self.data.get("promises_summary"),
             },
+            # P0.7 шаг 15: сертификат методологии считается декомпозицией и
+            # приезжает вместе с ней. Пусто (старый расчёт без сертификата) →
+            # блок не рендерится вовсе, а не печатает прочерки.
+            "certificate": self.raw_decompose.get("methodology_certificate"),
         }
         sections_html = "\n".join(render(ctx) for _, render in SECTION_RENDERERS)
 

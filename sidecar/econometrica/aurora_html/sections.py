@@ -1679,6 +1679,103 @@ def _render_brand_perf_split_block(ctx: dict) -> str:
 </div>"""
 
 
+_СТАТУС_ЗАВЕРЕНИЯ = {
+    'issued': 'Расчёт заверен: параметры прогона записаны, повторный запуск на тех же '
+              'данных даёт те же числа.',
+    'not_attested': 'Заверение неполное: модель обучена в ранней версии программы, где '
+                    'параметры прогона не записывались. Переобучите модель, чтобы '
+                    'получить полное заверение.',
+}
+
+_ПРОВЕРКА_БАЗЫ = {
+    'passed': 'Базовый уровень положителен на всём периоде – вклад каналов не завышен '
+              'за его счёт.',
+    'watch': 'Базовый уровень близок к нулю на части периода – стоит перепроверить '
+             'полноту факторов.',
+    'failed': 'Базовый уровень уходит в минус – вклад каналов завышен, модель требует '
+              'пересмотра.',
+    'not_applicable': 'Проверка неприменима на этих данных: разброс продаж слишком мал, '
+                      'чтобы отличить положительный базовый уровень от отрицательного.',
+}
+
+_ИСТОЧНИК_ЗЕРНА = {
+    'config': 'задано в проекте',
+    'env': 'задано переменной среды',
+    'default': 'значение по умолчанию',
+    'model': 'взято из модели',
+}
+
+
+def _render_certificate_block(ctx: dict) -> str:
+    """Блок «Воспроизводимость и сертификат» (P0.7 шаг 15).
+
+    Рендерится только когда сертификат реально посчитан: расчёты старых версий
+    его не несут, и печатать вместо него прочерки значило бы обещать заверение,
+    которого нет.
+
+    🔴 Формулировка «проверка неприменима» не смягчается до «пройдена» — это
+    долг блока P0.6: проверка отрицательной базы на данных с малым разбросом
+    продаж не может провалиться в принципе, и «пройдена» там означало бы не
+    «модель здорова», а «мы ничего не проверили».
+    """
+    cert = ctx.get("certificate")
+    if not isinstance(cert, dict) or not cert:
+        return ""
+
+    статус = cert.get("status")
+    строки: list[tuple[str, str]] = []
+
+    отпечаток = cert.get("hash")
+    if отпечаток:
+        строки.append(("Отпечаток расчёта", str(отпечаток)))
+
+    паспорт = cert.get("reproducibility") or {}
+    if паспорт.get("status") == "recorded":
+        зерно = паспорт.get("seed")
+        источник = _ИСТОЧНИК_ЗЕРНА.get(str(паспорт.get("seed_source")), "")
+        if зерно is not None:
+            строки.append((
+                "Зерно генератора",
+                f"{зерно} ({источник})" if источник else str(зерно),
+            ))
+        mcmc = паспорт.get("mcmc") or {}
+        if mcmc.get("chains") and mcmc.get("draws"):
+            # Разогрев дописывается, только если он известен: заглушка вместо
+            # величины запрещена (сторож `test_em_dash_placeholder_gate`).
+            значение = f"{mcmc['chains']} × {mcmc['draws']}"
+            if mcmc.get("tune"):
+                значение += f", разогрев {mcmc['tune']}"
+            строки.append(("Цепи и шаги", значение))
+
+    проверка = (cert.get("checks") or {}).get("negative_baseline")
+    if проверка in _ПРОВЕРКА_БАЗЫ:
+        строки.append(("Базовый уровень", _ПРОВЕРКА_БАЗЫ[проверка]))
+
+    пояснение = _СТАТУС_ЗАВЕРЕНИЯ.get(str(статус))
+    if статус == "unavailable":
+        пояснение = f"Заверение недоступно: {cert.get('reason') or 'причина не названа'}"
+    if not пояснение and not строки:
+        return ""
+
+    список = "\n".join(
+        f'<li><span class="diag-label">{escape(метка)}</span>'
+        f'<span class="diag-value">{escape(значение)}</span></li>'
+        for метка, значение in строки
+    )
+    return f"""
+<div style="margin-top:32px;">
+  <div class="method-col-label">Воспроизводимость и сертификат</div>
+  <p style="margin:8px 0 12px;font-size:12px;">{escape(пояснение or '')}</p>
+  <ul class="diag-list">
+{список}
+  </ul>
+  <p style="margin-top:12px;font-size:11px;font-style:italic;color:var(--text-muted);">
+    Отпечаток покрывает файл обученной модели и результаты разбивки. Исходная выгрузка
+    данных в него не входит.
+  </p>
+</div>"""
+
+
 def render_methodology(ctx: dict) -> str:
     """Section 11: Methodology + limitations. v2.1.0 Pilot C: engine-aware."""
     strings = ctx["strings"]
@@ -1754,6 +1851,7 @@ def render_methodology(ctx: dict) -> str:
   </div>
 </div>
 <p style="margin-top:24px;font-size:11px;font-style:italic;color:var(--text-muted);">{escape(_prior_note)}</p>
+{_render_certificate_block(ctx)}
 {brand_perf_html}"""
     return _section("method", kicker, body)
 

@@ -3009,6 +3009,20 @@ class AuroraPPTXBuilder:
                 ("R-hat (max)",       self._mstr(self.r_hat_max, "{:.3f}")),
                 ("ESS (min)",         _ess_str),
             ]
+
+        # P0.7 шаг 15: воспроизводимость и сертификат. Строки добавляются
+        # ТОЛЬКО когда сертификат реально посчитан — иначе блок молчит, а не
+        # печатает прочерки (тот же принцип, что у витрин доверия).
+        _cert = self.data.get("certificate") or {}
+        if _cert.get("hash"):
+            diag.append(("Отпечаток", str(_cert["hash"])[:12] + "…"))
+            _паспорт = _cert.get("reproducibility") or {}
+            if _паспорт.get("status") == "recorded" and _паспорт.get("seed") is not None:
+                diag.append(("Зерно генератора", str(_паспорт["seed"])))
+            elif _cert.get("status") == "not_attested":
+                # Честнее промолчать о зерне, но сказать, что заверение неполное:
+                # модель обучена до того, как параметры прогона стали записываться.
+                diag.append(("Заверение", "неполное"))
         dy = diag_y + 0.4
         for label, val in diag:
             self._text(

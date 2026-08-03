@@ -1181,6 +1181,13 @@ def _map_pipeline_to_builder_data(
     if forecast and forecast.get('status') == 'ok' and forecast.get('scenarios'):
         data['forecast'] = forecast
 
+    # P0.7 шаг 15: сертификат методологии — тот же принцип, что у витрин выше.
+    # Кладётся только настоящий, посчитанный декомпозицией; расчёты прежних
+    # версий его не несут, и слайд о нём молчит, а не печатает прочерк.
+    _cert = (decompose_data or {}).get('methodology_certificate')
+    if isinstance(_cert, dict) and _cert.get('hash'):
+        data['certificate'] = _cert
+
     logger.info(
         f"narrative_adapter: client={client_label!r} "
         f"diagnostics_keys={list(diagnostics.keys())} "
