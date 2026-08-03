@@ -56,10 +56,17 @@ pub fn classify_stderr(line: &str) -> Option<ClaudeError> {
     // 🔴 CPD-10, порядок значим: квота проверяется ДО ограничения частоты. «Usage limit reached»
     // подстроку «rate limit» не содержит, но родственные формулировки поставщика меняются, и
     // ошибка отнесения здесь дороже обычного — клиенту пообещали бы автоматический повтор.
-    if lower.contains("usage limit")
-        || lower.contains("quota")
-        || lower.contains("limit reached")
-        || lower.contains("out of credits")
+    // 🔴 Находка внешнего аудита (High): образец `limit reached` перехватывал ОБЫЧНОЕ ограничение
+    // частоты — «Rate limit reached. Please retry after 60s» содержит его дословно. А поскольку
+    // квота проверяется первой, повторяемая ошибка объявлялась неповторяемой, автоповтор не
+    // срабатывал, и клиент читал «автоматического повтора не будет» — ложное утверждение о
+    // причине (INV-50). Голое «limit reached» снято; оставлены формы, где сказано ЧЕЙ лимит.
+    let mentions_rate = lower.contains("rate limit") || lower.contains("rate_limit");
+    if !mentions_rate
+        && (lower.contains("usage limit")
+            || lower.contains("quota")
+            || lower.contains("out of credits")
+            || lower.contains("subscription limit"))
     {
         return Some(ClaudeError::UsageLimit);
     }
@@ -569,16 +576,24 @@ async fn run_claude_inner(
     // The retry loop in send_message will call run_claude again.
     // Emitting claude-done here would cause the frontend to save partial/duplicate responses.
     if has_retryable && exit_code != 0 {
-        // Auto-save partial response before bailing (for debugging), unless suppressed
+        // Auto-save partial response before bailing (for debugging), unless suppressed.
+        // 🔴 CPD-32, находка внешнего аудита (High): это ВТОРОЙ путь записи файла, и он писал
+        // напрямую, минуя гейт содержимого. Сценарий: stderr дал повторяемую ошибку, а в буфере
+        // stdout уже лежит «API Error: Connection closed» — текст отказа ложился клиенту файлом
+        // ровно так же, как до починки, только с суффиксом `-partial`. Гейт обязан стоять на
+        // КАЖДОМ пути записи, а не на самом заметном.
         if !suppress_export {
             let partial_text = result_text.unwrap_or(delta_text);
-            if !partial_text.trim().is_empty() {
-                let slug = extract_command_slug(prompt);
-                let timestamp = chrono::Local::now().format("%Y%m%d-%H%M%S");
-                let filename = format!("{}-{}-partial.md", slug, timestamp);
-                let exports_dir = work_dir.join("exports");
-                let _ = std::fs::create_dir_all(&exports_dir);
-                let _ = std::fs::write(exports_dir.join(&filename), &partial_text);
+            match failure_notice_reason(&partial_text) {
+                Some(reason) => warn!("Частичный ответ не сохранён [{cabinet_id}]: {reason}"),
+                None => {
+                    let slug = extract_command_slug(prompt);
+                    let timestamp = chrono::Local::now().format("%Y%m%d-%H%M%S");
+                    let filename = format!("{}-{}-partial.md", slug, timestamp);
+                    let exports_dir = work_dir.join("exports");
+                    let _ = std::fs::create_dir_all(&exports_dir);
+                    let _ = std::fs::write(exports_dir.join(&filename), &partial_text);
+                }
             }
         }
         anyhow::bail!("retryable_error");
@@ -606,8 +621,8 @@ async fn run_claude_inner(
 /// Сохранить финальный текст ответа в exports/ (+ конвертации docx/pdf/xlsx + событие
 /// exports-updated). Общий хелпер: вызывается из `run_claude_inner` (локальный Claude CLI)
 /// и из `gateway_executor` (feature `thin`, SSH-транспорт) — поведение автосохранения
-/// идентично независимо от того, ЧЕМ исполнен кабинет. Ничего не делает при пустом тексте
-/// (зеркалит прежнюю проверку `!final_text.trim().is_empty()`).
+/// идентично независимо от того, ЧЕМ исполнен кабинет. Пустой текст и текст отказа канала файлом
+/// НЕ сохраняются, но и не проглатываются: пользователь получает событие с причиной.
 pub(crate) fn auto_save_response(
     app_handle: &tauri::AppHandle,
     work_dir: &Path,
@@ -616,9 +631,10 @@ pub(crate) fn auto_save_response(
     final_text: &str,
     partial_suffix: bool,
 ) {
-    if final_text.trim().is_empty() {
-        return;
-    }
+    // 🔴 Находка внешнего аудита (Medium): раньше здесь стоял ранний выход по пустоте — ДО гейта.
+    // Канал, оборвавшийся до первого токена, уходил молча: ни файла, ни события, ровно тот
+    // родственный дефект CPD-17 («файла нет, и никто не знает почему»), от которого гейт и
+    // защищает. Пустота — частный случай «ответ не состоялся», и обрабатывается тем же путём.
     // 🔴 CPD-32: файл-результат не имеет права нести текст отказа. До правки единственным
     // условием была непустота, поэтому сообщение оборвавшегося канала сохранялось как отчёт —
     // с именем по шаблону команды, датой и признаками выполненной работы — и через неделю
@@ -1011,6 +1027,45 @@ mod tests {
         );
     }
 
+    /// 🔴 Находка внешнего аудита (High): образец `limit reached` перехватывал ОБЫЧНОЕ ограничение
+    /// частоты. Поскольку квота проверяется первой, повторяемая ошибка объявлялась неповторяемой,
+    /// автоповтор не срабатывал, и клиент читал ложную причину.
+    #[test]
+    fn rate_limit_is_not_mistaken_for_a_subscription_quota() {
+        for line in [
+            "Rate limit reached. Please retry after 60s",
+            "API rate limit reached for this organization",
+        ] {
+            let err = classify_stderr(line).unwrap_or_else(|| panic!("не классифицировано: {line}"));
+            assert_eq!(
+                err,
+                ClaudeError::RateLimit,
+                "ограничение частоты обязано остаться ограничением частоты: {line}"
+            );
+            assert!(err.is_retryable(), "иначе автоповтор не сработает и клиент прочтёт ложную причину");
+        }
+    }
+
+    /// 🔴 Находка внешнего аудита (Medium): пустой ответ уходил молча — ранний выход стоял ДО
+    /// гейта. Проверяется отсутствие возврата по пустоте между входом в автосохранение и гейтом.
+    #[test]
+    fn empty_answer_is_not_swallowed_before_the_gate() {
+        let src = include_str!("claude.rs");
+        let start = src.find("pub(crate) fn auto_save_response").expect("функция не найдена");
+        let tail = &src[start..];
+        let gate_at = tail.find("failure_notice_reason").expect("гейт не найден");
+        let window = &tail[..gate_at];
+        assert!(
+            !window.contains("is_empty() {\n        return;"),
+            "ранний выход по пустоте вернулся ДО гейта: оборвавшийся до первого токена канал снова \
+             уйдёт молча — ни файла, ни события (родственный дефект CPD-17)"
+        );
+        assert!(
+            failure_notice_reason("").is_some() && failure_notice_reason("   ").is_some(),
+            "пустота обязана распознаваться самим гейтом, раз ранней проверки больше нет"
+        );
+    }
+
     /// Клиентский текст отказа по квоте не имеет права обещать повтор, которого не будет.
     #[test]
     fn usage_limit_message_promises_no_retry() {
@@ -1115,6 +1170,39 @@ mod tests {
             window.contains("claude-stream-"),
             "отказ обязан быть ГРОМКИМ: молчаливый пропуск возвращает к родственному дефекту \
              «файла нет, и никто не знает почему» (CPD-17)"
+        );
+    }
+
+    /// 🔴 Находка внешнего аудита (High): путей записи файла ДВА, а гейт стоял на одном.
+    /// Ветка повторяемой ошибки пишет `-partial.md` напрямую через `std::fs::write`, минуя
+    /// `auto_save_response`. Сценарий: stderr дал повторяемую ошибку, а в буфере stdout уже лежит
+    /// «API Error: Connection closed» — текст отказа ложился клиенту файлом ровно как до починки.
+    /// Сторож проверяет КАЖДУЮ запись в `exports`, а не только заметную.
+    #[test]
+    fn every_path_that_writes_an_export_passes_the_gate() {
+        let src = include_str!("claude.rs");
+        // 🔴 Окно берётся по СТРОКАМ, а не по байтовому смещению: срез вида `src[idx-700..idx]`
+        // паникует, попав внутрь многобайтового символа кириллицы. Та же ловушка, от которой
+        // защищает `FAILURE_NOTICE_MAX_CHARS` в самом продукте — поймана первым же прогоном.
+        // 🔴 Образец собирается из частей: записанный целиком, он совпал бы с собственной строкой
+        // этого теста, и сторож нашёл бы «незащищённую запись» в самом себе (поймано прогоном).
+        let needle = concat!("std::fs::write(", "exports_dir");
+        let lines: Vec<&str> = src.lines().collect();
+        let mut unguarded = Vec::new();
+        for (i, line) in lines.iter().enumerate() {
+            if !line.contains(needle) || line.trim_start().starts_with("//") {
+                continue;
+            }
+            let from = i.saturating_sub(15);
+            let guarded = lines[from..i].iter().any(|l| l.contains("failure_notice_reason"));
+            if !guarded {
+                unguarded.push(i + 1);
+            }
+        }
+        assert!(
+            unguarded.is_empty(),
+            "запись выгрузки без гейта содержимого на строках {unguarded:?} — текст отказа снова \
+             ляжет клиенту файлом-отчётом (CPD-32)"
         );
     }
 
