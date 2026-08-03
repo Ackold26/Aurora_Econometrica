@@ -566,6 +566,58 @@ def build_decomposition_series(
     return {'dates': list(dates or []), 'series': series}
 
 
+def _build_methodology_certificate(
+    model_data: dict[str, Any],
+    decompose_result: dict[str, Any],
+    model_path: Path,
+) -> dict[str, Any]:
+    """Сертификат методологии для этого расчёта (P0.7 шаг 14).
+
+    Единственная точка вызова в продукте. Модуль `engines/methodology_cert.py`
+    существовал с v2.0.0 и не вызывался ниоткуда — сертификатов у клиентов не
+    было вовсе.
+
+    Сертификат никогда не роняет разбивку: любая неудача превращается в статус
+    с названной причиной. Клиент вправе получить расчёт даже тогда, когда
+    заверить его нечем.
+    """
+    from engines.methodology_cert import generate_methodology_certificate
+
+    try:
+        from engines.persistence_safe import read_manifest
+        manifest = read_manifest(model_path)
+    except Exception as exc:  # noqa: BLE001 — причина уезжает в статус
+        logger.warning('Сертификат: манифест модели не прочитан (%s): %s',
+                       type(exc).__name__, exc)
+        manifest = {}
+
+    # Диагностика модели живёт отдельным файлом, а не полем внутри модели:
+    # у сохранённой модели `diagnostics` пуст. Отсюда сертификат берёт статусы
+    # проверок канона (сейчас — отрицательный базовый уровень, P0.6).
+    diagnostics: dict[str, Any] = {}
+    файл_диагностики = model_path.parent.parent / 'results' / 'model-diagnostics.json'
+    if файл_диагностики.exists():
+        try:
+            diagnostics = json.loads(файл_диагностики.read_text(encoding='utf-8'))
+        except Exception as exc:  # noqa: BLE001 — статус проверки не стоит расчёта
+            logger.warning('Сертификат: диагностика не прочитана (%s): %s',
+                           type(exc).__name__, exc)
+
+    try:
+        return generate_methodology_certificate(
+            model_data, decompose_result, manifest, diagnostics,
+        )
+    except Exception as exc:  # noqa: BLE001 — расчёт важнее заверения
+        logger.warning('Сертификат: непредвиденная ошибка (%s): %s',
+                       type(exc).__name__, exc)
+        return {
+            'status': 'unavailable',
+            'reason': f'Сертификат не удалось собрать: {type(exc).__name__}.',
+            'payload': None,
+            'hash': None,
+        }
+
+
 def decompose(
     project_dir: str,
     unit_costs_override: dict | None = None,
@@ -1439,6 +1491,12 @@ def decompose(
             dates, baseline_ts, time_series_channels, signed_factor_contributions,
         ),
     }
+
+    # Сертификат методологии (P0.7 шаг 14) — считается по уже собранной
+    # разбивке, поэтому стоит после `result`, а не внутри него.
+    result['methodology_certificate'] = _build_methodology_certificate(
+        model_data, result, model_path,
+    )
 
     # Save (NaN-safe 2026-06-04 аудит: NaN→null, иначе Rust serde_json роняет файл).
     # E3: save_results=False у сравнения поколений — расчёт по архивной модели

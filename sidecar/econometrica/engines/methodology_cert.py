@@ -43,26 +43,10 @@ Reference:
 
 from __future__ import annotations
 
-import hashlib
-import json
 import logging
 from typing import Any
 
 logger = logging.getLogger(__name__)
-
-# JCS RFC 8785 — bit-stable canonical JSON for cryptographic payloads (INV-06).
-# Falls back to sorted-key json.dumps с warning if rfc8785 not installed.
-# Production: rfc8785 must be present (added to requirements.txt).
-try:
-    import rfc8785  # type: ignore[import]
-    _HAS_JCS = True
-except ImportError:
-    _HAS_JCS = False
-    logger.warning(
-        "rfc8785 not installed — falling back to sorted-key json.dumps for "
-        "Methodology Certificate hash. Install rfc8785 for INV-06 compliance. "
-        "Hash will NOT match verify.auroraai.pro (Rust/serde_jcs)."
-    )
 
 
 # ── Current certificate version ──────────────────────────────────────────────
@@ -71,33 +55,41 @@ CERT_VERSION_V13 = "1.3"
 CERT_VERSION_V20 = "2.0.0"
 
 
+class CertificateUnavailable(Exception):
+    """Сертификат выдать нельзя — названа причина.
+
+    Поднимается вместо возврата хеша, который заведомо не сойдётся у
+    проверяющей стороны, и вместо подстановки нуля на месте отсутствующей
+    величины. Вызывающий обязан поймать и отдать статус, а не уронить расчёт.
+    """
+
+
 # ── Canonical serialization (INV-06) ─────────────────────────────────────────
 
-def _jcs_encode(payload: dict[str, Any]) -> bytes:
-    """Encode payload as JCS RFC 8785 canonical JSON bytes.
-
-    Per INV-06: rfc8785 is the primary path. Fallback (sorted json.dumps) is
-    intentionally lossy для crypto — warns loudly. The fallback exists so
-    integration tests pass in stripped environments; production MUST use rfc8785.
-    """
-    if _HAS_JCS:
-        # rfc8785.dumps() returns bytes, deterministic per RFC 8785.
-        return rfc8785.dumps(payload)  # type: ignore[no-any-return]
-    else:
-        # Fallback: json.dumps with sort_keys is NOT bit-stable across Python
-        # versions or platforms for all types (floats, unicode NFC vs NFD, etc.)
-        # but is the best we can do without rfc8785.
-        return json.dumps(payload, sort_keys=True, ensure_ascii=False).encode("utf-8")
-
-
 def compute_cert_hash(payload: dict[str, Any]) -> str:
-    """Compute SHA-256 hex digest of the JCS-canonical certificate payload.
+    """SHA-256 над JCS-канонизацией payload (RFC 8785).
 
-    Returns:
-        64-char lowercase hex string (SHA-256).
+    🔴 Отказ вместо неверного хеша. Прежняя версия при отсутствии `rfc8785`
+    тихо откатывалась на `json.dumps(sort_keys=True)` и печатала
+    предупреждение в журнал — то есть выдавала хеш, который **заведомо** не
+    сходится у `verify.auroraai.pro` (Rust `serde_jcs`). Клиент получал бы
+    сертификат, не проходящий проверку, и узнал бы об этом только на стороне
+    проверяющего. Теперь канонизация одна на весь продукт —
+    `utils/canonical_hash.py`, и она сама поднимает `ImportError`, если пакета
+    нет.
+
+    Raises:
+        CertificateUnavailable: канонизация недоступна (нет `rfc8785`).
     """
-    canonical = _jcs_encode(payload)
-    return hashlib.sha256(canonical).hexdigest()
+    from utils.canonical_hash import compute_project_hash
+    try:
+        return compute_project_hash(payload)
+    except ImportError as exc:
+        raise CertificateUnavailable(
+            'Канонизация JCS недоступна: пакет rfc8785 не установлен. '
+            'Сертификат не выдан — хеш без канонизации не сошёлся бы '
+            'у проверяющей стороны.'
+        ) from exc
 
 
 # ── Payload builders ──────────────────────────────────────────────────────────
@@ -115,58 +107,121 @@ def _extract_v13_payload(
     subset.
 
     Fields:
-        bundle_manifest_hash: SHA-256 of the raw manifest JSON bytes (the
-            manifest.json file content in the bundle directory). Covers bundle
-            identity — data structure, data files checksum list.
-        model_spec: prior distribution names + formula skeleton + inference
-            settings. Does NOT include posterior samples (those are in pickle).
-            Extracted from `model_data['diagnostics']['model_spec']` or
-            reconstructed from model_data fields as fallback.
-        decomposition_summary: per-category contribution totals + percentages,
-            as returned by the decomposer. Covers «what the model said».
-        channel_roi: per-channel ROI point estimates + 90% CI. Covers «what
-            the optimizer computed».
-    """
-    # bundle_manifest_hash: hash of raw manifest JSON (must be pre-computed
-    # by caller — we only include the hex string in the cert payload).
-    bundle_hash = bundle_manifest.get('_cert_bundle_hash', '')
-    if not bundle_hash:
-        # Fallback: compute from manifest content itself (excludes _cert_* keys).
-        clean_manifest = {k: v for k, v in bundle_manifest.items() if not k.startswith('_cert')}
-        bundle_hash = compute_cert_hash(clean_manifest)
+        bundle_manifest_hash: SHA-256 канонизации манифеста **файла обученной
+            модели** (формат `aurora-model`, `persistence_safe.read_manifest`):
+            формат, версия формата, время создания, `model_version`,
+            `sha256_data`, `sha256_arrays`. 🔴 Имя поля унаследовано от
+            «бандла» — директории выгрузки данных с `manifest.json`, которая в
+            продукте так и не была построена (`PRE_FLIGHT_FIXES §N7` её
+            закладывал; свип по коду даёт ноль упоминаний вне этого модуля).
+            Решение владельца 2026-08-03: поле наполняется манифестом файла
+            модели — реальным артефактом со списком контрольных сумм, а не
+            пустой строкой. Клиентский текст обязан говорить прямо: сертификат
+            покрывает **файл модели**, а не выгрузку данных.
+        model_spec: тип KPI, вид правдоподобия, число каналов, типы адстока.
+            Апостериорные выборки не включаются (они в файле модели).
+        decomposition_summary: вклад по категориям — база и каналы. Доли
+            считаются от ОБЩИХ продаж, единообразно: в ответе декомпозера
+            `baseline_pct` считается от общих продаж, а `contribution_pct`
+            канала — от медиавклада (`decomposer.py:1058`), и смешивать две
+            базы под одним именем нельзя.
+        channel_roi: ROI по каналам. Границы включаются только когда обе
+            присутствуют: подставленный ноль утверждал бы «нижняя граница
+            ROI равна нулю», чего расчёт не говорил.
 
-    # model_spec: extract from diagnostics or reconstruct from model_data.
+    Raises:
+        CertificateUnavailable: отсутствует величина, без которой сертификат
+            стал бы набором подстановок.
+    """
+    # ── bundle_manifest_hash ────────────────────────────────────────────────
+    # Вызывающий читает манифест сам (`persistence_safe.read_manifest`) — модуль
+    # не ходит в файловую систему, чтобы оставаться проверяемым на словарях.
+    clean_manifest = {k: v for k, v in (bundle_manifest or {}).items()
+                      if not str(k).startswith('_cert')}
+    if not clean_manifest:
+        raise CertificateUnavailable(
+            'Манифест файла модели недоступен — сертификату не к чему '
+            'привязаться. Файл модели старого формата либо повреждён.'
+        )
+    bundle_hash = compute_cert_hash(clean_manifest)
+
+    # ── model_spec ──────────────────────────────────────────────────────────
+    # Диагностика у моделей, обученных до v2.0.0, пуста (замер 2026-08-03: у всех
+    # четырёх клиентских моделей `diagnostics` == {}), поэтому сборка из полей
+    # модели — основной путь, а не запасной. Дефолтов нет: отсутствие типа KPI
+    # или вида правдоподобия означает, что модель нечем описать.
     diagnostics = model_data.get('diagnostics') or {}
     model_spec_raw = diagnostics.get('model_spec') or {}
     if not model_spec_raw:
-        # Reconstruct minimal spec from model_data fields for pre-diagnostics pickles.
+        kpi_type = model_data.get('kpi_type')
+        kpi_likelihood = model_data.get('kpi_likelihood')
+        missing = [name for name, val in
+                   (('kpi_type', kpi_type), ('kpi_likelihood', kpi_likelihood))
+                   if not val]
+        if missing:
+            raise CertificateUnavailable(
+                f'В модели нет обязательных полей описания: {", ".join(missing)}. '
+                f'Подставлять значения по умолчанию нельзя — сертификат описывал '
+                f'бы не ту модель, которую обучили.'
+            )
         model_spec_raw = {
-            'kpi_type': model_data.get('kpi_type', 'sales'),
-            'kpi_likelihood': model_data.get('kpi_likelihood', 'normal'),
-            'num_channels': len(model_data.get('channel_params', {}) or {}),
-            'adstock_types': model_data.get('channel_adstock_types', {}) or {},
+            'kpi_type': str(kpi_type),
+            'kpi_likelihood': str(kpi_likelihood),
+            'num_channels': len(model_data.get('channel_params') or {}),
+            'adstock_types': dict(model_data.get('channel_adstock_types') or {}),
         }
 
-    # decomposition_summary: per-category totals from decomposer output.
-    waterfall = decompose_result.get('waterfall') or []
-    decomp_summary: dict[str, Any] = {}
-    for item in waterfall:
-        cat = item.get('category') or item.get('name') or 'unknown'
-        decomp_summary[str(cat)] = {
-            'value': float(item.get('value') or 0),
-            'contribution_pct': float(item.get('contribution_pct') or item.get('pct') or 0),
-        }
-
-    # channel_roi: per-channel ROI point estimates + 90% CI.
+    # ── decomposition_summary ───────────────────────────────────────────────
+    # 🔴 Прежний код итерировал `waterfall` как список словарей с ключом
+    # `category`, а декомпозер отдаёт `{labels, values, types}`
+    # (`decomposer.py:1410-1414`): обход дал бы строки вместо словарей и упал
+    # бы на `item.get`. Ещё одно доказательство, что модуль не вызывался ни разу.
+    total_sales = decompose_result.get('total_sales')
+    baseline = decompose_result.get('baseline')
     channels_raw = decompose_result.get('channels') or []
+    if total_sales in (None, 0) or baseline is None or not channels_raw:
+        raise CertificateUnavailable(
+            'Результат декомпозиции неполон (нет общих продаж, базы или '
+            'каналов) — заверять нечего.'
+        )
+
+    def _pct_of_total(value: float) -> float:
+        return round(value / float(total_sales) * 100, 2)
+
+    decomp_summary: dict[str, Any] = {
+        'Base': {
+            'value': float(baseline),
+            'contribution_pct': _pct_of_total(float(baseline)),
+        }
+    }
+    for ch in channels_raw:
+        name = ch.get('name')
+        contribution = ch.get('contribution')
+        if not name or contribution is None:
+            raise CertificateUnavailable(
+                'В разбивке есть канал без имени или без вклада — '
+                'заверять неполную разбивку нельзя.'
+            )
+        decomp_summary[str(name)] = {
+            'value': float(contribution),
+            'contribution_pct': _pct_of_total(float(contribution)),
+        }
+
+    # ── channel_roi ─────────────────────────────────────────────────────────
     channel_roi: dict[str, Any] = {}
     for ch in channels_raw:
-        name = ch.get('name') or ch.get('channel') or 'unknown'
-        channel_roi[str(name)] = {
-            'roi': float(ch.get('roi') or 0),
-            'roi_ci_low': float(ch.get('roi_ci_low') or ch.get('roi_ci_90', [0, 0])[0] if isinstance(ch.get('roi_ci_90'), list) else 0),
-            'roi_ci_high': float(ch.get('roi_ci_high') or ch.get('roi_ci_90', [0, 0])[-1] if isinstance(ch.get('roi_ci_90'), list) else 0),
-        }
+        roi = ch.get('roi')
+        if roi is None:
+            # Режим эффективности и счётный KPI без стоимости единицы дают
+            # разбивку без ROI — это законно, канал просто не попадает в раздел.
+            continue
+        entry: dict[str, Any] = {'roi': float(roi)}
+        ci_low = ch.get('roi_ci_low')
+        ci_high = ch.get('roi_ci_high')
+        if ci_low is not None and ci_high is not None:
+            entry['roi_ci_low'] = float(ci_low)
+            entry['roi_ci_high'] = float(ci_high)
+        channel_roi[str(ch.get('name'))] = entry
 
     return {
         'bundle_manifest_hash': bundle_hash,
@@ -314,7 +369,20 @@ def build_cert_payload(
         is_v20 = model_ver.startswith('2.')
 
     if is_v20:
-        # Additive v2.0.0 fields (old verifier gracefully ignores these per ADR-017).
+        # 🔴 ВЕТКА НЕДОСТИЖИМА И СЛОМАНА ПО КОНТРАКТУ — оставлена как есть,
+        # решение о ней за владельцем (зонды 2026-08-03):
+        #   1. Недостижима: `model_version` при обучении равен '1.2'/'1.3'
+        #      (`modeler.py:1673`), до '2.0.0' его поднимает только
+        #      `save_v20_diagnostics`, у которой нет ни одного живого
+        #      вызывающего. У всех четырёх клиентских моделей на машине —
+        #      '1.2', то есть `is_v20_compatible` всегда False.
+        #   2. Сломана: ключ режима кладётся как `analysisMode` (строка ниже),
+        #      а парсер проверяющей стороны объявлен как `analysis_mode` без
+        #      переименования (`docs/v2_0_0_design/VERIFIER_SCHEMA_v2.md:227`) —
+        #      при десериализации поле выпадает, пересериализация даёт другой
+        #      payload, и хеш не сойдётся НИКОГДА.
+        # Чинить написание — правка внешнего контракта; без ответа проверяющей
+        # стороны схему не трогаем (шаг 13 плана P0.7).
         payload.update(_extract_v20_fields(model_data, decompose_result))
         payload['certificate_version'] = CERT_VERSION_V20
     else:
@@ -328,6 +396,7 @@ def generate_methodology_certificate(
     model_data: dict[str, Any],
     decompose_result: dict[str, Any],
     bundle_manifest: dict[str, Any],
+    diagnostics: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Generate a complete Methodology Certificate dict for embedding in bundle.
 
@@ -344,17 +413,123 @@ def generate_methodology_certificate(
 
     Returns:
         {
-            "payload": {...},
+            "status": "issued" | "not_attested" | "unavailable",
+            "reason": <строка, если статус не issued>,
+            "payload": {...},            # входит в хеш
             "hash": "abc123...",
-            "certificate_version": "2.0.0",
-            "jcs_available": true
+            "certificate_version": "1.3",
+            "reproducibility": {...},    # ВНЕ хеша
+            "checks": {...},             # ВНЕ хеша
         }
+
+    🔴 Всё, что не входит в схему v1.3, лежит **рядом** с payload, а не внутри
+    него: проверяющая сторона десериализует payload в свою структуру и
+    пересериализует, и незнакомый ключ на любом уровне выпадает — хеш перестаёт
+    сходиться. Поэтому паспорт воспроизводимости и статусы проверок в payload
+    не кладутся.
     """
-    payload = build_cert_payload(model_data, decompose_result, bundle_manifest)
-    cert_hash = compute_cert_hash(payload)
+    reproducibility = _extract_reproducibility(model_data)
+    checks = _extract_checks(model_data, diagnostics)
+
+    try:
+        payload = build_cert_payload(model_data, decompose_result, bundle_manifest)
+        cert_hash = compute_cert_hash(payload)
+    except CertificateUnavailable as exc:
+        # Расчёт не роняем: клиент получает разбивку и честную причину, почему
+        # заверения нет.
+        logger.warning('Сертификат методологии не выдан: %s', exc)
+        return {
+            'status': 'unavailable',
+            'reason': str(exc),
+            'payload': None,
+            'hash': None,
+            'certificate_version': CERT_VERSION_V13,
+            'reproducibility': reproducibility,
+            'checks': checks,
+        }
+
+    # Модель, обученная до появления паспорта воспроизводимости (P0.2), заверить
+    # полноценно нельзя: зерно сэмплера не записано, повторить прогон
+    # побитово невозможно. Хеш при этом честен для тех полей, что есть, —
+    # поэтому статус, а не отказ.
+    attested = reproducibility.get('status') == 'recorded'
+
     return {
+        'status': 'issued' if attested else 'not_attested',
+        'reason': None if attested else (
+            'Модель обучена до появления паспорта воспроизводимости: зерно '
+            'сэмплера не записано, побитовое повторение прогона не '
+            'гарантируется. Переобучите модель, чтобы получить полное заверение.'
+        ),
         'payload': payload,
         'hash': cert_hash,
         'certificate_version': payload.get('certificate_version', CERT_VERSION_V13),
-        'jcs_available': _HAS_JCS,
+        'reproducibility': reproducibility,
+        'checks': checks,
     }
+
+
+def _extract_reproducibility(model_data: dict[str, Any]) -> dict[str, Any]:
+    """Паспорт воспроизводимости — вне хеша, для клиента.
+
+    Источник — `model_data['reproducibility']` (`modeler.py:1608`), запасной —
+    та же копия в диагностике (`modeler.py:1380`). У моделей, обученных до
+    P0.2, паспорта нет вовсе: статус `absent`.
+    """
+    snapshot = model_data.get('reproducibility')
+    if not isinstance(snapshot, dict) or not snapshot:
+        diag = model_data.get('diagnostics') or {}
+        snapshot = diag.get('reproducibility') if isinstance(diag, dict) else None
+    if not isinstance(snapshot, dict) or not snapshot:
+        return {'status': 'absent'}
+
+    versions = snapshot.get('versions') or {}
+    return {
+        'status': 'recorded',
+        'seed': snapshot.get('seed'),
+        'seed_source': snapshot.get('seed_source'),
+        'sampler_tier': snapshot.get('sampler_tier'),
+        'mcmc': snapshot.get('mcmc'),
+        'versions': {k: versions.get(k) for k in ('python', 'numpy', 'pymc')
+                     if versions.get(k)},
+    }
+
+
+def _extract_checks(
+    model_data: dict[str, Any],
+    diagnostics: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Статусы проверок канона — вне хеша.
+
+    🔴 Долг блока P0.6: сертификат не вправе утверждать, что проверка
+    отрицательного базового уровня пройдена, если она была **неприменима**.
+    Приор свободного члена делает отрицательную базу структурно недостижимой
+    на данных с малым разбросом продаж, поэтому «годно» там означало бы не
+    «модель здорова», а «проверка не могла сработать»
+    (`utils/negative_baseline.py:203-208`).
+
+    🔴 Источник диагностики — `results/model-diagnostics.json`, а НЕ поле
+    `diagnostics` внутри модели: у сохранённой модели оно пустое (замер
+    2026-08-03 по четырём клиентским моделям и по свежеобученной). Первая
+    версия читала только модель и объявляла проверку отсутствующей там, где
+    она была выполнена и оказалась нечувствительной — живой сторож поймал это
+    сразу. Аргумент `diagnostics` передаёт вызывающий; поле модели остаётся
+    запасным путём.
+    """
+    diag = diagnostics if isinstance(diagnostics, dict) and diagnostics else (
+        model_data.get('diagnostics') or {}
+    )
+    nb = diag.get('negative_baseline') if isinstance(diag, dict) else None
+    if not isinstance(nb, dict) or not nb:
+        return {'negative_baseline': 'absent'}
+
+    verdict = nb.get('verdict')
+    if verdict == 'not_applicable' or not nb.get('detectable', True):
+        state = 'not_applicable'
+    elif verdict == 'ok':
+        state = 'passed'
+    elif verdict in ('watch', 'fail'):
+        state = 'failed' if verdict == 'fail' else 'watch'
+    else:
+        state = 'absent'
+    return {'negative_baseline': state}
