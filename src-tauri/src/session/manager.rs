@@ -298,12 +298,14 @@ impl SessionManager {
             let dst = session.user_workspace.join("exports");
             drop(sessions);
 
-            // Sync from exports/ and all vault-specific output directories
-            sync_dir_to(&work_dir.join("exports"), &dst)?;
+            // Sync from exports/ and all vault-specific output directories.
+            // 🔴 CPD-39: копирование БЕЗ зеркального удаления — выгрузки клиента только
+            // накапливаются. Зеркало здесь сносило ранее выданные файлы с Рабочего стола.
+            copy_dir_into(&work_dir.join("exports"), &dst)?;
             for dir_name in &["pretensions", "nda", "contracts", "reports"] {
                 let src = work_dir.join(dir_name);
                 if src.exists() {
-                    sync_dir_to(&src, &dst)?;
+                    copy_dir_into(&src, &dst)?;
                 }
             }
         }
@@ -540,8 +542,38 @@ fn clear_inbox(workspace: &Path) {
     }
 }
 
+/// Копирование файлов src → dst (один уровень, без рекурсии) **без удаления** лишнего в приёмнике.
+///
+/// 🔴 CPD-39: направление «выдать наружу» не имеет права стирать чужое. `sync_dir_to` ниже —
+/// ЗЕРКАЛО, и для входящих (Рабочий стол → рабочий каталог) это верно: пользователь убрал файл из
+/// `inbox`, значит кабинет не должен его видеть. Для выгрузок направление обратное, и зеркало
+/// уничтожало результаты клиента: рабочий каталог сессии временный и при открытии создаётся ПУСТЫМ
+/// (`open_session`), а `exports` на Рабочем столе — постоянное хранилище. Первое же сообщение новой
+/// сессии зеркалило пустоту наружу и сносило всё, что продукт выдал клиенту раньше.
+///
+/// Второе следствие того же корня: `sync_exports` зовёт синхронизацию до пяти раз в ОДИН приёмник
+/// (`exports`, `pretensions`, `nda`, `contracts`, `reports`) — при зеркальном удалении каждый
+/// следующий вызов сносил то, что положил предыдущий. Копирование без удаления снимает и это.
+fn copy_dir_into(src: &Path, dst: &Path) -> Result<()> {
+    if !src.exists() {
+        return Ok(());
+    }
+    std::fs::create_dir_all(dst)?;
+    for entry in std::fs::read_dir(src)? {
+        let entry = entry?;
+        if entry.file_type()?.is_file() {
+            let dst_file = dst.join(entry.file_name());
+            std::fs::copy(entry.path(), &dst_file)?;
+        }
+    }
+    Ok(())
+}
+
 /// Mirror-sync files from src to dst (one level, no recursion).
 /// Copies new/updated files AND removes files in dst not present in src.
+///
+/// 🔴 Применять ТОЛЬКО к входящим (Рабочий стол → рабочий каталог сессии). Для выгрузок —
+/// `copy_dir_into`: см. CPD-39 в докстринге выше.
 fn sync_dir_to(src: &Path, dst: &Path) -> Result<()> {
     if !src.exists() {
         return Ok(());
@@ -818,5 +850,124 @@ mod wipe_tests {
 
         assert_eq!(outcome, WipeOutcome::Complete);
         assert!(!dir.exists(), "каталог сессии обязан быть снесён целиком");
+    }
+}
+
+#[cfg(test)]
+mod export_sync_tests {
+    use super::*;
+
+    /// Собрать управляющего сессиями с ОДНОЙ готовой сессией, не трогая реальный профиль
+    /// пользователя. `SessionManager::new()` резолвит настоящий per-app каталог, поэтому в тесте
+    /// он запрещён — образец взят у `durable_store::migrate_into` и `history::save_message_at`:
+    /// логика отделена от резолва пути, чтобы проверка не могла задеть живые данные.
+    fn manager_with_session(work_dir: &Path, user_workspace: &Path, root: &Path) -> SessionManager {
+        let manager = SessionManager {
+            sessions: Mutex::new(HashMap::new()),
+            sessions_root: root.to_path_buf(),
+        };
+        manager.sessions.lock().unwrap().insert(
+            "econometrist".to_string(),
+            Session {
+                cabinet_id: "econometrist".to_string(),
+                work_dir: work_dir.to_path_buf(),
+                temp_dir: root.join("temp"),
+                user_workspace: user_workspace.to_path_buf(),
+                first_message_sent: false,
+                claude_session_id: None,
+                lock: None,
+            },
+        );
+        manager
+    }
+
+    /// 🔴 Сторож CPD-39 (блокирующий, потеря данных клиента). Воспроизводит рутинный сценарий
+    /// целиком: советник выдал файл в прошлый раз → продукт перезапущен → рабочий каталог сессии
+    /// создан ПУСТЫМ → пришло первое сообщение → вызывается `sync_exports`.
+    ///
+    /// До правки зеркальная синхронизация сносила из `exports` на Рабочем столе всё, чего нет в
+    /// пустом рабочем каталоге, — то есть все ранее выданные клиенту результаты, молча и без следа
+    /// в интерфейсе. Проверяется через ВЫЗОВ `sync_exports`, а не саму функцию копирования: иначе
+    /// сторож остался бы зелёным при возврате зеркала в вызывающем месте (урок Ф-04 — вынесенная
+    /// функция покрыта, а её вызов нет).
+    #[test]
+    fn previous_exports_survive_first_message_of_a_new_session() {
+        let tmp = tempfile::tempdir().unwrap();
+        let work_dir = tmp.path().join("session-work");
+        let desktop = tmp.path().join("Рабочий стол/Aurora/econometrist");
+
+        // Рабочий каталог новой сессии: exports существует и ПУСТ — так его создаёт open_session.
+        std::fs::create_dir_all(work_dir.join("exports")).unwrap();
+
+        // На Рабочем столе клиента лежат результаты прошлых сессий.
+        let previous = desktop.join("exports");
+        std::fs::create_dir_all(&previous).unwrap();
+        let earlier = [
+            previous.join("разбор-модели-20260715-101500.md"),
+            previous.join("разбор-модели-20260715-101500.docx"),
+        ];
+        for f in &earlier {
+            std::fs::write(f, "результат, выданный клиенту ранее").unwrap();
+        }
+
+        let manager = manager_with_session(&work_dir, &desktop, tmp.path());
+        manager.sync_exports("econometrist").expect("синхронизация выгрузок обязана пройти");
+
+        for f in &earlier {
+            assert!(
+                f.exists(),
+                "ранее выданный клиенту результат обязан пережить новую сессию: {} исчез — это \
+                 молчаливая потеря данных клиента (CPD-39)",
+                f.display()
+            );
+        }
+    }
+
+    /// Позитивный контроль к сторожу выше: без него правило «ничего не удалять» удовлетворялось бы
+    /// и функцией, которая вообще ничего не делает. Новый результат обязан доехать до клиента.
+    #[test]
+    fn fresh_export_reaches_the_user_workspace() {
+        let tmp = tempfile::tempdir().unwrap();
+        let work_dir = tmp.path().join("session-work");
+        let desktop = tmp.path().join("Рабочий стол/Aurora/econometrist");
+        std::fs::create_dir_all(work_dir.join("exports")).unwrap();
+        std::fs::write(work_dir.join("exports/новый-отчёт.md"), "свежий результат").unwrap();
+
+        let manager = manager_with_session(&work_dir, &desktop, tmp.path());
+        manager.sync_exports("econometrist").expect("синхронизация выгрузок обязана пройти");
+
+        let delivered = desktop.join("exports/новый-отчёт.md");
+        assert!(delivered.exists(), "новый результат обязан доехать до Рабочего стола клиента");
+        assert_eq!(
+            std::fs::read_to_string(&delivered).unwrap(),
+            "свежий результат",
+            "содержимое обязано совпадать с выданным"
+        );
+    }
+
+    /// 🔴 Второе следствие того же корня (CPD-39): `sync_exports` кладёт в ОДИН приёмник до пяти
+    /// источников подряд. При зеркальном удалении каждый следующий вызов сносил результат
+    /// предыдущего, и до клиента доезжал только последний каталог.
+    #[test]
+    fn several_source_dirs_do_not_erase_each_other_in_one_destination() {
+        let tmp = tempfile::tempdir().unwrap();
+        let work_dir = tmp.path().join("session-work");
+        let desktop = tmp.path().join("Рабочий стол/Aurora/econometrist");
+        std::fs::create_dir_all(work_dir.join("exports")).unwrap();
+        std::fs::create_dir_all(work_dir.join("reports")).unwrap();
+        std::fs::write(work_dir.join("exports/из-выгрузок.md"), "первый источник").unwrap();
+        std::fs::write(work_dir.join("reports/из-отчётов.md"), "второй источник").unwrap();
+
+        let manager = manager_with_session(&work_dir, &desktop, tmp.path());
+        manager.sync_exports("econometrist").expect("синхронизация выгрузок обязана пройти");
+
+        assert!(
+            desktop.join("exports/из-выгрузок.md").exists(),
+            "результат из exports обязан уцелеть: следующий источник не имеет права его сносить"
+        );
+        assert!(
+            desktop.join("exports/из-отчётов.md").exists(),
+            "результат из reports обязан доехать вместе с первым, а не вместо него"
+        );
     }
 }
