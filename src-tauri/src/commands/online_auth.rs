@@ -4,7 +4,7 @@
 //! Falls back to offline Ed25519 validation if server is unreachable.
 
 use anyhow::Result;
-use log::{info, warn};
+use log::{error, info, warn};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -27,6 +27,16 @@ fn supabase_url() -> String {
 /// `expires_at`; доверие ему до 7 дней переживает недельный офлайн и сохраняет
 /// контроль отзыва (отозванная лицензия переспросит сервер в течение недели).
 const CACHE_TTL_SECS: u64 = 7 * 24 * 60 * 60;
+
+/// Срок доверия кэшу, подпись которого НЕ подтверждена (CPD-40, часть A-3).
+///
+/// Полные семь дней — плата за офлайн при ПОДТВЕРЖДЁННОЙ подписи. Ответ без подписи бывает
+/// законным (сервер не подписал — ровно так отвечает сервер локальной редакции, проверено на
+/// живом кэше `com.aurora.econometrica.local`), поэтому запрещать такой кэш совсем нельзя: у
+/// людей отвалится офлайн. Но и доверять ему неделю нельзя: посредник, поднятый на полминуты,
+/// оставляет поддельный грант, который переживает его уход. Сутки — компромисс: офлайн-день
+/// сохранён, подделка не живёт неделю и тем более не становится бессрочной.
+const CACHE_TTL_UNVERIFIED_SECS: u64 = 24 * 60 * 60;
 
 /// Heartbeat interval: 4 hours in seconds.
 pub const HEARTBEAT_INTERVAL_SECS: u64 = 4 * 60 * 60;
@@ -136,6 +146,47 @@ pub struct AuthResponse {
 struct CachedAuth {
     response: AuthResponse,
     cached_at: u64,  // Unix timestamp
+    /// CPD-40 (A-3): подтвердилась ли подпись сервера в момент записи кэша.
+    ///
+    /// Отсутствие поля (кэш, записанный прежней версией продукта) читается как `false` — то есть
+    /// прежний кэш живёт по короткому сроку. Сторона сознательно мягкая: при первом же успешном
+    /// входе онлайн кэш перезаписывается с подтверждением и снова получает полный срок.
+    #[serde(default)]
+    sig_verified: bool,
+}
+
+/// Что делать с ответом входа в зависимости от исхода проверки подписи (CPD-40, A-3).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CachePolicy {
+    /// Подпись сошлась — полное доверие, полный срок кэша.
+    Verified,
+    /// Подписи нет вовсе: сервер не подписывает (раскатка) либо не смог подписать.
+    /// Кэшируем, но на короткий срок — законный офлайн сохраняем, окно подделки режем.
+    Unverified,
+    /// Подпись ЕСТЬ и не сходится. Законного источника у такого ответа нет: сервер либо
+    /// подписывает верно, либо не подписывает вовсе. Доступ в мягком режиме выдаём
+    /// (мягкость — принятое решение), но на диск не пишем: подделка не переживёт сессию.
+    Reject,
+}
+
+/// Решение о кэшировании ответа входа. Чистая функция — проверяется тестами напрямую.
+fn cache_policy(signature: &str, sig_ok: bool) -> CachePolicy {
+    if sig_ok {
+        CachePolicy::Verified
+    } else if signature.is_empty() {
+        CachePolicy::Unverified
+    } else {
+        CachePolicy::Reject
+    }
+}
+
+/// Срок доверия кэшу по признаку подтверждённой подписи (CPD-40, A-3). Чистая функция.
+fn cache_ttl_secs(sig_verified: bool) -> u64 {
+    if sig_verified {
+        CACHE_TTL_SECS
+    } else {
+        CACHE_TTL_UNVERIFIED_SECS
+    }
 }
 
 /// Server response from /heartbeat endpoint.
@@ -216,11 +267,12 @@ fn cache_path(app_config_dir: &Path) -> PathBuf {
     app_config_dir.join("session_cache.json")
 }
 
-fn save_cache(app_config_dir: &Path, response: &AuthResponse) -> Result<()> {
+fn save_cache(app_config_dir: &Path, response: &AuthResponse, sig_verified: bool) -> Result<()> {
     let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
     let cached = CachedAuth {
         response: response.clone(),
         cached_at: now,
+        sig_verified,
     };
     let json = serde_json::to_string(&cached)?;
     std::fs::write(cache_path(app_config_dir), json)?;
@@ -243,8 +295,16 @@ fn read_fresh_cache(app_config_dir: &Path) -> Option<(AuthResponse, u64)> {
         return None;
     }
     let age = now - cached.cached_at;
-    if age > CACHE_TTL_SECS {
-        info!("Auth cache expired (age: {}h)", age / 3600);
+    // CPD-40 (A-3): кэш с неподтверждённой подписью живёт сутки, а не неделю
+    // (см. CACHE_TTL_UNVERIFIED_SECS).
+    let ttl = cache_ttl_secs(cached.sig_verified);
+    if age > ttl {
+        info!(
+            "Auth cache expired (age: {}ч, потолок {}ч{})",
+            age / 3600,
+            ttl / 3600,
+            if cached.sig_verified { "" } else { ", подпись не подтверждена" }
+        );
         return None;
     }
 
@@ -396,10 +456,70 @@ pub async fn check_auth(
     let auth_response: AuthResponse = serde_json::from_str(&body)
         .map_err(|e| anyhow::anyhow!("Failed to parse auth response: {e}, body: {body}"))?;
 
+    // 🔴 CPD-40 (SEC-1 + A-3): подпись ответа входа ПРОВЕРЯЕТСЯ. До этой правки продукт объявлял
+    // поле `signature`, но не сверял его ни с чем: поддельный ответ посредника принимался как
+    // настоящий и ложился в кэш на неделю. Сервер ответ подписывает — проверено на живом ответе
+    // этой машины (зонд `live_auth_signature_probe`): канонизация payload сходится с серверной
+    // байт в байт при `product = detect_product()`.
+    //
+    // Режим МЯГКИЙ: исход проверки не решает, дать ли доступ (иначе расхождение формата разом
+    // отняло бы лицензии у всех), он решает судьбу КЭША — что именно останется на диске после
+    // ухода посредника.
+    let mut policy = CachePolicy::Unverified;
     if auth_response.status == "ok" {
-        // Cache successful response
-        if let Err(e) = save_cache(app_config_dir, &auth_response) {
-            warn!("Failed to cache auth response: {e}");
+        let payload = crate::crypto::auth_sig::build_auth_payload(
+            &auth_response.status,
+            &req.fingerprint_hash,
+            &req.product,
+            &auth_response.cabinets,
+            auth_response.content_version.as_deref(),
+            auth_response.expires_at.as_deref(),
+        );
+        let sig_ok =
+            crate::crypto::auth_sig::verify_auth_signature(&payload, &auth_response.signature);
+        policy = cache_policy(&auth_response.signature, sig_ok);
+        match crate::crypto::auth_sig::AUTH_SIG_ENFORCEMENT {
+            crate::crypto::auth_sig::Enforcement::Soft => match policy {
+                CachePolicy::Verified => info!("SEC-1: подпись ответа входа подтверждена"),
+                CachePolicy::Unverified => warn!(
+                    "SEC-1: ответ входа без подписи — доступ выдан (мягкий режим), \
+                     срок доверия кэшу сокращён до суток"
+                ),
+                CachePolicy::Reject => error!(
+                    "SEC-1: подпись ответа входа НЕ сходится — доступ выдан (мягкий режим), \
+                     но на диск ответ не пишется: подделка не переживёт эту сессию"
+                ),
+            },
+            crate::crypto::auth_sig::Enforcement::Hard => {
+                if !sig_ok {
+                    anyhow::bail!(
+                        "[SEC-1] подпись ответа входа не подтверждена — доступ не выдан"
+                    );
+                }
+            }
+        }
+    }
+
+    if auth_response.status == "ok" {
+        // 🔴 CPD-40 (A-3): ответ с ПРИСУТСТВУЮЩЕЙ, но неверной подписью на диск не пишем.
+        // Прежде на диск ложилось всё, поэтому посредник, поднятый на полминуты, оставлял
+        // поддельный грант (чужие кабинеты, срок до 2099 года), и тот переживал его уход: при
+        // первом отказе сети кэш отдавал подделку. Доступ в этой сессии выдаётся по-прежнему —
+        // мягкость это принятое решение, — но подделка больше не персистентна. Ответ БЕЗ подписи
+        // кэшируется на короткий срок (законный путь «сервер не подписывает» не ломаем).
+        match policy {
+            CachePolicy::Reject => {
+                error!(
+                    "SEC-1 (A-3): ответ входа с неверной подписью НЕ кэширован — доступ выдан \
+                     (мягкий режим), но подделка не переживёт эту сессию"
+                );
+            }
+            CachePolicy::Verified | CachePolicy::Unverified => {
+                let verified = policy == CachePolicy::Verified;
+                if let Err(e) = save_cache(app_config_dir, &auth_response, verified) {
+                    warn!("Failed to cache auth response: {e}");
+                }
+            }
         }
         info!("Online auth: OK, cabinets: {:?}", auth_response.cabinets);
     } else {
@@ -565,8 +685,11 @@ mod tests {
         assert_eq!(resp.vault_versions, None);
     }
 
-    fn write_cache_with_age(dir: &Path, cached_at: u64) {
-        let cached = CachedAuth { response: sample_response(), cached_at };
+    /// 🔴 `sig_verified` задаётся явно, а не берётся по умолчанию: от него зависит СРОК доверия
+    /// (CPD-40, A-3), и тест недельной границы, записанный кэшем без подписи, проверял бы
+    /// суточную — оставаясь при этом зелёным.
+    fn write_cache_with_age(dir: &Path, cached_at: u64, sig_verified: bool) {
+        let cached = CachedAuth { response: sample_response(), cached_at, sig_verified };
         std::fs::write(cache_path(dir), serde_json::to_string(&cached).unwrap()).unwrap();
     }
 
@@ -575,7 +698,7 @@ mod tests {
     #[test]
     fn cache_roundtrip_fresh_ok() {
         let dir = tmp_dir();
-        save_cache(&dir, &sample_response()).unwrap();
+        save_cache(&dir, &sample_response(), true).unwrap();
         let loaded = load_cache(&dir).expect("свежий кэш должен читаться");
         assert_eq!(loaded.status, "ok");
         assert_eq!(loaded.cabinets, vec!["econometrist".to_string()]);
@@ -588,7 +711,7 @@ mod tests {
     fn cache_expired_ttl_rejected() {
         let dir = tmp_dir();
         let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
-        write_cache_with_age(&dir, now - CACHE_TTL_SECS - 60);
+        write_cache_with_age(&dir, now - CACHE_TTL_SECS - 60, true);
         assert!(load_cache(&dir).is_none(), "кэш старше TTL обязан отвергаться");
         let _ = std::fs::remove_dir_all(&dir);
     }
@@ -599,9 +722,132 @@ mod tests {
     fn cache_future_dated_rejected() {
         let dir = tmp_dir();
         let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
-        write_cache_with_age(&dir, now + 3600);
+        write_cache_with_age(&dir, now + 3600, true);
         assert!(load_cache(&dir).is_none(), "кэш из будущего обязан отвергаться");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // ── CPD-40 (A-3): поддельный грант входа не переживает сессию ──────────────
+
+    /// Подпись сошлась → полное доверие.
+    #[test]
+    fn cache_policy_verified_when_signature_ok() {
+        assert_eq!(cache_policy("YWJjZGVm", true), CachePolicy::Verified);
+    }
+
+    /// 🔴 Ядро A-3: подпись ЕСТЬ, но не сходится → на диск не пишем вовсе. Ровно этот случай
+    /// оставлял поддельный грант посредника, переживавший его уход.
+    #[test]
+    fn cache_policy_rejects_present_but_invalid_signature() {
+        assert_eq!(cache_policy("AAAAAAAA", false), CachePolicy::Reject);
+    }
+
+    /// Подписи нет вовсе (сервер не подписывает или не смог) → кэшируем, но коротко. Запрещать
+    /// этот случай нельзя: у законных пользователей отвалился бы офлайн. Путь наблюдаем живьём —
+    /// сервер локальной редакции отвечает без подписи (`com.aurora.econometrica.local`).
+    #[test]
+    fn cache_policy_unverified_when_signature_absent() {
+        assert_eq!(cache_policy("", false), CachePolicy::Unverified);
+    }
+
+    /// Срок доверия: подтверждённой подписи — неделя, неподтверждённой — сутки. Числа
+    /// литеральные, а не через те же константы, иначе тест проверял бы сам себя.
+    #[test]
+    fn cache_ttl_shorter_without_verified_signature() {
+        assert_eq!(cache_ttl_secs(true), 7 * 24 * 60 * 60, "подтверждённая — неделя");
+        assert_eq!(cache_ttl_secs(false), 24 * 60 * 60, "неподтверждённая — сутки");
+        assert!(cache_ttl_secs(false) < cache_ttl_secs(true));
+    }
+
+    /// 🔴 Живое следствие короткого срока: кэш без подтверждённой подписи, которому двое суток,
+    /// отвергается — при том что подтверждённый того же возраста ещё годен. Без этой пары правило
+    /// удовлетворялось бы и функцией, которая отвергает всё подряд.
+    #[test]
+    fn two_day_old_cache_survives_only_with_a_verified_signature() {
+        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+        let two_days = 2 * 24 * 60 * 60;
+
+        let unverified = tmp_dir();
+        write_cache_with_age(&unverified, now - two_days, false);
+        assert!(
+            load_cache(&unverified).is_none(),
+            "кэш с неподтверждённой подписью старше суток обязан отвергаться: иначе подделка \
+             посредника живёт неделю"
+        );
+        let _ = std::fs::remove_dir_all(&unverified);
+
+        let verified = tmp_dir();
+        write_cache_with_age(&verified, now - two_days, true);
+        assert!(
+            load_cache(&verified).is_some(),
+            "подтверждённый кэш обязан переживать двухдневный офлайн — иначе правка отняла бы \
+             офлайн у честных пользователей"
+        );
+        let _ = std::fs::remove_dir_all(&verified);
+    }
+
+    /// Обратная совместимость: кэш, записанный ПРЕЖНЕЙ версией продукта, поля `sig_verified` не
+    /// имеет. Он обязан читаться (не падать разбором) и жить по короткому сроку — при первом же
+    /// успешном входе онлайн перезапишется с подтверждением и вернёт полный.
+    #[test]
+    fn legacy_cache_without_the_field_is_read_as_unverified() {
+        let dir = tmp_dir();
+        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+        let legacy = serde_json::json!({
+            "response": sample_response(),
+            "cached_at": now - 2 * 24 * 60 * 60,
+        });
+        std::fs::write(cache_path(&dir), serde_json::to_string(&legacy).unwrap()).unwrap();
+        assert!(
+            load_cache(&dir).is_none(),
+            "прежний кэш без признака подписи обязан считаться неподтверждённым"
+        );
+
+        std::fs::write(
+            cache_path(&dir),
+            serde_json::to_string(&serde_json::json!({
+                "response": sample_response(),
+                "cached_at": now - 3600,
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        assert!(
+            load_cache(&dir).is_some(),
+            "часовой прежний кэш обязан читаться: разбор без поля не имеет права падать"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// 🔴 Сторож СВЯЗИ (урок Ф-04: вынесенная функция покрыта, а её вызов — нет). Чистые функции
+    /// выше ничего не стоят, если `check_auth` перестанет сверять подпись или писать кэш мимо
+    /// политики. Разбор собственного исходника — тот же приём, что у сторожей гейта в `claude.rs`.
+    #[test]
+    fn check_auth_verifies_the_signature_and_saves_through_the_policy() {
+        let src = include_str!("online_auth.rs");
+        let start = src
+            .find("pub async fn check_auth")
+            .expect("функция check_auth не найдена — разметка переехала");
+        let tail = &src[start..];
+        let save_at = tail
+            .find("save_cache(app_config_dir")
+            .expect("запись кэша в check_auth не найдена — разметка переехала");
+        let window = &tail[..save_at];
+
+        assert!(
+            window.contains("verify_auth_signature"),
+            "между разбором ответа и записью кэша нет проверки подписи: поддельный ответ \
+             посредника снова ляжет на диск как настоящий (CPD-40)"
+        );
+        assert!(
+            window.contains("cache_policy("),
+            "судьба кэша обязана решаться политикой, а не одним лишь статусом ответа"
+        );
+        assert!(
+            window.contains("CachePolicy::Reject"),
+            "ветка «подпись есть и не сходится → не писать» обязана существовать в самом \
+             check_auth, иначе подделка снова переживёт сессию"
+        );
     }
 
     /// Кэша нет → None (caller уходит в offline Ed25519) — без паники.
