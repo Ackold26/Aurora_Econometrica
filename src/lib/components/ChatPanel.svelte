@@ -539,8 +539,20 @@
           }
 
           messages.update(msgs => {
-            if (data.result && msgs[msgs.length - 1]?.role !== 'assistant') {
+            if (!data.result) return msgs;
+            const last = msgs[msgs.length - 1];
+            if (last?.role !== 'assistant') {
               return [...msgs, { role: 'assistant', content: data.result, ts: Date.now() }];
+            }
+            // 🔴 Облачный путь помечает финальное событие `replace` — его текст
+            // ПОЛНЕЕ показанного: там приписки, которых в потоке не было (номер
+            // осиротевшей работы, «Ответ неполный», не доехавшие файлы выгрузки).
+            // Прежде такой текст молча выбрасывался: поток уже что-то показал,
+            // условие ниже не пускало (находка внешнего аудита). Локальный путь
+            // признак не ставит — там `result` дублирует показанное, и замена
+            // на него отрезала бы часть склеенного ответа.
+            if (data.replace) {
+              return [...msgs.slice(0, -1), { role: 'assistant', content: data.result, ts: last.ts }];
             }
             return msgs;
           });
