@@ -7,6 +7,7 @@
   import { attachmentsSkippedText } from '$lib/cloud-warning-text.js';
   import { getNextSteps, getRandomInsight, getCurrentPhase, trackRequest, getEmpathyError, getTimeGreeting, getUsageHint, startSession, incrementSessionMessages, endSession, pluralRu, getResponseActions, getSafetyTimeout, getEndowedProgressMessage, getContextInsight } from '$lib/psy.js';
   import { classifyMessage } from '$lib/chat-classifier.js';
+  import { markMessageUnsaved } from '$lib/chat-save-status.js';
   import { isEconometrica } from '$lib/creative-store.js';
   import { activeProject, modelData, decomposeData, optimizeData, validateData, unitCosts } from '$lib/project-state.js';
   import { ECON_DATA_COMMANDS, buildProjectDataBlock } from '$lib/econ-project-context.js';
@@ -372,7 +373,16 @@
     if (!cabinetId) return;
     try {
       await invoke('save_chat_message', { cabinetId, role, content, ts, isAutoContinue: flags.isAutoContinue, isQuickReply: flags.isQuickReply });
-    } catch { /* non-critical */ }
+    } catch (err) {
+      // 🔴 CPD-41: молчать здесь нельзя. Прежний `catch { /* non-critical */ }` превращал потерю
+      // переписки клиента в успешный экран — узнать о пропаже можно было только после перезапуска.
+      // На предпосылке «клиент видит отказ и повторит» построено решение ядра (батч C, C4): при
+      // занятом замке реплика пользователя сознательно отклоняется. Интерфейс эту предпосылку
+      // отменял. Признак честности успеха — тот же INV-50, что и для чисел.
+      console.error('Сообщение не сохранено:', err);
+      messages.update(list => markMessageUnsaved(list, role, ts));
+      toast('Сообщение не сохранено – после перезапуска оно исчезнет из переписки', 'error', 6000);
+    }
   }
 
   async function clearHistory() {
@@ -1169,6 +1179,14 @@
                 <span class="msg-time">{formatTime(msg.ts)}</span>
               </div>
             {/if}
+          {/if}
+          <!-- 🔴 CPD-41: отказ сохранения обязан быть виден. Признак живёт у самого сообщения,
+               а не только во всплывающем уведомлении: уведомление гаснет, а вопрос «что именно
+               не сохранилось» остаётся. -->
+          {#if msg.unsaved}
+            <div class="message-unsaved" role="status">
+              Не сохранено – после перезапуска это сообщение исчезнет. Отправьте заново.
+            </div>
           {/if}
         </div>
       {/each}
@@ -2343,6 +2361,15 @@
     padding: 4px 10px !important;
     opacity: 0.5;
     background: var(--text-muted, #7A7A90) !important;
+  }
+
+  /* CPD-41: признак несохранённого сообщения. Приглушённый, но читаемый — это предупреждение
+     о потере данных, а не украшение, поэтому цвет отказа и без прозрачности. */
+  .message-unsaved {
+    margin-top: 4px;
+    font-size: 12px;
+    line-height: 1.35;
+    color: var(--danger, #C03030);
   }
 
   .auto-continue-icon {

@@ -4,7 +4,10 @@ import { writable, get } from 'svelte/store';
 export const activeCabinet = writable(null);
 
 /**
- * @typedef {{role: string, content: string, ts: number, isQuickReply?: boolean, isAutoContinue?: boolean}} ChatMsg
+ * `unsaved` — признак ОТКАЗА сохранения (CPD-41): сообщение показано в ленте, но на диск не
+ * легло. Поле сознательно эфемерное — в файле истории его быть не может по определению, см.
+ * реестр EPHEMERAL_FIELDS в `__tests__/chat-message-field-parity.coverage.test.js`.
+ * @typedef {{role: string, content: string, ts: number, isQuickReply?: boolean, isAutoContinue?: boolean, unsaved?: boolean}} ChatMsg
  */
 
 /**

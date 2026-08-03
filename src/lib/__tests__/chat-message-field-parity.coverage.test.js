@@ -43,7 +43,13 @@ const CHAT_PANEL = path.join(process.cwd(), 'src/lib/components/ChatPanel.svelte
  * реестр пуст, но остаётся на случай появления такого поля в будущем.
  * @type {Record<string, string>}
  */
-const EPHEMERAL_FIELDS = {};
+const EPHEMERAL_FIELDS = {
+  unsaved:
+    'CPD-41: признак ОТКАЗА сохранения. Персистентным быть не может по определению — поле ' +
+    'означает, что сообщение на диск не легло, поэтому его пара в файле истории существовать ' +
+    'не способна. Живёт до перезагрузки ленты, и это верно: после перезапуска сообщения нет ' +
+    'вовсе, а не «есть с пометкой».',
+};
 
 /** @param {string} camel @returns {string} */
 function toSnakeCase(camel) {
