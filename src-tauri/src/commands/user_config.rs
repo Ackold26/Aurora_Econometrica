@@ -181,4 +181,55 @@ mod tests {
         let back: UserConfig = serde_json::from_str(&json).unwrap();
         assert!(back.local_only);
     }
+    /// Гейт приёмки 3 ADR-049: явный выбор режима ПЕРЕЖИВАЕТ перезапуск.
+    ///
+    /// 🔴 Проверяется круг «записали → прочитали с диска», а не присвоение поля:
+    /// человек, выбравший свой Claude Code ради того, чтобы материалы не проходили
+    /// через наши серверы, после перезапуска не должен молча оказаться на шлюзе.
+    #[test]
+    fn explicit_mode_survives_restart() {
+        let dir = std::env::temp_dir().join(format!("aurora-econ-cfg-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+
+        let mut config = UserConfig::default();
+        assert_eq!(config.execution_mode, None, "по умолчанию работает автоопределение");
+
+        config.execution_mode = Some("local".to_string());
+        save(&dir, &config).expect("настройки обязаны записаться");
+
+        let reloaded = load(&dir);
+        assert_eq!(
+            reloaded.execution_mode.as_deref(),
+            Some("local"),
+            "выбор режима обязан пережить перезапуск",
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Две оси не путаются в хранении: выбор пути не трогает запрет обращений.
+    ///
+    /// 🔴 `local_only` («не обращаться к облачному ИИ вовсе») и `execution_mode`
+    /// («если обращаемся, чей Claude Code») живут рядом и звучат похоже. Тест
+    /// закрепляет, что запись одного не меняет другое — иначе человек, выбравший
+    /// шлюз, однажды обнаружил бы снятым свой запрет на обращения.
+    #[test]
+    fn choosing_a_route_does_not_touch_the_egress_ban() {
+        let dir = std::env::temp_dir().join(format!("aurora-econ-axes-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+
+        let mut config = UserConfig::default();
+        config.local_only = true;
+        save(&dir, &config).expect("запрет обращений записан");
+
+        let mut reloaded = load(&dir);
+        reloaded.execution_mode = Some("cloud".to_string());
+        save(&dir, &reloaded).expect("выбор пути записан");
+
+        let after = load(&dir);
+        assert!(after.local_only, "запрет обращений обязан уцелеть при выборе пути");
+        assert_eq!(after.execution_mode.as_deref(), Some("cloud"));
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
