@@ -67,13 +67,30 @@ describe('хвост остановленной работы помечен и �
     const source = fs.readFileSync(CHAT_PANEL, 'utf8');
     expect(source.length, 'исходник интерфейса не прочитался — гейт смотрит не туда')
       .toBeGreaterThan(1000);
+    // Ищем пометку, а не имя переменной: переименование разбора не должно ронять гейт.
     expect(source, 'хвост остановленной работы обязан распознаваться по пометке события')
-      .toContain('data.cancelled_run');
+      .toMatch(/\?\.cancelled_run|\.cancelled_run\b/);
     expect(source, 'решение вынесено в проверяемую функцию, а не размазано по обработчику')
       .toContain('cancelledTailAction');
     expect(source, 'завершение обязано читать пометку события')
       .toMatch(/payload\?\.cancelled/);
     expect(source, 'обработчик завершения обязан получать событие, а не игнорировать его')
       .toMatch(/listen\(`claude-done-\$\{cabinetId\}`,\s*\(event\)/);
+  });
+
+  it('помеченный хвост разбирается РАНЬШЕ признака отмены', () => {
+    // 🔴 Находка аудита правок. Ранний выход `if (cancelled) return` стоял выше
+    // разбора хвоста — и хвост погибал ровно в том случае, ради которого пометка
+    // заведена: человек нажал «Остановить», признак стоит, приписка с номером
+    // осиротевшей работы выброшена первой же строкой. Ветка «человек всё ещё
+    // смотрит, текст применим» была недостижима в бою, а все сторожа — зелёные.
+    const source = fs.readFileSync(CHAT_PANEL, 'utf8');
+    const tail = source.indexOf('cancelled_run');
+    expect(tail, 'разбор помеченного хвоста не найден — гейт смотрит не туда')
+      .toBeGreaterThan(-1);
+    expect(source, 'признак отмены обязан проверяться ПОСЛЕ разбора помеченного хвоста')
+      .toMatch(/}\s*else if \(cancelled\) \{/);
+    const guard = source.search(/}\s*else if \(cancelled\) \{/);
+    expect(tail, 'хвост обязан разбираться до признака отмены').toBeLessThan(guard);
   });
 });

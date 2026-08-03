@@ -434,27 +434,30 @@
     }
 
     unlistenStream = await listen(`claude-stream-${cabinetId}`, (event) => {
-      if (cancelled) return;
+      // 🔴 Помеченный хвост ОСТАНОВЛЕННОЙ работы разбирается ДО признака отмены
+      // (находка аудита правок). Прежде проверка стояла ниже, и хвост погибал ровно
+      // в том случае, ради которого пометка заведена: человек нажал «Остановить»,
+      // признак стоит — и приписка с номером осиротевшей работы выбрасывалась первой
+      // же строкой. Без неё человеку нечего назвать поддержке: место среди
+      // одновременных занято, а следующий вопрос упрётся в потолок.
+      let tail = null;
+      try { tail = JSON.parse(event.payload); } catch { tail = null; }
+      if (tail?.cancelled_run) {
+        const action = cancelledTailAction($isLoading, tail.notice);
+        if (action !== 'apply') {
+          if (action === 'notice') {
+            messages.update(msgs => [...msgs, {
+              role: 'system', content: tail.notice, ts: Date.now(),
+            }]);
+            if (isNearBottom()) scrollToBottom();
+          }
+          return;
+        }
+      } else if (cancelled) {
+        return;
+      }
       try {
         const data = JSON.parse(event.payload);
-
-        // 🔴 Хвост ОСТАНОВЛЕННОЙ работы (находка внешнего аудита). Он мог доехать
-        // уже после того, как человек задал следующий вопрос — облачное ожидание
-        // длится до минуты, а «Остановить» отпускает окно сразу. Пока идёт другая
-        // работа, этот текст к ней не относится: приклеить его к чужому ответу или
-        // заменить им чужой ответ значит соврать о том, что человек прочитал.
-        if (data.cancelled_run) {
-          const action = cancelledTailAction($isLoading, data.notice);
-          if (action !== 'apply') {
-            if (action === 'notice') {
-              messages.update(msgs => [...msgs, {
-                role: 'system', content: data.notice, ts: Date.now(),
-              }]);
-              if (isNearBottom()) scrollToBottom();
-            }
-            return;
-          }
-        }
 
         if (data.type === 'pipeline_phase') {
           // Multi-phase analytics pipeline: update progress, reset safety timer
@@ -646,7 +649,10 @@
         try { payload = JSON.parse(payload); } catch { payload = null; }
       }
       if (payload?.cancelled) {
-        cancelled = false;
+        // 🔴 Флаг НЕ трогаем (находка аудита правок): финал остановленной работы A
+        // мог доехать, когда признак принадлежит уже работе B, которую человек тоже
+        // остановил. Сбросив его здесь, мы пустили бы финал B обычным путём — он
+        // погасил бы прогресс и сохранил недописанное в историю.
         return;
       }
       if (cancelled) {
