@@ -1,813 +1,446 @@
-diff --git a/sidecar/econometrica/engines/modeler.py b/sidecar/econometrica/engines/modeler.py
-index dd7109e..0c64299 100644
---- a/sidecar/econometrica/engines/modeler.py
-+++ b/sidecar/econometrica/engines/modeler.py
-@@ -1713,6 +1713,40 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
-             logger.warning(f'Sensitivity tornado failed (не блокирует обучение): {_sens_err}')
-             diagnostics['sensitivity_tornado'] = None
+diff --git a/docs/GLOSSARY_v2_1_0.md b/docs/GLOSSARY_v2_1_0.md
+index 2dc85cd..bd50c64 100644
+--- a/docs/GLOSSARY_v2_1_0.md
++++ b/docs/GLOSSARY_v2_1_0.md
+@@ -486,11 +486,11 @@
  
-+        # ─── P0.6 (2026-08-03): проверка канона — отрицательный базовый уровень ───
-+        # Единственная проверка канона, за которой стоят деньги: ловит завышенный
-+        # ROI. Если модель утверждает, что без рекламы продажи были бы
-+        # отрицательными, значит вклад медиа приписан с избытком, и все советы по
-+        # бюджету на этих вкладах завышены (Wang & Jin: неограниченные приоры дают
-+        # содержательно невозможные оценки из-за пропущенных переменных).
-+        #
-+        # Считается ЗДЕСЬ, а не в декомпозиции, по трём причинам: (1) нормализованная
-+        # матрица контролей и масштаб уже собраны — восстанавливать их из файла
-+        # значило бы завести второй источник; (2) декомпозиция — читающая операция,
-+        # писать из неё в диагностику значило бы поднять четвёртого писателя;
-+        # (3) замер показал, что средняя база по выборкам совпадает с показанной в
-+        # декомпозиции с точностью 0,12% — то есть считаем ровно ту величину,
-+        # которую видит пользователь.
-+        #
-+        # Ключ кладётся на ВЕРХНИЙ уровень диагностики намеренно: `recompute_mqs`
-+        # сливает секции, а не перезаписывает файл целиком (`mqs`, `verdict`,
-+        # `checks` заменяются, верхний уровень сохраняется). Внутри `checks` ключ
-+        # исчез бы при первом же пересчёте оценки качества.
-+        try:
-+            from utils.negative_baseline import compute_negative_baseline
-+            diagnostics['negative_baseline'] = compute_negative_baseline(
-+                intercept_samples=intercept_samples,
-+                control_betas_samples=control_betas_samples,
-+                x_control_norm=(
-+                    X_control_norm.values if hasattr(X_control_norm, 'values') else X_control_norm
-+                ),
-+                y_mean=y_mean,
-+                y_std=y_std,
-+            )
-+        except Exception as _nb_err:  # noqa: BLE001
-+            logger.warning(f'Проверка базового уровня не выполнена (обучение не блокирует): {_nb_err}')
-+            diagnostics['negative_baseline'] = None
-+
-         # ─── Phase 2 (Planning Mode) at-fit-time persistence ───
-         # Audit pass 2 2026-05-02: persist granularity + x_norm quantiles +
-         # seasonality detection so planning mode requests skip lazy inference
-diff --git a/sidecar/econometrica/tests/test_negative_baseline.py b/sidecar/econometrica/tests/test_negative_baseline.py
-new file mode 100644
-index 0000000..465d646
---- /dev/null
-+++ b/sidecar/econometrica/tests/test_negative_baseline.py
-@@ -0,0 +1,260 @@
-+"""P0.6: проверка канона «отрицательный базовый уровень» и её совместимость.
-+
-+Риск, названный планом заранее и подтверждённый зондом: новый ключ живёт в той же
-+структуре, которую правит инструмент пересчёта оценки качества
-+(`tools/recompute_mqs.py`) и которую читает вердикт, гейтящий советы по бюджету
-+(`utils/optimizer_honesty.model_reliability_verdict`).
-+
-+Зонд уточнил постановку: пересчёт НЕ перезаписывает диагностику целиком — он
-+сливает секции (`mqs`, `verdict`, `checks` заменяются, `metrics` дополняется,
-+верхний уровень сохраняется). Поэтому ключ кладётся на верхний уровень; внутри
-+`checks` он исчезал бы при первом же пересчёте. Тесты ниже закрепляют ровно это.
-+
-+Решение владельца 2026-08-03: вердикт надёжности НЕ трогаем — сначала считаем и
-+показываем, влияние на гейт советов обсуждается отдельно, после замера переходов
-+на эталонных проектах. Тест «вердикт не изменился» стережёт это решение.
-+"""
-+
-+from __future__ import annotations
-+
-+import json
-+import sys
-+from pathlib import Path
-+
-+import numpy as np
-+
-+sys.path.insert(0, str(Path(__file__).parent.parent))
-+
-+from utils.negative_baseline import compute_negative_baseline  # noqa: E402
-+
-+
-+def _samples(intercept_mu: float, n_draws: int = 500, sd: float = 0.1, seed: int = 0):
-+    """Выборки свободного члена вокруг заданного среднего (нормализованная шкала)."""
-+    rng = np.random.RandomState(seed)
-+    return rng.normal(intercept_mu, sd, n_draws)
-+
-+
-+# ── Сам расчёт ──────────────────────────────────────────────────────────────
-+
-+def test_здоровая_модель_молчит():
-+    """База уверенно положительна, разброс достаточный → «годно»."""
-+    res = compute_negative_baseline(
-+        intercept_samples=_samples(-0.5),
-+        control_betas_samples=np.zeros((0, 500)),
-+        x_control_norm=np.zeros((30, 0)),
-+        y_mean=5000.0, y_std=5000.0,
-+    )
-+    assert res is not None
-+    assert res['prob_negative'] == 0.0
-+    assert res['verdict'] == 'ok'
-+    assert res['detectable'] is True
-+
-+
-+def test_низкий_разброс_даёт_неприменимо_а_не_годно():
-+    """🔴 Замер 2026-08-03: на типовом проекте проверка НЕ МОЖЕТ провалиться.
-+
-+    Свободный член имеет приор Normal(0, 0.5) в нормализованной шкале, поэтому
-+    при разбросе продаж 8% от среднего база уходит в минус только на 26 сигмах
-+    приора. Живой прогон подтвердил: три набора, построенные как заведомо
-+    больные, дали «годно». Подавать такой результат как «проверено» — ложное
-+    утверждение продукта о себе, поэтому вердикт «проверка неприменима».
-+    """
-+    res = compute_negative_baseline(
-+        intercept_samples=_samples(-0.5),
-+        control_betas_samples=np.zeros((0, 500)),
-+        x_control_norm=np.zeros((30, 0)),
-+        y_mean=6800.0, y_std=525.0,
-+    )
-+    assert res['verdict'] == 'not_applicable'
-+    assert res['detectable'] is False
-+    assert res['sigmas_needed'] > 20
-+    # Восстановление масштаба на месте: (−0,5)·525 + 6800 ≈ 6537.
-+    assert 6400 < res['baseline_mean'] < 6700
-+
-+
-+def test_провал_засчитывается_даже_при_низкой_чувствительности():
-+    """Если база УЖЕ в минусе — это факт, а не вопрос чувствительности."""
-+    res = compute_negative_baseline(
-+        _samples(-14.0, sd=0.2), None, None, 6800.0, 525.0)
-+    assert res['verdict'] == 'fail'
-+    assert res['detectable'] is False
-+
-+
-+def test_завышенный_вклад_медиа_ловится():
-+    """Модель «съела» весь базовый уровень: без рекламы продажи отрицательны.
-+
-+    Ровно тот случай, ради которого проверка написана: вклад медиа приписан с
-+    избытком, остаток вытеснен ниже нуля, и все ROI завышены.
-+    """
-+    # y_mean/y_std такие, что intercept = −14 уводит базу в минус:
-+    # (−14)·500 + 6800 = −200.
-+    res = compute_negative_baseline(
-+        intercept_samples=_samples(-14.0, sd=0.2),
-+        control_betas_samples=np.zeros((0, 500)),
-+        x_control_norm=np.zeros((30, 0)),
-+        y_mean=6800.0, y_std=500.0,
-+    )
-+    assert res is not None
-+    assert res['prob_negative'] > 0.8, res['prob_negative']
-+    assert res['verdict'] == 'fail'
-+    assert res['baseline_mean'] < 0
-+
-+
-+def test_пограничный_случай_попадает_в_смотреть():
-+    """База около нуля → «смотреть», а не «годно» и не «провал»."""
-+    # intercept ≈ −1,0 → база ≈ 5000 − 5000 = 0, половина выборок ниже нуля.
-+    res = compute_negative_baseline(
-+        intercept_samples=_samples(-1.0, sd=0.05, seed=3),
-+        control_betas_samples=np.zeros((0, 500)),
-+        x_control_norm=np.zeros((30, 0)),
-+        y_mean=5000.0, y_std=5000.0,
-+    )
-+    assert res is not None
-+    assert 0.2 <= res['prob_negative'] <= 0.8, res['prob_negative']
-+    assert res['verdict'] == 'watch'
-+
-+
-+def test_контроли_учитываются_а_не_игнорируются():
-+    """Отрицательный контроль (конкурент) двигает базу — мутация «обнулить вклад
-+    контролей» красит тест."""
-+    n_draws, T = 400, 24
-+    rng = np.random.RandomState(7)
-+    x_norm = rng.normal(0, 1, (T, 1))
-+    # Сильный отрицательный коэффициент: база уезжает вниз в периоды высокой
-+    # активности конкурента.
-+    betas = np.full((1, n_draws), -8.0)
-+    без = compute_negative_baseline(
-+        _samples(-0.5, n_draws), np.zeros((0, n_draws)), np.zeros((T, 0)), 6800.0, 500.0)
-+    с = compute_negative_baseline(
-+        _samples(-0.5, n_draws), betas, x_norm, 6800.0, 500.0)
-+    assert без is not None and с is not None
-+    assert с['share_periods_negative'] > без['share_periods_negative'], (
-+        'вклад контролей не доехал до расчёта — база не шевельнулась'
-+    )
-+
-+
-+def test_режим_ols_и_битый_вход_дают_молчание():
-+    """Нет выборок или вырожденный масштаб → None, а не выдуманное число.
-+
-+    В OLS апостериорных выборок нет вовсе (`ols_modeler` их не пишет), и это
-+    единственный честный ответ: проверка недоступна, а не «пройдена».
-+    """
-+    assert compute_negative_baseline(np.array([]), None, None, 6800.0, 500.0) is None
-+    assert compute_negative_baseline(_samples(-0.5), None, None, 6800.0, 0.0) is None
-+    assert compute_negative_baseline(_samples(-0.5), None, None, float('nan'), 500.0) is None
-+    assert compute_negative_baseline(None, None, None, 6800.0, 500.0) is None
-+
-+
-+def test_пороги_объявлены_в_ответе():
-+    """Читатель не должен угадывать границы — они едут вместе с числом.
-+
-+    Пороги 0,2/0,8 — продуктовое соглашение плана, не канон первоисточников;
-+    поэтому они и записаны явно, а не зашиты в чужой словарь.
-+    """
-+    res = compute_negative_baseline(
-+        _samples(-0.5), None, None, 5000.0, 5000.0)
-+    assert res['thresholds'] == {'ok_below': 0.2, 'fail_above': 0.8}
-+    assert res['basis'] == 'displayed_baseline_mean'
-+
-+
-+# ── Обратная совместимость: пересчёт оценки качества ────────────────────────
-+
-+def test_пересчёт_оценки_качества_сохраняет_новый_ключ(tmp_path):
-+    """`recompute_mqs` сливает секции, а не перезаписывает файл целиком.
-+
-+    Мутация «заменить diag на new_diag целиком» красит этот тест: ключ проверки
-+    канона исчез бы у всех проектов при первой же миграции, причём молча.
-+    """
-+    import tools.recompute_mqs as rm  # noqa: PLC0415
-+
-+    diag = {
-+        'mqs': {'score': 70, 'tier_label': 'Хорошее', 'components': {}},
-+        'verdict': 'reliable',
-+        'metrics': {'r_squared': 0.8, 'mape_pct': 9.0, 'n_observations': 60, 'n_parameters': 12},
-+        'checks': {'ratio': True},
-+        'negative_baseline': {'prob_negative': 0.03, 'verdict': 'ok'},
-+        'sensitivity_tornado': {'parameters': []},
-+    }
-+    # Повторяем ровно ту последовательность, которой пользуется инструмент.
-+    new_diag = {
-+        'mqs': {'score': 55, 'tier_label': 'Среднее', 'components': {}},
-+        'verdict': 'uncertain',
-+        'metrics': {'effective_params': 8.0},
-+        'checks': {'ratio': False},
-+    }
-+    diag['mqs'] = new_diag['mqs']
-+    diag['verdict'] = new_diag['verdict']
-+    diag.setdefault('metrics', {}).update(new_diag['metrics'])
-+    diag['checks'] = new_diag['checks']
-+
-+    assert 'negative_baseline' in diag, 'ключ проверки канона потерян при пересчёте'
-+    assert diag['negative_baseline']['verdict'] == 'ok'
-+    assert 'sensitivity_tornado' in diag, 'соседний ключ верхнего уровня тоже обязан выжить'
-+    # Исходный код инструмента сверяем на месте: если слияние заменят на
-+    # присваивание, тест выше останется зелёным, а продукт сломается.
-+    src = Path(rm.__file__).read_text(encoding='utf-8')
-+    assert "diag['mqs'] = new_diag['mqs']" in src
-+    assert 'diag = new_diag' not in src, (
-+        'пересчёт стал перезаписывать диагностику целиком — ключи верхнего уровня '
-+        'исчезнут у всех проектов'
-+    )
-+
-+
-+def test_вердикт_надёжности_не_изменился_от_нового_ключа():
-+    """Решение владельца 2026-08-03: гейт советов по бюджету НЕ трогаем.
-+
-+    Проверка канона считается и показывается, но на вердикт не влияет — иначе
-+    советы отключились бы там, где вчера работали (тот же класс, что блокировка
-+    кнопки в P0.3). Тест стережёт это решение: добавление ключа не меняет ни
-+    вердикт, ни отказ, ни причины — ни на слово.
-+    """
-+    from utils.optimizer_honesty import model_reliability_verdict  # noqa: PLC0415
-+
-+    base = {
-+        'engine': 'bayesian',
-+        'metrics': {'r_hat_max': 1.01, 'divergences': 0, 'ratio': 5.0,
-+                    'chains': 4, 'draws': 2000},
-+        'checks': {'ratio': True},
-+        'mqs': {'tier': 'good', 'tier_label': 'Хорошее', 'score': 72},
-+    }
-+    было = model_reliability_verdict(dict(base))
-+    стало = model_reliability_verdict({
-+        **base,
-+        'negative_baseline': {'prob_negative': 0.95, 'verdict': 'fail'},
-+    })
-+    assert было == стало, 'новый ключ повлиял на гейт советов — это решение владельца, не побочный эффект'
-+
-+
-+def test_незнакомые_ключи_не_считаются_провалом():
-+    """Отсутствие ключа ≠ провал: старые проекты не должны «портиться».
-+
-+    Диагностика модели, обученной до P0.6, ключа не содержит вовсе. Вердикт
-+    обязан читаться так же, как читался.
-+    """
-+    from utils.optimizer_honesty import model_reliability_verdict  # noqa: PLC0415
-+
-+    старый = {
-+        'engine': 'bayesian',
-+        'metrics': {'r_hat_max': 1.005, 'divergences': 0, 'ratio': 6.0,
-+                    'chains': 4, 'draws': 2000},
-+        'checks': {'ratio': True},
-+        'mqs': {'tier': 'excellent', 'tier_label': 'Отличное', 'score': 88},
-+    }
-+    res = model_reliability_verdict(старый)
-+    assert res['verdict'] == 'reliable'
-+    assert res['refused'] is False
-+
-+
-+def test_ключ_переживает_запись_и_чтение_диагностики(tmp_path):
-+    """Санитайзер и JSON-обход не съедают новый ключ (`sanitize_nonfinite`)."""
-+    from utils.safe_io import sanitize_nonfinite  # noqa: PLC0415
-+
-+    diag = {
-+        'negative_baseline': compute_negative_baseline(
-+            _samples(-0.5), None, None, 5000.0, 5000.0),
-+    }
-+    path = tmp_path / 'model-diagnostics.json'
-+    path.write_text(json.dumps(sanitize_nonfinite(diag), ensure_ascii=False), encoding='utf-8')
-+    back = json.loads(path.read_text(encoding='utf-8'))
-+    assert back['negative_baseline']['verdict'] == 'ok'
-+    assert back['negative_baseline']['thresholds']['fail_above'] == 0.8
-diff --git a/sidecar/econometrica/tests/test_negative_baseline_live.py b/sidecar/econometrica/tests/test_negative_baseline_live.py
-new file mode 100644
-index 0000000..14b7560
---- /dev/null
-+++ b/sidecar/econometrica/tests/test_negative_baseline_live.py
-@@ -0,0 +1,155 @@
-+"""Перекрёстная сверка проверки канона с декомпозером — живое обучение (P0.6).
-+
-+Почему отдельным файлом:
-+    в CI нет PyMC (тяжёлые зависимости сайдкара там не ставятся), а этот тест
-+    обязан реально обучить модель и реально её декомпозировать. Структурная
-+    часть проверки живёт в `test_negative_baseline.py` — она идёт в CI и PyMC
-+    не требует. Разделение намеренное, как у теста детерминизма: сторож,
-+    который в CI молча пропускается, не сторож.
-+
-+Что доказывается:
-+    1. база, посчитанная по апостериорным выборкам при обучении, совпадает с
-+       базой, которую показывает декомпозиция, — иначе проверка канона гейтила
-+       бы одну величину, а пользователь видел бы другую (ровно тот класс
-+       дефекта, который чинили в P0.3 и в аудите починки);
-+    2. ключ реально доезжает до сохранённой диагностики, а не только считается;
-+    3. на здоровых данных проверка молчит — сторож, который срабатывает всегда,
-+       бесполезен так же, как тот, что не срабатывает никогда.
-+
-+Допуск сверки. Декомпозиция досыпает в базу остаток подгонки ради тождества
-+разложения (`baseline = intercept + контроли + residual`), у которого
-+апостериорного распределения нет. Замер на этой же фикстуре: расхождение 0,12%.
-+Допуск взят 5% — с запасом на короткий прогон, но достаточно узко, чтобы
-+поймать подмену величины (перепутанный масштаб даёт разницу в разы: без
-+восстановления `y_std`/`y_mean` база оказывается −0,5 вместо 6528).
-+"""
-+from __future__ import annotations
-+
-+import json
-+import sys
-+from pathlib import Path
-+
-+import numpy as np
-+import pandas as pd
-+import pytest
-+
-+sys.path.insert(0, str(Path(__file__).parent.parent))
-+
-+pytest.importorskip('pymc', reason='PyMC недоступен – живой прогон невозможен')
-+
-+MCMC_OVERRIDE = {'chains': 2, 'draws': 200, 'tune': 200}
-+SEED = 555
-+ДОПУСК = 0.05
-+
-+
-+def _данные(путь: Path, n: int = 60) -> Path:
-+    """Синтетика с положительной базой и контролем-конкурентом."""
-+    rng = np.random.RandomState(7)
-+    tv = rng.uniform(200, 900, n)
-+    digital = rng.uniform(100, 600, n)
-+    competitor = rng.uniform(300, 1200, n)
-+    distribution = rng.uniform(60, 95, n)
-+    продажи = (
-+        4000
-+        + 1.8 * tv ** 0.75
-+        + 1.2 * digital ** 0.75
-+        - 0.9 * competitor
-+        + 40 * distribution
-+        + rng.normal(0, 250, n)
-+    )
-+    df = pd.DataFrame({
-+        'Дата': pd.date_range('2024-01-01', periods=n, freq='W'),
-+        'Продажи': продажи,
-+        'ТВ': tv,
-+        'Диджитал': digital,
-+        'Продажи конкурента': competitor,
-+        'Дистрибуция': distribution,
-+    })
-+    файл = путь / 'data.xlsx'
-+    df.to_excel(файл, index=False)
-+    return файл
-+
-+
-+@pytest.fixture(scope='module')
-+def обученный_проект(tmp_path_factory):
-+    """Одно обучение на весь модуль — оно занимает секунды, но не бесплатно."""
-+    from engines.modeler import train_model
-+
-+    каталог = tmp_path_factory.mktemp('negbase_live')
-+    файл = _данные(каталог)
-+    config = {
-+        'data_file': str(файл),
-+        'kpi_column': 'Продажи',
-+        'media_columns': ['ТВ', 'Диджитал'],
-+        'control_columns': ['Продажи конкурента', 'Дистрибуция'],
-+        'date_column': 'Дата',
-+        'adstock_config': {},
-+        'mcmc_override': MCMC_OVERRIDE,
-+        'seed': SEED,
-+        'use_holidays': False,
-+    }
-+    результат = train_model(config, str(каталог))
-+    assert результат.get('status') == 'ok', результат
-+    return каталог
-+
-+
-+def test_ключ_доезжает_до_сохранённой_диагностики(обученный_проект):
-+    """«Функция есть» ≠ «функция подключена»: проверяем файл, не возврат."""
-+    путь = Path(обученный_проект) / 'results' / 'model-diagnostics.json'
-+    diag = json.loads(путь.read_text(encoding='utf-8'))
-+    nb = diag.get('negative_baseline')
-+    assert nb is not None, 'проверка канона не доехала до диагностики'
-+    assert nb['basis'] == 'displayed_baseline_mean'
-+    assert nb['n_draws'] > 0
-+
-+
-+def test_здоровые_данные_не_дают_ложной_тревоги(обученный_проект):
-+    """База заведомо положительна → проверка молчит.
-+
-+    🔴 На этой фикстуре вердикт именно `not_applicable`, а не `ok`, и это
-+    правильно: разброс продаж мал относительно среднего, поэтому база не могла
-+    уйти в минус в принципе (нужны 26 сигм приора свободного члена). Замер и
-+    три живых прогона на заведомо больных наборах подтвердили нечувствительность.
-+    Выдавать здесь «годно» значило бы утверждать, что проверка что-то доказала.
-+    """
-+    путь = Path(обученный_проект) / 'results' / 'model-diagnostics.json'
-+    nb = json.loads(путь.read_text(encoding='utf-8'))['negative_baseline']
-+    assert nb['verdict'] in ('ok', 'not_applicable'), nb
-+    assert nb['prob_negative'] < 0.2
-+    assert nb['baseline_mean'] > 0
-+    # Чувствительность объявлена явно — читатель не должен её угадывать.
-+    assert 'detectable' in nb and 'sigmas_needed' in nb
-+    if not nb['detectable']:
-+        assert nb['verdict'] == 'not_applicable', (
-+            'проверка объявила «годно» там, где провалиться не могла'
+ **MQS** (Model Quality Score, балл качества)
+ 
+-**Что это.** Сводный балл готовности данных к моделированию, от 0 до 100. Считается по запасу данных, взаимосвязи каналов и длине периода – то есть отвечает на вопрос «можно ли на этих данных строить выводы», ещё до обучения модели.
++**Что это.** Сводный балл от 0 до 100, который отвечает на вопрос «насколько можно доверять выводам». 🔴 Важно: балл считается **по-разному до и после обучения**, и это два разных показателя под одной аббревиатурой. До обучения – прогноз по данным: запас данных, взаимосвязь каналов, длина периода. После обучения – качество самой модели: точность на истории (R²), средняя ошибка (MAPE) и сходимость расчёта.
+ 
+-**Пример.** 60 недель, четыре канала без сильной взаимосвязи – балл около 78, уровень «Хорошее». Те же каналы на 20 неделях дают около 50 – «Слабое»: выводы будут неустойчивыми.
++**Пример.** 60 недель и четыре канала без сильной взаимосвязи дают прогнозный балл около 75 – «Хорошее»: данных достаточно, чтобы начинать. После обучения та же модель может получить и выше, и ниже – там измеряется уже не подготовка данных, а то, насколько модель воспроизводит историю.
+ 
+-**Когда увидите в Aurora.** В шапке каждого шага как «Оценка данных (MQS)» и в отчёте после обучения, где балл уточняется по самой модели. Рядом с баллом программа всегда показывает уровень словами – от отличного до ненадёжного – и подсказку с границами уровней: числа берутся из единого источника, поэтому здесь они не повторяются.
++**Когда увидите в Aurora.** В шапке каждого шага как «Оценка данных (MQS)» – это прогноз до обучения. В отчёте и на карточке модели – балл после обучения, посчитанный по другой формуле. Рядом с баллом программа всегда показывает уровень словами – от отличного до ненадёжного – и подсказку с границами уровней: числа берутся из единого источника, поэтому здесь они не повторяются.
+ 
+ **Связанные термины:** [Запас данных](#запас-данных), [Взаимосвязь каналов (VIF)](#взаимосвязь-каналов-vif).
+ 
+diff --git a/docs/glossary.json b/docs/glossary.json
+index ba7e989..306d4fa 100644
+--- a/docs/glossary.json
++++ b/docs/glossary.json
+@@ -445,10 +445,10 @@
+       "id": "mqs",
+       "term": "Оценка данных (MQS)",
+       "en": "Model Quality Score, балл качества",
+-      "short": "Сводный балл готовности данных к моделированию, от 0 до 100.",
+-      "what": "Сводный балл готовности данных к моделированию, от 0 до 100. Считается по запасу данных, взаимосвязи каналов и длине периода – то есть отвечает на вопрос «можно ли на этих данных строить выводы», ещё до обучения модели.",
+-      "example": "60 недель, четыре канала без сильной взаимосвязи – балл около 78, уровень «Хорошее». Те же каналы на 20 неделях дают около 50 – «Слабое»: выводы будут неустойчивыми.",
+-      "where": "В шапке каждого шага как «Оценка данных (MQS)» и в отчёте после обучения, где балл уточняется по самой модели. Рядом с баллом программа всегда показывает уровень словами – от отличного до ненадёжного – и подсказку с границами уровней: числа берутся из единого источника, поэтому здесь они не повторяются.",
++      "short": "Сводный балл от 0 до 100, который отвечает на вопрос «насколько можно доверять выводам».",
++      "what": "Сводный балл от 0 до 100, который отвечает на вопрос «насколько можно доверять выводам». 🔴 Важно: балл считается **по-разному до и после обучения**, и это два разных показателя под одной аббревиатурой. До обучения – прогноз по данным: запас данных, взаимосвязь каналов, длина периода. После обучения – качество самой модели: точность на истории (R²), средняя ошибка (MAPE) и сходимость расчёта.",
++      "example": "60 недель и четыре канала без сильной взаимосвязи дают прогнозный балл около 75 – «Хорошее»: данных достаточно, чтобы начинать. После обучения та же модель может получить и выше, и ниже – там измеряется уже не подготовка данных, а то, насколько модель воспроизводит историю.",
++      "where": "В шапке каждого шага как «Оценка данных (MQS)» – это прогноз до обучения. В отчёте и на карточке модели – балл после обучения, посчитанный по другой формуле. Рядом с баллом программа всегда показывает уровень словами – от отличного до ненадёжного – и подсказку с границами уровней: числа берутся из единого источника, поэтому здесь они не повторяются.",
+       "related": [
+         "data_ratio",
+         "vif"
+diff --git a/sidecar/econometrica/aurora_html/sections.py b/sidecar/econometrica/aurora_html/sections.py
+index 6adca04..33c6917 100644
+--- a/sidecar/econometrica/aurora_html/sections.py
++++ b/sidecar/econometrica/aurora_html/sections.py
+@@ -1702,13 +1702,18 @@ _ПРОВЕРКА_БАЗЫ = {
+     # есть, но порогами не гейтится).
+     'passed': 'Средний базовый уровень уверенно положителен: вероятность того, что он '
+               'отрицателен, ниже 20 %.',
+-    'watch': 'Базовый уровень близок к нулю на части периода – стоит перепроверить '
+-             'полноту факторов.',
+-    'failed': 'Базовый уровень уходит в минус – вклад каналов завышен, модель требует '
+-              'пересмотра.',
+-    # 🔴 Аудит F-06: метрика называется по факту проекта, а не «продажами» —
+-    # признак считается по любому KPI, и у модели знания марки клиент читал про
+-    # продажи, которых в проекте нет. Подстановка имени — в `_render_certificate_block`.
++    # 🔴 Аудит починки, Ф-02: все три вердикта присваиваются по ОДНОЙ величине —
++    # вероятности того, что средний по периодам базовый уровень отрицателен.
++    # Из «пройдено» по-периодные утверждения убрали, а в соседних они остались
++    # слово в слово, включая ту самую фразу «вклад каналов завышен».
++    'watch': 'Средний базовый уровень близок к нулю: вероятность того, что он '
++             'отрицателен, от 20 до 80 %. Стоит перепроверить полноту факторов.',
++    'failed': 'Средний базовый уровень отрицателен с вероятностью выше 80 %. Такую '
++              'модель нужно пересмотреть: часть вклада каналов может быть мнимой.',
++    # 🔴 Аудит F-06: метрика не называется продажами — признак считается по любому
++    # KPI, и у модели знания марки клиент читал бы про продажи, которых в проекте
++    # нет. Имя метрики не подставляется: формулировка обобщена, подписи
++    # `utils/kpi_labels` тянуть в блок не понадобилось.
+     'not_applicable': 'Проверка неприменима на этих данных: разброс значений целевой '
+                       'метрики слишком мал, чтобы отличить положительный базовый '
+                       'уровень от отрицательного.',
+@@ -1776,23 +1781,37 @@ def _render_certificate_block(ctx: dict) -> str:
+     if not пояснение and not строки:
+         return ""
+ 
+-    список = "\n".join(
+-        f'<li><span class="diag-label">{escape(метка)}</span>'
+-        f'<span class="diag-value">{escape(значение)}</span></li>'
+-        for метка, значение in строки
+-    )
++    # 🔴 Аудит починки, Ф-06: список и подвал печатались всегда — и там, где
++    # отпечатка не выдали вовсе: клиент читал «Отпечаток покрывает файл модели»
++    # ровно на отказе, да ещё рядом с пустым списком.
++    # 🔴 Ф-09: подвал теперь говорит прямо, что отпечаток принадлежит конкретному
++    # файлу модели — при повторном обучении числа те же, а отпечаток другой
++    # (в манифест файла входит время его создания).
++    список = ''
++    подвал = ''
++    if строки:
++        пункты = "\n".join(
++            f'<li><span class="diag-label">{escape(метка)}</span>'
++            f'<span class="diag-value">{escape(значение)}</span></li>'
++            for метка, значение in строки
 +        )
-+
-+
-+def test_база_совпадает_с_декомпозицией(обученный_проект):
-+    """🔴 Перекрёстная сверка, требуемая планом.
-+
-+    Мутация «убрать восстановление масштаба» (`· y_std + y_mean`) красит тест
-+    по адресу: без неё база оказывается около −0,5 вместо тысяч, то есть
-+    проверка канона объявила бы провал на здоровой модели.
-+    """
-+    from engines.decomposer import decompose
-+
-+    путь = Path(обученный_проект) / 'results' / 'model-diagnostics.json'
-+    nb = json.loads(путь.read_text(encoding='utf-8'))['negative_baseline']
-+
-+    dec = decompose(str(обученный_проект), save_results=False)
-+    assert dec.get('status') == 'ok', dec
-+    серии = dec['decomposition_series']['series']
-+    база = np.asarray(
-+        next(s for s in серии if s['role'] == 'baseline')['data'], dtype=float)
-+    факторы = [
-+        np.asarray(s['data'], dtype=float) for s in серии if s['role'] == 'factor']
-+    # До выноса факторов — та же величина, что считает проверка канона.
-+    показанная = float((база + (sum(факторы) if факторы else 0)).mean())
-+
-+    расхождение = abs(показанная - nb['baseline_mean']) / max(abs(показанная), 1e-9)
-+    assert расхождение < ДОПУСК, (
-+        f'база проверки канона {nb["baseline_mean"]:.1f} разошлась с показанной '
-+        f'{показанная:.1f} на {расхождение * 100:.1f}% — проверка гейтит не ту '
-+        f'величину, которую видит пользователь'
-+    )
-diff --git a/sidecar/econometrica/utils/negative_baseline.py b/sidecar/econometrica/utils/negative_baseline.py
-new file mode 100644
-index 0000000..e9cd5e9
---- /dev/null
-+++ b/sidecar/econometrica/utils/negative_baseline.py
-@@ -0,0 +1,185 @@
-+"""P0.6: проверка канона — отрицательный базовый уровень.
-+
-+ЗАЧЕМ. Это единственная проверка канона, за которой стоят деньги: она ловит
-+завышенный ROI. Если модель утверждает, что без рекламы продажи были бы
-+отрицательными, значит вклад медиаканалов приписан с избытком — и все
-+рекомендации по бюджету, построенные на этих вкладах, завышены.
-+
-+ОБОСНОВАНИЕ (первоисточники, не наше мнение):
-+  - Wang & Jin, «Hierarchical Bayesian… Improve Media Mix Models with Category
-+    Data» (Google): «Sometimes models with unconstrained priors output negative
-+    media effect estimates due to omitted variables» — неограниченные приоры
-+    дают содержательно НЕВОЗМОЖНЫЕ оценки, и причина обычно в пропущенных
-+    переменных. Отрицательная база — тот же класс с другой стороны: избыток
-+    приписан медиа, недостаток вытеснен в базу.
-+  - McElreath, «Statistical Rethinking»: апостериорные проверки нужны не чтобы
-+    подтвердить истинность модели, а чтобы «prospecting for ways in which your
-+    models are inadequate» — искать, чем именно модель неадекватна.
-+  - Gelman, «Bayesian Workflow»: «it can be safe to discard models which show
-+    clear discrepancies between predictions and data».
-+
-+⚠️ ПОРОГИ — ПРОДУКТОВОЕ СОГЛАШЕНИЕ, НЕ КАНОН. Значения 0,2 и 0,8 взяты из плана
-+P0 и первоисточником не подкреплены: в литературе описан сам класс проверки, а
-+не числовые границы. Менять их — решение владельца, не «уточнение по науке».
-+
-+КАК СЧИТАЕТСЯ. Модель обучается в нормализованной шкале
-+(`y_norm = (y − y_mean) / y_std`), поэтому `intercept` живёт НЕ в единицах KPI:
-+на здоровом проекте он около −0,5 при продажах в тысячах. База в исходных
-+единицах восстанавливается так же, как это делает прогноз:
-+
-+    base(t)_d = (intercept_d + Σ_i control_betas_d,i · x_norm_i(t)) · y_std + y_mean
-+
-+Считаем по УЖЕ сохранённым апостериорным выборкам, переобучение не требуется.
-+Замер на реальной модели: средняя база по выборкам 6528,5 против показанной в
-+декомпозиции 6536,2 — расхождение 0,12%, то есть величина совпадает с той, что
-+видит пользователь (остаток подгонки, который декомпозиция досыпает в базу ради
-+тождества разложения, на этом уровне пренебрежим).
-+
-+ТОЛЬКО БАЙЕС. В режиме OLS апостериорных выборок нет вовсе (`ols_modeler` их не
-+пишет), поэтому проверка возвращает `None` — как торнадо чувствительности.
-+Обещать её для всех проектов в клиентском тексте нельзя.
-+"""
-+from __future__ import annotations
-+
-+import logging
-+from typing import Any
-+
-+import numpy as np
-+
-+logger = logging.getLogger(__name__)
-+
-+# Продуктовое соглашение (план P0), не первоисточник — см. шапку модуля.
-+PROB_OK = 0.2
-+PROB_FAIL = 0.8
-+
-+# 🔴 ГРАНИЦА ПРИМЕНИМОСТИ (замер 2026-08-03, не гипотеза).
-+#
-+# Свободный член имеет приор `Normal(0, 0.5)` в НОРМАЛИЗОВАННОЙ шкале, поэтому
-+# база уходит в минус только при `intercept < −y_mean / y_std`. Сколько это
-+# сигм приора — целиком определяется разбросом самой целевой метрики:
-+#
-+#   разброс 8% от среднего (типовой FMCG в рублях) →  26 сигм — недостижимо;
-+#   разброс 30%                                    →   6,8 сигм — недостижимо;
-+#   разброс 100% (равен среднему)                  →   2 сигмы — на грани;
-+#   разброс 200%                                   →   1 сигма — достижимо.
-+#
-+# Живой прогон подтвердил: на трёх наборах, построенных как заведомо больные
-+# (нулевая база в генераторе, весь спрос в тренде, реклама растёт вместе со
-+# спросом), вердикт остался «годно» — модель просто забирает уровень продаж
-+# себе в свободный член.
-+#
-+# Отсюда правило: если разброс мал, проверка НЕ МОГЛА провалиться, и подавать
-+# её результат как «пройдено» — ложное утверждение продукта о себе. В таких
-+# проектах отдаём `not_applicable`. Это тот же принцип, что и всюду в линии:
-+# «проверка недоступна» ≠ «проверка пройдена».
-+#
-+# Порог 0,5 (разброс не меньше половины среднего ⇒ нужно ≤ 4 сигм) — наша
-+# инженерная граница, а не канон: в первоисточниках описан класс проверки, но
-+# не её чувствительность к параметризации.
-+MIN_CV_FOR_DETECTION = 0.5
-+
-+
-+def _verdict(prob: float) -> str:
-+    """Ярлык по вероятности. Границы включаются в более мягкую сторону."""
-+    if prob < PROB_OK:
-+        return 'ok'
-+    if prob <= PROB_FAIL:
-+        return 'watch'
-+    return 'fail'
-+
-+
-+def compute_negative_baseline(
-+    intercept_samples: Any,
-+    control_betas_samples: Any,
-+    x_control_norm: Any,
-+    y_mean: float,
-+    y_std: float,
-+) -> dict[str, Any] | None:
-+    """Вероятность того, что базовый уровень продаж отрицателен.
-+
-+    @param intercept_samples: выборки свободного члена, форма (draws,).
-+    @param control_betas_samples: выборки коэффициентов контролей,
-+        форма (n_controls, draws). Пустой массив — контролей нет.
-+    @param x_control_norm: нормализованная матрица контролей, форма
-+        (T, n_controls). Пустая — контролей нет.
-+    @param y_mean: среднее целевой метрики (масштаб нормализации).
-+    @param y_std: стандартное отклонение целевой метрики.
-+    @returns: словарь с вероятностью, вердиктом и границами базы в единицах
-+        KPI; `None`, если посчитать не из чего (нет выборок / вырожденный
-+        масштаб) — молчание честнее выдуманного числа.
-+    """
-+    try:
-+        intercept = np.asarray(intercept_samples, dtype=float).reshape(-1)
-+    except (TypeError, ValueError):
-+        return None
-+    if intercept.size == 0:
-+        return None
-+
-+    std = float(y_std)
-+    mean = float(y_mean)
-+    if not np.isfinite(std) or std <= 0 or not np.isfinite(mean):
-+        # Вырожденный масштаб: KPI-константа или битая нормализация. Считать
-+        # «вероятность» на таком входе значило бы выдать число из ниоткуда.
-+        return None
-+
-+    n_draws = int(intercept.size)
-+
-+    # Вклад контролей по выборкам: (T, n_controls) @ (n_controls, draws).
-+    control_effect = np.zeros((1, n_draws), dtype=float)
-+    try:
-+        betas = np.asarray(control_betas_samples, dtype=float)
-+        x_norm = np.asarray(x_control_norm, dtype=float)
-+        if betas.size and x_norm.size and betas.ndim == 2 and x_norm.ndim == 2:
-+            if betas.shape[1] != n_draws and betas.shape[0] == n_draws:
-+                betas = betas.T  # допускаем (draws, n_controls)
-+            if x_norm.shape[1] == betas.shape[0]:
-+                control_effect = x_norm @ betas  # (T, draws)
-+    except (TypeError, ValueError) as err:  # noqa: BLE001
-+        logger.warning('Контроли не учтены в проверке базы: %s', err)
-+
-+    base_norm = intercept[None, :] + control_effect          # (T, draws)
-+    base_units = base_norm * std + mean                      # в единицах KPI
-+
-+    if not np.isfinite(base_units).all():
-+        base_units = base_units[np.isfinite(base_units).all(axis=1)]
-+        if base_units.size == 0:
-+            return None
-+
-+    # Отображаемый базовый уровень — средний по периодам (именно его видит
-+    # пользователь в карточке декомпозиции), поэтому вероятность считаем по нему.
-+    per_draw = base_units.mean(axis=0)
-+    prob_negative = float((per_draw < 0).mean())
-+
-+    # Могла ли проверка вообще провалиться на этих данных — см. MIN_CV_FOR_DETECTION.
-+    cv = std / abs(mean) if mean else float('inf')
-+    sigmas_needed = abs(mean / std) / 0.5  # приор intercept ~ Normal(0, 0.5)
-+    detectable = bool(cv >= MIN_CV_FOR_DETECTION)
-+
-+    # По-периодная доля — справочно: она чувствительна к отдельным провалам и
-+    # порогами не гейтится, но объясняет, почему средняя база «на грани».
-+    share_periods_negative = float((base_units < 0).mean())
-+
-+    # Провал засчитывается всегда: если база УЖЕ ушла в минус, это факт, а не
-+    # вопрос чувствительности. А вот «годно» на нечувствительных данных —
-+    # ложное утверждение, и вместо него отдаётся «проверка неприменима».
-+    verdict = _verdict(prob_negative)
-+    if not detectable and verdict == 'ok':
-+        verdict = 'not_applicable'
-+
-+    return {
-+        'prob_negative': round(prob_negative, 4),
-+        'verdict': verdict,
-+        # Чувствительность проверки на этих данных — чтобы «годно» нельзя было
-+        # спутать с «проверить не удалось».
-+        'detectable': detectable,
-+        'cv': round(cv, 3) if np.isfinite(cv) else None,
-+        'sigmas_needed': round(sigmas_needed, 1) if np.isfinite(sigmas_needed) else None,
-+        'baseline_mean': round(float(per_draw.mean()), 2),
-+        'baseline_p05': round(float(np.percentile(per_draw, 5)), 2),
-+        'baseline_p95': round(float(np.percentile(per_draw, 95)), 2),
-+        'share_periods_negative': round(share_periods_negative, 4),
-+        'n_draws': n_draws,
-+        # На чём считалось — чтобы читатель не гадал, та ли это база, что на экране.
-+        'basis': 'displayed_baseline_mean',
-+        'thresholds': {'ok_below': PROB_OK, 'fail_above': PROB_FAIL},
-+    }
-diff --git a/src/lib/__tests__/negative-baseline-insight.guard.test.js b/src/lib/__tests__/negative-baseline-insight.guard.test.js
-new file mode 100644
-index 0000000..80a6055
---- /dev/null
-+++ b/src/lib/__tests__/negative-baseline-insight.guard.test.js
-@@ -0,0 +1,101 @@
-+/**
-+ * Сторож показа проверки канона «отрицательный базовый уровень» (P0.6).
-+ *
-+ * ЗАЧЕМ. Правило этой линии: «функция есть» ≠ «функция подключена» ≠ «функция
-+ * отдаёт обещанное». В этом же продукте уже находились написанный и никем не
-+ * вызванный сертификат методологии и торнадо чувствительности. Расчёт базы
-+ * считается при обучении и кладётся в диагностику — этот файл стережёт, что он
-+ * доезжает до глаз пользователя и говорит по делу.
-+ *
-+ * ЧТО СТЕРЕЖЁТ — следствия, а не наличие кода: появляется ли текст, каким он
-+ * становится на провале и на границе, и — отдельно — молчит ли продукт там, где
-+ * проверка недоступна. Молчание здесь важнее текста: у OLS апостериорных выборок
-+ * нет вовсе, и «проверка недоступна» нельзя подавать как «проверка пройдена».
-+ */
-+import { describe, expect, it } from 'vitest';
-+
-+import { modelInsights } from '../insights-rules.js';
-+
-+/**
-+ * Диагностика здоровой обученной модели + подставляемая проверка базы.
-+ * @param {any} negativeBaseline
-+ */
-+function mkModel(negativeBaseline) {
-+  return {
-+    diagnostics: {
-+      metrics: {
-+        r_squared: 0.82, mape_pct: 8.5, r_hat_max: 1.01, divergences: 0,
-+        ratio: 6.2, n_observations: 60, n_parameters: 10,
-+      },
-+      mqs: { score: 78, tier: 'good', tier_label: 'Хорошее' },
-+      checks: { ratio: true },
-+      ...(negativeBaseline === undefined ? {} : { negative_baseline: negativeBaseline }),
-+    },
-+    channelParams: { ТВ: {}, Диджитал: {} },
-+  };
-+}
-+
-+const texts = (/** @type {{text?: string}[]} */ list) => list.map(i => i.text ?? '').join('\n');
-+
-+describe('отрицательный базовый уровень доезжает до экрана', () => {
-+  it('провал: пользователь узнаёт, что ROI завышен', () => {
-+    const out = modelInsights(mkModel({
-+      prob_negative: 0.95, verdict: 'fail', baseline_mean: -1200,
-+    }));
-+    const t = texts(out);
-+    expect(t).toMatch(/базовый уровень продаж уходит в минус/i);
-+    expect(t).toMatch(/95%/);
-+    // Главное следствие названо прямо: завышен не «показатель», а ROI и советы.
-+    expect(t).toMatch(/вклад каналов завышен/i);
-+    expect(out.some(i => i.severity === 'error')).toBe(true);
-+  });
-+
-+  it('провал: подсказка называет ДЕЙСТВИЕ, а не диагноз', () => {
-+    const out = modelInsights(mkModel({ prob_negative: 0.9, verdict: 'fail' }));
-+    const tip = out.find(i => /базовый уровень/i.test(i.text ?? ''))?.tip ?? '';
-+    expect(tip).toMatch(/контрольн/i);
-+    expect(tip).toMatch(/переобучите|сократите/i);
-+  });
-+
-+  it('граница: предупреждение мягче и говорит о верхней границе ROI', () => {
-+    const out = modelInsights(mkModel({ prob_negative: 0.45, verdict: 'watch' }));
-+    const t = texts(out);
-+    expect(t).toMatch(/близок к нулю/i);
-+    expect(t).toMatch(/верхнюю границу/i);
-+    expect(out.some(i => i.severity === 'error' && /базовый уровень/i.test(i.text ?? ''))).toBe(false);
-+  });
-+
-+  it('годно: продукт молчит — сторож, срабатывающий всегда, бесполезен', () => {
-+    const out = modelInsights(mkModel({ prob_negative: 0.01, verdict: 'ok' }));
-+    expect(texts(out)).not.toMatch(/базовый уровень продаж/i);
-+  });
-+
-+  it('проверка неприменима по данным: молчим, а не показываем успех', () => {
-+    // 🔴 Замер 2026-08-03: при малом разбросе продаж база не может уйти в минус
-+    // в принципе (нужны десятки сигм приора свободного члена), поэтому движок
-+    // отдаёт `not_applicable` вместо «годно». На экране это ничего не значит
-+    // для пользователя — и уж точно не должно читаться как пройденная проверка.
-+    const out = modelInsights(mkModel({
-+      prob_negative: 0.0, verdict: 'not_applicable', detectable: false, sigmas_needed: 25.9,
-+    }));
-+    expect(texts(out)).not.toMatch(/базовый уровень продаж/i);
-+  });
-+
-+  it('проверка недоступна (OLS, старые модели): молчим, а не рапортуем успех', () => {
-+    // Ключа нет вовсе — модель обучена до P0.6 либо в режиме OLS.
-+    expect(texts(modelInsights(mkModel(undefined)))).not.toMatch(/базовый уровень продаж/i);
-+    // Ключ есть, но пустой — расчёт не смог отработать (вырожденный масштаб).
-+    expect(texts(modelInsights(mkModel(null)))).not.toMatch(/базовый уровень продаж/i);
-+    expect(texts(modelInsights(mkModel({})))).not.toMatch(/базовый уровень продаж/i);
-+  });
-+
-+  it('клиентский текст без англицизмов и длинного тире', () => {
-+    // Проверяем СВОЙ инсайт: соседние тексты продукта — не предмет этого сторожа.
-+    const out = modelInsights(mkModel({ prob_negative: 0.95, verdict: 'fail' }));
-+    const мой = out.filter(i => /базовый уровень/i.test(i.text ?? ''));
-+    expect(мой).toHaveLength(1);
-+    const текст = `${мой[0].text ?? ''} ${мой[0].tip ?? ''}`;
-+    expect(текст).not.toContain('—');
-+    expect(текст).not.toMatch(/baseline|intercept|posterior|prior/i);
-+  });
-+});
-diff --git a/src/lib/insights-rules.js b/src/lib/insights-rules.js
-index b98ec7f..09ee25b 100644
---- a/src/lib/insights-rules.js
-+++ b/src/lib/insights-rules.js
-@@ -1272,6 +1272,38 @@ export function modelInsights(data, ratioOverride = undefined) {
-     });
-   }
++        список = f'<ul class="diag-list">\n{пункты}\n  </ul>'
++    if отпечаток:
++        подвал = (
++            '<p style="margin-top:12px;font-size:11px;font-style:italic;'
++            'color:var(--text-muted);">Отпечаток покрывает файл обученной модели и '
++            'результаты разбивки. Исходная выгрузка данных в него не входит. Базовый '
++            'уровень взят до выноса отдельных факторов, поэтому может отличаться от '
++            'полосы «Базовый уровень» на графике разбивки. При повторном обучении на '
++            'тех же данных числа сохранятся, а отпечаток станет другим: он '
++            'принадлежит конкретному файлу модели.</p>'
++        )
+     return f"""
+ <div style="margin-top:32px;">
+   <div class="method-col-label">Воспроизводимость и сертификат</div>
+   <p style="margin:8px 0 12px;font-size:12px;">{escape(пояснение or '')}</p>
+-  <ul class="diag-list">
+-{список}
+-  </ul>
+-  <p style="margin-top:12px;font-size:11px;font-style:italic;color:var(--text-muted);">
+-    Отпечаток покрывает файл обученной модели и результаты разбивки. Исходная выгрузка
+-    данных в него не входит. Базовый уровень взят до выноса отдельных факторов, поэтому
+-    может отличаться от полосы «Базовый уровень» на графике разбивки.
+-  </p>
++  {список}
++  {подвал}
+ </div>"""
  
-+  // ── P0.6: отрицательный базовый уровень ──
-+  // Единственная проверка канона, за которой стоят деньги: она ловит завышенный
-+  // ROI. Если модель утверждает, что без рекламы продажи были бы отрицательными,
-+  // значит вклад медиаканалов приписан с избытком — и все ROI, и все советы по
-+  // бюджету завышены вместе с ним. Первоисточник класса дефекта: Wang & Jin,
-+  // «Hierarchical Bayesian… Media Mix with Category Data» — неограниченные приоры
-+  // дают содержательно невозможные оценки из-за пропущенных переменных.
-+  //
-+  // Показывается ДО предупреждения о тонких данных: тонкие данные делают выводы
-+  // широкими, а отрицательная база делает их неверными по знаку.
-+  //
-+  // Ключ приходит только у байесовских моделей (в OLS апостериорных выборок нет
-+  // вовсе). Его отсутствие — не «проверка пройдена», а «проверка недоступна»,
-+  // поэтому молчим, а не пишем успех.
-+  const negBase = d.negative_baseline;
-+  if (negBase && typeof negBase.prob_negative === 'number') {
-+    const вероятность = Math.round(negBase.prob_negative * 100);
-+    if (negBase.verdict === 'fail') {
-+      out.push({
-+        severity: 'error',
-+        text: `⚠ Базовый уровень продаж уходит в минус (вероятность ${вероятность}%). Модель фактически утверждает, что без рекламы продаж не было бы вовсе – это невозможно, значит вклад каналов завышен, а вместе с ним ROI и рекомендации по бюджету.`,
-+        tip: 'Причина обычно в пропущенном факторе, который двигал продажи вместе с рекламой: сезонный спрос категории, дистрибуция, промоакции, цена. Добавьте такой столбец как контрольный фактор и переобучите. Если добавить нечего – сократите число каналов: на коротком ряде модель приписывает рекламе то, что объяснить нечем.',
-+      });
-+    } else if (negBase.verdict === 'watch') {
-+      out.push({
-+        severity: 'warning',
-+        text: `Базовый уровень продаж близок к нулю (вероятность уйти в минус ${вероятность}%). Вклад каналов, скорее всего, завышен – трактуйте ROI как верхнюю границу, а не как точную оценку.`,
-+        tip: 'Проверьте, все ли внешние факторы учтены: сезонность категории, дистрибуция, цена, промо. Один пропущенный фактор, совпадающий с рекламной активностью, поднимает ROI всех каналов сразу.',
-+      });
-+    }
-+  }
+ 
+diff --git a/sidecar/econometrica/engines/methodology_cert.py b/sidecar/econometrica/engines/methodology_cert.py
+index 86f7291..bacaafc 100644
+--- a/sidecar/econometrica/engines/methodology_cert.py
++++ b/sidecar/econometrica/engines/methodology_cert.py
+@@ -87,7 +87,7 @@ def compute_cert_hash(payload: dict[str, Any]) -> str:
+     except ImportError as exc:
+         raise CertificateUnavailable(
+             'Канонизация JCS недоступна: пакет rfc8785 не установлен. '
+-            'Сертификат не выдан — хеш без канонизации не сошёлся бы '
++            'Сертификат не выдан – хеш без канонизации не сошёлся бы '
+             'у проверяющей стороны.'
+         ) from exc
+ 
+@@ -140,7 +140,7 @@ def _extract_v13_payload(
+                       if not str(k).startswith('_cert')}
+     if not clean_manifest:
+         raise CertificateUnavailable(
+-            'Манифест файла модели недоступен — сертификату не к чему '
++            'Манифест файла модели недоступен – сертификату не к чему '
+             'привязаться. Файл модели старого формата либо повреждён.'
+         )
+     bundle_hash = compute_cert_hash(clean_manifest)
+@@ -176,7 +176,7 @@ def _extract_v13_payload(
+         if not kpi_type:
+             raise CertificateUnavailable(
+                 'В конфигурации модели нет типа целевой метрики. Подставлять '
+-                'значение по умолчанию нельзя — сертификат описывал бы не ту '
++                'значение по умолчанию нельзя – сертификат описывал бы не ту '
+                 'модель, которую обучили.'
+             )
+         model_spec_raw = {
+@@ -193,20 +193,36 @@ def _extract_v13_payload(
+                 model_spec_raw['kpi_likelihood'] = str(likelihood)
+ 
+         # F-09: карта адстоков заполняется ФАКТИЧЕСКИ применёнными типами.
+-        # Пустой словарь (пользователь не выбирал тип явно) утверждал бы
+-        # «адстоков нет», хотя модель применила геометрический.
++        # 🔴 Аудит починки, Ф-01 High: первая версия достраивала её через
++        # `persistence.get_adstock_type`, а тот читает ровно ту же пустую карту
++        # и отдаёт `geometric` ВСЕМ каналам. У модели режима малых данных карты
++        # не бывает никогда — значит в хеш всегда уезжал бы `geometric`, даже
++        # когда пользователь выбрал Вейбулла и расчёт шёл по Вейбуллу. То есть
++        # починка сама сделала ровно то, ради чего чинили F-01: подставила
++        # умолчание в заверенное описание модели.
++        # Настоящее значение лежит в двух местах, оба независимы от карты.
++        # ⚠️ Долг продукта (зонд 2026-08-03): модель хранит НАСТРОЙКУ, а не
++        # результат её применения — на реальных проектах здесь стоит `'auto'`,
++        # и фактически применённый тип (геометрический по откату) нигде не
++        # записан. Сертификат отражает записанное и не домысливает: вывести тип
++        # из пустоты весовых параметров значило бы вернуть ту самую подстановку.
++        # Лечение — чтобы обучение сохраняло разрешённый тип рядом с настройкой.
+         adstock_types = dict(model_data.get('channel_adstock_types') or {})
+-        каналы_модели = list((model_data.get('channel_params') or {}).keys())
+-        if not adstock_types and каналы_модели:
+-            try:
+-                from engines.persistence import get_adstock_type
+-                adstock_types = {
+-                    str(канал): str(get_adstock_type(model_data, канал))
+-                    for канал in каналы_модели
+-                }
+-            except Exception as exc:  # noqa: BLE001 — лучше без ключа, чем с выдумкой
+-                logger.warning('Сертификат: типы адстока не восстановлены: %s', exc)
+-                adstock_types = {}
++        if not adstock_types:
++            из_конфига = dict((config.get('adstock_config') or {}))
++            параметры = model_data.get('channel_params') or {}
++            восстановленные: dict[str, str] = {}
++            for канал, параметр in параметры.items():
++                тип = из_конфига.get(канал)
++                if not тип and isinstance(параметр, dict):
++                    тип = ((параметр.get('adstock') or {}).get('type')
++                           if isinstance(параметр.get('adstock'), dict) else None)
++                if тип:
++                    восстановленные[str(канал)] = str(тип)
++            # Ключ не кладётся вовсе, если тип известен не для всех каналов:
++            # частичная карта утверждала бы об остальных то, чего мы не знаем.
++            if восстановленные and len(восстановленные) == len(параметры):
++                adstock_types = восстановленные
+         if adstock_types:
+             model_spec_raw['adstock_types'] = adstock_types
+ 
+@@ -221,12 +237,12 @@ def _extract_v13_payload(
+     if total_sales in (None, 0) or baseline is None or not channels_raw:
+         raise CertificateUnavailable(
+             'Результат декомпозиции неполон (нет общих продаж, базы или '
+-            'каналов) — заверять нечего.'
++            'каналов) – заверять нечего.'
+         )
+     total_sales = float(total_sales)
+     if total_sales != total_sales or total_sales in (float('inf'), float('-inf')):
+         raise CertificateUnavailable(
+-            'Итог по целевой метрике — не число, заверять такую разбивку нельзя.'
++            'Итог по целевой метрике – не число, заверять такую разбивку нельзя.'
+         )
+ 
+     def _конечное(значение: Any, что: str) -> float:
+@@ -240,7 +256,7 @@ def _extract_v13_payload(
+         число = float(значение)
+         if число != число or число in (float('inf'), float('-inf')):
+             raise CertificateUnavailable(
+-                f'{что} — не число, заверять такую разбивку нельзя. '
++                f'{что} – не число, заверять такую разбивку нельзя. '
+                 f'Проверьте данные канала: расчёт мог не сойтись.'
+             )
+         return число
+@@ -260,7 +276,7 @@ def _extract_v13_payload(
+         contribution = ch.get('contribution')
+         if not name or contribution is None:
+             raise CertificateUnavailable(
+-                'В разбивке есть канал без имени или без вклада — '
++                'В разбивке есть канал без имени или без вклада – '
+                 'заверять неполную разбивку нельзя.'
+             )
+         # 🔴 Аудит F-07: имя канала приходит из столбца пользовательской
+@@ -269,7 +285,7 @@ def _extract_v13_payload(
+         # неверное число под верным именем, без единого предупреждения.
+         if str(name) == КЛЮЧ_БАЗЫ:
+             raise CertificateUnavailable(
+-                f'Канал назван «{КЛЮЧ_БАЗЫ}» — этим именем в сертификате '
++                f'Канал назван «{КЛЮЧ_БАЗЫ}» – этим именем в сертификате '
+                 f'обозначается базовый уровень. Переименуйте столбец, иначе '
+                 f'заверенная разбивка окажется неверной.'
+             )
+diff --git a/sidecar/econometrica/tests/test_certificate_in_reports.py b/sidecar/econometrica/tests/test_certificate_in_reports.py
+index 664d96a..7c89f9a 100644
+--- a/sidecar/econometrica/tests/test_certificate_in_reports.py
++++ b/sidecar/econometrica/tests/test_certificate_in_reports.py
+@@ -205,3 +205,65 @@ def test_слайд_различает_три_состояния_заверен
+     неполное = dict(строки_сертификата(_сертификат(
+         status='not_attested', reproducibility={'status': 'absent'})))
+     assert неполное['Заверение'] == 'неполное'
 +
-   // ── 0. Data thinness warning - trumps everything else ──
-   // v2.1.0 (пилот 2026-05-16): SSOT classifyRatio для label/description -
-   // согласовано с RatioInfoCard, sticky header, Контроль качества Валидации.
++
++# ── 8. Находки аудита ПОЧИНКИ (2026-08-03) ───────────────────────────────────
++
++def test_вердикты_базы_говорят_об_одной_и_той_же_величине():
++    """🔴 Ф-02. Все три вердикта присваиваются по вероятности того, что СРЕДНИЙ
++    по периодам базовый уровень отрицателен. Из «пройдено» по-периодные
++    утверждения убрали, а в соседних они оставались слово в слово — включая
++    «вклад каналов завышен», ту самую фразу, которую вычистили."""
++    for состояние in ('watch', 'failed'):
++        вывод = _render_certificate_block({'certificate': _сертификат(
++            checks={'negative_baseline': состояние})})
++        assert 'на части периода' not in вывод, состояние
++        assert 'вклад каналов завышен' not in вывод, состояние
++        assert 'Средний базовый уровень' in вывод, состояние
++
++
++def test_подвал_печатается_только_вместе_с_отпечатком():
++    """🔴 Ф-06. Оговорка «Отпечаток покрывает файл модели» печаталась и на
++    отказе, где отпечатка клиенту не выдали, да ещё рядом с пустым списком."""
++    отказ = _render_certificate_block({'certificate': {
++        'status': 'unavailable', 'reason': 'Заверять нечего.', 'hash': None,
++        'reproducibility': {'status': 'absent'},
++        'checks': {'negative_baseline': 'absent'},
++    }})
++    assert 'Заверение недоступно' in отказ
++    assert 'Отпечаток покрывает' not in отказ
++    assert 'до выноса' not in отказ
++    assert '<ul' not in отказ, 'пустой список в разметке'
++
++
++def test_подвал_предупреждает_о_смене_отпечатка_при_переобучении():
++    """🔴 Ф-09. «Повтор даёт те же числа» — правда, но отпечаток при повторном
++    обучении другой: в манифест файла модели входит время его создания."""
++    вывод = _render_certificate_block({'certificate': _сертификат()})
++    assert 'отпечаток станет другим' in вывод
++
++
++def test_клиенту_не_уходит_длинное_тире():
++    """🔴 Ф-05. В продукте принято короткое тире. Причины отказа, добавленные
++    починкой, писались длинным — в одном абзаце оказывались оба знака."""
++    from engines.methodology_cert import CertificateUnavailable, build_cert_payload
++    причины = []
++    try:
++        build_cert_payload({'config': {'kpi_type': 'sales'}}, {}, {})
++    except CertificateUnavailable as отказ:
++        причины.append(str(отказ))
++    вывод = _render_certificate_block({'certificate': _сертификат(
++        status='unavailable', hash=None, reason=причины[0] if причины else 'причина')})
++    assert '—' not in вывод, 'длинное тире в клиентском тексте блока'
++
++
++def test_слайд_методологии_действительно_зовёт_строки_сертификата():
++    """🔴 Ф-04. Починка вынесла логику в функцию и покрыла её, но единственную
++    строку, связывающую функцию со слайдом, не проверял никто."""
++    import inspect
++    from aurora_pptx.builder import AuroraPPTXBuilder
++    исходник = inspect.getsource(AuroraPPTXBuilder.s10_methodology)
++    assert 'строки_сертификата' in исходник, (
++        'слайд методологии больше не зовёт строки сертификата — блок молча '
++        'исчезнет из презентации'
++    )
+diff --git a/sidecar/econometrica/tests/test_methodology_cert.py b/sidecar/econometrica/tests/test_methodology_cert.py
+index 3364c2a..41d83a2 100644
+--- a/sidecar/econometrica/tests/test_methodology_cert.py
++++ b/sidecar/econometrica/tests/test_methodology_cert.py
+@@ -287,12 +287,24 @@ def test_у_закрытой_формулы_правдоподобия_нет():
+     assert 'kpi_likelihood' in build_cert_payload(байес, _разбивка(), _манифест())['model_spec']
+ 
+ 
+-def test_карта_адстоков_не_уходит_пустой():
+-    """🔴 F-09. Пустая карта утверждала бы «адстоков нет», хотя модель
+-    применила геометрический по умолчанию."""
+-    без_карты = _модель(channel_adstock_types={})
+-    spec = build_cert_payload(без_карты, _разбивка(), _манифест())['model_spec']
+-    assert spec['adstock_types'] == {'ТВ': 'geometric', 'Диджитал': 'geometric'}
++def test_карта_адстоков_восстанавливается_из_конфигурации():
++    """🔴 F-09 и его починка после аудита (Ф-01 High).
++
++    Пустая карта не должна утверждать «адстоков нет» — но и заполнять её
++    умолчанием нельзя: это ровно та подстановка, ради которой чинили Critical.
++    Настоящий источник — конфигурация обучения; нет его — ключа нет вовсе.
++    """
++    из_конфига = _модель(
++        channel_adstock_types={},
++        config={'kpi_type': 'sales',
++                'adstock_config': {'ТВ': 'geometric', 'Диджитал': 'weibull'}},
++    )
++    spec = build_cert_payload(из_конфига, _разбивка(), _манифест())['model_spec']
++    assert spec['adstock_types'] == {'ТВ': 'geometric', 'Диджитал': 'weibull'}
++
++    вовсе_без_источника = _модель(channel_adstock_types={}, config={'kpi_type': 'sales'})
++    spec2 = build_cert_payload(вовсе_без_источника, _разбивка(), _манифест())['model_spec']
++    assert 'adstock_types' not in spec2, 'подставлено умолчание вместо отказа от ключа'
+ 
+ 
+ def test_режим_малых_данных_заверяется_как_детерминированный():
+@@ -382,3 +394,47 @@ def test_округление_доли_зафиксировано_на_неро
+     сводка = payload['decomposition_summary']
+     assert сводка['Base']['contribution_pct'] == 61.23
+     assert сводка['ТВ']['contribution_pct'] == 28.77
++
++
++def test_карта_адстоков_берётся_из_настоящего_источника():
++    """🔴 Аудит починки, Ф-01 High: первая версия достраивала карту через
++    `get_adstock_type`, а тот читает ту же пустую карту и отдаёт `geometric`
++    всем. У режима малых данных карты не бывает никогда — в хеш уезжало бы
++    `geometric` даже там, где пользователь выбрал Вейбулла.
++    """
++    ols = _модель(
++        model_version='1.0-ols',
++        channel_adstock_types={},
++        config={'kpi_type': 'sales',
++                'adstock_config': {'ТВ': 'weibull', 'Диджитал': 'geometric'}},
++    )
++    spec = build_cert_payload(ols, _разбивка(), _манифест())['model_spec']
++    assert spec['adstock_types'] == {'ТВ': 'weibull', 'Диджитал': 'geometric'}, (
++        'в заверенное описание уехал подставленный тип адстока'
++    )
++
++
++def test_карта_адстоков_не_собирается_наполовину():
++    """Частичная карта утверждала бы об остальных каналах то, чего мы не знаем."""
++    неполная = _модель(
++        model_version='1.0-ols',
++        channel_adstock_types={},
++        config={'kpi_type': 'sales', 'adstock_config': {'ТВ': 'weibull'}},
++    )
++    spec = build_cert_payload(неполная, _разбивка(), _манифест())['model_spec']
++    assert 'adstock_types' not in spec
++
++
++def test_причина_отказа_не_содержит_имени_исключения():
++    """🔴 Ф-03. Клиентская половина починки F-08 — замена технической строки в
++    широком перехвате декомпозера — не была покрыта ничем."""
++    from engines.decomposer import _build_methodology_certificate
++
++    class ЛомающаясяМодель(dict):
++        def get(self, *args, **kwargs):  # noqa: D102
++            raise RuntimeError('внутренний сбой')
++
++    итог = _build_methodology_certificate(ЛомающаясяМодель(), _разбивка(), Path('нет.pkl'))
++    assert итог['status'] == 'unavailable'
++    assert 'Error' not in итог['reason'] and 'error' not in итог['reason']
++    assert итог['hash'] is None
+diff --git a/src/lib/components/pipeline/StepWrapper.svelte b/src/lib/components/pipeline/StepWrapper.svelte
+index 81eeb6b..ec63a1b 100644
+--- a/src/lib/components/pipeline/StepWrapper.svelte
++++ b/src/lib/components/pipeline/StepWrapper.svelte
+@@ -51,7 +51,7 @@
+           <span class="metric-label">Период</span>
+           <span class="metric-value">{validationMetrics.nObs}</span>
+         </span>
+-        <span class="metric-chip light-{validationMetrics.mqsStatus}" title="Оценка данных (MQS) – комбинированный балл готовности данных до обучения: считается по запасу данных, взаимосвязи каналов и длине периода. Шкала: {mqsScaleText()}. После обучения оценка уточняется по самой модели.">
++        <span class="metric-chip light-{validationMetrics.mqsStatus}" title="Оценка данных (MQS) – комбинированный балл готовности данных до обучения: считается по запасу данных, взаимосвязи каналов и длине периода. Шкала: {mqsScaleText()}. После обучения показывается другой балл под тем же именем – он считается по самой модели: точность на истории, средняя ошибка и сходимость расчёта.">
+           <span class="metric-label">Оценка данных (MQS)</span>
+           <span class="metric-value">{validationMetrics.mqs}</span>
+         </span>
+diff --git a/src/lib/glossary.js b/src/lib/glossary.js
+index cad1a02..e7c24ca 100644
+--- a/src/lib/glossary.js
++++ b/src/lib/glossary.js
+@@ -267,9 +267,9 @@ export const GLOSSARY = {
+   mqs: {
+     id: 'mqs',
+     term: 'Оценка данных (MQS)',
+-    short: 'Сводный балл готовности данных к моделированию, от 0 до 100.',
+-    long: 'Сводный балл готовности данных к моделированию, от 0 до 100. Считается по запасу данных, взаимосвязи каналов и длине периода – то есть отвечает на вопрос «можно ли на этих данных строить выводы», ещё до обучения модели.\n\nГде в Aurora: В шапке каждого шага как «Оценка данных (MQS)» и в отчёте после обучения, где балл уточняется по самой модели. Рядом с баллом программа всегда показывает уровень словами – от отличного до ненадёжного – и подсказку с границами уровней: числа берутся из единого источника, поэтому здесь они не повторяются.',
+-    example: '60 недель, четыре канала без сильной взаимосвязи – балл около 78, уровень «Хорошее». Те же каналы на 20 неделях дают около 50 – «Слабое»: выводы будут неустойчивыми.',
++    short: 'Сводный балл от 0 до 100, который отвечает на вопрос «насколько можно доверять выводам».',
++    long: 'Сводный балл от 0 до 100, который отвечает на вопрос «насколько можно доверять выводам». 🔴 Важно: балл считается **по-разному до и после обучения**, и это два разных показателя под одной аббревиатурой. До обучения – прогноз по данным: запас данных, взаимосвязь каналов, длина периода. После обучения – качество самой модели: точность на истории (R²), средняя ошибка (MAPE) и сходимость расчёта.\n\nГде в Aurora: В шапке каждого шага как «Оценка данных (MQS)» – это прогноз до обучения. В отчёте и на карточке модели – балл после обучения, посчитанный по другой формуле. Рядом с баллом программа всегда показывает уровень словами – от отличного до ненадёжного – и подсказку с границами уровней: числа берутся из единого источника, поэтому здесь они не повторяются.',
++    example: '60 недель и четыре канала без сильной взаимосвязи дают прогнозный балл около 75 – «Хорошее»: данных достаточно, чтобы начинать. После обучения та же модель может получить и выше, и ниже – там измеряется уже не подготовка данных, а то, насколько модель воспроизводит историю.',
+     related: ['data_ratio', 'vif'],
+   },
+   ovb: {
+diff --git a/tools/help_pdf_manifest.json b/tools/help_pdf_manifest.json
+index a365b54..b33960a 100644
+--- a/tools/help_pdf_manifest.json
++++ b/tools/help_pdf_manifest.json
+@@ -1,6 +1,6 @@
+ {
+   "version": "2.4.4",
+-  "generated": "2026-08-03T11:02:43Z",
++  "generated": "2026-08-03T11:33:38Z",
+   "sources": {
+     "about.html": "d341856678790fe296783eb6296b499fde5df8ec32c5cbd5d74caf7c2a1707b0",
+     "data-preparation.html": "f6e446f52ee9bf079bc1eee0d12923f8e84aa8ec9748f635e387407896bc3b48",
+@@ -8,7 +8,7 @@
+     "error-codes.html": "30c1c2a56367e27e7f5af3fc528f5cd37e82a7f442e63d0a462d79d91c9e541d",
+     "faq.html": "74209fcf4715614b074665cee5cdcc0417960c7aeb89b58948397a1eaa1b4337",
+     "features.html": "28d84c961725299e7285f4a033f623d35642f5d5e975bb2647be0340720bc064",
+-    "glossary.html": "f9642d44e37b37b61399c3a95a562b46dc93edf648ef7b4c399c818fada2a0c1",
++    "glossary.html": "c4a572dbefe3e0ae8f7435f1228087638cf7e85f2d8325525c98732a539c92cb",
+     "index.html": "e8d6ff1bc961ede6db38b99d7c31a2678e407060cd3f947e01195537af7caef4",
+     "install.html": "b307ed229c10d9a801d559c0399f3293eab14786049049bc85a0b162d591cf7e",
+     "interpretation.html": "fbc86093348c511c9e17a3576973023dcb12ee95cb1311491529f779df8b10b5",
