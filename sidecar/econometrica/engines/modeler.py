@@ -1713,6 +1713,40 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
             logger.warning(f'Sensitivity tornado failed (не блокирует обучение): {_sens_err}')
             diagnostics['sensitivity_tornado'] = None
 
+        # ─── P0.6 (2026-08-03): проверка канона — отрицательный базовый уровень ───
+        # Единственная проверка канона, за которой стоят деньги: ловит завышенный
+        # ROI. Если модель утверждает, что без рекламы продажи были бы
+        # отрицательными, значит вклад медиа приписан с избытком, и все советы по
+        # бюджету на этих вкладах завышены (Wang & Jin: неограниченные приоры дают
+        # содержательно невозможные оценки из-за пропущенных переменных).
+        #
+        # Считается ЗДЕСЬ, а не в декомпозиции, по трём причинам: (1) нормализованная
+        # матрица контролей и масштаб уже собраны — восстанавливать их из файла
+        # значило бы завести второй источник; (2) декомпозиция — читающая операция,
+        # писать из неё в диагностику значило бы поднять четвёртого писателя;
+        # (3) замер показал, что средняя база по выборкам совпадает с показанной в
+        # декомпозиции с точностью 0,12% — то есть считаем ровно ту величину,
+        # которую видит пользователь.
+        #
+        # Ключ кладётся на ВЕРХНИЙ уровень диагностики намеренно: `recompute_mqs`
+        # сливает секции, а не перезаписывает файл целиком (`mqs`, `verdict`,
+        # `checks` заменяются, верхний уровень сохраняется). Внутри `checks` ключ
+        # исчез бы при первом же пересчёте оценки качества.
+        try:
+            from utils.negative_baseline import compute_negative_baseline
+            diagnostics['negative_baseline'] = compute_negative_baseline(
+                intercept_samples=intercept_samples,
+                control_betas_samples=control_betas_samples,
+                x_control_norm=(
+                    X_control_norm.values if hasattr(X_control_norm, 'values') else X_control_norm
+                ),
+                y_mean=y_mean,
+                y_std=y_std,
+            )
+        except Exception as _nb_err:  # noqa: BLE001
+            logger.warning(f'Проверка базового уровня не выполнена (обучение не блокирует): {_nb_err}')
+            diagnostics['negative_baseline'] = None
+
         # ─── Phase 2 (Planning Mode) at-fit-time persistence ───
         # Audit pass 2 2026-05-02: persist granularity + x_norm quantiles +
         # seasonality detection so planning mode requests skip lazy inference
