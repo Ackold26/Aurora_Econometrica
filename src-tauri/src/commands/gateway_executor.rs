@@ -253,6 +253,55 @@ fn build_result_event(text: &str) -> String {
     serde_json::json!({ "type": "result", "result": text, "replace": true }).to_string()
 }
 
+/// Хвост ОСТАНОВЛЕННОЙ работы: текст и то немногое, что обязано дойти в любом случае.
+///
+/// 🔴 Признак `cancelled_run` нужен потому, что событие может доехать уже ПОСЛЕ
+/// того, как человек задал следующий вопрос (находка внешнего аудита; облачное
+/// ожидание длится до минуты, а «Остановить» отпускает окно немедленно). К тому
+/// времени признак остановки в интерфейсе снят, и хвост прежней работы приклеивался
+/// к чужому ответу либо затирал его целиком — финальное событие несёт признак
+/// замены. Различить их приёмнику было нечем: в событии нет ничего, что говорило
+/// бы, чьё оно.
+///
+/// `notice` — приписка (номер осиротевшей работы, «остановка не подтверждена»).
+/// Полный текст применим, только пока человек смотрит на остановленный ответ;
+/// приписка нужна ему всегда, потому и живёт отдельным полем.
+fn build_cancelled_event(text: &str, notice: &str) -> String {
+    serde_json::json!({
+        "type": "assistant",
+        "message": { "content": [ { "type": "text", "text": text } ] },
+        "cancelled_run": true,
+        "notice": notice,
+    })
+    .to_string()
+}
+
+/// Финальные события в чат: обычный финал либо хвост догнавшей отмены.
+///
+/// 🔴 `Some(...)` означает, что отмена догнала уже готовый ответ: между проверкой
+/// отмены и этой точкой прошли круг сети и запись выгрузки. Обычным финалом такой
+/// ответ слать нельзя — интерфейс заменяет им показанное, а показанное может
+/// принадлежать уже СЛЕДУЮЩЕМУ вопросу человека.
+fn emit_final(
+    app_handle: &tauri::AppHandle,
+    cabinet_id: &str,
+    text: &str,
+    cancelled_notice: Option<&str>,
+) {
+    let (stream_event, done_payload) = match cancelled_notice {
+        Some(notice) => (
+            build_cancelled_event(text, notice),
+            serde_json::json!({ "exit_code": 0, "cancelled": true }),
+        ),
+        None => (
+            build_result_event(text),
+            serde_json::json!({ "exit_code": 0 }),
+        ),
+    };
+    let _ = app_handle.emit(&format!("claude-stream-{cabinet_id}"), stream_event);
+    let _ = app_handle.emit(&format!("claude-done-{cabinet_id}"), done_payload);
+}
+
 /// С каким усилием считать: настройка пользователя, как и на локальном пути.
 fn effort_for(app_handle: &tauri::AppHandle) -> Option<String> {
     app_handle
@@ -443,9 +492,12 @@ fn cancel_notice(state: &JobState) -> Option<String> {
 /// об осиротевшем задании вовсе, а именно неуспех и делает эту весть нужной:
 /// место среди одновременных занято, следующий вопрос упрётся в потолок.
 fn append_stray_notice(text: &mut String, stray_job: &Option<String>) {
-    if let Some(id) = stray_job {
-        text.push_str(&unconfirmed_cancel_text(id));
-    }
+    text.push_str(&stray_notice_text(stray_job));
+}
+
+/// Приписка про осиротевшую работу отдельной строкой — без текста ответа.
+fn stray_notice_text(stray_job: &Option<String>) -> String {
+    stray_job.as_ref().map(|id| unconfirmed_cancel_text(id)).unwrap_or_default()
 }
 
 /// Что сделать с памятью набора после успешной работы.
@@ -936,7 +988,7 @@ async fn execute(
             if has_notice {
                 let _ = app_handle.emit(
                     &format!("claude-stream-{cabinet_id}"),
-                    build_stream_event(&shown),
+                    build_cancelled_event(&shown, &stray_notice_text(&stray_job)),
                 );
             }
             let _ = app_handle.emit(
@@ -958,14 +1010,8 @@ async fn execute(
             let mut text = format!("{shown}\n\n---\n**Ответ неполный.** {}", e.user_text());
             append_stray_notice(&mut text, &stray_job);
             if !suppress_done {
-                let _ = app_handle.emit(
-                    &format!("claude-stream-{cabinet_id}"),
-                    build_result_event(&text),
-                );
-                let _ = app_handle.emit(
-                    &format!("claude-done-{cabinet_id}"),
-                    serde_json::json!({ "exit_code": 0 }),
-                );
+                let cancelled_tail = work.cancelled().then(|| stray_notice_text(&stray_job));
+                emit_final(&app_handle, &cabinet_id, &text, cancelled_tail.as_deref());
             }
             if !suppress_export {
                 // 🔴 Признак неполноты идёт и в ИМЯ файла (находка внешнего аудита):
@@ -986,20 +1032,18 @@ async fn execute(
         // событие, забирает показанное — приписка, добавленная после, до него уже
         // не доедет (находка внешнего аудита).
         let mut text = state.text.clone();
-        if let Some(notice) = cancel_notice(&state) {
+        // Приписки собираются и отдельно: полный текст остановленной работы
+        // применим, только пока человек смотрит на неё, а приписка нужна всегда.
+        let mut notice = String::new();
+        if let Some(unconfirmed) = cancel_notice(&state) {
             warn!("Остановка не подтверждена сервером [{cabinet_id}]: {}", state.job_id);
-            text.push_str(&notice);
+            text.push_str(&unconfirmed);
+            notice.push_str(&unconfirmed);
         }
         append_stray_notice(&mut text, &stray_job);
+        notice.push_str(&stray_notice_text(&stray_job));
         if !suppress_done {
-            let _ = app_handle.emit(
-                &format!("claude-stream-{cabinet_id}"),
-                build_result_event(&text),
-            );
-            let _ = app_handle.emit(
-                &format!("claude-done-{cabinet_id}"),
-                serde_json::json!({ "exit_code": 0, "cancelled": true }),
-            );
+            emit_final(&app_handle, &cabinet_id, &text, Some(&notice));
         }
         return Ok((None, text));
     }
@@ -1064,14 +1108,8 @@ async fn execute(
     if !suppress_done {
         // Финальный текст в чат ДО готовности (порядок локального пути): иначе
         // интерфейс получил бы сигнал завершения раньше самого ответа.
-        let _ = app_handle.emit(
-            &format!("claude-stream-{cabinet_id}"),
-            build_result_event(&text),
-        );
-        let _ = app_handle.emit(
-            &format!("claude-done-{cabinet_id}"),
-            serde_json::json!({ "exit_code": 0 }),
-        );
+        let cancelled_tail = work.cancelled().then(|| stray_notice_text(&stray_job));
+        emit_final(&app_handle, &cabinet_id, &text, cancelled_tail.as_deref());
     }
 
     if !suppress_export {
@@ -1257,6 +1295,38 @@ mod tests {
         let raw = build_result_event("Строка с «кавычками», \"двойными\"\nи переносом");
         let v: serde_json::Value = serde_json::from_str(&raw).expect("экранирование сломано");
         assert_eq!(v["result"], "Строка с «кавычками», \"двойными\"\nи переносом");
+    }
+
+    #[test]
+    fn cancelled_tail_says_whose_it_is() {
+        // 🔴 Хвост остановленной работы может доехать уже во время СЛЕДУЮЩЕЙ
+        // (облачное ожидание — до минуты, «Остановить» отпускает окно сразу).
+        // Без пометки приёмнику нечем отличить его от своего: текст приклеивался
+        // к чужому ответу, а финальное событие затирало чужой ответ целиком.
+        let raw = build_cancelled_event("показанное", "работа 7f3 осталась на узле");
+        let v: serde_json::Value = serde_json::from_str(&raw).expect("событие обязано быть JSON");
+        assert_eq!(v["cancelled_run"], true, "событие обязано называть себя хвостом остановленной работы");
+        assert_eq!(
+            v["notice"], "работа 7f3 осталась на узле",
+            "приписка обязана ехать отдельно: полный текст применим не всегда, а она — всегда",
+        );
+        assert_eq!(
+            v["message"]["content"][0]["text"], "показанное",
+            "разбор текста обязан совпадать с обычным событием потока",
+        );
+        assert!(
+            v.get("replace").is_none(),
+            "хвост остановленной работы не имеет права требовать замены показанного",
+        );
+    }
+
+    #[test]
+    fn stray_notice_is_empty_when_nothing_was_left_behind() {
+        assert_eq!(stray_notice_text(&None), "");
+        assert!(
+            stray_notice_text(&Some("7f3".to_string())).contains("7f3"),
+            "приписка обязана называть номер работы поимённо",
+        );
     }
 
     #[test]

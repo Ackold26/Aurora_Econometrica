@@ -5,6 +5,7 @@
   import { messages, isLoading, activeCabinet, pendingCommand, stickyContext, cabinetCommands, inboxFiles as inboxFilesStore } from '$lib/store.js';
   import { toast } from '$lib/toast.js';
   import { attachmentsSkippedText } from '$lib/cloud-warning-text.js';
+  import { cancelledTailAction, insertBeforeActiveBubble } from '$lib/cancelled-run.js';
   import { getNextSteps, getRandomInsight, getCurrentPhase, trackRequest, getEmpathyError, getTimeGreeting, getUsageHint, startSession, incrementSessionMessages, endSession, pluralRu, getResponseActions, getSafetyTimeout, getEndowedProgressMessage, getContextInsight } from '$lib/psy.js';
   import { classifyMessage } from '$lib/chat-classifier.js';
   import { markMessageUnsaved } from '$lib/chat-save-status.js';
@@ -156,6 +157,11 @@
   /** @type {number|null} */
   let startTime = null;
   let cancelled = false;
+  // 🔴 Номер хода чата. Отказ работы возвращается НЕ событием, а результатом команды,
+  // и признака принадлежности не несёт вовсе: промис висит до конца работы, поэтому
+  // отказ ОСТАНОВЛЕННОЙ работы срабатывает уже во время следующей — гасит её
+  // защитный таймер и прогресс. Тот же класс, что CPD-42, на непокрытом пути.
+  let turnSeq = 0;
 
   // PSY-2: Random insight for loading state
   let currentInsight = $state('');
@@ -455,6 +461,29 @@
     }
 
     unlistenStream = await listen(`claude-stream-${cabinetId}`, (event) => {
+      // 🔴 Помеченный хвост ОСТАНОВЛЕННОЙ работы разбирается ДО признака отмены
+      // (находка аудита правок). Прежде проверка стояла ниже, и хвост погибал ровно
+      // в том случае, ради которого пометка заведена: человек нажал «Остановить»,
+      // признак стоит — и приписка с номером осиротевшей работы выбрасывалась первой
+      // же строкой. Без неё человеку нечего назвать поддержке: место среди
+      // одновременных занято, а следующий вопрос упрётся в потолок.
+      let tail = null;
+      try { tail = JSON.parse(event.payload); } catch { tail = null; }
+      if (tail?.cancelled_run) {
+        // 🔴 Хвост остановленной работы НИКОГДА не продолжает ленту (второй заход
+        // аудита). Прежде решение принималось по `$isLoading` — то есть снова по
+        // памяти приёмника, только переменную сменили: стоило следующему вопросу
+        // успеть ответить, и текст остановленной работы дописывался в конец ЕГО
+        // ответа. Полный текст уже показан потоком; дойти обязана приписка, и она
+        // встаёт ПЕРЕД активным пузырём, чтобы не рвать накопительную склейку.
+        if (cancelledTailAction(tail.notice) === 'notice') {
+          messages.update(msgs => insertBeforeActiveBubble(msgs, {
+            role: 'system', content: tail.notice, ts: Date.now(),
+          }));
+          if (isNearBottom()) scrollToBottom();
+        }
+        return;
+      }
       if (cancelled) return;
       try {
         const data = JSON.parse(event.payload);
@@ -648,7 +677,23 @@
       toast(reason, 'warning', 10000);
     });
 
-    unlistenDone = await listen(`claude-done-${cabinetId}`, () => {
+    unlistenDone = await listen(`claude-done-${cabinetId}`, (event) => {
+      // 🔴 Остановленность определяет САМО событие, а не наш признак (находка
+      // внешнего аудита). Признак снимается следующим вопросом человека, и
+      // завершение остановленной работы, доехавшее после него, шло по обычному
+      // пути: гасило прогресс и защитный таймер ЖИВОЙ работы, а её недописанный
+      // текст уходило сохранять в историю.
+      let payload = event.payload;
+      if (typeof payload === 'string') {
+        try { payload = JSON.parse(payload); } catch { payload = null; }
+      }
+      if (payload?.cancelled) {
+        // 🔴 Флаг НЕ трогаем (находка аудита правок): финал остановленной работы A
+        // мог доехать, когда признак принадлежит уже работе B, которую человек тоже
+        // остановил. Сбросив его здесь, мы пустили бы финал B обычным путём — он
+        // погасил бы прогресс и сохранил недописанное в историю.
+        return;
+      }
       if (cancelled) {
         cancelled = false;
         return;
@@ -803,6 +848,7 @@
     incrementSessionMessages();
     inputText = '';
     cancelled = false;
+    const myTurn = ++turnSeq;
     // Track command for auto-continue (slash commands only, reset for follow-ups)
     if (text.startsWith('/')) {
       lastCommand = text.split(/\s/)[0];
@@ -863,8 +909,19 @@
     try {
       await invoke('send_message', { cabinetId, message: messageToSend });
     } catch (err) {
+      // 🔴 Отказ ПРОШЛОГО хода не властен над текущим (тот же класс, что CPD-42, на
+      // пути, который событий не шлёт вовсе). Промис команды висит до конца работы,
+      // поэтому отказ остановленной работы срабатывает уже во время следующей: он
+      // погасил бы её защитный таймер, прогресс и признак занятости. Сам текст отказа
+      // человеку показать обязаны — работа, которую он запускал, не удалась.
+      const stale = myTurn !== turnSeq;
+      // Отказ прошлого хода встаёт ПЕРЕД активным пузырём: приписанный в конец, он
+      // разорвал бы накопительную склейку текущего ответа и тот показался бы дважды.
+      messages.update(msgs => insertBeforeActiveBubble(msgs, {
+        role: 'system', content: `Ошибка: ${err}`, ts: Date.now(),
+      }));
+      if (stale) return;
       clearTimeout(safetyTimer);
-      messages.update(msgs => [...msgs, { role: 'system', content: `Ошибка: ${err}`, ts: Date.now() }]);
       isLoading.set(false);
       resetProgress();
     }
