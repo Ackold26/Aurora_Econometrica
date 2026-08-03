@@ -319,6 +319,10 @@ impl SessionManager {
                 }
             }
         }
+        // Пять источников кладут в ОДИН приёмник, поэтому одно и то же имя может прийти дважды;
+        // клиенту его показывают списком (находка внешнего аудита, Low).
+        blocked.sort();
+        blocked.dedup();
         Ok(blocked)
     }
 
@@ -1095,6 +1099,30 @@ mod export_sync_tests {
         assert!(
             desktop.join("exports/свободный.md").exists(),
             "проход обязан продолжиться: остальные результаты доезжают до клиента"
+        );
+    }
+
+    /// Находка внешнего аудита (Low): пять источников кладут в ОДИН приёмник, и одно имя,
+    /// заблокированное дважды, попадало в клиентское сообщение дважды.
+    #[test]
+    fn a_name_blocked_by_two_sources_is_reported_once() {
+        let tmp = tempfile::tempdir().unwrap();
+        let work_dir = tmp.path().join("session-work");
+        let desktop = tmp.path().join("Рабочий стол/Aurora/econometrist");
+        std::fs::create_dir_all(work_dir.join("exports")).unwrap();
+        std::fs::create_dir_all(work_dir.join("reports")).unwrap();
+        std::fs::write(work_dir.join("exports/отчёт.docx"), "из выгрузок").unwrap();
+        std::fs::write(work_dir.join("reports/отчёт.docx"), "из отчётов").unwrap();
+        // Приёмник занят обоими: на месте файла каталог.
+        std::fs::create_dir_all(desktop.join("exports/отчёт.docx")).unwrap();
+
+        let manager = manager_with_session(&work_dir, &desktop, tmp.path());
+        let blocked = manager.sync_exports("econometrist").expect("проход не рвётся");
+
+        assert_eq!(
+            blocked,
+            vec!["отчёт.docx".to_string()],
+            "имя, не записанное из двух источников, обязано быть названо клиенту один раз"
         );
     }
 

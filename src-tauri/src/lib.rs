@@ -1208,8 +1208,18 @@ async fn send_message(
                                             serde_json::json!({ "exit_code": 0 }).to_string(),
                                         );
 
-                                        // Sync exports + notify
-                                        let _ = state.session_manager.sync_exports(&cabinet_id);
+                                        // Sync exports + notify.
+                                        // Находка внешнего аудита: имена незаписанных файлов
+                                        // отбрасывались молча — гарантия «отказ виден» держалась
+                                        // на одном вызове из трёх.
+                                        match state.session_manager.sync_exports(&cabinet_id) {
+                                            Ok(blocked) if !blocked.is_empty() => warn!(
+                                                "Не обновлены в папке результатов [{cabinet_id}]: {}",
+                                                blocked.join(", ")
+                                            ),
+                                            Ok(_) => {}
+                                            Err(e) => warn!("Синхронизация выгрузок не прошла [{cabinet_id}]: {e}"),
+                                        }
                                         let _ = app_handle.emit(&format!("exports-updated-{}", cabinet_id), ());
 
                                         let elapsed = msg_start.elapsed().as_secs_f64();
@@ -1458,12 +1468,17 @@ async fn send_message(
     match state.session_manager.sync_exports(&cabinet_id) {
         Ok(blocked) if !blocked.is_empty() => {
             warn!("Не обновлены в папке результатов [{cabinet_id}]: {}", blocked.join(", "));
+            // 🔴 Тип события — `notice`, а НЕ `error` (находка внешнего аудита). Событие с типом
+            // `error` фронт проводит через `getEmpathyError`, и без кода `[CL-NN]` заголовок
+            // жёстко становится «Произошла ошибка», а точный текст уходит в подпись. Человек
+            // читает первую строку — «ошибка» там, где ответ получен полностью: ровно то ложное
+            // утверждение продукта о себе (INV-50), которое этот блок и выкорчёвывает.
             let _ = app_handle.emit(
                 &format!("claude-stream-{cabinet_id}"),
                 serde_json::json!({
-                    "type": "error",
+                    "type": "notice",
                     "message": format!(
-                        "Ответ получен, но файлы не обновлены в папке результатов: {}. \
+                        "Ответ получен. Не обновлены файлы в папке результатов: {}. \
                          Вероятная причина – файл открыт в другой программе. Закройте его, \
                          следующий ответ обновит файл.",
                         blocked.join(", ")
@@ -3192,7 +3207,15 @@ fn execute_workflow_steps(
                         return Err(err);
                     }
 
-                    let _ = state.session_manager.sync_exports(cabinet_id);
+                    // Находка внешнего аудита: отказ по отдельным файлам отбрасывался молча.
+                    match state.session_manager.sync_exports(cabinet_id) {
+                        Ok(blocked) if !blocked.is_empty() => warn!(
+                            "Не обновлены в папке результатов [{cabinet_id}]: {}",
+                            blocked.join(", ")
+                        ),
+                        Ok(_) => {}
+                        Err(e) => warn!("Синхронизация выгрузок не прошла [{cabinet_id}]: {e}"),
+                    }
                     let _ = state.session_manager.auto_route_artifacts(cabinet_id);
 
                     // Pipeline: persist exports + summarize + forward to next step

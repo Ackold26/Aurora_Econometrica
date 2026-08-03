@@ -10,6 +10,18 @@
 //! the "ok" response; the client verifies with the embedded public key. Without the private
 //! key an attacker cannot fabricate a valid response on the wire OR in session_cache.json.
 //!
+//! 🔴 Граница защиты, названная честно (INV-50; уточнено находкой внешнего аудита 2026-08-03).
+//! Утверждение выше верно РОВНО НАСТОЛЬКО, насколько подпись проверяется на КАЖДОМ пути, где
+//! ответу начинают доверять, — включая чтение `session_cache.json` (см. `read_fresh_cache`).
+//! Сверх этого защита НЕ покрывает:
+//!   - поля вне подписываемого набора: адреса и контрольные суммы доставки лежат в том же файле,
+//!     и законно подписанный ответ можно дополнить своими (поэтому из кэша они не берутся вовсе);
+//!   - ответ БЕЗ подписи: он законен (так отвечает сервер локальной редакции), поэтому в мягком
+//!     режиме принимается — срок доверия ему сокращён, но подделка без подписи проходит;
+//!   - окно отзыва: метка времени кэша вне подписи, а локальные часы принадлежат пользователю.
+//! Пока `AUTH_SIG_ENFORCEMENT = Soft`, честная формулировка — «сокращает срок жизни подделки и
+//! отсекает подделку с неверной подписью», а не «подделка невозможна».
+//!
 //! Payload format (UTF-8, fields joined by '\n') — deterministic string, NOT JSON
 //! (JSON serialisation drifts between Deno and Rust):
 //!   AUTHSIG-v1\n{status}\n{fingerprint_hash}\n{product}\n{cabinets_sorted}\n{content_version}\n{expires_at}

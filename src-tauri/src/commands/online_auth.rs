@@ -275,8 +275,59 @@ fn save_cache(app_config_dir: &Path, response: &AuthResponse, sig_verified: bool
         sig_verified,
     };
     let json = serde_json::to_string(&cached)?;
-    std::fs::write(cache_path(app_config_dir), json)?;
+    // Находка внешнего аудита (Info): запись была не атомарной — обрыв посреди неё оставлял
+    // битый JSON, то есть отнимал офлайн у честного пользователя. Пишем во временный файл и
+    // переименовываем (INV-42, тот же приём, что у эталона линейки).
+    let path = cache_path(app_config_dir);
+    let tmp = path.with_extension("json.tmp");
+    std::fs::write(&tmp, json)?;
+    std::fs::rename(&tmp, &path)?;
     Ok(())
+}
+
+/// Приговор сохранённому ответу (CPD-40, находка внешнего аудита B-1). Чистая функция:
+/// признак «подпись сошлась» приходит снаружи, поэтому все ветки проверяются без боевого ключа.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CacheVerdict {
+    /// Годен, срок доверия — полный (подпись сошлась ЗДЕСЬ И СЕЙЧАС).
+    AcceptVerified,
+    /// Годен, но коротко: подписи в ответе нет вовсе (законный путь, так отвечает сервер
+    /// локальной редакции).
+    AcceptUnverified,
+    /// Подпись ЕСТЬ и не сходится — сохранённый ответ подделан либо принадлежит другой машине.
+    Forged,
+}
+
+/// Решение по сохранённому ответу. `sig_ok` вычисляется вызывающим — здесь только правило.
+fn cache_verdict(signature: &str, sig_ok: bool) -> CacheVerdict {
+    if sig_ok {
+        CacheVerdict::AcceptVerified
+    } else if signature.is_empty() {
+        CacheVerdict::AcceptUnverified
+    } else {
+        CacheVerdict::Forged
+    }
+}
+
+/// Сошлась ли подпись СОХРАНЁННОГО ответа на этой машине прямо сейчас.
+///
+/// 🔴 Отпечаток берётся живой, а продукт — из сборки: подменённый файл, снятый с другой машины
+/// или из другого продукта линейки, подписи не даст. Отпечаток считается один раз за запуск
+/// (`FINGERPRINT_CACHE`), поэтому проверка при каждом чтении кэша бесплатна.
+fn cached_signature_matches(response: &AuthResponse) -> bool {
+    let Ok(fp) = fingerprint::get_machine_fingerprint() else {
+        return false;
+    };
+    let fp_hash = fingerprint::hash_fingerprint(&fp);
+    let payload = crate::crypto::auth_sig::build_auth_payload(
+        &response.status,
+        &fp_hash,
+        detect_product(),
+        &response.cabinets,
+        response.content_version.as_deref(),
+        response.expires_at.as_deref(),
+    );
+    crate::crypto::auth_sig::verify_auth_signature(&payload, &response.signature)
 }
 
 /// Прочитать сохранённый ответ, если он ещё годен. Возвращает его вместе с
@@ -284,7 +335,7 @@ fn save_cache(app_config_dir: &Path, response: &AuthResponse, sig_verified: bool
 fn read_fresh_cache(app_config_dir: &Path) -> Option<(AuthResponse, u64)> {
     let path = cache_path(app_config_dir);
     let data = std::fs::read_to_string(&path).ok()?;
-    let cached: CachedAuth = serde_json::from_str(&data).ok()?;
+    let mut cached: CachedAuth = serde_json::from_str(&data).ok()?;
 
     let now = SystemTime::now().duration_since(UNIX_EPOCH).ok()?.as_secs();
     // Future-dated cached_at (часы сдвинуты назад / подделка файла кэша) — аномалия:
@@ -295,20 +346,71 @@ fn read_fresh_cache(app_config_dir: &Path) -> Option<(AuthResponse, u64)> {
         return None;
     }
     let age = now - cached.cached_at;
-    // CPD-40 (A-3): кэш с неподтверждённой подписью живёт сутки, а не неделю
-    // (см. CACHE_TTL_UNVERIFIED_SECS).
-    let ttl = cache_ttl_secs(cached.sig_verified);
+
+    // 🔴 CPD-40, находка внешнего аудита (High): доверие не имеет права держаться на признаке,
+    // лежащем в ТОМ ЖЕ файле. Прежде срок брался из поля `sig_verified`, и достаточно было
+    // написать в файл `"sig_verified": true` с любым содержимым ответа, чтобы получить неделю
+    // полного доступа без сервера — часы при этом трогать не нужно. Подпись перепроверяется
+    // ЗДЕСЬ, при каждом чтении; поле в файле осталось справочным и на решение не влияет.
+    let verdict = cache_verdict(
+        &cached.response.signature,
+        cached_signature_matches(&cached.response),
+    );
+    let ttl = match verdict {
+        CacheVerdict::Forged => {
+            warn!(
+                "SEC-1: подпись сохранённого ответа входа не сходится — файл отвергнут \
+                 (подделка либо ответ с другой машины)"
+            );
+            return None;
+        }
+        CacheVerdict::AcceptVerified => cache_ttl_secs(true),
+        CacheVerdict::AcceptUnverified => cache_ttl_secs(false),
+    };
     if age > ttl {
         info!(
             "Auth cache expired (age: {}ч, потолок {}ч{})",
             age / 3600,
             ttl / 3600,
-            if cached.sig_verified { "" } else { ", подпись не подтверждена" }
+            if verdict == CacheVerdict::AcceptVerified { "" } else { ", подпись не подтверждена" }
         );
         return None;
     }
 
+    // 🔴 Находка внешнего аудита (Medium): подпись покрывает шесть полей, а на диске лежит ВЕСЬ
+    // ответ. Посредник, взявший законно подписанный ответ, может дописать свои адреса доставки —
+    // подпись останется валидной. Из сохранённого ответа адреса и контрольные суммы доставки не
+    // берутся вовсе: офлайн ничего не качает, а обновляться продукт вправе только по живому
+    // ответу сервера.
+    cached.response.content_pack_url = None;
+    cached.response.content_pack_checksum = None;
+    cached.response.frontend_url = None;
+    cached.response.frontend_checksum = None;
+    cached.response.update_url = None;
+
     Some((cached.response, age))
+}
+
+/// Лежит ли на диске ПОДТВЕРЖДЁННЫЙ и ещё не истёкший ответ. Нужна, чтобы неподписанный ответ
+/// не понижал доверие уже имеющемуся (находка внешнего аудита).
+fn verified_cache_is_fresh(app_config_dir: &Path) -> bool {
+    let Ok(data) = std::fs::read_to_string(cache_path(app_config_dir)) else {
+        return false;
+    };
+    let Ok(cached) = serde_json::from_str::<CachedAuth>(&data) else {
+        return false;
+    };
+    let Ok(now) = SystemTime::now().duration_since(UNIX_EPOCH) else {
+        return false;
+    };
+    let now = now.as_secs();
+    if cached.cached_at > now || now - cached.cached_at > cache_ttl_secs(true) {
+        return false;
+    }
+    cache_verdict(
+        &cached.response.signature,
+        cached_signature_matches(&cached.response),
+    ) == CacheVerdict::AcceptVerified
 }
 
 /// Есть ли на руках годный сохранённый ответ — тихая проверка.
@@ -490,13 +592,22 @@ pub async fn check_auth(
                      но на диск ответ не пишется: подделка не переживёт эту сессию"
                 ),
             },
-            crate::crypto::auth_sig::Enforcement::Hard => {
-                if !sig_ok {
-                    anyhow::bail!(
-                        "[SEC-1] подпись ответа входа не подтверждена — доступ не выдан"
-                    );
-                }
-            }
+            // 🔴 Находка внешнего аудита (Medium): в жёстком режиме нельзя валить обе ветки
+            // одним условием. «Подписи нет вовсе» — путь ЗАКОННЫЙ, и он живой прямо сейчас:
+            // сервер локальной редакции отвечает без подписи (проверено живым кэшем
+            // `com.aurora.econometrica.local`). Переключение константы без второй половины
+            // работы отняло бы вход у таких сборок, а мягкий режим этого не показал бы —
+            // там тот же случай пишется обычным предупреждением. Причины разведены, чтобы
+            // отказ был диагностируем, а не «подпись не подтверждена» на оба разных случая.
+            crate::crypto::auth_sig::Enforcement::Hard => match policy {
+                CachePolicy::Verified => {}
+                CachePolicy::Unverified => anyhow::bail!(
+                    "[SEC-1] сервер не подписал ответ входа — доступ не выдан (жёсткий режим)"
+                ),
+                CachePolicy::Reject => anyhow::bail!(
+                    "[SEC-1] подпись ответа входа не сходится — доступ не выдан"
+                ),
+            },
         }
     }
 
@@ -512,6 +623,18 @@ pub async fn check_auth(
                 error!(
                     "SEC-1 (A-3): ответ входа с неверной подписью НЕ кэширован — доступ выдан \
                      (мягкий режим), но подделка не переживёт эту сессию"
+                );
+            }
+            // 🔴 Находка внешнего аудита (Medium): ответ БЕЗ подписи молча затирал
+            // ПОДТВЕРЖДЁННЫЙ грант — доверие падало с недели до суток, а вместе с ним уезжали
+            // кабинеты: у `AuthResponse` все поля, кроме статуса, со значением по умолчанию,
+            // поэтому телом `{"status":"ok"}` дело и ограничивается. Сценарий не выдуманный:
+            // подмена ответа в сети либо сервер, временно переставший подписывать. Понижения не
+            // допускаем, пока подтверждённый ответ на диске ещё в силе.
+            CachePolicy::Unverified if verified_cache_is_fresh(app_config_dir) => {
+                warn!(
+                    "SEC-1: ответ без подписи НЕ заменил подтверждённый сохранённый ответ — \
+                     доверие не понижается"
                 );
             }
             CachePolicy::Verified | CachePolicy::Unverified => {
@@ -688,6 +811,14 @@ mod tests {
     /// 🔴 `sig_verified` задаётся явно, а не берётся по умолчанию: от него зависит СРОК доверия
     /// (CPD-40, A-3), и тест недельной границы, записанный кэшем без подписи, проверял бы
     /// суточную — оставаясь при этом зелёным.
+    /// Синтаксически годная, но заведомо неверная подпись: 64 нулевых байта в base64.
+    /// Настоящую подпись в тесте не сделать — закрытый ключ у сервера, — а для ветки
+    /// «подпись есть и не сходится» этого достаточно.
+    fn base64_of_zero_signature() -> String {
+        use base64::{engine::general_purpose::STANDARD, Engine};
+        STANDARD.encode([0u8; 64])
+    }
+
     fn write_cache_with_age(dir: &Path, cached_at: u64, sig_verified: bool) {
         let cached = CachedAuth { response: sample_response(), cached_at, sig_verified };
         std::fs::write(cache_path(dir), serde_json::to_string(&cached).unwrap()).unwrap();
@@ -759,31 +890,169 @@ mod tests {
         assert!(cache_ttl_secs(false) < cache_ttl_secs(true));
     }
 
-    /// 🔴 Живое следствие короткого срока: кэш без подтверждённой подписи, которому двое суток,
-    /// отвергается — при том что подтверждённый того же возраста ещё годен. Без этой пары правило
-    /// удовлетворялось бы и функцией, которая отвергает всё подряд.
+    /// 🔴 Ядро находки внешнего аудита (High): признак `sig_verified` в файле БОЛЬШЕ НЕ ДАЁТ
+    /// доверия. Прежде достаточно было написать в кэш `"sig_verified": true`, чтобы получить
+    /// недельный срок без сервера и без правки часов; теперь подпись перепроверяется при чтении,
+    /// и двухдневный кэш без настоящей подписи отвергается, что бы ни стояло в файле.
     #[test]
-    fn two_day_old_cache_survives_only_with_a_verified_signature() {
+    fn the_flag_in_the_file_no_longer_buys_a_week() {
         let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
         let two_days = 2 * 24 * 60 * 60;
 
-        let unverified = tmp_dir();
-        write_cache_with_age(&unverified, now - two_days, false);
+        let dir = tmp_dir();
+        write_cache_with_age(&dir, now - two_days, true); // подписи в ответе нет, флаг подняли
         assert!(
-            load_cache(&unverified).is_none(),
-            "кэш с неподтверждённой подписью старше суток обязан отвергаться: иначе подделка \
-             посредника живёт неделю"
+            load_cache(&dir).is_none(),
+            "кэш без настоящей подписи обязан жить сутки, сколько бы ни утверждал файл о себе"
         );
-        let _ = std::fs::remove_dir_all(&unverified);
+        let _ = std::fs::remove_dir_all(&dir);
 
-        let verified = tmp_dir();
-        write_cache_with_age(&verified, now - two_days, true);
+        // Позитивный контроль: часовой кэш без подписи по-прежнему годен — офлайн у честных
+        // пользователей не отнят, отвергается именно ПРОСРОЧЕННЫЙ.
+        let fresh = tmp_dir();
+        write_cache_with_age(&fresh, now - 3600, false);
         assert!(
-            load_cache(&verified).is_some(),
-            "подтверждённый кэш обязан переживать двухдневный офлайн — иначе правка отняла бы \
-             офлайн у честных пользователей"
+            load_cache(&fresh).is_some(),
+            "свежий кэш без подписи обязан читаться: путь «сервер не подписывает» законный"
         );
-        let _ = std::fs::remove_dir_all(&verified);
+        let _ = std::fs::remove_dir_all(&fresh);
+    }
+
+    /// 🔴 Кэш с ПРИСУТСТВУЮЩЕЙ, но неверной подписью отвергается независимо от возраста: у такого
+    /// файла нет законного источника. Свежесть его не спасает — иначе подделка жила бы сутки.
+    #[test]
+    fn cache_with_a_present_but_wrong_signature_is_rejected_even_when_fresh() {
+        let dir = tmp_dir();
+        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+        let mut response = sample_response();
+        response.signature = base64_of_zero_signature();
+        let cached = CachedAuth { response, cached_at: now - 60, sig_verified: true };
+        std::fs::write(cache_path(&dir), serde_json::to_string(&cached).unwrap()).unwrap();
+
+        assert!(
+            load_cache(&dir).is_none(),
+            "подпись есть и не сходится — сохранённый ответ подделан либо снят с чужой машины"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Правило приговора без боевого ключа: признак «подпись сошлась» приходит снаружи.
+    #[test]
+    fn cache_verdict_rules() {
+        assert_eq!(cache_verdict("YWJjZGVm", true), CacheVerdict::AcceptVerified);
+        assert_eq!(cache_verdict("", false), CacheVerdict::AcceptUnverified);
+        assert_eq!(cache_verdict("YWJjZGVm", false), CacheVerdict::Forged);
+    }
+
+    /// 🔴 Находка внешнего аудита (Medium): подпись покрывает шесть полей, а на диске лежит весь
+    /// ответ — законно подписанный ответ можно дополнить своими адресами доставки. Из кэша адреса
+    /// и контрольные суммы не берутся вовсе.
+    #[test]
+    fn delivery_addresses_never_come_from_the_cache() {
+        let dir = tmp_dir();
+        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+        let mut response = sample_response();
+        response.content_pack_url = Some("https://evil.example/pack.zip".to_string());
+        response.content_pack_checksum = Some("sha256:deadbeef".to_string());
+        response.frontend_url = Some("https://evil.example/frontend.zip".to_string());
+        response.frontend_checksum = Some("sha256:deadbeef".to_string());
+        response.update_url = Some("https://evil.example/setup.exe".to_string());
+        let cached = CachedAuth { response, cached_at: now - 60, sig_verified: false };
+        std::fs::write(cache_path(&dir), serde_json::to_string(&cached).unwrap()).unwrap();
+
+        let loaded = load_cache(&dir).expect("свежий кэш обязан читаться");
+        assert_eq!(loaded.content_pack_url, None, "адрес пакета содержимого не из кэша");
+        assert_eq!(loaded.content_pack_checksum, None);
+        assert_eq!(loaded.frontend_url, None, "адрес бандла фронта не из кэша — там исполняемый код");
+        assert_eq!(loaded.frontend_checksum, None);
+        assert_eq!(loaded.update_url, None, "адрес обновления не из кэша");
+        assert_eq!(loaded.cabinets, vec!["econometrist".to_string()], "подписанные поля остаются");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// 🔴 Находка внешнего аудита (Medium): жёсткий режим не имеет права валить одним условием
+    /// два разных случая — «подпись не сходится» (подделка) и «подписи нет вовсе» (законный путь,
+    /// живой прямо сейчас: сервер локальной редакции не подписывает). Иначе переключение
+    /// константы молча отнимет вход у таких сборок, а мягкий режим этого не покажет.
+    #[test]
+    fn hard_mode_tells_the_two_refusals_apart() {
+        let src = include_str!("online_auth.rs");
+        // 🔴 Окно берём по СТРОКАМ, а не байтовым смещением: срез вида `src[at..at+900]`
+        // паникует, попав внутрь многобайтового символа кириллицы — поймано первым же прогоном
+        // (та же ловушка, что у сторожей в claude.rs).
+        // 🔴 И ищем ТОЛЬКО в коде продукта, отрезав тестовый модуль: иначе образец совпадает с
+        // собственной строкой этого теста, окно берётся вокруг неё, обе искомые фразы находятся
+        // в соседних ассертах — и сторож остаётся зелёным при обезвреженном коде. Поймано
+        // мутацией: она «не покраснела», хотя жёсткая ветка была сведена к одному условию.
+        let src = &src[..src.find("#[cfg(test)]").unwrap_or(src.len())];
+        let lines: Vec<&str> = src.lines().collect();
+        let at = lines
+            .iter()
+            .position(|l| l.contains("Enforcement::Hard => match policy"))
+            .expect("жёсткая ветка сведена обратно к одному условию — два разных отказа снова \
+                    неразличимы");
+        let window = lines[at..(at + 12).min(lines.len())].join("\n");
+        let window = window.as_str();
+        assert!(
+            window.contains("сервер не подписал"),
+            "отказ по отсутствию подписи обязан называться своей причиной"
+        );
+        assert!(
+            window.contains("не сходится"),
+            "отказ по неверной подписи обязан называться своей причиной"
+        );
+    }
+
+    /// Находка внешнего аудита (Medium): неподписанный ответ не имеет права понижать доверие
+    /// уже подтверждённому. Проверяем обе стороны правила на доступных данных: подтверждённого
+    /// кэша без боевого ключа не создать, поэтому здесь — что кэш БЕЗ подписи подтверждённым не
+    /// считается (иначе правило заблокировало бы обновление кэша навсегда).
+    #[test]
+    fn an_unsigned_cache_does_not_count_as_verified() {
+        let dir = tmp_dir();
+        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+        write_cache_with_age(&dir, now - 60, true);
+        assert!(
+            !verified_cache_is_fresh(&dir),
+            "кэш без настоящей подписи не подтверждён — иначе продукт перестал бы обновлять его \
+             вовсе, поверив признаку в файле"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+
+        // Сторож СВЯЗИ: сама ветка защиты от понижения обязана стоять в `check_auth` — чистая
+        // функция выше без неё бесполезна.
+        // Ищем только в коде продукта: строка-образец есть и в этом тесте, и без обрезки
+        // сторож находил бы сам себя (та же ловушка, что у сторожа жёсткого режима).
+        let src = include_str!("online_auth.rs");
+        let src = &src[..src.find("#[cfg(test)]").unwrap_or(src.len())];
+        assert!(
+            src.contains("CachePolicy::Unverified if verified_cache_is_fresh"),
+            "ответ без подписи снова затирает подтверждённый грант: доверие падает с недели до \
+             суток, а кабинеты уезжают вместе с ним"
+        );
+    }
+
+    /// 🔴 Сторож СВЯЗИ: чтение кэша обязано САМО сверять подпись. Если проверку вынести, чистые
+    /// функции выше останутся зелёными, а доверие снова будет держаться на признаке из файла.
+    #[test]
+    fn reading_the_cache_verifies_the_signature_itself() {
+        let src = include_str!("online_auth.rs");
+        let start = src
+            .find("fn read_fresh_cache")
+            .expect("функция read_fresh_cache не найдена — разметка переехала");
+        let tail = &src[start..];
+        let end = tail[1..].find("\nfn ").map(|i| i + 1).unwrap_or(tail.len());
+        let window = &tail[..end];
+
+        assert!(
+            window.contains("cached_signature_matches"),
+            "чтение кэша не сверяет подпись: достаточно будет написать в файл «подпись \
+             подтверждена», чтобы получить недельный доступ без сервера"
+        );
+        assert!(
+            window.contains("CacheVerdict::Forged"),
+            "ветка «подпись есть и не сходится → отвергнуть» обязана быть в самом чтении кэша"
+        );
     }
 
     /// Обратная совместимость: кэш, записанный ПРЕЖНЕЙ версией продукта, поля `sig_verified` не

@@ -582,6 +582,16 @@
           statusText = `Повторная попытка ${data.attempt}/${data.max_retries} через ${data.backoff_secs}с...`;
           // Re-arm progress for next attempt (result event from failed attempt may have reset it)
           if (!startTime) startTime = Date.now();
+        } else if (data.type === 'notice') {
+          // 🔴 Предупреждение о ПОБОЧНОМ при полученном ответе (например, файл в папке
+          // результатов занят другой программой). Через getEmpathyError не проводим: без кода
+          // [CL-NN] он ставит заголовок «Произошла ошибка», и человек читает «ошибка» там, где
+          // работа сделана — ложное утверждение продукта о себе (INV-50).
+          messages.update(msgs => [...msgs, {
+            role: 'system',
+            content: `ℹ️ ${data.message || ''}`,
+            ts: Date.now(),
+          }]);
         } else if (data.type === 'error') {
           resetProgress();
           statusText = '';
