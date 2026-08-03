@@ -1,0 +1,1386 @@
+diff --git a/src-tauri/src/commands/claude.rs b/src-tauri/src/commands/claude.rs
+index b91f83a..2695885 100644
+--- a/src-tauri/src/commands/claude.rs
++++ b/src-tauri/src/commands/claude.rs
+@@ -584,7 +584,7 @@ async fn run_claude_inner(
+         // КАЖДОМ пути записи, а не на самом заметном.
+         if !suppress_export {
+             let partial_text = result_text.unwrap_or(delta_text);
+-            match failure_notice_reason(&partial_text) {
++            match failure_notice_reason(&partial_text, prompt) {
+                 Some(reason) => warn!("Частичный ответ не сохранён [{cabinet_id}]: {reason}"),
+                 None => {
+                     let slug = extract_command_slug(prompt);
+@@ -641,7 +641,7 @@ pub(crate) fn auto_save_response(
+     // становилось неотличимо от настоящего разбора, не открыв его. Отказ здесь ГРОМКИЙ:
+     // молчаливый пропуск вернул бы нас к родственному дефекту «файла нет, и никто не знает
+     // почему» (CPD-17).
+-    if let Some(reason) = failure_notice_reason(final_text) {
++    if let Some(reason) = failure_notice_reason(final_text, prompt) {
+         warn!("Ответ не сохранён [{cabinet_id}]: {reason}");
+         let _ = app_handle.emit(
+             &format!("claude-stream-{cabinet_id}"),
+@@ -693,6 +693,11 @@ const FAILURE_NOTICE_MARKERS: &[&str] = &[
+     "fetch failed",
+ ];
+ 
++/// Символы разметки, которыми Claude CLI оборачивает начало сообщения об отказе. Срезаются
++/// перед сверкой с маркерами: `**API Error**: Connection closed` — тот же отказ канала, но
++/// `starts_with` о звёздочки спотыкается (находка внешнего аудита, Medium).
++const MARKDOWN_LEAD_CHARS: &[char] = &['*', '_', '`', '#', '>', '~', '-', ' ', '\t'];
++
+ /// Является ли текст сообщением об отказе, а не ответом кабинета (CPD-32).
+ ///
+ /// 🔴 Почему маркер И длина, а не «либо-либо». Предложение записи реестра допускало отказ по
+@@ -702,8 +707,16 @@ const FAILURE_NOTICE_MARKERS: &[&str] = &[
+ /// Совпадение обоих признаков — короткий текст, начинающийся с маркера отказа канала, — не
+ /// оставляет места содержательному ответу.
+ ///
++/// 🔴 Третий признак — сам вопрос (находка внешнего аудита, Medium). Длина и маркер вдвоём всё
++/// ещё выбрасывали настоящий короткий ответ, если пользователь спросил ПРО эту строку:
++/// «переведи: Connection closed» → ответ начинается ровно маркером, укладывается в порог, и
++/// клиент получал «ответ не дошёл» про дошедший ответ — ложное утверждение продукта о себе
++/// (INV-50) плюс потеря работы. Если маркер есть в вопросе, ответ про него законен.
++/// Плата названа честно: настоящий обрыв канала в разговоре ПРО ошибки не будет распознан и
++/// ляжет файлом. Цена обратной ошибки выше — там теряется сделанная работа.
++///
+ /// Возвращает причину для журнала, чтобы отказ можно было разобрать по следам, а не гадать.
+-fn failure_notice_reason(text: &str) -> Option<&'static str> {
++fn failure_notice_reason(text: &str, prompt: &str) -> Option<&'static str> {
+     let trimmed = text.trim();
+     if trimmed.is_empty() {
+         return Some("пустой ответ");
+@@ -713,11 +726,17 @@ fn failure_notice_reason(text: &str) -> Option<&'static str> {
+     if trimmed.chars().count() > FAILURE_NOTICE_MAX_CHARS {
+         return None;
+     }
+-    let head: String = trimmed.chars().take(80).collect::<String>().to_lowercase();
+-    FAILURE_NOTICE_MARKERS
+-        .iter()
+-        .any(|m| head.starts_with(m))
+-        .then_some("текст начинается маркером отказа канала и короче порога содержательности")
++    let head: String = trimmed
++        .trim_start_matches(MARKDOWN_LEAD_CHARS)
++        .chars()
++        .take(80)
++        .collect::<String>()
++        .to_lowercase();
++    let matched = FAILURE_NOTICE_MARKERS.iter().find(|m| head.starts_with(**m))?;
++    if prompt.to_lowercase().contains(*matched) {
++        return None;
++    }
++    Some("текст начинается маркером отказа канала и короче порога содержательности")
+ }
+ 
+ /// Extract a short slug from the user prompt for use in the filename.
+@@ -1061,7 +1080,8 @@ mod tests {
+              уйдёт молча — ни файла, ни события (родственный дефект CPD-17)"
+         );
+         assert!(
+-            failure_notice_reason("").is_some() && failure_notice_reason("   ").is_some(),
++            failure_notice_reason("", "/mmm-report").is_some()
++                && failure_notice_reason("   ", "/mmm-report").is_some(),
+             "пустота обязана распознаваться самим гейтом, раз ранней проверки больше нет"
+         );
+     }
+@@ -1083,13 +1103,16 @@ mod tests {
+     #[test]
+     fn broken_channel_notice_is_not_a_result() {
+         assert!(
+-            failure_notice_reason("API Error: Connection closed mid-response").is_some(),
++            failure_notice_reason("API Error: Connection closed mid-response", "/mmm-report").is_some(),
+             "сообщение об обрыве канала обязано быть распознано: иначе оно ляжет в папку клиента \
+              файлом со всеми признаками выполненной работы"
+         );
+-        assert!(failure_notice_reason("Error: request failed").is_some());
+-        assert!(failure_notice_reason("Request timed out after 600s").is_some());
+-        assert!(failure_notice_reason("   ").is_some(), "пустой ответ — тоже не результат");
++        assert!(failure_notice_reason("Error: request failed", "/mmm-report").is_some());
++        assert!(failure_notice_reason("Request timed out after 600s", "/mmm-report").is_some());
++        assert!(
++            failure_notice_reason("   ", "/mmm-report").is_some(),
++            "пустой ответ — тоже не результат"
++        );
+     }
+ 
+     /// 🔴 Негативный контроль: короткий ответ бывает НАСТОЯЩИМ, и выбрасывать его — терять
+@@ -1097,13 +1120,15 @@ mod tests {
+     #[test]
+     fn short_but_real_answer_is_kept() {
+         assert!(
+-            failure_notice_reason("Да, риск есть: пункт 4.2 договора.").is_none(),
++            failure_notice_reason("Да, риск есть: пункт 4.2 договора.", "/contract").is_none(),
+             "короткий содержательный ответ обязан сохраняться"
+         );
+         assert!(
+-            failure_notice_reason("Вклад телевидения — 32 %, это верхняя граница правдоподобного \
+-                                   диапазона.")
+-                .is_none()
++            failure_notice_reason(
++                "Вклад телевидения — 32 %, это верхняя граница правдоподобного диапазона.",
++                "/mmm-decomposition"
++            )
++            .is_none()
+         );
+     }
+ 
+@@ -1120,7 +1145,10 @@ mod tests {
+             "фикстура обязана быть длиннее порога, иначе случай проверяет не то"
+         );
+         assert!(
+-            failure_notice_reason(&long_answer).is_none(),
++            // 🔴 Вопрос намеренно БЕЗ маркера: иначе тест проходил бы по исключению «маркер есть
++            // в вопросе» и перестал бы стеречь порог длины — сторож, написанный вместе с
++            // починкой, наследует её послабление.
++            failure_notice_reason(&long_answer, "/mmm-report").is_none(),
+             "развёрнутый разбор не имеет права быть принят за отказ канала"
+         );
+     }
+@@ -1134,12 +1162,53 @@ mod tests {
+         assert!(russian.chars().count() < FAILURE_NOTICE_MAX_CHARS);
+         assert!(russian.len() > FAILURE_NOTICE_MAX_CHARS, "фикстура обязана быть длиннее в БАЙТАХ");
+         assert!(
+-            failure_notice_reason(&format!("API Error: {russian}")).is_some(),
++            failure_notice_reason(&format!("API Error: {russian}"), "/mmm-report").is_some(),
+             "русский текст в пределах порога по символам обязан проверяться маркером так же, \
+              как английский"
+         );
+     }
+ 
++    /// 🔴 Находка внешнего аудита (Medium): `starts_with` спотыкается о разметку. Claude CLI
++    /// оборачивает сообщение об отказе в markdown — `**API Error**: …` — и ни один маркер не
++    /// совпадал, а значит текст отказа снова сохранялся клиенту отчётом (обход гейта CPD-32).
++    #[test]
++    fn markdown_wrapped_failure_notice_is_still_recognised() {
++        for wrapped in [
++            "**API Error**: Connection closed mid-response.",
++            "`API Error: Connection closed`",
++            "> Error: request failed",
++            "### Request timed out after 600s",
++            "- Connection closed",
++        ] {
++            assert!(
++                failure_notice_reason(wrapped, "/mmm-report").is_some(),
++                "разметка в начале не превращает отказ канала в результат работы: {wrapped}"
++            );
++        }
++    }
++
++    /// 🔴 Находка внешнего аудита (Medium): ложное срабатывание гейта выбрасывало НАСТОЯЩИЙ
++    /// короткий ответ, когда пользователь спросил про саму строку ошибки, — и говорило клиенту
++    /// «ответ не дошёл» про дошедший ответ (ложное утверждение о себе, INV-50, плюс потеря
++    /// сделанной работы).
++    #[test]
++    fn short_answer_about_an_error_string_is_kept_when_the_question_named_it() {
++        assert!(
++            failure_notice_reason(
++                "Connection closed — «соединение закрыто»: сервер разорвал канал.",
++                "переведи: Connection closed"
++            )
++            .is_none(),
++            "ответ на вопрос ПРО эту строку законно начинается ею же"
++        );
++        // Негативный контроль к тому же правилу: вопрос без маркера — гейт обязан сработать,
++        // иначе исключение проглотило бы распознавание целиком.
++        assert!(
++            failure_notice_reason("Connection closed", "/mmm-report").is_some(),
++            "без упоминания в вопросе это по-прежнему отказ канала"
++        );
++    }
++
+     /// 🔴 Сторож СВЯЗИ, а не только логики (урок Ф-04 внешнего аудита: вынесенная функция была
+     /// покрыта, а её вызов — нет, и дефект жил дальше). Проверка обязана стоять МЕЖДУ входом в
+     /// автосохранение и записью файла: если её вынести за пределы этого промежутка, распознавание
+diff --git a/src-tauri/src/commands/online_auth.rs b/src-tauri/src/commands/online_auth.rs
+index 5d5f0dd..b5b6b37 100644
+--- a/src-tauri/src/commands/online_auth.rs
++++ b/src-tauri/src/commands/online_auth.rs
+@@ -4,7 +4,7 @@
+ //! Falls back to offline Ed25519 validation if server is unreachable.
+ 
+ use anyhow::Result;
+-use log::{info, warn};
++use log::{error, info, warn};
+ use serde::{Deserialize, Serialize};
+ use std::path::{Path, PathBuf};
+ use std::time::{SystemTime, UNIX_EPOCH};
+@@ -28,6 +28,16 @@ fn supabase_url() -> String {
+ /// контроль отзыва (отозванная лицензия переспросит сервер в течение недели).
+ const CACHE_TTL_SECS: u64 = 7 * 24 * 60 * 60;
+ 
++/// Срок доверия кэшу, подпись которого НЕ подтверждена (CPD-40, часть A-3).
++///
++/// Полные семь дней — плата за офлайн при ПОДТВЕРЖДЁННОЙ подписи. Ответ без подписи бывает
++/// законным (сервер не подписал — ровно так отвечает сервер локальной редакции, проверено на
++/// живом кэше `com.aurora.econometrica.local`), поэтому запрещать такой кэш совсем нельзя: у
++/// людей отвалится офлайн. Но и доверять ему неделю нельзя: посредник, поднятый на полминуты,
++/// оставляет поддельный грант, который переживает его уход. Сутки — компромисс: офлайн-день
++/// сохранён, подделка не живёт неделю и тем более не становится бессрочной.
++const CACHE_TTL_UNVERIFIED_SECS: u64 = 24 * 60 * 60;
++
+ /// Heartbeat interval: 4 hours in seconds.
+ pub const HEARTBEAT_INTERVAL_SECS: u64 = 4 * 60 * 60;
+ 
+@@ -136,6 +146,47 @@ pub struct AuthResponse {
+ struct CachedAuth {
+     response: AuthResponse,
+     cached_at: u64,  // Unix timestamp
++    /// CPD-40 (A-3): подтвердилась ли подпись сервера в момент записи кэша.
++    ///
++    /// Отсутствие поля (кэш, записанный прежней версией продукта) читается как `false` — то есть
++    /// прежний кэш живёт по короткому сроку. Сторона сознательно мягкая: при первом же успешном
++    /// входе онлайн кэш перезаписывается с подтверждением и снова получает полный срок.
++    #[serde(default)]
++    sig_verified: bool,
++}
++
++/// Что делать с ответом входа в зависимости от исхода проверки подписи (CPD-40, A-3).
++#[derive(Debug, Clone, Copy, PartialEq, Eq)]
++enum CachePolicy {
++    /// Подпись сошлась — полное доверие, полный срок кэша.
++    Verified,
++    /// Подписи нет вовсе: сервер не подписывает (раскатка) либо не смог подписать.
++    /// Кэшируем, но на короткий срок — законный офлайн сохраняем, окно подделки режем.
++    Unverified,
++    /// Подпись ЕСТЬ и не сходится. Законного источника у такого ответа нет: сервер либо
++    /// подписывает верно, либо не подписывает вовсе. Доступ в мягком режиме выдаём
++    /// (мягкость — принятое решение), но на диск не пишем: подделка не переживёт сессию.
++    Reject,
++}
++
++/// Решение о кэшировании ответа входа. Чистая функция — проверяется тестами напрямую.
++fn cache_policy(signature: &str, sig_ok: bool) -> CachePolicy {
++    if sig_ok {
++        CachePolicy::Verified
++    } else if signature.is_empty() {
++        CachePolicy::Unverified
++    } else {
++        CachePolicy::Reject
++    }
++}
++
++/// Срок доверия кэшу по признаку подтверждённой подписи (CPD-40, A-3). Чистая функция.
++fn cache_ttl_secs(sig_verified: bool) -> u64 {
++    if sig_verified {
++        CACHE_TTL_SECS
++    } else {
++        CACHE_TTL_UNVERIFIED_SECS
++    }
+ }
+ 
+ /// Server response from /heartbeat endpoint.
+@@ -216,11 +267,12 @@ fn cache_path(app_config_dir: &Path) -> PathBuf {
+     app_config_dir.join("session_cache.json")
+ }
+ 
+-fn save_cache(app_config_dir: &Path, response: &AuthResponse) -> Result<()> {
++fn save_cache(app_config_dir: &Path, response: &AuthResponse, sig_verified: bool) -> Result<()> {
+     let now = SystemTime::now().duration_since(UNIX_EPOCH)?.as_secs();
+     let cached = CachedAuth {
+         response: response.clone(),
+         cached_at: now,
++        sig_verified,
+     };
+     let json = serde_json::to_string(&cached)?;
+     std::fs::write(cache_path(app_config_dir), json)?;
+@@ -243,8 +295,16 @@ fn read_fresh_cache(app_config_dir: &Path) -> Option<(AuthResponse, u64)> {
+         return None;
+     }
+     let age = now - cached.cached_at;
+-    if age > CACHE_TTL_SECS {
+-        info!("Auth cache expired (age: {}h)", age / 3600);
++    // CPD-40 (A-3): кэш с неподтверждённой подписью живёт сутки, а не неделю
++    // (см. CACHE_TTL_UNVERIFIED_SECS).
++    let ttl = cache_ttl_secs(cached.sig_verified);
++    if age > ttl {
++        info!(
++            "Auth cache expired (age: {}ч, потолок {}ч{})",
++            age / 3600,
++            ttl / 3600,
++            if cached.sig_verified { "" } else { ", подпись не подтверждена" }
++        );
+         return None;
+     }
+ 
+@@ -396,10 +456,70 @@ pub async fn check_auth(
+     let auth_response: AuthResponse = serde_json::from_str(&body)
+         .map_err(|e| anyhow::anyhow!("Failed to parse auth response: {e}, body: {body}"))?;
+ 
++    // 🔴 CPD-40 (SEC-1 + A-3): подпись ответа входа ПРОВЕРЯЕТСЯ. До этой правки продукт объявлял
++    // поле `signature`, но не сверял его ни с чем: поддельный ответ посредника принимался как
++    // настоящий и ложился в кэш на неделю. Сервер ответ подписывает — проверено на живом ответе
++    // этой машины (зонд `live_auth_signature_probe`): канонизация payload сходится с серверной
++    // байт в байт при `product = detect_product()`.
++    //
++    // Режим МЯГКИЙ: исход проверки не решает, дать ли доступ (иначе расхождение формата разом
++    // отняло бы лицензии у всех), он решает судьбу КЭША — что именно останется на диске после
++    // ухода посредника.
++    let mut policy = CachePolicy::Unverified;
+     if auth_response.status == "ok" {
+-        // Cache successful response
+-        if let Err(e) = save_cache(app_config_dir, &auth_response) {
+-            warn!("Failed to cache auth response: {e}");
++        let payload = crate::crypto::auth_sig::build_auth_payload(
++            &auth_response.status,
++            &req.fingerprint_hash,
++            &req.product,
++            &auth_response.cabinets,
++            auth_response.content_version.as_deref(),
++            auth_response.expires_at.as_deref(),
++        );
++        let sig_ok =
++            crate::crypto::auth_sig::verify_auth_signature(&payload, &auth_response.signature);
++        policy = cache_policy(&auth_response.signature, sig_ok);
++        match crate::crypto::auth_sig::AUTH_SIG_ENFORCEMENT {
++            crate::crypto::auth_sig::Enforcement::Soft => match policy {
++                CachePolicy::Verified => info!("SEC-1: подпись ответа входа подтверждена"),
++                CachePolicy::Unverified => warn!(
++                    "SEC-1: ответ входа без подписи — доступ выдан (мягкий режим), \
++                     срок доверия кэшу сокращён до суток"
++                ),
++                CachePolicy::Reject => error!(
++                    "SEC-1: подпись ответа входа НЕ сходится — доступ выдан (мягкий режим), \
++                     но на диск ответ не пишется: подделка не переживёт эту сессию"
++                ),
++            },
++            crate::crypto::auth_sig::Enforcement::Hard => {
++                if !sig_ok {
++                    anyhow::bail!(
++                        "[SEC-1] подпись ответа входа не подтверждена — доступ не выдан"
++                    );
++                }
++            }
++        }
++    }
++
++    if auth_response.status == "ok" {
++        // 🔴 CPD-40 (A-3): ответ с ПРИСУТСТВУЮЩЕЙ, но неверной подписью на диск не пишем.
++        // Прежде на диск ложилось всё, поэтому посредник, поднятый на полминуты, оставлял
++        // поддельный грант (чужие кабинеты, срок до 2099 года), и тот переживал его уход: при
++        // первом отказе сети кэш отдавал подделку. Доступ в этой сессии выдаётся по-прежнему —
++        // мягкость это принятое решение, — но подделка больше не персистентна. Ответ БЕЗ подписи
++        // кэшируется на короткий срок (законный путь «сервер не подписывает» не ломаем).
++        match policy {
++            CachePolicy::Reject => {
++                error!(
++                    "SEC-1 (A-3): ответ входа с неверной подписью НЕ кэширован — доступ выдан \
++                     (мягкий режим), но подделка не переживёт эту сессию"
++                );
++            }
++            CachePolicy::Verified | CachePolicy::Unverified => {
++                let verified = policy == CachePolicy::Verified;
++                if let Err(e) = save_cache(app_config_dir, &auth_response, verified) {
++                    warn!("Failed to cache auth response: {e}");
++                }
++            }
+         }
+         info!("Online auth: OK, cabinets: {:?}", auth_response.cabinets);
+     } else {
+@@ -565,8 +685,11 @@ mod tests {
+         assert_eq!(resp.vault_versions, None);
+     }
+ 
+-    fn write_cache_with_age(dir: &Path, cached_at: u64) {
+-        let cached = CachedAuth { response: sample_response(), cached_at };
++    /// 🔴 `sig_verified` задаётся явно, а не берётся по умолчанию: от него зависит СРОК доверия
++    /// (CPD-40, A-3), и тест недельной границы, записанный кэшем без подписи, проверял бы
++    /// суточную — оставаясь при этом зелёным.
++    fn write_cache_with_age(dir: &Path, cached_at: u64, sig_verified: bool) {
++        let cached = CachedAuth { response: sample_response(), cached_at, sig_verified };
+         std::fs::write(cache_path(dir), serde_json::to_string(&cached).unwrap()).unwrap();
+     }
+ 
+@@ -575,7 +698,7 @@ mod tests {
+     #[test]
+     fn cache_roundtrip_fresh_ok() {
+         let dir = tmp_dir();
+-        save_cache(&dir, &sample_response()).unwrap();
++        save_cache(&dir, &sample_response(), true).unwrap();
+         let loaded = load_cache(&dir).expect("свежий кэш должен читаться");
+         assert_eq!(loaded.status, "ok");
+         assert_eq!(loaded.cabinets, vec!["econometrist".to_string()]);
+@@ -588,7 +711,7 @@ mod tests {
+     fn cache_expired_ttl_rejected() {
+         let dir = tmp_dir();
+         let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+-        write_cache_with_age(&dir, now - CACHE_TTL_SECS - 60);
++        write_cache_with_age(&dir, now - CACHE_TTL_SECS - 60, true);
+         assert!(load_cache(&dir).is_none(), "кэш старше TTL обязан отвергаться");
+         let _ = std::fs::remove_dir_all(&dir);
+     }
+@@ -599,11 +722,134 @@ mod tests {
+     fn cache_future_dated_rejected() {
+         let dir = tmp_dir();
+         let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
+-        write_cache_with_age(&dir, now + 3600);
++        write_cache_with_age(&dir, now + 3600, true);
+         assert!(load_cache(&dir).is_none(), "кэш из будущего обязан отвергаться");
+         let _ = std::fs::remove_dir_all(&dir);
+     }
+ 
++    // ── CPD-40 (A-3): поддельный грант входа не переживает сессию ──────────────
++
++    /// Подпись сошлась → полное доверие.
++    #[test]
++    fn cache_policy_verified_when_signature_ok() {
++        assert_eq!(cache_policy("YWJjZGVm", true), CachePolicy::Verified);
++    }
++
++    /// 🔴 Ядро A-3: подпись ЕСТЬ, но не сходится → на диск не пишем вовсе. Ровно этот случай
++    /// оставлял поддельный грант посредника, переживавший его уход.
++    #[test]
++    fn cache_policy_rejects_present_but_invalid_signature() {
++        assert_eq!(cache_policy("AAAAAAAA", false), CachePolicy::Reject);
++    }
++
++    /// Подписи нет вовсе (сервер не подписывает или не смог) → кэшируем, но коротко. Запрещать
++    /// этот случай нельзя: у законных пользователей отвалился бы офлайн. Путь наблюдаем живьём —
++    /// сервер локальной редакции отвечает без подписи (`com.aurora.econometrica.local`).
++    #[test]
++    fn cache_policy_unverified_when_signature_absent() {
++        assert_eq!(cache_policy("", false), CachePolicy::Unverified);
++    }
++
++    /// Срок доверия: подтверждённой подписи — неделя, неподтверждённой — сутки. Числа
++    /// литеральные, а не через те же константы, иначе тест проверял бы сам себя.
++    #[test]
++    fn cache_ttl_shorter_without_verified_signature() {
++        assert_eq!(cache_ttl_secs(true), 7 * 24 * 60 * 60, "подтверждённая — неделя");
++        assert_eq!(cache_ttl_secs(false), 24 * 60 * 60, "неподтверждённая — сутки");
++        assert!(cache_ttl_secs(false) < cache_ttl_secs(true));
++    }
++
++    /// 🔴 Живое следствие короткого срока: кэш без подтверждённой подписи, которому двое суток,
++    /// отвергается — при том что подтверждённый того же возраста ещё годен. Без этой пары правило
++    /// удовлетворялось бы и функцией, которая отвергает всё подряд.
++    #[test]
++    fn two_day_old_cache_survives_only_with_a_verified_signature() {
++        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
++        let two_days = 2 * 24 * 60 * 60;
++
++        let unverified = tmp_dir();
++        write_cache_with_age(&unverified, now - two_days, false);
++        assert!(
++            load_cache(&unverified).is_none(),
++            "кэш с неподтверждённой подписью старше суток обязан отвергаться: иначе подделка \
++             посредника живёт неделю"
++        );
++        let _ = std::fs::remove_dir_all(&unverified);
++
++        let verified = tmp_dir();
++        write_cache_with_age(&verified, now - two_days, true);
++        assert!(
++            load_cache(&verified).is_some(),
++            "подтверждённый кэш обязан переживать двухдневный офлайн — иначе правка отняла бы \
++             офлайн у честных пользователей"
++        );
++        let _ = std::fs::remove_dir_all(&verified);
++    }
++
++    /// Обратная совместимость: кэш, записанный ПРЕЖНЕЙ версией продукта, поля `sig_verified` не
++    /// имеет. Он обязан читаться (не падать разбором) и жить по короткому сроку — при первом же
++    /// успешном входе онлайн перезапишется с подтверждением и вернёт полный.
++    #[test]
++    fn legacy_cache_without_the_field_is_read_as_unverified() {
++        let dir = tmp_dir();
++        let now = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs();
++        let legacy = serde_json::json!({
++            "response": sample_response(),
++            "cached_at": now - 2 * 24 * 60 * 60,
++        });
++        std::fs::write(cache_path(&dir), serde_json::to_string(&legacy).unwrap()).unwrap();
++        assert!(
++            load_cache(&dir).is_none(),
++            "прежний кэш без признака подписи обязан считаться неподтверждённым"
++        );
++
++        std::fs::write(
++            cache_path(&dir),
++            serde_json::to_string(&serde_json::json!({
++                "response": sample_response(),
++                "cached_at": now - 3600,
++            }))
++            .unwrap(),
++        )
++        .unwrap();
++        assert!(
++            load_cache(&dir).is_some(),
++            "часовой прежний кэш обязан читаться: разбор без поля не имеет права падать"
++        );
++        let _ = std::fs::remove_dir_all(&dir);
++    }
++
++    /// 🔴 Сторож СВЯЗИ (урок Ф-04: вынесенная функция покрыта, а её вызов — нет). Чистые функции
++    /// выше ничего не стоят, если `check_auth` перестанет сверять подпись или писать кэш мимо
++    /// политики. Разбор собственного исходника — тот же приём, что у сторожей гейта в `claude.rs`.
++    #[test]
++    fn check_auth_verifies_the_signature_and_saves_through_the_policy() {
++        let src = include_str!("online_auth.rs");
++        let start = src
++            .find("pub async fn check_auth")
++            .expect("функция check_auth не найдена — разметка переехала");
++        let tail = &src[start..];
++        let save_at = tail
++            .find("save_cache(app_config_dir")
++            .expect("запись кэша в check_auth не найдена — разметка переехала");
++        let window = &tail[..save_at];
++
++        assert!(
++            window.contains("verify_auth_signature"),
++            "между разбором ответа и записью кэша нет проверки подписи: поддельный ответ \
++             посредника снова ляжет на диск как настоящий (CPD-40)"
++        );
++        assert!(
++            window.contains("cache_policy("),
++            "судьба кэша обязана решаться политикой, а не одним лишь статусом ответа"
++        );
++        assert!(
++            window.contains("CachePolicy::Reject"),
++            "ветка «подпись есть и не сходится → не писать» обязана существовать в самом \
++             check_auth, иначе подделка снова переживёт сессию"
++        );
++    }
++
+     /// Кэша нет → None (caller уходит в offline Ed25519) — без паники.
+     #[test]
+     fn cache_missing_none() {
+diff --git a/src-tauri/src/crypto/auth_sig.rs b/src-tauri/src/crypto/auth_sig.rs
+new file mode 100644
+index 0000000..f0ac492
+--- /dev/null
++++ b/src-tauri/src/crypto/auth_sig.rs
+@@ -0,0 +1,350 @@
++//! Ed25519 signature verification for the /auth license response (SEC-1).
++//! Uses a SEPARATE key from update and content verification (least privilege):
++//! a compromise of the update key does not forge license grants, and vice versa.
++//!
++//! Original auth pubkey hex:
++//!   19221d249015fbbd1ee123a2356c80ef2d00031411d2e8d91b06c84b721a17b7
++//!
++//! Threat: an unsigned /auth response lets a forged server / MITM / cache-forge return
++//! {status:"ok", cabinets:[all]} and unlock the product without a license. The server signs
++//! the "ok" response; the client verifies with the embedded public key. Without the private
++//! key an attacker cannot fabricate a valid response on the wire OR in session_cache.json.
++//!
++//! Payload format (UTF-8, fields joined by '\n') — deterministic string, NOT JSON
++//! (JSON serialisation drifts between Deno and Rust):
++//!   AUTHSIG-v1\n{status}\n{fingerprint_hash}\n{product}\n{cabinets_sorted}\n{content_version}\n{expires_at}
++//! where:
++//!   - only the status=="ok" response is signed,
++//!   - cabinets_sorted = lexicographically sorted ASCII slugs joined by ',',
++//!   - content_version / expires_at absent => empty string,
++//!   - product is the RAW product the client sent (not the server-migrated licenseProduct),
++//!   - fingerprint_hash binds the grant to this machine (anti-replay to another machine).
++
++use ed25519_dalek::{Signature, Verifier, VerifyingKey};
++use base64::{Engine, engine::general_purpose::STANDARD};
++
++/// Auth public key XOR'd with 0x3C mask (raise-the-bar obfuscation, not crypto).
++/// Original pubkey hex: 19221d249015fbbd1ee123a2356c80ef2d00031411d2e8d91b06c84b721a17b7
++const AUTH_MASKED_KEY: [u8; 32] = [
++     37,  30,  33,  24, 172,  41, 199, 129,  34, 221,  31, 158,   9,  80, 188, 211,
++     17,  60,  63,  40,  45, 238, 212, 229,  39,  58, 244, 119,  78,  38,  43, 139,
++];
++const AUTH_KEY_MASK: u8 = 0x3C;
++
++fn auth_public_key_bytes() -> [u8; 32] {
++    let mut out = [0u8; 32];
++    for i in 0..32 {
++        out[i] = AUTH_MASKED_KEY[i] ^ AUTH_KEY_MASK;
++    }
++    out
++}
++
++/// Enforcement mode for auth-signature verification.
++///
++/// `Soft` (initial rollout): verification runs and is logged/metered, but access is NOT
++/// blocked — a missing/invalid signature still passes, so a server that does not yet sign
++/// (or a payload-serialisation drift) cannot take all licenses down at once. Once telemetry
++/// confirms the server signs stably for every product, flip to `Hard` in a separate release.
++///
++/// `Hard`: a missing or invalid signature on the "ok" path is a hard refusal.
++#[derive(Debug, Clone, Copy, PartialEq, Eq)]
++pub enum Enforcement {
++    Soft,
++    Hard,
++}
++
++/// Current enforcement mode. First release ships `Soft`; switch to `Hard` in a later release.
++pub const AUTH_SIG_ENFORCEMENT: Enforcement = Enforcement::Soft;
++
++/// Build the canonical payload bytes for /auth response signature verification.
++///
++/// Format (UTF-8, newline-separated):
++/// ```text
++/// AUTHSIG-v1
++/// {status}
++/// {fingerprint_hash}
++/// {product}
++/// {cabinets_sorted}
++/// {content_version}
++/// {expires_at}
++/// ```
++/// `cabinets` are sorted lexicographically and joined by ','. `content_version` / `expires_at`
++/// of `None` become an empty string. Only string values are concatenated — no reformatting.
++pub fn build_auth_payload(
++    status: &str,
++    fingerprint_hash: &str,
++    product: &str,
++    cabinets: &[String],
++    content_version: Option<&str>,
++    expires_at: Option<&str>,
++) -> Vec<u8> {
++    let mut cabs: Vec<&str> = cabinets.iter().map(|s| s.as_str()).collect();
++    cabs.sort_unstable();
++    let cabinets_sorted = cabs.join(",");
++    let payload = [
++        "AUTHSIG-v1",
++        status,
++        fingerprint_hash,
++        product,
++        &cabinets_sorted,
++        content_version.unwrap_or(""),
++        expires_at.unwrap_or(""),
++    ]
++    .join("\n");
++    payload.into_bytes()
++}
++
++/// Verify an /auth response Ed25519 signature (base64-encoded).
++///
++/// Returns `false` on any error — invalid base64, wrong length, bad signature — without
++/// panicking. An empty `sig_b64` returns `false` (empty is not a valid signature); the caller
++/// distinguishes "absent" from "invalid" (see the Soft/Hard enforcement branch in check_auth).
++pub fn verify_auth_signature(payload: &[u8], sig_b64: &str) -> bool {
++    let sig_bytes = match STANDARD.decode(sig_b64) {
++        Ok(b) => b,
++        Err(_) => return false,
++    };
++    if sig_bytes.len() != 64 {
++        return false;
++    }
++    verify_auth_signature_impl(payload, &sig_bytes, &auth_public_key_bytes())
++}
++
++/// Internal implementation accepting arbitrary public key bytes — enables unit tests
++/// to use a test keypair without needing the production private key.
++pub(crate) fn verify_auth_signature_impl(
++    payload: &[u8],
++    sig_bytes: &[u8],
++    pubkey_bytes: &[u8; 32],
++) -> bool {
++    let Ok(pubkey) = VerifyingKey::from_bytes(pubkey_bytes) else {
++        return false;
++    };
++    let Ok(sig_array) = <[u8; 64]>::try_from(sig_bytes) else {
++        return false;
++    };
++    let signature = Signature::from_bytes(&sig_array);
++    pubkey.verify(payload, &signature).is_ok()
++}
++
++// ── Tests ─────────────────────────────────────────────────────────────────────
++
++/// 🔴 Зонд на ЖИВОМ ответе сервера этой машины: сходится ли наша канонизация с серверной.
++/// Решающий для CPD-40 — без него включение политики «подпись есть и не сходится → не кэшировать»
++/// могло бы отнять офлайн у всех честных клиентов разом при малейшем расхождении формата.
++///
++/// Помечен `#[ignore]`: читает `%APPDATA%` конкретной машины и в общем прогоне бесполезен.
++/// Запуск: `cargo test -- --ignored live_auth_signature_probe --nocapture`.
++#[cfg(test)]
++mod live_probe {
++    use super::{build_auth_payload, verify_auth_signature};
++
++    #[test]
++    #[ignore = "зонд на живом кэше конкретной машины"]
++    fn live_auth_signature_probe() {
++        let base = std::path::PathBuf::from(std::env::var("APPDATA").expect("APPDATA"));
++        let candidates = [
++            "com.aurora.econometrica.thin",
++            "com.aurora.econometrica",
++            "com.aurora.econometrica.local",
++        ];
++        let mut checked = 0;
++        for dir in candidates {
++            let path = base.join(dir).join("session_cache.json");
++            let Ok(raw) = std::fs::read_to_string(&path) else { continue };
++            let v: serde_json::Value = serde_json::from_str(&raw).expect("разбор кэша");
++            let r = &v["response"];
++            let status = r["status"].as_str().unwrap_or("");
++            let sig = r["signature"].as_str().unwrap_or("");
++            if sig.is_empty() {
++                println!("{dir}: подписи в ответе нет — проверять нечего");
++                continue;
++            }
++            let cabinets: Vec<String> = r["cabinets"]
++                .as_array()
++                .map(|a| a.iter().filter_map(|c| c.as_str().map(String::from)).collect())
++                .unwrap_or_default();
++            let cv = r["content_version"].as_str();
++            let exp = r["expires_at"].as_str();
++
++            let fp = crate::crypto::fingerprint::get_machine_fingerprint().expect("отпечаток");
++            let fp_hash = crate::crypto::fingerprint::hash_fingerprint(&fp);
++
++            for product in [
++                "econometrica",
++                "econometrica-thin",
++                "aurora-econometrica-gui",
++                "econometrica-local",
++                "agency",
++            ] {
++                let payload = build_auth_payload(status, &fp_hash, product, &cabinets, cv, exp);
++                let ok = verify_auth_signature(&payload, sig);
++                println!(
++                    "{dir} · product={product}: {}",
++                    if ok { "🔴 ПОДПИСЬ СОШЛАСЬ" } else { "не сошлась" }
++                );
++                checked += 1;
++            }
++        }
++        assert!(checked > 0, "живых подписанных ответов на машине не найдено — зонд не состоялся");
++    }
++}
++
++#[cfg(test)]
++mod tests {
++    use super::*;
++    use base64::engine::general_purpose::STANDARD as B64;
++    use ed25519_dalek::{Signer, SigningKey};
++
++    fn test_keypair() -> SigningKey {
++        SigningKey::generate(&mut rand::thread_rng())
++    }
++
++    fn sample_cabinets() -> Vec<String> {
++        // deliberately UNSORTED input — proves build_auth_payload sorts
++        vec![
++            "copywriter".to_string(),
++            "art-director".to_string(),
++            "creative-director".to_string(),
++        ]
++    }
++
++    /// Production key must unmask to a valid Ed25519 verifying key.
++    #[test]
++    fn auth_key_unmask_is_valid() {
++        assert!(
++            VerifyingKey::from_bytes(&auth_public_key_bytes()).is_ok(),
++            "Unmasked auth key must be a valid Ed25519 public key"
++        );
++    }
++
++    /// Valid signature produced by test key verifies correctly.
++    #[test]
++    fn valid_signature_accepted() {
++        let sk = test_keypair();
++        let vk = sk.verifying_key().to_bytes();
++        let payload = build_auth_payload(
++            "ok",
++            "a6a64d59ca6d5ab8dccfe9556fa82c81ae90ab01051b0d44c8726ba9f533f5f0",
++            "creative-hub",
++            &sample_cabinets(),
++            Some("2026.07"),
++            Some("2027-01-01T00:00:00Z"),
++        );
++        let sig_bytes = sk.sign(&payload).to_bytes();
++        assert!(
++            verify_auth_signature_impl(&payload, &sig_bytes, &vk),
++            "Valid signature must be accepted"
++        );
++    }
++
++    /// Tampering cabinets (adding one) invalidates the signature.
++    #[test]
++    fn tampered_cabinets_rejected() {
++        let sk = test_keypair();
++        let vk = sk.verifying_key().to_bytes();
++        let original = build_auth_payload(
++            "ok", "FP", "creative-hub", &sample_cabinets(), Some("2026.07"), Some("2027-01-01T00:00:00Z"),
++        );
++        let sig_bytes = sk.sign(&original).to_bytes();
++
++        let mut more = sample_cabinets();
++        more.push("strategist".to_string()); // extra cabinet the server never granted
++        let tampered = build_auth_payload(
++            "ok", "FP", "creative-hub", &more, Some("2026.07"), Some("2027-01-01T00:00:00Z"),
++        );
++        assert!(
++            !verify_auth_signature_impl(&tampered, &sig_bytes, &vk),
++            "Tampered cabinets must be rejected"
++        );
++    }
++
++    /// Empty signature string returns false (unsigned/absent path).
++    #[test]
++    fn empty_signature_returns_false() {
++        let payload = build_auth_payload("ok", "FP", "p", &[], None, None);
++        assert!(
++            !verify_auth_signature(&payload, ""),
++            "Empty signature must return false"
++        );
++    }
++
++    /// Invalid base64 returns false without panicking.
++    #[test]
++    fn invalid_base64_returns_false_no_panic() {
++        let payload = build_auth_payload("ok", "FP", "p", &[], None, None);
++        assert!(
++            !verify_auth_signature(&payload, "not!valid#base64==="),
++            "Invalid base64 must return false, not panic"
++        );
++    }
++
++    /// Correct length but all-zero bytes: invalid signature, not a panic.
++    #[test]
++    fn zero_bytes_signature_returns_false() {
++        let payload = build_auth_payload("ok", "FP", "p", &sample_cabinets(), None, None);
++        let zero_b64 = B64.encode([0u8; 64]);
++        assert!(
++            !verify_auth_signature(&payload, &zero_b64),
++            "All-zero signature must be rejected"
++        );
++    }
++
++    /// build_auth_payload produces the expected newline-joined format and sorts cabinets.
++    ///
++    /// 🔴 Фикстура из ТРЁХ элементов намеренно: на паре `["b", "a"]` разворот даёт ровно тот же
++    /// результат, что сортировка, и подмена `sort_unstable` на `reverse` проходила зелёной —
++    /// сторож был слеп ровно к той оси, которую стережёт (поймано мутацией при переносе модуля).
++    #[test]
++    fn payload_format_matches_protocol() {
++        let cabs = vec!["b".to_string(), "c".to_string(), "a".to_string()];
++        let p = build_auth_payload("ok", "FP", "creative-hub", &cabs, Some("cv"), Some("exp"));
++        let s = std::str::from_utf8(&p).unwrap();
++        assert_eq!(
++            s,
++            "AUTHSIG-v1\nok\nFP\ncreative-hub\na,b,c\ncv\nexp"
++        );
++    }
++
++    /// None content_version / expires_at and empty cabinets become empty strings.
++    #[test]
++    fn payload_none_fields_are_empty() {
++        let p = build_auth_payload("ok", "FP", "p", &[], None, None);
++        let s = std::str::from_utf8(&p).unwrap();
++        assert_eq!(s, "AUTHSIG-v1\nok\nFP\np\n\n\n");
++    }
++
++    /// Golden cross-language test Python↔Rust on the PRODUCTION key.
++    ///
++    /// payload + signature generated by the working Python signer (tools/sign_auth_response.py)
++    /// with the production key rosst_auth_private.key. Proves:
++    ///   (1) build_auth_payload is byte-identical to the Python/Deno canonical string,
++    ///   (2) the embedded production pubkey verifies a real signature,
++    ///   (3) anti-replay: a signature bound to machine A's fingerprint fails for machine B,
++    ///   (4) anti-cross-product: a signature for product X fails for product Y.
++    #[test]
++    fn sec1_golden_python_signature_production_key() {
++        let fp = "a6a64d59ca6d5ab8dccfe9556fa82c81ae90ab01051b0d44c8726ba9f533f5f0";
++        let cabinets = sample_cabinets();
++        let payload = build_auth_payload(
++            "ok", fp, "creative-hub", &cabinets, Some("2026.07"), Some("2027-01-01T00:00:00Z"),
++        );
++        // (1) byte-equivalence with the Python/Deno canonical payload:
++        let expected_hex = "415554485349472d76310a6f6b0a613661363464353963613664356162386463636665393535366661383263383161653930616230313035316230643434633837323662613966353333663566300a63726561746976652d6875620a6172742d6469726563746f722c636f70797772697465722c63726561746976652d6469726563746f720a323032362e30370a323032372d30312d30315430303a30303a30305a";
++        assert_eq!(hex::encode(&payload), expected_hex, "canonical payload diverged from Python signer");
++        // (2) real Python signature with the production key must pass the embedded pubkey:
++        let golden_sig_b64 = "oMZyBuqb18ho44YYrtNfbHuweN8F+ArGvuEaUlWew67UjUAqHXuVHNGirYU6xGfnQ8y37KugpcwRmVPLW0HIDA==";
++        assert!(verify_auth_signature(&payload, golden_sig_b64), "production pubkey failed to verify real Python signature");
++        // (3) anti-replay — same everything but a different machine fingerprint:
++        let fp_b = "b".repeat(64);
++        let payload_other_machine = build_auth_payload(
++            "ok", &fp_b, "creative-hub", &cabinets, Some("2026.07"), Some("2027-01-01T00:00:00Z"),
++        );
++        assert!(!verify_auth_signature(&payload_other_machine, golden_sig_b64), "replay to another machine must be rejected");
++        // (4) anti-cross-product — signature for creative-hub must not pass for legal:
++        let payload_other_product = build_auth_payload(
++            "ok", fp, "legal", &cabinets, Some("2026.07"), Some("2027-01-01T00:00:00Z"),
++        );
++        assert!(!verify_auth_signature(&payload_other_product, golden_sig_b64), "cross-product replay must be rejected");
++    }
++}
+diff --git a/src-tauri/src/crypto/mod.rs b/src-tauri/src/crypto/mod.rs
+index 516a19c..969fcbe 100644
+--- a/src-tauri/src/crypto/mod.rs
++++ b/src-tauri/src/crypto/mod.rs
+@@ -1,4 +1,5 @@
+ pub mod aes;
++pub mod auth_sig;
+ pub mod content_sig;
+ pub mod ed25519;
+ pub mod fingerprint;
+diff --git a/src-tauri/src/lib.rs b/src-tauri/src/lib.rs
+index 36ea9c7..5f7531c 100644
+--- a/src-tauri/src/lib.rs
++++ b/src-tauri/src/lib.rs
+@@ -1450,10 +1450,31 @@ async fn send_message(
+         }
+     }
+ 
+-    // Sync workspace exports → Desktop after Claude finishes
+-    state.session_manager
+-        .sync_exports(&cabinet_id)
+-        .map_err(|e| e.to_string())?;
++    // Sync workspace exports → Desktop after Claude finishes.
++    // 🔴 Находка внешнего аудита (Medium): занятый файл-приёмник (клиент открыл выданный .docx в
++    // Word — os error 32) валил ВЕСЬ ответ, хотя работа советника уже сделана. Теперь отказ по
++    // отдельным файлам не рвёт ответ, но и не проглатывается: клиент видит, что именно не
++    // обновилось и почему (INV-50). Структурный отказ синхронизации по-прежнему отказ.
++    match state.session_manager.sync_exports(&cabinet_id) {
++        Ok(blocked) if !blocked.is_empty() => {
++            warn!("Не обновлены в папке результатов [{cabinet_id}]: {}", blocked.join(", "));
++            let _ = app_handle.emit(
++                &format!("claude-stream-{cabinet_id}"),
++                serde_json::json!({
++                    "type": "error",
++                    "message": format!(
++                        "Ответ получен, но файлы не обновлены в папке результатов: {}. \
++                         Вероятная причина – файл открыт в другой программе. Закройте его, \
++                         следующий ответ обновит файл.",
++                        blocked.join(", ")
++                    )
++                })
++                .to_string(),
++            );
++        }
++        Ok(_) => {}
++        Err(e) => return Err(e.to_string()),
++    }
+ 
+     // Auto-route artifacts to target cabinets' inboxes
+     if let Err(e) = state.session_manager.auto_route_artifacts(&cabinet_id) {
+diff --git a/src-tauri/src/session/manager.rs b/src-tauri/src/session/manager.rs
+index 45d4834..dea6f39 100644
+--- a/src-tauri/src/session/manager.rs
++++ b/src-tauri/src/session/manager.rs
+@@ -24,6 +24,10 @@ pub struct Session {
+     /// открытие не даст затереть файл). `None` — замок взять не удалось: сессия работает как
+     /// раньше, но от чужой очистки не защищена (в журнале — warn).
+     lock: Option<std::fs::File>,
++    /// Ключи «имя файла + время изменения», уже разложенные по входящим других кабинетов за эту
++    /// сессию. Без этой отметки раскладка шла по всему накопленному каталогу выгрузок на КАЖДОЕ
++    /// сообщение: история перекопировалась заново, а удалённый пользователем файл возвращался.
++    routed: std::collections::HashSet<String>,
+ }
+ 
+ /// Имя файла-замка живой сессии внутри каталога сессии. Единственный источник правды для
+@@ -263,6 +267,7 @@ impl SessionManager {
+             first_message_sent: false,
+             claude_session_id: None,
+             lock,
++            routed: std::collections::HashSet::new(),
+         };
+         sessions.insert(cabinet_id.to_string(), session);
+         info!("Session ready for {cabinet_id}: work_dir={}", work_dir.display());
+@@ -291,7 +296,12 @@ impl SessionManager {
+ 
+     /// Sync workspace/exports → Desktop exports after Claude finishes.
+     /// Also syncs output dirs used by vault skills (pretensions/, nda/, contracts/, reports/).
+-    pub fn sync_exports(&self, cabinet_id: &str) -> Result<()> {
++    ///
++    /// Возвращает имена файлов, которые не удалось обновить в папке клиента (чаще всего —
++    /// открыты в другой программе). Это не отказ операции: ответ советника получен, и рвать его
++    /// из-за одного занятого файла нельзя.
++    pub fn sync_exports(&self, cabinet_id: &str) -> Result<Vec<String>> {
++        let mut blocked = Vec::new();
+         let sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
+         if let Some(session) = sessions.get(cabinet_id) {
+             let work_dir = session.work_dir.clone();
+@@ -301,15 +311,15 @@ impl SessionManager {
+             // Sync from exports/ and all vault-specific output directories.
+             // 🔴 CPD-39: копирование БЕЗ зеркального удаления — выгрузки клиента только
+             // накапливаются. Зеркало здесь сносило ранее выданные файлы с Рабочего стола.
+-            copy_dir_into(&work_dir.join("exports"), &dst)?;
++            blocked.extend(copy_dir_into(&work_dir.join("exports"), &dst)?);
+             for dir_name in &["pretensions", "nda", "contracts", "reports"] {
+                 let src = work_dir.join(dir_name);
+                 if src.exists() {
+-                    copy_dir_into(&src, &dst)?;
++                    blocked.extend(copy_dir_into(&src, &dst)?);
+                 }
+             }
+         }
+-        Ok(())
++        Ok(blocked)
+     }
+ 
+     /// Auto-route exported artifacts to target cabinets' inboxes based on filename patterns.
+@@ -327,32 +337,18 @@ impl SessionManager {
+             return Ok(());
+         }
+ 
+-        // Routing table: filename pattern → target cabinet IDs
+-        let routes: &[(&str, &[&str])] = &[
+-            // Strategy & analysis outputs
+-            ("media-analysis",       &["communication-analyst", "communication-strategist"]),
+-            ("communication-audit",  &["communication-strategist", "creative-director"]),
+-            ("brand-platform",       &["creative-director", "copywriter", "art-director"]),
+-            ("messaging-framework",  &["copywriter", "art-director", "creative-director"]),
+-            ("creative-brief",       &["creative-director", "copywriter", "art-director"]),
+-            // Creative outputs
+-            ("copy-",               &["focus-groups", "art-director", "lawyer-advertising"]),
+-            ("text-",               &["focus-groups", "lawyer-advertising"]),
+-            ("visual-",             &["focus-groups", "lawyer-advertising"]),
+-            ("ad-variant",          &["focus-groups", "lawyer-advertising"]),
+-            ("brand-visual",        &["art-director", "creative-director"]),
+-            // Review outputs
+-            ("focus-group",         &["copywriter", "creative-director", "art-director"]),
+-            ("test-result",         &["copywriter", "creative-director"]),
+-            // Legal outputs
+-            ("legal-review",        &["copywriter", "creative-director"]),
+-            ("compliance-check",    &["copywriter", "art-director"]),
+-            // Documents
+-            ("contract",            &["lawyer-contracts"]),
+-            ("nda",                 &["lawyer-claims"]),
+-            ("media-plan",          &["media-analyst", "econometrist"]),
+-            ("budget",              &["econometrist"]),
+-        ];
++        // 🔴 Раскладывать можно только в кабинеты, которые ЭТА сборка вообще показывает
++        // (находка внешнего аудита, High). Таблица маршрутов общая для линейки, а продукты
++        // шипуют разные подмножества кабинетов: у Эконометрики виден один `econometrist`, и
++        // раскладка создавала на Рабочем столе клиента папки несуществующих кабинетов
++        // (`media-analyst/inbox` и прочие), копируя туда его файлы.
++        let visible: Vec<String> = crate::commands::cabinet::filter_by_product(
++            crate::commands::online_auth::detect_product(),
++            crate::commands::cabinet::get_cabinet_definitions(),
++        )
++        .into_iter()
++        .map(|c| c.id)
++        .collect();
+ 
+         let user_profile = std::env::var("USERPROFILE")
+             .unwrap_or_else(|_| "C:\\Users\\Default".to_string());
+@@ -360,29 +356,50 @@ impl SessionManager {
+             .join("Desktop")
+             .join("AIAgency");
+ 
++        // 🔴 Второй след той же находки: `exports` на Рабочем столе после снятия зеркала (CPD-39)
++        // растёт неограниченно, а раскладка шла по ВСЕМУ каталогу на каждое сообщение. Следствия
++        // два: история перекопировалась заново каждый раз, и файл, который пользователь удалил из
++        // `inbox`, возвращался туда на следующем сообщении. Каждый файл раскладывается один раз за
++        // сессию; ключ включает время изменения, поэтому обновлённый файл поедет снова.
++        let already: std::collections::HashSet<String> = {
++            let sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
++            match sessions.get(source_cabinet_id) {
++                Some(s) => s.routed.clone(),
++                None => return Ok(()),
++            }
++        };
++        let mut newly_routed: Vec<String> = Vec::new();
++
+         if let Ok(entries) = std::fs::read_dir(&exports_dir) {
+             for entry in entries.flatten() {
+                 if !entry.file_type().is_ok_and(|ft| ft.is_file()) {
+                     continue;
+                 }
+                 let name = entry.file_name().to_string_lossy().to_lowercase();
+-
+-                for (pattern, targets) in routes {
+-                    if name.contains(pattern) {
+-                        for target_id in *targets {
+-                            if *target_id == source_cabinet_id {
+-                                continue;
+-                            }
+-                            let target_inbox = base.join(target_id).join("inbox");
+-                            let _ = std::fs::create_dir_all(&target_inbox);
+-                            match std::fs::copy(entry.path(), target_inbox.join(entry.file_name())) {
+-                                Ok(_) => info!("Auto-routed {} → {target_id}", entry.file_name().to_string_lossy()),
+-                                Err(e) => warn!("Auto-route failed: {} → {target_id}: {e}", entry.file_name().to_string_lossy()),
+-                            }
+-                        }
+-                        break; // first match only
++                let targets = route_targets_for(&name, source_cabinet_id, &visible);
++                if targets.is_empty() {
++                    continue;
++                }
++                let key = routing_key(&name, &entry);
++                if already.contains(&key) {
++                    continue;
++                }
++                for target_id in targets {
++                    let target_inbox = base.join(target_id).join("inbox");
++                    let _ = std::fs::create_dir_all(&target_inbox);
++                    match std::fs::copy(entry.path(), target_inbox.join(entry.file_name())) {
++                        Ok(_) => info!("Auto-routed {} → {target_id}", entry.file_name().to_string_lossy()),
++                        Err(e) => warn!("Auto-route failed: {} → {target_id}: {e}", entry.file_name().to_string_lossy()),
+                     }
+                 }
++                newly_routed.push(key);
++            }
++        }
++
++        if !newly_routed.is_empty() {
++            let mut sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
++            if let Some(s) = sessions.get_mut(source_cabinet_id) {
++                s.routed.extend(newly_routed);
+             }
+         }
+ 
+@@ -476,6 +493,7 @@ impl SessionManager {
+             first_message_sent: false,
+             claude_session_id: None,
+             lock,
++            routed: std::collections::HashSet::new(),
+         };
+         sessions.insert(cabinet_id.to_string(), session);
+ 
+@@ -554,19 +572,91 @@ fn clear_inbox(workspace: &Path) {
+ /// Второе следствие того же корня: `sync_exports` зовёт синхронизацию до пяти раз в ОДИН приёмник
+ /// (`exports`, `pretensions`, `nda`, `contracts`, `reports`) — при зеркальном удалении каждый
+ /// следующий вызов сносил то, что положил предыдущий. Копирование без удаления снимает и это.
+-fn copy_dir_into(src: &Path, dst: &Path) -> Result<()> {
++/// Таблица раскладки выгрузок: образец в имени файла → кабинеты-получатели.
++/// Общая для всей линейки; какие из этих кабинетов существуют в конкретной сборке, решает
++/// `filter_by_product` — см. `route_targets_for`.
++const ROUTES: &[(&str, &[&str])] = &[
++    // Strategy & analysis outputs
++    ("media-analysis",       &["communication-analyst", "communication-strategist"]),
++    ("communication-audit",  &["communication-strategist", "creative-director"]),
++    ("brand-platform",       &["creative-director", "copywriter", "art-director"]),
++    ("messaging-framework",  &["copywriter", "art-director", "creative-director"]),
++    ("creative-brief",       &["creative-director", "copywriter", "art-director"]),
++    // Creative outputs
++    ("copy-",               &["focus-groups", "art-director", "lawyer-advertising"]),
++    ("text-",               &["focus-groups", "lawyer-advertising"]),
++    ("visual-",             &["focus-groups", "lawyer-advertising"]),
++    ("ad-variant",          &["focus-groups", "lawyer-advertising"]),
++    ("brand-visual",        &["art-director", "creative-director"]),
++    // Review outputs
++    ("focus-group",         &["copywriter", "creative-director", "art-director"]),
++    ("test-result",         &["copywriter", "creative-director"]),
++    // Legal outputs
++    ("legal-review",        &["copywriter", "creative-director"]),
++    ("compliance-check",    &["copywriter", "art-director"]),
++    // Documents
++    ("contract",            &["lawyer-contracts"]),
++    ("nda",                 &["lawyer-claims"]),
++    ("media-plan",          &["media-analyst", "econometrist"]),
++    ("budget",              &["econometrist"]),
++];
++
++/// Кому раскладывать файл: образец совпал (первое совпадение, как и было), кабинет не является
++/// источником И существует в ЭТОЙ сборке продукта.
++///
++/// 🔴 Фильтр по видимым кабинетам — находка внешнего аудита (High). Без него продукт с одним
++/// кабинетом создавал на Рабочем столе клиента папки чужих кабинетов и копировал туда его файлы:
++/// у Эконометрики виден только `econometrist`, а раскладка исправно заводила `media-analyst\inbox`
++/// и прочие. Вынесено чистой функцией, чтобы проверялось без живого окна и файловой системы.
++fn route_targets_for(name_lower: &str, source_cabinet_id: &str, visible: &[String]) -> Vec<&'static str> {
++    for (pattern, targets) in ROUTES {
++        if name_lower.contains(pattern) {
++            return targets
++                .iter()
++                .map(|t| *t)
++                .filter(|t| *t != source_cabinet_id && visible.iter().any(|v| v.as_str() == *t))
++                .collect();
++        }
++    }
++    Vec::new()
++}
++
++/// Ключ «этот файл в этом состоянии уже разложен». Время изменения входит намеренно: обновлённый
++/// файл обязан поехать снова, неизменённый — нет.
++fn routing_key(name_lower: &str, entry: &std::fs::DirEntry) -> String {
++    let stamp = entry
++        .metadata()
++        .ok()
++        .and_then(|m| m.modified().ok())
++        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
++        .map(|d| d.as_secs())
++        .unwrap_or(0);
++    format!("{name_lower}|{stamp}")
++}
++
++/// 🔴 Один занятый файл не имеет права отменить весь ответ (находка внешнего аудита, Medium).
++/// `std::fs::copy` под `?` возвращал `Err` наверх, а вызов в `send_message` стоял под `?` — клиент,
++/// открывший ранее выданный `.docx` в Word, получал отказ на СЛЕДУЮЩЕЕ сообщение (os error 32),
++/// хотя ответ советника был получен полностью. Проход продолжается, а имена незаписанных файлов
++/// возвращаются наверх: молча глотать отказ нельзя (INV-50) — о нём сообщают, но не ценой ответа.
++fn copy_dir_into(src: &Path, dst: &Path) -> Result<Vec<String>> {
+     if !src.exists() {
+-        return Ok(());
++        return Ok(Vec::new());
+     }
+     std::fs::create_dir_all(dst)?;
++    let mut blocked = Vec::new();
+     for entry in std::fs::read_dir(src)? {
+         let entry = entry?;
+         if entry.file_type()?.is_file() {
+             let dst_file = dst.join(entry.file_name());
+-            std::fs::copy(entry.path(), &dst_file)?;
++            if let Err(e) = std::fs::copy(entry.path(), &dst_file) {
++                let name = entry.file_name().to_string_lossy().to_string();
++                warn!("Файл не обновлён в папке результатов: {name}: {e}");
++                blocked.push(name);
++            }
+         }
+     }
+-    Ok(())
++    Ok(blocked)
+ }
+ 
+ /// Mirror-sync files from src to dst (one level, no recursion).
+@@ -876,6 +966,7 @@ mod export_sync_tests {
+                 first_message_sent: false,
+                 claude_session_id: None,
+                 lock: None,
++                routed: std::collections::HashSet::new(),
+             },
+         );
+         manager
+@@ -970,4 +1061,154 @@ mod export_sync_tests {
+             "результат из reports обязан доехать вместе с первым, а не вместо него"
+         );
+     }
++
++    /// 🔴 Находка внешнего аудита (Medium): один незаписываемый файл валил ВЕСЬ ответ. Клиент
++    /// открыл ранее выданный `.docx` в Word → следующее сообщение той же сессии копирует файл
++    /// поверх → os error 32 → `sync_exports` возвращала `Err`, а вызов в `send_message` стоял под
++    /// `?` — пользователь получал отказ на полученный ответ.
++    ///
++    /// Препятствие моделируется каталогом с именем файла-приёмника: причина отказа записи другая,
++    /// а путь кода тот же (`std::fs::copy` вернул `Err`), и платформенных трюков с монопольным
++    /// открытием тест не требует.
++    #[test]
++    fn one_unwritable_file_does_not_cancel_the_whole_sync() {
++        let tmp = tempfile::tempdir().unwrap();
++        let work_dir = tmp.path().join("session-work");
++        let desktop = tmp.path().join("Рабочий стол/Aurora/econometrist");
++        std::fs::create_dir_all(work_dir.join("exports")).unwrap();
++        std::fs::write(work_dir.join("exports/занятый.docx"), "новая версия").unwrap();
++        std::fs::write(work_dir.join("exports/свободный.md"), "второй результат").unwrap();
++
++        // Приёмник занят: на месте файла — каталог, запись невозможна.
++        std::fs::create_dir_all(desktop.join("exports/занятый.docx")).unwrap();
++
++        let manager = manager_with_session(&work_dir, &desktop, tmp.path());
++        let blocked = manager
++            .sync_exports("econometrist")
++            .expect("отказ по отдельному файлу не имеет права отменять ответ целиком");
++
++        assert_eq!(
++            blocked,
++            vec!["занятый.docx".to_string()],
++            "имя незаписанного файла обязано вернуться наверх: молчаливый пропуск нарушает INV-50"
++        );
++        assert!(
++            desktop.join("exports/свободный.md").exists(),
++            "проход обязан продолжиться: остальные результаты доезжают до клиента"
++        );
++    }
++
++    /// 🔴 Находка внешнего аудита (High): раскладка выгрузок по входящим других кабинетов не
++    /// смотрела, существуют ли эти кабинеты в собранном продукте. У Эконометрики виден ровно один
++    /// кабинет, а раскладка заводила на Рабочем столе клиента `media-analyst\inbox` и другие папки
++    /// несуществующих кабинетов и копировала туда его файлы.
++    ///
++    /// Проверяется чистой функцией: сам `auto_route_artifacts` пишет в реальный профиль
++    /// пользователя (`%USERPROFILE%\Desktop`), и живой вызов в тесте задел бы рабочий стол машины.
++    #[test]
++    fn econometrica_routes_nowhere_because_it_ships_a_single_cabinet() {
++        let visible: Vec<String> = crate::commands::cabinet::filter_by_product(
++            "econometrica",
++            crate::commands::cabinet::get_cabinet_definitions(),
++        )
++        .into_iter()
++        .map(|c| c.id)
++        .collect();
++
++        for name in [
++            "media-plan-2026.xlsx",
++            "budget-q3.xlsx",
++            "creative-brief.md",
++            "контент-календарь.md", // «календарь» латиницей не пишется, но образец `nda` ловит «calendar»
++            "mmm-report-20260803.docx",
++        ] {
++            assert!(
++                route_targets_for(&name.to_lowercase(), "econometrist", &visible).is_empty(),
++                "продукт не имеет права раскладывать файлы по кабинетам, которых у клиента нет: {name}"
++            );
++        }
++    }
++
++    /// Позитивный контроль к сторожу выше: без него правило удовлетворялось бы функцией, которая
++    /// не раскладывает ничего и никогда. Там, где кабинеты-получатели существуют, раскладка живая.
++    #[test]
++    fn routing_still_works_where_the_target_cabinets_exist() {
++        let visible: Vec<String> = crate::commands::cabinet::get_cabinet_definitions()
++            .into_iter()
++            .map(|c| c.id)
++            .collect();
++
++        assert_eq!(
++            route_targets_for("media-plan-2026.xlsx", "econometrist", &visible),
++            vec!["media-analyst"],
++            "кабинет-источник исключается из получателей, остальные — нет"
++        );
++        assert_eq!(
++            route_targets_for("contract-аренда.docx", "econometrist", &visible),
++            vec!["lawyer-contracts"]
++        );
++    }
++
++    /// 🔴 Второй след той же находки: раскладка шла по ВСЕМУ накопленному каталогу выгрузок на
++    /// каждое сообщение — история перекопировалась заново, а файл, удалённый пользователем из
++    /// входящих, возвращался туда следующим сообщением. Ключ раскладки включает время изменения:
++    /// неизменённый файл второй раз не едет, обновлённый — едет.
++    #[test]
++    fn routing_key_changes_only_when_the_file_changes() {
++        let tmp = tempfile::tempdir().unwrap();
++        let path = tmp.path().join("медиаплан.xlsx");
++        std::fs::write(&path, "первая версия").unwrap();
++
++        let key_of = |dir: &std::path::Path| -> String {
++            let entry = std::fs::read_dir(dir)
++                .unwrap()
++                .flatten()
++                .find(|e| e.file_name() == std::ffi::OsStr::new("медиаплан.xlsx"))
++                .expect("файл не найден");
++            routing_key("медиаплан.xlsx", &entry)
++        };
++
++        let first = key_of(tmp.path());
++        assert_eq!(first, key_of(tmp.path()), "неизменённый файл обязан дать тот же ключ");
++
++        // Время изменения задаётся явно: полагаться на разрешение часов файловой системы нельзя —
++        // повторная запись в пределах одной секунды дала бы тот же штамп, и сторож стал бы ложным.
++        let later = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(2_000_000_000);
++        let f = std::fs::OpenOptions::new().write(true).open(&path).unwrap();
++        f.set_modified(later).unwrap();
++        drop(f);
++
++        assert_ne!(
++            first,
++            key_of(tmp.path()),
++            "обновлённый файл обязан считаться новым, иначе свежая версия не доедет до получателя"
++        );
++    }
++
++    /// 🔴 Сторож СВЯЗИ (урок Ф-04: вынесенная функция покрыта, а её вызов — нет). Чистые функции
++    /// выше ничего не стоят, если раскладка перестанет их звать: проверяется, что в теле
++    /// `auto_route_artifacts` есть и фильтр по видимым кабинетам, и отсечение уже разложенного.
++    #[test]
++    fn auto_route_uses_the_product_filter_and_the_already_routed_set() {
++        let src = include_str!("manager.rs");
++        let start = src
++            .find("pub fn auto_route_artifacts")
++            .expect("функция auto_route_artifacts не найдена — разметка переехала");
++        let tail = &src[start..];
++        // Окно — от объявления до следующего объявления функции, а не по «перевод строки + скобка»:
++        // файлы хранятся с переводом строки Windows, и выражение с `\n}` не срабатывает вовсе.
++        let end = tail[1..].find("\n    pub fn ").map(|i| i + 1).unwrap_or(tail.len());
++        let window = &tail[..end];
++
++        assert!(
++            window.contains("filter_by_product"),
++            "раскладка обязана спрашивать, какие кабинеты есть в ЭТОЙ сборке, иначе снова заведёт \
++             на Рабочем столе клиента папки несуществующих кабинетов"
++        );
++        assert!(
++            window.contains("already.contains"),
++            "раскладка обязана пропускать уже разложенное, иначе история перекопируется на каждое \
++             сообщение, а удалённый пользователем файл возвращается"
++        );
++    }
+ }
