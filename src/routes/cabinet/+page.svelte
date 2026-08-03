@@ -259,10 +259,20 @@
     checkDeps();
     // Признак режима (ADR-049 §5): читаем при входе в кабинет. Отказ не мешает работе —
     // признак просто не показывается, а не рушит рабочий экран.
-    invoke('get_execution_mode')
-      .then((state) => { executionMode = /** @type {any} */ (state); })
-      .catch((e) => { console.warn('режим исполнения недоступен', e); });
-    return () => window.removeEventListener('keydown', handleCabinetKeydown);
+    const readExecutionMode = () => {
+      invoke('get_execution_mode')
+        .then((state) => { executionMode = /** @type {any} */ (state); })
+        .catch((e) => { console.warn('режим исполнения недоступен', e); });
+    };
+    readExecutionMode();
+    // 🔴 Признак перечитывается при возврате фокуса: человек мог переключить режим в
+    // настройках или доступность локального пути могла измениться. Признак, который
+    // ОТСТАЁТ, хуже отсутствующего — он утверждает про маршрут данных то, чего уже нет.
+    window.addEventListener('focus', readExecutionMode);
+    return () => {
+      window.removeEventListener('keydown', handleCabinetKeydown);
+      window.removeEventListener('focus', readExecutionMode);
+    };
   });
 
   // Update window title to match cabinet name
