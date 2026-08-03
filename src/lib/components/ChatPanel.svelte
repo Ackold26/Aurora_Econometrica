@@ -5,6 +5,7 @@
   import { messages, isLoading, activeCabinet, pendingCommand, stickyContext, cabinetCommands, inboxFiles as inboxFilesStore } from '$lib/store.js';
   import { toast } from '$lib/toast.js';
   import { attachmentsSkippedText } from '$lib/cloud-warning-text.js';
+  import { cancelledTailAction } from '$lib/cancelled-run.js';
   import { getNextSteps, getRandomInsight, getCurrentPhase, trackRequest, getEmpathyError, getTimeGreeting, getUsageHint, startSession, incrementSessionMessages, endSession, pluralRu, getResponseActions, getSafetyTimeout, getEndowedProgressMessage, getContextInsight } from '$lib/psy.js';
   import { classifyMessage } from '$lib/chat-classifier.js';
   import { isEconometrica } from '$lib/creative-store.js';
@@ -437,6 +438,24 @@
       try {
         const data = JSON.parse(event.payload);
 
+        // 🔴 Хвост ОСТАНОВЛЕННОЙ работы (находка внешнего аудита). Он мог доехать
+        // уже после того, как человек задал следующий вопрос — облачное ожидание
+        // длится до минуты, а «Остановить» отпускает окно сразу. Пока идёт другая
+        // работа, этот текст к ней не относится: приклеить его к чужому ответу или
+        // заменить им чужой ответ значит соврать о том, что человек прочитал.
+        if (data.cancelled_run) {
+          const action = cancelledTailAction($isLoading, data.notice);
+          if (action !== 'apply') {
+            if (action === 'notice') {
+              messages.update(msgs => [...msgs, {
+                role: 'system', content: data.notice, ts: Date.now(),
+              }]);
+              if (isNearBottom()) scrollToBottom();
+            }
+            return;
+          }
+        }
+
         if (data.type === 'pipeline_phase') {
           // Multi-phase analytics pipeline: update progress, reset safety timer
           clearTimeout(safetyTimer);
@@ -616,7 +635,20 @@
       toast(reason, 'warning', 10000);
     });
 
-    unlistenDone = await listen(`claude-done-${cabinetId}`, () => {
+    unlistenDone = await listen(`claude-done-${cabinetId}`, (event) => {
+      // 🔴 Остановленность определяет САМО событие, а не наш признак (находка
+      // внешнего аудита). Признак снимается следующим вопросом человека, и
+      // завершение остановленной работы, доехавшее после него, шло по обычному
+      // пути: гасило прогресс и защитный таймер ЖИВОЙ работы, а её недописанный
+      // текст уходило сохранять в историю.
+      let payload = event.payload;
+      if (typeof payload === 'string') {
+        try { payload = JSON.parse(payload); } catch { payload = null; }
+      }
+      if (payload?.cancelled) {
+        cancelled = false;
+        return;
+      }
       if (cancelled) {
         cancelled = false;
         return;
