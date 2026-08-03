@@ -28,10 +28,10 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from utils.negative_baseline import compute_negative_baseline  # noqa: E402
 
 
-def _samples(intercept_mu: float, n_draws: int = 500, sd: float = 0.1, seed: int = 0):
+def _samples(intercept_mu: float, n_draws: int = 500, sd: float = 0.1, seed: int = 0, n: int | None = None):
     """Выборки свободного члена вокруг заданного среднего (нормализованная шкала)."""
     rng = np.random.RandomState(seed)
-    return rng.normal(intercept_mu, sd, n_draws)
+    return rng.normal(intercept_mu, sd, n if n is not None else n_draws)
 
 
 # ── Сам расчёт ──────────────────────────────────────────────────────────────
@@ -154,7 +154,7 @@ def test_пороги_объявлены_в_ответе():
     res = compute_negative_baseline(
         _samples(-0.5), None, None, 5000.0, 5000.0)
     assert res['thresholds'] == {'ok_below': 0.2, 'fail_above': 0.8}
-    assert res['basis'] == 'displayed_baseline_mean'
+    assert res['basis'] == 'baseline_before_factor_breakout_mean'
 
 
 # ── Обратная совместимость: пересчёт оценки качества ────────────────────────
@@ -258,3 +258,66 @@ def test_ключ_переживает_запись_и_чтение_диагно
     back = json.loads(path.read_text(encoding='utf-8'))
     assert back['negative_baseline']['verdict'] == 'ok'
     assert back['negative_baseline']['thresholds']['fail_above'] == 0.8
+
+
+# ── Находки внешнего аудита блока P0.6 (2026-08-03) ─────────────────────────
+
+def test_один_испорченный_отсчёт_не_гасит_проверку():
+    """Medium: фильтр непригодных значений резал ПЕРИОДЫ, а не отсчёты.
+
+    `isfinite(...).all(axis=1)` — свёртка по отсчётам, поэтому единственный NaN
+    среди тысяч выборок делал непригодной каждую строку, и функция возвращала
+    None: один испорченный отсчёт гасил всю проверку, а на экране это выглядело
+    как «проверка недоступна».
+    """
+    ic = _samples(-0.5)
+    ic[7] = np.nan
+    res = compute_negative_baseline(ic, None, None, 5000.0, 5000.0)
+    assert res is not None, 'один NaN снова гасит всю проверку'
+    assert res['n_draws'] == 499, 'отброшен должен быть ровно один отсчёт'
+
+
+def test_несогласованные_формы_контролей_помечаются():
+    """Medium: раньше вклад контролей выпадал МОЛЧА.
+
+    База считалась по одному свободному члену, а результат отдавался как
+    полноценный — читатель диагностики не мог отличить «контроли учтены» от
+    «контроли выброшены».
+    """
+    betas = np.full((3, 500), -1.0)
+    x_norm = np.zeros((30, 2))  # 2 колонки против 3 наборов коэффициентов
+    res = compute_negative_baseline(_samples(-0.5), betas, x_norm, 5000.0, 5000.0)
+    assert res is not None
+    assert res['controls_dropped'] is True, 'выпадение контролей снова молчит'
+    # А когда всё сошлось — признак опущен.
+    ok = compute_negative_baseline(
+        _samples(-0.5), np.full((2, 500), -1.0), np.zeros((30, 2)), 5000.0, 5000.0)
+    assert ok['controls_dropped'] is False
+
+
+def test_убыточный_денежный_kpi_не_объявляется_провалом():
+    """Medium: при среднем KPI ниже нуля отрицательная база НОРМАЛЬНА.
+
+    Денежная метрика «прибыль» у убыточного проекта: проверка объявляла `fail`
+    и показывала клиенту «без рекламы продаж не было бы вовсе — вклад каналов
+    завышен». Утверждение ложное, вклад каналов тут ни при чём.
+    """
+    assert compute_negative_baseline(_samples(-0.5), None, None, -2000.0, 500.0) is None
+    assert compute_negative_baseline(_samples(-0.5), None, None, 0.0, 500.0) is None
+
+
+def test_вырожденная_выборка_не_даёт_псевдооценки():
+    """Low: на одном-двух отсчётах вероятность равна ровно 0 или 1."""
+    assert compute_negative_baseline(_samples(-0.5, n=1), None, None, 5000.0, 5000.0) is None
+    assert compute_negative_baseline(_samples(-0.5, n=9), None, None, 5000.0, 5000.0) is None
+    assert compute_negative_baseline(_samples(-0.5, n=10), None, None, 5000.0, 5000.0) is not None
+
+
+def test_основание_расчёта_названо_честно():
+    """Low: `displayed_baseline_mean` утверждал равенство с полосой на экране.
+
+    Декомпозиция вычитает из базы каждый выносимый фактор любого знака, поэтому
+    при наличии хотя бы одного фактора числа расходятся всегда.
+    """
+    res = compute_negative_baseline(_samples(-0.5), None, None, 5000.0, 5000.0)
+    assert res['basis'] == 'baseline_before_factor_breakout_mean'

@@ -78,6 +78,11 @@ PROB_FAIL = 0.8
 # не её чувствительность к параметризации.
 MIN_CV_FOR_DETECTION = 0.5
 
+# Минимальный размер выборки, при котором вероятность вообще что-то означает
+# (внешний аудит блока, Low, 2026-08-03): на одном-двух отсчётах она принимает
+# только значения 0 и 1, а «границы» совпадают со средним.
+MIN_DRAWS = 10
+
 
 def _verdict(prob: float) -> str:
     """Ярлык по вероятности. Границы включаются в более мягкую сторону."""
@@ -121,11 +126,24 @@ def compute_negative_baseline(
         # Вырожденный масштаб: KPI-константа или битая нормализация. Считать
         # «вероятность» на таком входе значило бы выдать число из ниоткуда.
         return None
+    if mean <= 0:
+        # 🔴 Внешний аудит блока (Medium, 2026-08-03). Целевая метрика со средним
+        # не выше нуля — это денежный KPI «прибыль» у убыточного проекта. Там
+        # отрицательная база НОРМАЛЬНА по смыслу метрики, а проверка объявила бы
+        # провал и показала клиенту «без рекламы продаж не было бы вовсе — вклад
+        # каналов завышен». Утверждение ложное: вклад тут ни при чём. Молчим.
+        return None
 
     n_draws = int(intercept.size)
+    if n_draws < MIN_DRAWS:
+        # 🔴 Внешний аудит блока (Low, 2026-08-03). На одном отсчёте вероятность
+        # равна ровно 0 или 1, а «границы» совпадают со средним — число выглядит
+        # как оценка, ею не являясь. Порог отсекает вырожденные прогоны.
+        return None
 
     # Вклад контролей по выборкам: (T, n_controls) @ (n_controls, draws).
     control_effect = np.zeros((1, n_draws), dtype=float)
+    controls_applied = False
     try:
         betas = np.asarray(control_betas_samples, dtype=float)
         x_norm = np.asarray(x_control_norm, dtype=float)
@@ -134,15 +152,38 @@ def compute_negative_baseline(
                 betas = betas.T  # допускаем (draws, n_controls)
             if x_norm.shape[1] == betas.shape[0]:
                 control_effect = x_norm @ betas  # (T, draws)
+                controls_applied = True
+            else:
+                # 🔴 Внешний аудит блока (Medium, 2026-08-03). Раньше несогласованные
+                # формы выпадали МОЛЧА: база считалась вообще без контролей, а
+                # результат отдавался как полноценный. Читатель диагностики не мог
+                # отличить «контроли учтены» от «контроли выброшены».
+                logger.warning(
+                    'Проверка базы: формы контролей не сошлись (x_norm %s, betas %s) — '
+                    'вклад контролей НЕ учтён, результат помечен признаком.',
+                    x_norm.shape, betas.shape,
+                )
     except (TypeError, ValueError) as err:  # noqa: BLE001
         logger.warning('Контроли не учтены в проверке базы: %s', err)
+
+    # Контроли были на входе, но применить их не удалось — это надо знать читателю.
+    controls_expected = bool(np.asarray(control_betas_samples).size) if control_betas_samples is not None else False
+    controls_dropped = bool(controls_expected and not controls_applied)
 
     base_norm = intercept[None, :] + control_effect          # (T, draws)
     base_units = base_norm * std + mean                      # в единицах KPI
 
     if not np.isfinite(base_units).all():
-        base_units = base_units[np.isfinite(base_units).all(axis=1)]
-        if base_units.size == 0:
+        # 🔴 Внешний аудит блока (Medium, 2026-08-03). Раньше фильтр резал ПЕРИОДЫ
+        # (`all(axis=1)` — свёртка по отсчётам), и один NaN среди тысяч выборок
+        # делал непригодной каждую строку: функция возвращала `None`, то есть один
+        # испорченный отсчёт гасил всю проверку. Режем непригодные ОТСЧЁТЫ.
+        годные = np.isfinite(base_units).all(axis=0)         # (draws,)
+        if not годные.any():
+            return None
+        base_units = base_units[:, годные]
+        n_draws = int(base_units.shape[1])
+        if n_draws < MIN_DRAWS:
             return None
 
     # Отображаемый базовый уровень — средний по периодам (именно его видит
@@ -179,7 +220,15 @@ def compute_negative_baseline(
         'baseline_p95': round(float(np.percentile(per_draw, 95)), 2),
         'share_periods_negative': round(share_periods_negative, 4),
         'n_draws': n_draws,
-        # На чём считалось — чтобы читатель не гадал, та ли это база, что на экране.
-        'basis': 'displayed_baseline_mean',
+        # 🔴 Честное имя величины (внешний аудит блока, Low, 2026-08-03). Прежнее
+        # `displayed_baseline_mean` утверждало равенство с полосой «Базовый уровень»
+        # на экране, а считается величина ДО выноса факторов: декомпозиция вычитает
+        # из базы каждый выносимый фактор любого знака (`decomposer.py:517`), поэтому
+        # при наличии хотя бы одного фактора числа расходятся всегда.
+        'basis': 'baseline_before_factor_breakout_mean',
+        # Учтён ли вклад контролей. `False` при несогласованных формах — тогда база
+        # посчитана по одному свободному члену, и это не то же самое, что «контролей
+        # в модели нет».
+        'controls_dropped': controls_dropped,
         'thresholds': {'ok_below': PROB_OK, 'fail_above': PROB_FAIL},
     }

@@ -99,7 +99,8 @@ def test_ключ_доезжает_до_сохранённой_диагност�
     diag = json.loads(путь.read_text(encoding='utf-8'))
     nb = diag.get('negative_baseline')
     assert nb is not None, 'проверка канона не доехала до диагностики'
-    assert nb['basis'] == 'displayed_baseline_mean'
+    # Имя честное: считается величина ДО выноса факторов (аудит блока, Low).
+    assert nb['basis'] == 'baseline_before_factor_breakout_mean'
     assert nb['n_draws'] > 0
 
 
