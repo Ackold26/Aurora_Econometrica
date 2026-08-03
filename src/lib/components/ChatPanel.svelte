@@ -156,6 +156,11 @@
   /** @type {number|null} */
   let startTime = null;
   let cancelled = false;
+  // 🔴 Номер хода чата. Отказ работы возвращается НЕ событием, а результатом команды,
+  // и признака принадлежности не несёт вовсе: промис висит до конца работы, поэтому
+  // отказ ОСТАНОВЛЕННОЙ работы срабатывает уже во время следующей — гасит её
+  // защитный таймер и прогресс. Тот же класс, что CPD-42, на непокрытом пути.
+  let turnSeq = 0;
 
   // PSY-2: Random insight for loading state
   let currentInsight = $state('');
@@ -809,6 +814,7 @@
     incrementSessionMessages();
     inputText = '';
     cancelled = false;
+    const myTurn = ++turnSeq;
     // Track command for auto-continue (slash commands only, reset for follow-ups)
     if (text.startsWith('/')) {
       lastCommand = text.split(/\s/)[0];
@@ -869,8 +875,15 @@
     try {
       await invoke('send_message', { cabinetId, message: messageToSend });
     } catch (err) {
-      clearTimeout(safetyTimer);
+      // 🔴 Отказ ПРОШЛОГО хода не властен над текущим (тот же класс, что CPD-42, на
+      // пути, который событий не шлёт вовсе). Промис команды висит до конца работы,
+      // поэтому отказ остановленной работы срабатывает уже во время следующей: он
+      // погасил бы её защитный таймер, прогресс и признак занятости. Сам текст отказа
+      // человеку показать обязаны — работа, которую он запускал, не удалась.
+      const stale = myTurn !== turnSeq;
       messages.update(msgs => [...msgs, { role: 'system', content: `Ошибка: ${err}`, ts: Date.now() }]);
+      if (stale) return;
+      clearTimeout(safetyTimer);
       isLoading.set(false);
       resetProgress();
     }
