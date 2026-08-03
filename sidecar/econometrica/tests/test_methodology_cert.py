@@ -438,3 +438,40 @@ def test_причина_отказа_не_содержит_имени_исклю
     assert итог['status'] == 'unavailable'
     assert 'Error' not in итог['reason'] and 'error' not in итог['reason']
     assert итог['hash'] is None
+
+
+def test_настройка_auto_не_выдаётся_за_тип_адстока():
+    """🔴 Третий аудит, High: на реальных проектах и в конфигурации, и в
+    параметрах каналов стоит `'auto'` — настройка «выбери сам», а не тип.
+    Движок такого типа не знает и молча считает по геометрическому, а сертификат
+    утверждал `auto` под именем «фактически применённый тип». Третий раз тот же
+    класс, что F-01 и Ф-01.
+    """
+    авто = _модель(
+        model_version='1.0-ols',
+        channel_adstock_types={},
+        config={'kpi_type': 'sales',
+                'adstock_config': {'ТВ': 'auto', 'Диджитал': 'auto'}},
+    )
+    spec = build_cert_payload(авто, _разбивка(), _манифест())['model_spec']
+    assert 'adstock_types' not in spec, (
+        f'настройка уехала в заверенное описание: {spec.get("adstock_types")}'
+    )
+
+    # Настоящий тип в той же позиции — проходит.
+    настоящий = _модель(
+        model_version='1.0-ols',
+        channel_adstock_types={},
+        config={'kpi_type': 'sales',
+                'adstock_config': {'ТВ': 'weibull', 'Диджитал': 'geometric'}},
+    )
+    spec2 = build_cert_payload(настоящий, _разбивка(), _манифест())['model_spec']
+    assert spec2['adstock_types'] == {'ТВ': 'weibull', 'Диджитал': 'geometric'}
+
+
+def test_auto_отфильтровывается_и_из_карты_модели():
+    """Тот же фильтр на первом источнике: карта модели тоже может нести `auto`
+    (замер на клиентском проекте «кагоцел» — там именно так)."""
+    из_карты = _модель(channel_adstock_types={'ТВ': 'auto', 'Диджитал': 'auto'})
+    spec = build_cert_payload(из_карты, _разбивка(), _манифест())['model_spec']
+    assert 'adstock_types' not in spec
