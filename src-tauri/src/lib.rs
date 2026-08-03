@@ -1450,10 +1450,31 @@ async fn send_message(
         }
     }
 
-    // Sync workspace exports → Desktop after Claude finishes
-    state.session_manager
-        .sync_exports(&cabinet_id)
-        .map_err(|e| e.to_string())?;
+    // Sync workspace exports → Desktop after Claude finishes.
+    // 🔴 Находка внешнего аудита (Medium): занятый файл-приёмник (клиент открыл выданный .docx в
+    // Word — os error 32) валил ВЕСЬ ответ, хотя работа советника уже сделана. Теперь отказ по
+    // отдельным файлам не рвёт ответ, но и не проглатывается: клиент видит, что именно не
+    // обновилось и почему (INV-50). Структурный отказ синхронизации по-прежнему отказ.
+    match state.session_manager.sync_exports(&cabinet_id) {
+        Ok(blocked) if !blocked.is_empty() => {
+            warn!("Не обновлены в папке результатов [{cabinet_id}]: {}", blocked.join(", "));
+            let _ = app_handle.emit(
+                &format!("claude-stream-{cabinet_id}"),
+                serde_json::json!({
+                    "type": "error",
+                    "message": format!(
+                        "Ответ получен, но файлы не обновлены в папке результатов: {}. \
+                         Вероятная причина – файл открыт в другой программе. Закройте его, \
+                         следующий ответ обновит файл.",
+                        blocked.join(", ")
+                    )
+                })
+                .to_string(),
+            );
+        }
+        Ok(_) => {}
+        Err(e) => return Err(e.to_string()),
+    }
 
     // Auto-route artifacts to target cabinets' inboxes
     if let Err(e) = state.session_manager.auto_route_artifacts(&cabinet_id) {

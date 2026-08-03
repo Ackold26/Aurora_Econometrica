@@ -24,6 +24,10 @@ pub struct Session {
     /// открытие не даст затереть файл). `None` — замок взять не удалось: сессия работает как
     /// раньше, но от чужой очистки не защищена (в журнале — warn).
     lock: Option<std::fs::File>,
+    /// Ключи «имя файла + время изменения», уже разложенные по входящим других кабинетов за эту
+    /// сессию. Без этой отметки раскладка шла по всему накопленному каталогу выгрузок на КАЖДОЕ
+    /// сообщение: история перекопировалась заново, а удалённый пользователем файл возвращался.
+    routed: std::collections::HashSet<String>,
 }
 
 /// Имя файла-замка живой сессии внутри каталога сессии. Единственный источник правды для
@@ -263,6 +267,7 @@ impl SessionManager {
             first_message_sent: false,
             claude_session_id: None,
             lock,
+            routed: std::collections::HashSet::new(),
         };
         sessions.insert(cabinet_id.to_string(), session);
         info!("Session ready for {cabinet_id}: work_dir={}", work_dir.display());
@@ -291,7 +296,12 @@ impl SessionManager {
 
     /// Sync workspace/exports → Desktop exports after Claude finishes.
     /// Also syncs output dirs used by vault skills (pretensions/, nda/, contracts/, reports/).
-    pub fn sync_exports(&self, cabinet_id: &str) -> Result<()> {
+    ///
+    /// Возвращает имена файлов, которые не удалось обновить в папке клиента (чаще всего —
+    /// открыты в другой программе). Это не отказ операции: ответ советника получен, и рвать его
+    /// из-за одного занятого файла нельзя.
+    pub fn sync_exports(&self, cabinet_id: &str) -> Result<Vec<String>> {
+        let mut blocked = Vec::new();
         let sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(session) = sessions.get(cabinet_id) {
             let work_dir = session.work_dir.clone();
@@ -301,15 +311,15 @@ impl SessionManager {
             // Sync from exports/ and all vault-specific output directories.
             // 🔴 CPD-39: копирование БЕЗ зеркального удаления — выгрузки клиента только
             // накапливаются. Зеркало здесь сносило ранее выданные файлы с Рабочего стола.
-            copy_dir_into(&work_dir.join("exports"), &dst)?;
+            blocked.extend(copy_dir_into(&work_dir.join("exports"), &dst)?);
             for dir_name in &["pretensions", "nda", "contracts", "reports"] {
                 let src = work_dir.join(dir_name);
                 if src.exists() {
-                    copy_dir_into(&src, &dst)?;
+                    blocked.extend(copy_dir_into(&src, &dst)?);
                 }
             }
         }
-        Ok(())
+        Ok(blocked)
     }
 
     /// Auto-route exported artifacts to target cabinets' inboxes based on filename patterns.
@@ -327,32 +337,18 @@ impl SessionManager {
             return Ok(());
         }
 
-        // Routing table: filename pattern → target cabinet IDs
-        let routes: &[(&str, &[&str])] = &[
-            // Strategy & analysis outputs
-            ("media-analysis",       &["communication-analyst", "communication-strategist"]),
-            ("communication-audit",  &["communication-strategist", "creative-director"]),
-            ("brand-platform",       &["creative-director", "copywriter", "art-director"]),
-            ("messaging-framework",  &["copywriter", "art-director", "creative-director"]),
-            ("creative-brief",       &["creative-director", "copywriter", "art-director"]),
-            // Creative outputs
-            ("copy-",               &["focus-groups", "art-director", "lawyer-advertising"]),
-            ("text-",               &["focus-groups", "lawyer-advertising"]),
-            ("visual-",             &["focus-groups", "lawyer-advertising"]),
-            ("ad-variant",          &["focus-groups", "lawyer-advertising"]),
-            ("brand-visual",        &["art-director", "creative-director"]),
-            // Review outputs
-            ("focus-group",         &["copywriter", "creative-director", "art-director"]),
-            ("test-result",         &["copywriter", "creative-director"]),
-            // Legal outputs
-            ("legal-review",        &["copywriter", "creative-director"]),
-            ("compliance-check",    &["copywriter", "art-director"]),
-            // Documents
-            ("contract",            &["lawyer-contracts"]),
-            ("nda",                 &["lawyer-claims"]),
-            ("media-plan",          &["media-analyst", "econometrist"]),
-            ("budget",              &["econometrist"]),
-        ];
+        // 🔴 Раскладывать можно только в кабинеты, которые ЭТА сборка вообще показывает
+        // (находка внешнего аудита, High). Таблица маршрутов общая для линейки, а продукты
+        // шипуют разные подмножества кабинетов: у Эконометрики виден один `econometrist`, и
+        // раскладка создавала на Рабочем столе клиента папки несуществующих кабинетов
+        // (`media-analyst/inbox` и прочие), копируя туда его файлы.
+        let visible: Vec<String> = crate::commands::cabinet::filter_by_product(
+            crate::commands::online_auth::detect_product(),
+            crate::commands::cabinet::get_cabinet_definitions(),
+        )
+        .into_iter()
+        .map(|c| c.id)
+        .collect();
 
         let user_profile = std::env::var("USERPROFILE")
             .unwrap_or_else(|_| "C:\\Users\\Default".to_string());
@@ -360,29 +356,50 @@ impl SessionManager {
             .join("Desktop")
             .join("AIAgency");
 
+        // 🔴 Второй след той же находки: `exports` на Рабочем столе после снятия зеркала (CPD-39)
+        // растёт неограниченно, а раскладка шла по ВСЕМУ каталогу на каждое сообщение. Следствия
+        // два: история перекопировалась заново каждый раз, и файл, который пользователь удалил из
+        // `inbox`, возвращался туда на следующем сообщении. Каждый файл раскладывается один раз за
+        // сессию; ключ включает время изменения, поэтому обновлённый файл поедет снова.
+        let already: std::collections::HashSet<String> = {
+            let sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
+            match sessions.get(source_cabinet_id) {
+                Some(s) => s.routed.clone(),
+                None => return Ok(()),
+            }
+        };
+        let mut newly_routed: Vec<String> = Vec::new();
+
         if let Ok(entries) = std::fs::read_dir(&exports_dir) {
             for entry in entries.flatten() {
                 if !entry.file_type().is_ok_and(|ft| ft.is_file()) {
                     continue;
                 }
                 let name = entry.file_name().to_string_lossy().to_lowercase();
-
-                for (pattern, targets) in routes {
-                    if name.contains(pattern) {
-                        for target_id in *targets {
-                            if *target_id == source_cabinet_id {
-                                continue;
-                            }
-                            let target_inbox = base.join(target_id).join("inbox");
-                            let _ = std::fs::create_dir_all(&target_inbox);
-                            match std::fs::copy(entry.path(), target_inbox.join(entry.file_name())) {
-                                Ok(_) => info!("Auto-routed {} → {target_id}", entry.file_name().to_string_lossy()),
-                                Err(e) => warn!("Auto-route failed: {} → {target_id}: {e}", entry.file_name().to_string_lossy()),
-                            }
-                        }
-                        break; // first match only
+                let targets = route_targets_for(&name, source_cabinet_id, &visible);
+                if targets.is_empty() {
+                    continue;
+                }
+                let key = routing_key(&name, &entry);
+                if already.contains(&key) {
+                    continue;
+                }
+                for target_id in targets {
+                    let target_inbox = base.join(target_id).join("inbox");
+                    let _ = std::fs::create_dir_all(&target_inbox);
+                    match std::fs::copy(entry.path(), target_inbox.join(entry.file_name())) {
+                        Ok(_) => info!("Auto-routed {} → {target_id}", entry.file_name().to_string_lossy()),
+                        Err(e) => warn!("Auto-route failed: {} → {target_id}: {e}", entry.file_name().to_string_lossy()),
                     }
                 }
+                newly_routed.push(key);
+            }
+        }
+
+        if !newly_routed.is_empty() {
+            let mut sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
+            if let Some(s) = sessions.get_mut(source_cabinet_id) {
+                s.routed.extend(newly_routed);
             }
         }
 
@@ -476,6 +493,7 @@ impl SessionManager {
             first_message_sent: false,
             claude_session_id: None,
             lock,
+            routed: std::collections::HashSet::new(),
         };
         sessions.insert(cabinet_id.to_string(), session);
 
@@ -554,19 +572,91 @@ fn clear_inbox(workspace: &Path) {
 /// Второе следствие того же корня: `sync_exports` зовёт синхронизацию до пяти раз в ОДИН приёмник
 /// (`exports`, `pretensions`, `nda`, `contracts`, `reports`) — при зеркальном удалении каждый
 /// следующий вызов сносил то, что положил предыдущий. Копирование без удаления снимает и это.
-fn copy_dir_into(src: &Path, dst: &Path) -> Result<()> {
+/// Таблица раскладки выгрузок: образец в имени файла → кабинеты-получатели.
+/// Общая для всей линейки; какие из этих кабинетов существуют в конкретной сборке, решает
+/// `filter_by_product` — см. `route_targets_for`.
+const ROUTES: &[(&str, &[&str])] = &[
+    // Strategy & analysis outputs
+    ("media-analysis",       &["communication-analyst", "communication-strategist"]),
+    ("communication-audit",  &["communication-strategist", "creative-director"]),
+    ("brand-platform",       &["creative-director", "copywriter", "art-director"]),
+    ("messaging-framework",  &["copywriter", "art-director", "creative-director"]),
+    ("creative-brief",       &["creative-director", "copywriter", "art-director"]),
+    // Creative outputs
+    ("copy-",               &["focus-groups", "art-director", "lawyer-advertising"]),
+    ("text-",               &["focus-groups", "lawyer-advertising"]),
+    ("visual-",             &["focus-groups", "lawyer-advertising"]),
+    ("ad-variant",          &["focus-groups", "lawyer-advertising"]),
+    ("brand-visual",        &["art-director", "creative-director"]),
+    // Review outputs
+    ("focus-group",         &["copywriter", "creative-director", "art-director"]),
+    ("test-result",         &["copywriter", "creative-director"]),
+    // Legal outputs
+    ("legal-review",        &["copywriter", "creative-director"]),
+    ("compliance-check",    &["copywriter", "art-director"]),
+    // Documents
+    ("contract",            &["lawyer-contracts"]),
+    ("nda",                 &["lawyer-claims"]),
+    ("media-plan",          &["media-analyst", "econometrist"]),
+    ("budget",              &["econometrist"]),
+];
+
+/// Кому раскладывать файл: образец совпал (первое совпадение, как и было), кабинет не является
+/// источником И существует в ЭТОЙ сборке продукта.
+///
+/// 🔴 Фильтр по видимым кабинетам — находка внешнего аудита (High). Без него продукт с одним
+/// кабинетом создавал на Рабочем столе клиента папки чужих кабинетов и копировал туда его файлы:
+/// у Эконометрики виден только `econometrist`, а раскладка исправно заводила `media-analyst\inbox`
+/// и прочие. Вынесено чистой функцией, чтобы проверялось без живого окна и файловой системы.
+fn route_targets_for(name_lower: &str, source_cabinet_id: &str, visible: &[String]) -> Vec<&'static str> {
+    for (pattern, targets) in ROUTES {
+        if name_lower.contains(pattern) {
+            return targets
+                .iter()
+                .map(|t| *t)
+                .filter(|t| *t != source_cabinet_id && visible.iter().any(|v| v.as_str() == *t))
+                .collect();
+        }
+    }
+    Vec::new()
+}
+
+/// Ключ «этот файл в этом состоянии уже разложен». Время изменения входит намеренно: обновлённый
+/// файл обязан поехать снова, неизменённый — нет.
+fn routing_key(name_lower: &str, entry: &std::fs::DirEntry) -> String {
+    let stamp = entry
+        .metadata()
+        .ok()
+        .and_then(|m| m.modified().ok())
+        .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    format!("{name_lower}|{stamp}")
+}
+
+/// 🔴 Один занятый файл не имеет права отменить весь ответ (находка внешнего аудита, Medium).
+/// `std::fs::copy` под `?` возвращал `Err` наверх, а вызов в `send_message` стоял под `?` — клиент,
+/// открывший ранее выданный `.docx` в Word, получал отказ на СЛЕДУЮЩЕЕ сообщение (os error 32),
+/// хотя ответ советника был получен полностью. Проход продолжается, а имена незаписанных файлов
+/// возвращаются наверх: молча глотать отказ нельзя (INV-50) — о нём сообщают, но не ценой ответа.
+fn copy_dir_into(src: &Path, dst: &Path) -> Result<Vec<String>> {
     if !src.exists() {
-        return Ok(());
+        return Ok(Vec::new());
     }
     std::fs::create_dir_all(dst)?;
+    let mut blocked = Vec::new();
     for entry in std::fs::read_dir(src)? {
         let entry = entry?;
         if entry.file_type()?.is_file() {
             let dst_file = dst.join(entry.file_name());
-            std::fs::copy(entry.path(), &dst_file)?;
+            if let Err(e) = std::fs::copy(entry.path(), &dst_file) {
+                let name = entry.file_name().to_string_lossy().to_string();
+                warn!("Файл не обновлён в папке результатов: {name}: {e}");
+                blocked.push(name);
+            }
         }
     }
-    Ok(())
+    Ok(blocked)
 }
 
 /// Mirror-sync files from src to dst (one level, no recursion).
@@ -876,6 +966,7 @@ mod export_sync_tests {
                 first_message_sent: false,
                 claude_session_id: None,
                 lock: None,
+                routed: std::collections::HashSet::new(),
             },
         );
         manager
@@ -968,6 +1059,156 @@ mod export_sync_tests {
         assert!(
             desktop.join("exports/из-отчётов.md").exists(),
             "результат из reports обязан доехать вместе с первым, а не вместо него"
+        );
+    }
+
+    /// 🔴 Находка внешнего аудита (Medium): один незаписываемый файл валил ВЕСЬ ответ. Клиент
+    /// открыл ранее выданный `.docx` в Word → следующее сообщение той же сессии копирует файл
+    /// поверх → os error 32 → `sync_exports` возвращала `Err`, а вызов в `send_message` стоял под
+    /// `?` — пользователь получал отказ на полученный ответ.
+    ///
+    /// Препятствие моделируется каталогом с именем файла-приёмника: причина отказа записи другая,
+    /// а путь кода тот же (`std::fs::copy` вернул `Err`), и платформенных трюков с монопольным
+    /// открытием тест не требует.
+    #[test]
+    fn one_unwritable_file_does_not_cancel_the_whole_sync() {
+        let tmp = tempfile::tempdir().unwrap();
+        let work_dir = tmp.path().join("session-work");
+        let desktop = tmp.path().join("Рабочий стол/Aurora/econometrist");
+        std::fs::create_dir_all(work_dir.join("exports")).unwrap();
+        std::fs::write(work_dir.join("exports/занятый.docx"), "новая версия").unwrap();
+        std::fs::write(work_dir.join("exports/свободный.md"), "второй результат").unwrap();
+
+        // Приёмник занят: на месте файла — каталог, запись невозможна.
+        std::fs::create_dir_all(desktop.join("exports/занятый.docx")).unwrap();
+
+        let manager = manager_with_session(&work_dir, &desktop, tmp.path());
+        let blocked = manager
+            .sync_exports("econometrist")
+            .expect("отказ по отдельному файлу не имеет права отменять ответ целиком");
+
+        assert_eq!(
+            blocked,
+            vec!["занятый.docx".to_string()],
+            "имя незаписанного файла обязано вернуться наверх: молчаливый пропуск нарушает INV-50"
+        );
+        assert!(
+            desktop.join("exports/свободный.md").exists(),
+            "проход обязан продолжиться: остальные результаты доезжают до клиента"
+        );
+    }
+
+    /// 🔴 Находка внешнего аудита (High): раскладка выгрузок по входящим других кабинетов не
+    /// смотрела, существуют ли эти кабинеты в собранном продукте. У Эконометрики виден ровно один
+    /// кабинет, а раскладка заводила на Рабочем столе клиента `media-analyst\inbox` и другие папки
+    /// несуществующих кабинетов и копировала туда его файлы.
+    ///
+    /// Проверяется чистой функцией: сам `auto_route_artifacts` пишет в реальный профиль
+    /// пользователя (`%USERPROFILE%\Desktop`), и живой вызов в тесте задел бы рабочий стол машины.
+    #[test]
+    fn econometrica_routes_nowhere_because_it_ships_a_single_cabinet() {
+        let visible: Vec<String> = crate::commands::cabinet::filter_by_product(
+            "econometrica",
+            crate::commands::cabinet::get_cabinet_definitions(),
+        )
+        .into_iter()
+        .map(|c| c.id)
+        .collect();
+
+        for name in [
+            "media-plan-2026.xlsx",
+            "budget-q3.xlsx",
+            "creative-brief.md",
+            "контент-календарь.md", // «календарь» латиницей не пишется, но образец `nda` ловит «calendar»
+            "mmm-report-20260803.docx",
+        ] {
+            assert!(
+                route_targets_for(&name.to_lowercase(), "econometrist", &visible).is_empty(),
+                "продукт не имеет права раскладывать файлы по кабинетам, которых у клиента нет: {name}"
+            );
+        }
+    }
+
+    /// Позитивный контроль к сторожу выше: без него правило удовлетворялось бы функцией, которая
+    /// не раскладывает ничего и никогда. Там, где кабинеты-получатели существуют, раскладка живая.
+    #[test]
+    fn routing_still_works_where_the_target_cabinets_exist() {
+        let visible: Vec<String> = crate::commands::cabinet::get_cabinet_definitions()
+            .into_iter()
+            .map(|c| c.id)
+            .collect();
+
+        assert_eq!(
+            route_targets_for("media-plan-2026.xlsx", "econometrist", &visible),
+            vec!["media-analyst"],
+            "кабинет-источник исключается из получателей, остальные — нет"
+        );
+        assert_eq!(
+            route_targets_for("contract-аренда.docx", "econometrist", &visible),
+            vec!["lawyer-contracts"]
+        );
+    }
+
+    /// 🔴 Второй след той же находки: раскладка шла по ВСЕМУ накопленному каталогу выгрузок на
+    /// каждое сообщение — история перекопировалась заново, а файл, удалённый пользователем из
+    /// входящих, возвращался туда следующим сообщением. Ключ раскладки включает время изменения:
+    /// неизменённый файл второй раз не едет, обновлённый — едет.
+    #[test]
+    fn routing_key_changes_only_when_the_file_changes() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("медиаплан.xlsx");
+        std::fs::write(&path, "первая версия").unwrap();
+
+        let key_of = |dir: &std::path::Path| -> String {
+            let entry = std::fs::read_dir(dir)
+                .unwrap()
+                .flatten()
+                .find(|e| e.file_name() == std::ffi::OsStr::new("медиаплан.xlsx"))
+                .expect("файл не найден");
+            routing_key("медиаплан.xlsx", &entry)
+        };
+
+        let first = key_of(tmp.path());
+        assert_eq!(first, key_of(tmp.path()), "неизменённый файл обязан дать тот же ключ");
+
+        // Время изменения задаётся явно: полагаться на разрешение часов файловой системы нельзя —
+        // повторная запись в пределах одной секунды дала бы тот же штамп, и сторож стал бы ложным.
+        let later = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(2_000_000_000);
+        let f = std::fs::OpenOptions::new().write(true).open(&path).unwrap();
+        f.set_modified(later).unwrap();
+        drop(f);
+
+        assert_ne!(
+            first,
+            key_of(tmp.path()),
+            "обновлённый файл обязан считаться новым, иначе свежая версия не доедет до получателя"
+        );
+    }
+
+    /// 🔴 Сторож СВЯЗИ (урок Ф-04: вынесенная функция покрыта, а её вызов — нет). Чистые функции
+    /// выше ничего не стоят, если раскладка перестанет их звать: проверяется, что в теле
+    /// `auto_route_artifacts` есть и фильтр по видимым кабинетам, и отсечение уже разложенного.
+    #[test]
+    fn auto_route_uses_the_product_filter_and_the_already_routed_set() {
+        let src = include_str!("manager.rs");
+        let start = src
+            .find("pub fn auto_route_artifacts")
+            .expect("функция auto_route_artifacts не найдена — разметка переехала");
+        let tail = &src[start..];
+        // Окно — от объявления до следующего объявления функции, а не по «перевод строки + скобка»:
+        // файлы хранятся с переводом строки Windows, и выражение с `\n}` не срабатывает вовсе.
+        let end = tail[1..].find("\n    pub fn ").map(|i| i + 1).unwrap_or(tail.len());
+        let window = &tail[..end];
+
+        assert!(
+            window.contains("filter_by_product"),
+            "раскладка обязана спрашивать, какие кабинеты есть в ЭТОЙ сборке, иначе снова заведёт \
+             на Рабочем столе клиента папки несуществующих кабинетов"
+        );
+        assert!(
+            window.contains("already.contains"),
+            "раскладка обязана пропускать уже разложенное, иначе история перекопируется на каждое \
+             сообщение, а удалённый пользователем файл возвращается"
         );
     }
 }

@@ -584,7 +584,7 @@ async fn run_claude_inner(
         // КАЖДОМ пути записи, а не на самом заметном.
         if !suppress_export {
             let partial_text = result_text.unwrap_or(delta_text);
-            match failure_notice_reason(&partial_text) {
+            match failure_notice_reason(&partial_text, prompt) {
                 Some(reason) => warn!("Частичный ответ не сохранён [{cabinet_id}]: {reason}"),
                 None => {
                     let slug = extract_command_slug(prompt);
@@ -641,7 +641,7 @@ pub(crate) fn auto_save_response(
     // становилось неотличимо от настоящего разбора, не открыв его. Отказ здесь ГРОМКИЙ:
     // молчаливый пропуск вернул бы нас к родственному дефекту «файла нет, и никто не знает
     // почему» (CPD-17).
-    if let Some(reason) = failure_notice_reason(final_text) {
+    if let Some(reason) = failure_notice_reason(final_text, prompt) {
         warn!("Ответ не сохранён [{cabinet_id}]: {reason}");
         let _ = app_handle.emit(
             &format!("claude-stream-{cabinet_id}"),
@@ -693,6 +693,11 @@ const FAILURE_NOTICE_MARKERS: &[&str] = &[
     "fetch failed",
 ];
 
+/// Символы разметки, которыми Claude CLI оборачивает начало сообщения об отказе. Срезаются
+/// перед сверкой с маркерами: `**API Error**: Connection closed` — тот же отказ канала, но
+/// `starts_with` о звёздочки спотыкается (находка внешнего аудита, Medium).
+const MARKDOWN_LEAD_CHARS: &[char] = &['*', '_', '`', '#', '>', '~', '-', ' ', '\t'];
+
 /// Является ли текст сообщением об отказе, а не ответом кабинета (CPD-32).
 ///
 /// 🔴 Почему маркер И длина, а не «либо-либо». Предложение записи реестра допускало отказ по
@@ -702,8 +707,16 @@ const FAILURE_NOTICE_MARKERS: &[&str] = &[
 /// Совпадение обоих признаков — короткий текст, начинающийся с маркера отказа канала, — не
 /// оставляет места содержательному ответу.
 ///
+/// 🔴 Третий признак — сам вопрос (находка внешнего аудита, Medium). Длина и маркер вдвоём всё
+/// ещё выбрасывали настоящий короткий ответ, если пользователь спросил ПРО эту строку:
+/// «переведи: Connection closed» → ответ начинается ровно маркером, укладывается в порог, и
+/// клиент получал «ответ не дошёл» про дошедший ответ — ложное утверждение продукта о себе
+/// (INV-50) плюс потеря работы. Если маркер есть в вопросе, ответ про него законен.
+/// Плата названа честно: настоящий обрыв канала в разговоре ПРО ошибки не будет распознан и
+/// ляжет файлом. Цена обратной ошибки выше — там теряется сделанная работа.
+///
 /// Возвращает причину для журнала, чтобы отказ можно было разобрать по следам, а не гадать.
-fn failure_notice_reason(text: &str) -> Option<&'static str> {
+fn failure_notice_reason(text: &str, prompt: &str) -> Option<&'static str> {
     let trimmed = text.trim();
     if trimmed.is_empty() {
         return Some("пустой ответ");
@@ -713,11 +726,17 @@ fn failure_notice_reason(text: &str) -> Option<&'static str> {
     if trimmed.chars().count() > FAILURE_NOTICE_MAX_CHARS {
         return None;
     }
-    let head: String = trimmed.chars().take(80).collect::<String>().to_lowercase();
-    FAILURE_NOTICE_MARKERS
-        .iter()
-        .any(|m| head.starts_with(m))
-        .then_some("текст начинается маркером отказа канала и короче порога содержательности")
+    let head: String = trimmed
+        .trim_start_matches(MARKDOWN_LEAD_CHARS)
+        .chars()
+        .take(80)
+        .collect::<String>()
+        .to_lowercase();
+    let matched = FAILURE_NOTICE_MARKERS.iter().find(|m| head.starts_with(**m))?;
+    if prompt.to_lowercase().contains(*matched) {
+        return None;
+    }
+    Some("текст начинается маркером отказа канала и короче порога содержательности")
 }
 
 /// Extract a short slug from the user prompt for use in the filename.
@@ -1061,7 +1080,8 @@ mod tests {
              уйдёт молча — ни файла, ни события (родственный дефект CPD-17)"
         );
         assert!(
-            failure_notice_reason("").is_some() && failure_notice_reason("   ").is_some(),
+            failure_notice_reason("", "/mmm-report").is_some()
+                && failure_notice_reason("   ", "/mmm-report").is_some(),
             "пустота обязана распознаваться самим гейтом, раз ранней проверки больше нет"
         );
     }
@@ -1083,13 +1103,16 @@ mod tests {
     #[test]
     fn broken_channel_notice_is_not_a_result() {
         assert!(
-            failure_notice_reason("API Error: Connection closed mid-response").is_some(),
+            failure_notice_reason("API Error: Connection closed mid-response", "/mmm-report").is_some(),
             "сообщение об обрыве канала обязано быть распознано: иначе оно ляжет в папку клиента \
              файлом со всеми признаками выполненной работы"
         );
-        assert!(failure_notice_reason("Error: request failed").is_some());
-        assert!(failure_notice_reason("Request timed out after 600s").is_some());
-        assert!(failure_notice_reason("   ").is_some(), "пустой ответ — тоже не результат");
+        assert!(failure_notice_reason("Error: request failed", "/mmm-report").is_some());
+        assert!(failure_notice_reason("Request timed out after 600s", "/mmm-report").is_some());
+        assert!(
+            failure_notice_reason("   ", "/mmm-report").is_some(),
+            "пустой ответ — тоже не результат"
+        );
     }
 
     /// 🔴 Негативный контроль: короткий ответ бывает НАСТОЯЩИМ, и выбрасывать его — терять
@@ -1097,13 +1120,15 @@ mod tests {
     #[test]
     fn short_but_real_answer_is_kept() {
         assert!(
-            failure_notice_reason("Да, риск есть: пункт 4.2 договора.").is_none(),
+            failure_notice_reason("Да, риск есть: пункт 4.2 договора.", "/contract").is_none(),
             "короткий содержательный ответ обязан сохраняться"
         );
         assert!(
-            failure_notice_reason("Вклад телевидения — 32 %, это верхняя граница правдоподобного \
-                                   диапазона.")
-                .is_none()
+            failure_notice_reason(
+                "Вклад телевидения — 32 %, это верхняя граница правдоподобного диапазона.",
+                "/mmm-decomposition"
+            )
+            .is_none()
         );
     }
 
@@ -1120,7 +1145,10 @@ mod tests {
             "фикстура обязана быть длиннее порога, иначе случай проверяет не то"
         );
         assert!(
-            failure_notice_reason(&long_answer).is_none(),
+            // 🔴 Вопрос намеренно БЕЗ маркера: иначе тест проходил бы по исключению «маркер есть
+            // в вопросе» и перестал бы стеречь порог длины — сторож, написанный вместе с
+            // починкой, наследует её послабление.
+            failure_notice_reason(&long_answer, "/mmm-report").is_none(),
             "развёрнутый разбор не имеет права быть принят за отказ канала"
         );
     }
@@ -1134,9 +1162,50 @@ mod tests {
         assert!(russian.chars().count() < FAILURE_NOTICE_MAX_CHARS);
         assert!(russian.len() > FAILURE_NOTICE_MAX_CHARS, "фикстура обязана быть длиннее в БАЙТАХ");
         assert!(
-            failure_notice_reason(&format!("API Error: {russian}")).is_some(),
+            failure_notice_reason(&format!("API Error: {russian}"), "/mmm-report").is_some(),
             "русский текст в пределах порога по символам обязан проверяться маркером так же, \
              как английский"
+        );
+    }
+
+    /// 🔴 Находка внешнего аудита (Medium): `starts_with` спотыкается о разметку. Claude CLI
+    /// оборачивает сообщение об отказе в markdown — `**API Error**: …` — и ни один маркер не
+    /// совпадал, а значит текст отказа снова сохранялся клиенту отчётом (обход гейта CPD-32).
+    #[test]
+    fn markdown_wrapped_failure_notice_is_still_recognised() {
+        for wrapped in [
+            "**API Error**: Connection closed mid-response.",
+            "`API Error: Connection closed`",
+            "> Error: request failed",
+            "### Request timed out after 600s",
+            "- Connection closed",
+        ] {
+            assert!(
+                failure_notice_reason(wrapped, "/mmm-report").is_some(),
+                "разметка в начале не превращает отказ канала в результат работы: {wrapped}"
+            );
+        }
+    }
+
+    /// 🔴 Находка внешнего аудита (Medium): ложное срабатывание гейта выбрасывало НАСТОЯЩИЙ
+    /// короткий ответ, когда пользователь спросил про саму строку ошибки, — и говорило клиенту
+    /// «ответ не дошёл» про дошедший ответ (ложное утверждение о себе, INV-50, плюс потеря
+    /// сделанной работы).
+    #[test]
+    fn short_answer_about_an_error_string_is_kept_when_the_question_named_it() {
+        assert!(
+            failure_notice_reason(
+                "Connection closed — «соединение закрыто»: сервер разорвал канал.",
+                "переведи: Connection closed"
+            )
+            .is_none(),
+            "ответ на вопрос ПРО эту строку законно начинается ею же"
+        );
+        // Негативный контроль к тому же правилу: вопрос без маркера — гейт обязан сработать,
+        // иначе исключение проглотило бы распознавание целиком.
+        assert!(
+            failure_notice_reason("Connection closed", "/mmm-report").is_some(),
+            "без упоминания в вопросе это по-прежнему отказ канала"
         );
     }
 
