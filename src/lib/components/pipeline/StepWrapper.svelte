@@ -51,7 +51,7 @@
           <span class="metric-label">Период</span>
           <span class="metric-value">{validationMetrics.nObs}</span>
         </span>
-        <span class="metric-chip light-{validationMetrics.mqsStatus}" title="Оценка данных (MQS) – комбинированный балл готовности данных до обучения: считается по запасу данных, взаимосвязи каналов и длине периода. Шкала: {mqsScaleText()}. После обучения оценка уточняется по самой модели.">
+        <span class="metric-chip light-{validationMetrics.mqsStatus}" title="Оценка данных (MQS) – комбинированный балл готовности данных до обучения: считается по запасу данных, взаимосвязи каналов и длине периода. Шкала: {mqsScaleText()}. После обучения показывается другой балл под тем же именем – он считается по самой модели: точность на истории, средняя ошибка и сходимость расчёта.">
           <span class="metric-label">Оценка данных (MQS)</span>
           <span class="metric-value">{validationMetrics.mqs}</span>
         </span>

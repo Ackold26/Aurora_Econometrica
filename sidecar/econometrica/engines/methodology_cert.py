@@ -87,7 +87,7 @@ def compute_cert_hash(payload: dict[str, Any]) -> str:
     except ImportError as exc:
         raise CertificateUnavailable(
             'Канонизация JCS недоступна: пакет rfc8785 не установлен. '
-            'Сертификат не выдан — хеш без канонизации не сошёлся бы '
+            'Сертификат не выдан – хеш без канонизации не сошёлся бы '
             'у проверяющей стороны.'
         ) from exc
 
@@ -140,7 +140,7 @@ def _extract_v13_payload(
                       if not str(k).startswith('_cert')}
     if not clean_manifest:
         raise CertificateUnavailable(
-            'Манифест файла модели недоступен — сертификату не к чему '
+            'Манифест файла модели недоступен – сертификату не к чему '
             'привязаться. Файл модели старого формата либо повреждён.'
         )
     bundle_hash = compute_cert_hash(clean_manifest)
@@ -176,7 +176,7 @@ def _extract_v13_payload(
         if not kpi_type:
             raise CertificateUnavailable(
                 'В конфигурации модели нет типа целевой метрики. Подставлять '
-                'значение по умолчанию нельзя — сертификат описывал бы не ту '
+                'значение по умолчанию нельзя – сертификат описывал бы не ту '
                 'модель, которую обучили.'
             )
         model_spec_raw = {
@@ -193,20 +193,30 @@ def _extract_v13_payload(
                 model_spec_raw['kpi_likelihood'] = str(likelihood)
 
         # F-09: карта адстоков заполняется ФАКТИЧЕСКИ применёнными типами.
-        # Пустой словарь (пользователь не выбирал тип явно) утверждал бы
-        # «адстоков нет», хотя модель применила геометрический.
+        # 🔴 Аудит починки, Ф-01 High: первая версия достраивала её через
+        # `persistence.get_adstock_type`, а тот читает ровно ту же пустую карту
+        # и отдаёт `geometric` ВСЕМ каналам. У модели режима малых данных карты
+        # не бывает никогда — значит в хеш всегда уезжал бы `geometric`, даже
+        # когда пользователь выбрал Вейбулла и расчёт шёл по Вейбуллу. То есть
+        # починка сама сделала ровно то, ради чего чинили F-01: подставила
+        # умолчание в заверенное описание модели.
+        # Настоящее значение лежит в двух местах, оба независимы от карты.
         adstock_types = dict(model_data.get('channel_adstock_types') or {})
-        каналы_модели = list((model_data.get('channel_params') or {}).keys())
-        if not adstock_types and каналы_модели:
-            try:
-                from engines.persistence import get_adstock_type
-                adstock_types = {
-                    str(канал): str(get_adstock_type(model_data, канал))
-                    for канал in каналы_модели
-                }
-            except Exception as exc:  # noqa: BLE001 — лучше без ключа, чем с выдумкой
-                logger.warning('Сертификат: типы адстока не восстановлены: %s', exc)
-                adstock_types = {}
+        if not adstock_types:
+            из_конфига = dict((config.get('adstock_config') or {}))
+            параметры = model_data.get('channel_params') or {}
+            восстановленные: dict[str, str] = {}
+            for канал, параметр in параметры.items():
+                тип = из_конфига.get(канал)
+                if not тип and isinstance(параметр, dict):
+                    тип = ((параметр.get('adstock') or {}).get('type')
+                           if isinstance(параметр.get('adstock'), dict) else None)
+                if тип:
+                    восстановленные[str(канал)] = str(тип)
+            # Ключ не кладётся вовсе, если тип известен не для всех каналов:
+            # частичная карта утверждала бы об остальных то, чего мы не знаем.
+            if восстановленные and len(восстановленные) == len(параметры):
+                adstock_types = восстановленные
         if adstock_types:
             model_spec_raw['adstock_types'] = adstock_types
 
@@ -221,12 +231,12 @@ def _extract_v13_payload(
     if total_sales in (None, 0) or baseline is None or not channels_raw:
         raise CertificateUnavailable(
             'Результат декомпозиции неполон (нет общих продаж, базы или '
-            'каналов) — заверять нечего.'
+            'каналов) – заверять нечего.'
         )
     total_sales = float(total_sales)
     if total_sales != total_sales or total_sales in (float('inf'), float('-inf')):
         raise CertificateUnavailable(
-            'Итог по целевой метрике — не число, заверять такую разбивку нельзя.'
+            'Итог по целевой метрике – не число, заверять такую разбивку нельзя.'
         )
 
     def _конечное(значение: Any, что: str) -> float:
@@ -240,7 +250,7 @@ def _extract_v13_payload(
         число = float(значение)
         if число != число or число in (float('inf'), float('-inf')):
             raise CertificateUnavailable(
-                f'{что} — не число, заверять такую разбивку нельзя. '
+                f'{что} – не число, заверять такую разбивку нельзя. '
                 f'Проверьте данные канала: расчёт мог не сойтись.'
             )
         return число
@@ -260,7 +270,7 @@ def _extract_v13_payload(
         contribution = ch.get('contribution')
         if not name or contribution is None:
             raise CertificateUnavailable(
-                'В разбивке есть канал без имени или без вклада — '
+                'В разбивке есть канал без имени или без вклада – '
                 'заверять неполную разбивку нельзя.'
             )
         # 🔴 Аудит F-07: имя канала приходит из столбца пользовательской
@@ -269,7 +279,7 @@ def _extract_v13_payload(
         # неверное число под верным именем, без единого предупреждения.
         if str(name) == КЛЮЧ_БАЗЫ:
             raise CertificateUnavailable(
-                f'Канал назван «{КЛЮЧ_БАЗЫ}» — этим именем в сертификате '
+                f'Канал назван «{КЛЮЧ_БАЗЫ}» – этим именем в сертификате '
                 f'обозначается базовый уровень. Переименуйте столбец, иначе '
                 f'заверенная разбивка окажется неверной.'
             )

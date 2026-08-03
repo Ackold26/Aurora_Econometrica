@@ -287,12 +287,24 @@ def test_у_закрытой_формулы_правдоподобия_нет():
     assert 'kpi_likelihood' in build_cert_payload(байес, _разбивка(), _манифест())['model_spec']
 
 
-def test_карта_адстоков_не_уходит_пустой():
-    """🔴 F-09. Пустая карта утверждала бы «адстоков нет», хотя модель
-    применила геометрический по умолчанию."""
-    без_карты = _модель(channel_adstock_types={})
-    spec = build_cert_payload(без_карты, _разбивка(), _манифест())['model_spec']
-    assert spec['adstock_types'] == {'ТВ': 'geometric', 'Диджитал': 'geometric'}
+def test_карта_адстоков_восстанавливается_из_конфигурации():
+    """🔴 F-09 и его починка после аудита (Ф-01 High).
+
+    Пустая карта не должна утверждать «адстоков нет» — но и заполнять её
+    умолчанием нельзя: это ровно та подстановка, ради которой чинили Critical.
+    Настоящий источник — конфигурация обучения; нет его — ключа нет вовсе.
+    """
+    из_конфига = _модель(
+        channel_adstock_types={},
+        config={'kpi_type': 'sales',
+                'adstock_config': {'ТВ': 'geometric', 'Диджитал': 'weibull'}},
+    )
+    spec = build_cert_payload(из_конфига, _разбивка(), _манифест())['model_spec']
+    assert spec['adstock_types'] == {'ТВ': 'geometric', 'Диджитал': 'weibull'}
+
+    вовсе_без_источника = _модель(channel_adstock_types={}, config={'kpi_type': 'sales'})
+    spec2 = build_cert_payload(вовсе_без_источника, _разбивка(), _манифест())['model_spec']
+    assert 'adstock_types' not in spec2, 'подставлено умолчание вместо отказа от ключа'
 
 
 def test_режим_малых_данных_заверяется_как_детерминированный():
@@ -382,3 +394,47 @@ def test_округление_доли_зафиксировано_на_неро�
     сводка = payload['decomposition_summary']
     assert сводка['Base']['contribution_pct'] == 61.23
     assert сводка['ТВ']['contribution_pct'] == 28.77
+
+
+def test_карта_адстоков_берётся_из_настоящего_источника():
+    """🔴 Аудит починки, Ф-01 High: первая версия достраивала карту через
+    `get_adstock_type`, а тот читает ту же пустую карту и отдаёт `geometric`
+    всем. У режима малых данных карты не бывает никогда — в хеш уезжало бы
+    `geometric` даже там, где пользователь выбрал Вейбулла.
+    """
+    ols = _модель(
+        model_version='1.0-ols',
+        channel_adstock_types={},
+        config={'kpi_type': 'sales',
+                'adstock_config': {'ТВ': 'weibull', 'Диджитал': 'geometric'}},
+    )
+    spec = build_cert_payload(ols, _разбивка(), _манифест())['model_spec']
+    assert spec['adstock_types'] == {'ТВ': 'weibull', 'Диджитал': 'geometric'}, (
+        'в заверенное описание уехал подставленный тип адстока'
+    )
+
+
+def test_карта_адстоков_не_собирается_наполовину():
+    """Частичная карта утверждала бы об остальных каналах то, чего мы не знаем."""
+    неполная = _модель(
+        model_version='1.0-ols',
+        channel_adstock_types={},
+        config={'kpi_type': 'sales', 'adstock_config': {'ТВ': 'weibull'}},
+    )
+    spec = build_cert_payload(неполная, _разбивка(), _манифест())['model_spec']
+    assert 'adstock_types' not in spec
+
+
+def test_причина_отказа_не_содержит_имени_исключения():
+    """🔴 Ф-03. Клиентская половина починки F-08 — замена технической строки в
+    широком перехвате декомпозера — не была покрыта ничем."""
+    from engines.decomposer import _build_methodology_certificate
+
+    class ЛомающаясяМодель(dict):
+        def get(self, *args, **kwargs):  # noqa: D102
+            raise RuntimeError('внутренний сбой')
+
+    итог = _build_methodology_certificate(ЛомающаясяМодель(), _разбивка(), Path('нет.pkl'))
+    assert итог['status'] == 'unavailable'
+    assert 'Error' not in итог['reason'] and 'error' not in итог['reason']
+    assert итог['hash'] is None
