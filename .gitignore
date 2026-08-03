@@ -9,6 +9,13 @@ node_modules
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
 
+# Проект работает на npm (все скрипты, крючки и сборка зовут npm, поля packageManager нет).
+# Файлы ниже появляются от случайного запуска `pnpm install` вместо `npm install` — так они
+# завелись 02.08.2026 сразу в десяти деревьях Aurora. Под контроль версий их брать нельзя:
+# второй файл зависимостей рядом с package-lock.json рано или поздно разойдётся с ним.
+pnpm-lock.yaml
+pnpm-workspace.yaml
+
 # Rust / Tauri
 /src-tauri/target/
 /target/
