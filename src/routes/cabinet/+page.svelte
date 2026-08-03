@@ -158,6 +158,9 @@
 
   // PSY-7: Zen Mode
   let zenMode = $state(false);
+  /** Признак режима исполнения советника в шапке (ADR-049 §5).
+   * @type {{mode: string, source: string, explanation: string}|null} */
+  let executionMode = $state(null);
 
   // ── SlidePanel: detect PPTX slide-deck responses ──
   let slidePanelVisible = $state(false);
@@ -254,7 +257,22 @@
   onMount(() => {
     window.addEventListener('keydown', handleCabinetKeydown);
     checkDeps();
-    return () => window.removeEventListener('keydown', handleCabinetKeydown);
+    // Признак режима (ADR-049 §5): читаем при входе в кабинет. Отказ не мешает работе —
+    // признак просто не показывается, а не рушит рабочий экран.
+    const readExecutionMode = () => {
+      invoke('get_execution_mode')
+        .then((state) => { executionMode = /** @type {any} */ (state); })
+        .catch((e) => { console.warn('режим исполнения недоступен', e); });
+    };
+    readExecutionMode();
+    // 🔴 Признак перечитывается при возврате фокуса: человек мог переключить режим в
+    // настройках или доступность локального пути могла измениться. Признак, который
+    // ОТСТАЁТ, хуже отсутствующего — он утверждает про маршрут данных то, чего уже нет.
+    window.addEventListener('focus', readExecutionMode);
+    return () => {
+      window.removeEventListener('keydown', handleCabinetKeydown);
+      window.removeEventListener('focus', readExecutionMode);
+    };
   });
 
   // Update window title to match cabinet name
@@ -314,6 +332,24 @@
           <span class="breadcrumb-project" title="Активный проект - переключение в pipeline">
             <ChartColumn size={14} strokeWidth={1.5} style="vertical-align: -0.15em" /> {$activeProject.name}
           </span>
+        {/if}
+
+        <!--
+          🔴 Признак режима стоит на РАБОЧЕМ экране, а не только в настройках
+          (ADR-049 §5). Обещание «Платформа Аврора не видит ваши материалы»
+          проверяемо лишь тогда, когда человек в любой момент знает, где исполняется
+          работа советника. Настройка отвечает «что выбрать», признак — «что
+          происходит сейчас»; дефект «работает не в том режиме» иначе невидим.
+        -->
+        {#if executionMode}
+          <a
+            class="mode-chip"
+            class:mode-chip-cloud={executionMode.mode === 'cloud'}
+            href="/settings#execution-mode"
+            title={executionMode.explanation}
+          >
+            {executionMode.mode === 'cloud' ? 'Шлюз Авроры' : 'Ваш Claude Code'}
+          </a>
         {/if}
 
         <div class="header-spacer"></div>
@@ -611,6 +647,33 @@
     padding: 2px 8px;
     border-radius: 4px;
     margin-left: 8px;
+  }
+
+  /* Признак режима исполнения советника (ADR-049 §5): спокойная пилюля в шапке —
+     постоянно видна, но не спорит за внимание с названием продукта. */
+  .mode-chip {
+    font-size: 11px;
+    letter-spacing: 0.04em;
+    color: var(--text-secondary);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    padding: 3px 10px;
+    margin-left: 10px;
+    text-decoration: none;
+    white-space: nowrap;
+    transition: all 0.15s ease;
+  }
+
+  .mode-chip:hover {
+    color: var(--text-primary);
+    border-color: var(--accent-primary);
+  }
+
+  /* Облачный режим назван цветом акцента: круг видящих шире, и это не мелочь. */
+  .mode-chip-cloud {
+    color: var(--accent-primary);
+    border-color: color-mix(in srgb, var(--accent-primary) 40%, transparent);
+    background: color-mix(in srgb, var(--accent-primary) 8%, transparent);
   }
 
   .header-spacer {

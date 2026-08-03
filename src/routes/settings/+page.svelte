@@ -6,8 +6,8 @@
   import { getProductName, filterCabinetsByProduct } from '$lib/command-meta.js';
 
   let APP_VERSION = $state('...');
-  // display_version (не getVersion из @tauri-apps/api/app): тонкая редакция (feature
-  // `thin`) добавляет суффикс «C» к версии сборки — Rust-команда знает про cfg, JS нет.
+  // Номер версии один на поставку (ADR-049 §2): буква редакции убрана вместе со вторым
+  // каналом обновлений. Где исполняется работа — показывает признак режима, не номер.
   invoke('display_version').then(v => { APP_VERSION = v; }).catch(() => { APP_VERSION = '?'; });
   import { isAudioEnabled, setAudioEnabled } from '$lib/audio.js';
   import { onboardingEnabled } from '$lib/onboarding-state.js';
@@ -47,6 +47,48 @@
   // Runtime-режим «только локально»: явное отключение облачного ИИ (egress).
   // Гейт-поверх-согласия — даже при данном согласии пользователь может закрыть egress.
   let localOnlyBusy = $state(false);
+
+  // ── Режим исполнения советника (ADR-049) ──────────────────────────────────────
+  // 🔴 Ось, отдельная от согласия и тумблера «только локально» выше: те решают,
+  // обращаться ли к облачному ИИ вообще, эта — чей Claude Code исполняет работу.
+  /** @type {{mode: string, source: string, explanation: string, explicit: string|null, cloud_built_in: boolean, local_available: boolean, cloud_refusal: string}|null} */
+  let executionMode = $state(null);
+  let modeBusy = $state(false);
+  let modeError = $state('');
+
+  async function loadExecutionMode() {
+    try {
+      executionMode = await invoke('get_execution_mode');
+      modeError = '';
+    } catch (e) {
+      modeError = String(e);
+    }
+  }
+
+  /** @param {string} mode */
+  async function chooseExecutionMode(mode) {
+    modeBusy = true;
+    try {
+      await invoke('set_execution_mode', { mode });
+      await loadExecutionMode();
+    } catch (e) {
+      modeError = String(e);
+    } finally {
+      modeBusy = false;
+    }
+  }
+
+  async function recheckLocalClaude() {
+    modeBusy = true;
+    try {
+      executionMode = await invoke('probe_local_claude');
+      modeError = '';
+    } catch (e) {
+      modeError = String(e);
+    } finally {
+      modeBusy = false;
+    }
+  }
   async function toggleLocalOnly() {
     if (localOnlyBusy) return;
     localOnlyBusy = true;
@@ -79,6 +121,7 @@
     }
   }
   loadEconRoot();
+  loadExecutionMode();
 
   async function chooseEconRoot() {
     econRootBusy = true;
@@ -623,6 +666,100 @@
           <p class="import-status" style="color: {consentMsg.startsWith('Ошибка') ? 'var(--danger)' : 'var(--success)'}; margin-top: 8px;">{consentMsg}</p>
         {/if}
       </section>
+
+      <!--
+        🔴 Раздел стоит ВНУТРИ условия «советники есть» намеренно (ADR-049 §6, гейт
+        приёмки 3а): в локальной редакции советника нет вовсе, и предлагать там выбор
+        «каким путём он работает» значило бы спрашивать о несуществующем.
+
+        Это ДРУГАЯ ось, чем тумблеры выше. Те решают, обращаться ли к облачному ИИ
+        вообще; этот раздел — если обращаемся, чей Claude Code исполняет работу.
+        Ползунком «менее приватно → более приватно» их объединять нельзя: ответы ведут
+        в разные режимы, и человеку, которому важно одно, подсказка про другое вредит.
+
+        Тексты точны: сказать «данные никуда не уходят» про свой Claude Code было бы
+        неправдой — они уходят к Anthropic, просто напрямую, без нашего участия.
+      -->
+      <section class="section" id="execution-mode">
+        <h2 class="section-title">Где исполняется работа советника</h2>
+        {#if executionMode}
+          <p class="section-desc">{executionMode.explanation}</p>
+          <div class="mode-options">
+            <label class="mode-option" class:mode-active={executionMode.mode === 'local'}>
+              <input
+                type="radio"
+                name="execution-mode"
+                value="local"
+                checked={executionMode.explicit === 'local'}
+                disabled={modeBusy}
+                onchange={() => chooseExecutionMode('local')}
+              />
+              <span class="mode-body">
+                <span class="mode-name">Ваш Claude Code</span>
+                <span class="mode-note">
+                  Материалы идут с вашей машины прямо к Anthropic и не проходят через серверы
+                  Платформы Аврора. Нужна своя действующая подписка Claude.
+                </span>
+                {#if !executionMode.local_available}
+                  <span class="mode-warn">Сейчас недоступен: Claude Code на этой машине не запускается.</span>
+                {/if}
+              </span>
+            </label>
+
+            <label class="mode-option" class:mode-active={executionMode.mode === 'cloud'}>
+              <input
+                type="radio"
+                name="execution-mode"
+                value="cloud"
+                checked={executionMode.explicit === 'cloud'}
+                disabled={modeBusy || !executionMode.cloud_built_in}
+                onchange={() => chooseExecutionMode('cloud')}
+              />
+              <span class="mode-body">
+                <span class="mode-name">Шлюз Авроры</span>
+                <span class="mode-note">
+                  Работу советника выполняет наш сервер: своя подписка Claude не нужна. Материалы
+                  проходят через Платформу Аврора и дальше к Anthropic.
+                </span>
+                {#if !executionMode.cloud_built_in}
+                  <span class="mode-warn">Не входит в эту сборку.</span>
+                {:else if executionMode.cloud_refusal}
+                  <span class="mode-warn">{executionMode.cloud_refusal}</span>
+                {/if}
+              </span>
+            </label>
+
+            <label class="mode-option" class:mode-active={!executionMode.explicit}>
+              <input
+                type="radio"
+                name="execution-mode"
+                value=""
+                checked={!executionMode.explicit}
+                disabled={modeBusy}
+                onchange={() => chooseExecutionMode('')}
+              />
+              <span class="mode-body">
+                <span class="mode-name">Выбирать самостоятельно</span>
+                <span class="mode-note">
+                  Ваш Claude Code, если он запускается на этой машине; иначе шлюз Авроры.
+                </span>
+              </span>
+            </label>
+          </div>
+          <p class="section-desc">
+            Расчёт медиасплита выполняется на вашей машине в любом режиме — этот выбор касается
+            только кабинета-советника.
+          </p>
+          <button class="btn-logs" disabled={modeBusy} onclick={recheckLocalClaude}>
+            Проверить Claude Code сейчас
+          </button>
+        {:else}
+          <p class="section-desc">Определяю режим…</p>
+        {/if}
+        {#if modeError}
+          <p class="import-status" style="color: var(--danger)">{modeError}</p>
+        {/if}
+      </section>
     {/if}
 
     <section class="section">
@@ -936,6 +1073,62 @@
     border: var(--glass-border);
     border-radius: var(--radius-card);
     box-shadow: var(--shadow-elevation-1);
+  }
+
+  /* Режим исполнения советника (ADR-049): выбор из двух путей плюс автоопределение. */
+  .mode-options {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin: 12px 0 14px;
+  }
+
+  .mode-option {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+    padding: 12px 14px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.15s ease;
+  }
+
+  .mode-option:hover {
+    background: var(--hover-bg);
+  }
+
+  /* Действующий сейчас режим виден, даже если выбран автоопределением. */
+  .mode-option.mode-active {
+    border-color: var(--accent-primary, var(--text-primary));
+    background: var(--hover-bg);
+  }
+
+  .mode-option input {
+    margin-top: 3px;
+    flex-shrink: 0;
+  }
+
+  .mode-body {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+  }
+
+  .mode-name {
+    font-size: 14px;
+    color: var(--text-primary);
+  }
+
+  .mode-note {
+    font-size: 12px;
+    line-height: 1.5;
+    color: var(--text-secondary);
+  }
+
+  .mode-warn {
+    font-size: 12px;
+    color: var(--danger);
   }
 
   .section-title {

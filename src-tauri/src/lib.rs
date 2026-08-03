@@ -426,13 +426,15 @@ fn get_local_content_version(app_handle: tauri::AppHandle) -> Result<Option<Stri
     Ok(content_updater::get_local_version(&config_dir))
 }
 
-/// Отображаемая версия приложения. Суффикс «C» помечает тонкую редакцию (feature
-/// `thin`, кабинет исполняется через SSH-gateway) — отличает её от полной в UI
-/// (Настройки → О программе) без отдельного продукта в семантике версии.
+/// Отображаемая версия приложения.
+///
+/// 🔴 Буква «C» тонкой редакции убрана вместе с её отдельным каналом (ADR-049 §2):
+/// поставка одна, и разные номера у одного и того же бинаря только путали бы. На
+/// вопрос «где исполняется работа» отвечает признак режима на рабочем экране, а не
+/// буква в номере версии — он к тому же меняется по ходу работы, чего номер не умеет.
 #[tauri::command]
 fn display_version() -> String {
-    let suffix = if cfg!(feature = "thin") { "C" } else { "" };
-    env!("CARGO_PKG_VERSION").to_string() + suffix
+    env!("CARGO_PKG_VERSION").to_string()
 }
 
 #[tauri::command]
@@ -2345,6 +2347,45 @@ fn set_local_only(enabled: bool, app_handle: tauri::AppHandle) -> Result<(), Str
     user_config::save(&config_dir, &config)
 }
 
+// ============== Режим исполнения советника (ADR-049) ==============
+//
+// 🔴 Отдельная ось от `local_only` выше. Тот отвечает «обращаться ли к облачному ИИ
+// вообще» и может запретить обращение целиком; эти команды — «если обращаемся, чей
+// Claude Code исполняет работу». Смешать их в одном переключателе значит предложить
+// человеку выбирать между несравнимым.
+
+/// Что действует сейчас и что доступно — для настроек и признака в рабочем экране.
+#[tauri::command]
+async fn get_execution_mode(
+    app_handle: tauri::AppHandle,
+) -> Result<commands::execution_mode::ModeState, String> {
+    Ok(commands::execution_mode::state(&app_handle).await)
+}
+
+/// Явный выбор человека. Пустая строка возвращает к автоопределению.
+#[tauri::command]
+fn set_execution_mode(mode: String, app_handle: tauri::AppHandle) -> Result<(), String> {
+    let chosen = if mode.is_empty() {
+        None
+    } else {
+        Some(
+            commands::execution_mode::ExecutionMode::parse(&mode)
+                .ok_or_else(|| format!("неизвестный режим исполнения: {mode}"))?,
+        )
+    };
+    commands::execution_mode::set_explicit_choice(&app_handle, chosen)
+}
+
+/// Перепроверить локальный Claude Code сейчас: человек мог поставить его или войти,
+/// не перезапуская программу.
+#[tauri::command]
+async fn probe_local_claude(
+    app_handle: tauri::AppHandle,
+) -> Result<commands::execution_mode::ModeState, String> {
+    commands::execution_mode::forget_local_probe();
+    Ok(commands::execution_mode::state(&app_handle).await)
+}
+
 // ============== Econometrica Projects Root ==============
 
 /// Get current projects root path + default path for UI display.
@@ -3585,6 +3626,9 @@ fn build_app() -> Result<(), String> {
             econ_ask_insight,
             rag_client::econ_rag_search,
             set_local_only,
+            get_execution_mode,
+            set_execution_mode,
+            probe_local_claude,
             close_cabinet,
             send_message,
             list_inbox_files,
