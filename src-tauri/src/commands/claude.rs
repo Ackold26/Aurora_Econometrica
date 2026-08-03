@@ -138,29 +138,54 @@ pub async fn run_claude(
     }
     #[cfg(feature = "cloud_advisors")]
     {
+        // 🔴 Две РАЗНЫЕ оси, и порядок между ними не случаен (ADR-049 §4а). Сначала —
+        // допустимо ли обращение к облачному ИИ вообще: локальная редакция, согласие,
+        // тумблер «только локально». И лишь ВНУТРИ разрешённого решается вторая ось —
+        // чей Claude Code исполняет работу. Поменять порядок значит спросить «каким
+        // путём идти» там, где идти нельзя никаким.
         ensure_not_local_only(&app_handle)?;
         ensure_cloud_consent(&app_handle)?;
 
+        // Развилка режима (ADR-049): решение принимается ВО ВРЕМЯ РАБОТЫ, не при сборке.
+        // Признак `thin` отвечает лишь на вопрос «есть ли облачный путь в этом бинаре».
+        let decision = crate::commands::execution_mode::resolve(&app_handle).await;
+        info!(
+            "Режим исполнения [{cabinet_id}]: {} ({})",
+            decision.mode.human(),
+            decision.source.as_str(),
+        );
+
         #[cfg(feature = "thin")]
-        {
-            // Тонкая версия: исполнение кабинета — SSH-gateway на узле Б, не локальный
-            // Claude CLI. Гейты выше (local-only/consent) сохранены — данные всё равно
-            // уходят на сервер. active_pids/model — часть локального CLI-мира, gateway
-            // не спавнит процесс и не выбирает модель клиентской командой.
-            // Модель теперь доезжает до сервера: прежде тонкая поставка считала всё
-            // тем, что решит сервер, и работала слабее полной незаметно для человека.
-            let _ = active_pids;
+        if decision.mode == crate::commands::execution_mode::ExecutionMode::Cloud {
+            // Исполнение кабинета — на нашем сервере, не локальный Claude CLI.
+            // active_pids — часть локального мира: шлюз не спавнит процесс.
+            // Модель доезжает до сервера: прежде тонкая поставка считала всё тем, что
+            // решит сервер, и работала слабее полной незаметно для человека.
+            let _ = &active_pids;
             let (sid, response_text) = crate::commands::gateway_executor::run_claude_gateway(
                 work_dir, prompt, app_handle, cabinet_id, resume_session_id, suppress_export, model,
             ).await?;
-            Ok((sid, response_text))
+            return Ok((sid, response_text));
         }
-        #[cfg(not(feature = "thin"))]
-        {
-            let (sid, response_text) = run_claude_inner(work_dir, prompt, app_handle, cabinet_id, resume_session_id, active_pids, false, suppress_export, model).await?;
-            Ok((sid, response_text))
+
+        // Локальный путь. 🔴 Его отказ НЕ переводит работу на шлюз — ни молча, ни
+        // «разово»: человек выбрал этот режим ради того, чтобы Платформа Аврора не
+        // участвовала в передаче (ADR-049 §4).
+        match run_claude_inner(work_dir, prompt, app_handle, cabinet_id, resume_session_id, active_pids, false, suppress_export, model).await {
+            Ok((sid, response_text)) => Ok((sid, response_text)),
+            Err(e) => Err(local_failure(e)),
         }
     }
+}
+
+/// Отказ локального пути: причина остаётся дословной, к ней добавляется предложение
+/// переключиться (ADR-049 §4). Заодно гасится ЛОКАЛЬНЫЙ выбор автоопределения — но не
+/// явный выбор человека: тот сильнее любой отметки.
+#[cfg(feature = "cloud_advisors")]
+fn local_failure(error: anyhow::Error) -> anyhow::Error {
+    let reason = error.to_string();
+    crate::commands::execution_mode::mark_local_failed(&reason);
+    anyhow::anyhow!(crate::commands::execution_mode::local_failure_text(&reason))
 }
 
 /// Run Claude for pipeline phase: suppress claude-done and exports, return (session_id, response_text).
@@ -182,21 +207,31 @@ pub async fn run_claude_pipeline(
         ensure_not_local_only(&app_handle)?;
         ensure_cloud_consent(&app_handle)?;
 
+        // Фазы пайплайна идут тем же режимом, что и обычный вопрос (ADR-049): иначе одна
+        // и та же работа частями уходила бы разными маршрутами — худший вид дефекта
+        // «работает не в том режиме», потому что незаметен даже нам.
+        let decision = crate::commands::execution_mode::resolve(&app_handle).await;
+        info!(
+            "Режим исполнения фазы [{cabinet_id}]: {} ({})",
+            decision.mode.human(),
+            decision.source.as_str(),
+        );
+
         #[cfg(feature = "thin")]
-        {
+        if decision.mode == crate::commands::execution_mode::ExecutionMode::Cloud {
             // Pipeline phases always suppress export/done - final output is built by
             // post-processor. Зеркалит suppress_done=true, suppress_export=true CLI-пути.
-            let _ = active_pids;
+            let _ = &active_pids;
             let (sid, response_text) = crate::commands::gateway_executor::run_claude_pipeline_gateway(
                 work_dir, prompt, app_handle, cabinet_id, resume_session_id,
             ).await?;
-            Ok((sid, response_text))
+            return Ok((sid, response_text));
         }
-        #[cfg(not(feature = "thin"))]
-        {
-            // Pipeline phases always suppress export - final output is built by post-processor
-            let (sid, response_text) = run_claude_inner(work_dir, prompt, app_handle, cabinet_id, resume_session_id, active_pids, true, true, None).await?;
-            Ok((sid, response_text))
+
+        // Pipeline phases always suppress export - final output is built by post-processor
+        match run_claude_inner(work_dir, prompt, app_handle, cabinet_id, resume_session_id, active_pids, true, true, None).await {
+            Ok((sid, response_text)) => Ok((sid, response_text)),
+            Err(e) => Err(local_failure(e)),
         }
     }
 }
@@ -894,7 +929,7 @@ mod tests {
 /// Find the Claude CLI binary and validate it's in a trusted location.
 /// Используется только из `run_claude_inner` — недостижима при feature `thin`, см. там.
 #[cfg_attr(feature = "thin", allow(dead_code))]
-fn find_claude_binary() -> Result<String> {
+pub(crate) fn find_claude_binary() -> Result<String> {
     let candidates = ["claude", "claude.cmd", "claude.exe"];
 
     // Trusted directory prefixes (case-insensitive on Windows)
