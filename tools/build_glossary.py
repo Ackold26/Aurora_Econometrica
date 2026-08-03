@@ -63,7 +63,6 @@ ID_MAP = {
     "CPP (Стоимость пункта рейтинга)": "cpp",
     "Охват (Reach)": "reach",
     "Частота (Frequency)": "frequency",
-    "NRMSE (Нормализованная ошибка)": "nrmse",
     "R² (Коэффициент детерминации)": "r_squared",
     "MAPE (Процент ошибки)": "mape",
     "Сценарий «что если» (Scenario / What-If)": "scenario_whatif",

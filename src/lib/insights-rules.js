@@ -260,12 +260,20 @@ export function validateKpiInsights(result, context = {}) {
  * v2.1.0 (rc2 U-05): инсайты для под-шага «2. Роли колонок».
  * Это была монолитная validateInsights - теперь явное имя.
  *
+ * 🔴 Режим и мастер-переключатель праздников пробрасываются явно (внешний
+ * аудит, High, 2026-08-03). Раньше делегирование теряло третий аргумент, и
+ * под-шаг «Роли колонок» всегда считал запас данных по байесовскому
+ * знаменателю: проект в OLS видел в шапке «4,7 – рекомендуемый уровень», а в
+ * подсказках прямо под ней «2,3 – критически мало».
+ *
  * @param {any} result
  * @param {string} [objective]
+ * @param {'bayesian'|'ols'|string} [engine]
+ * @param {boolean} [useHolidays]
  * @returns {Insight[]}
  */
-export function validateRolesInsights(result, objective = 'roi') {
-  return validateInsights(result, objective);
+export function validateRolesInsights(result, objective = 'roi', engine = 'bayesian', useHolidays = true) {
+  return validateInsights(result, objective, engine, useHolidays);
 }
 
 /**
@@ -395,9 +403,14 @@ export function validateConfirmInsights(result, context = {}) {
 
 /**
  * @param {any} result
+ * @param {string} [objective]
+ * @param {'bayesian'|'ols'|string} [engine]  режим моделирования: знаменатель
+ *   запаса данных считается по нему (байес заводит авто-праздники, OLS нет).
+ * @param {boolean} [useHolidays]  мастер-переключатель «Учитывать праздники РФ»:
+ *   при ВЫКЛ авто-праздники не заводятся ни в одном режиме.
  * @returns {Insight[]}
  */
-export function validateInsights(result, objective = 'roi', engine = 'bayesian') {
+export function validateInsights(result, objective = 'roi', engine = 'bayesian', useHolidays = true) {
   /** @type {Insight[]} */
   const out = [];
   if (!result) return out;
@@ -416,8 +429,8 @@ export function validateInsights(result, objective = 'roi', engine = 'bayesian')
   // Число назначенных столбцов берём живое (из ролей): пользователь меняет их
   // на этом же экране. Авто-часть (праздники для байеса, свободный член) — из
   // ответа движка, она от ролей не зависит.
-  const paramCountCheck = effectiveParamCount(result.detected, engine, mediaCount + controlCount);
-  const liveRatio = effectiveRatio(rowsCheck, result.detected, engine, mediaCount + controlCount);
+  const paramCountCheck = effectiveParamCount(result.detected, engine, mediaCount + controlCount, useHolidays);
+  const liveRatio = effectiveRatio(rowsCheck, result.detected, engine, mediaCount + controlCount, useHolidays);
   /** @type {'ok'|'warning'|'error'} */
   let effectiveStatus = 'ok';
   if (kpiCount !== 1 || mediaCount === 0 || liveRatio < 2) {
@@ -982,7 +995,7 @@ export function validateInsights(result, objective = 'roi', engine = 'bayesian')
   // параметров. Из-за этого блок готовности противоречил статусу на том же
   // экране. Теперь оба идут через единый источник.
   const currentRatio = mediaCols.length > 0
-    ? effectiveRatio(totalRows, result.detected, engine, mediaCols.length + controlCols.length)
+    ? effectiveRatio(totalRows, result.detected, engine, mediaCols.length + controlCols.length, useHolidays)
     : 0;
   const maxChannels = Math.max(2, Math.floor(totalRows / 4) - controlCols.length);
   const excessChannels = mediaCols.length - maxChannels;
@@ -1070,7 +1083,7 @@ export function validateInsights(result, objective = 'roi', engine = 'bayesian')
  *   при 7 включённых чекбоксах.
  * @returns {Insight[]}
  */
-export function modelPreTrainingInsights(validateResult, enabledMediaNames = undefined, engine = 'bayesian') {
+export function modelPreTrainingInsights(validateResult, enabledMediaNames = undefined, engine = 'bayesian', useHolidays = true) {
   /** @type {Insight[]} */
   const out = [];
   if (!validateResult) return out;
@@ -1092,8 +1105,8 @@ export function modelPreTrainingInsights(validateResult, enabledMediaNames = und
   // медиа-ролям — потому число назначенных передаём явно; авто-часть приходит
   // из ответа движка и зависит от режима (у OLS праздников нет).
   const userVisibleParams = mediaCount + controlCount;
-  const paramCount = effectiveParamCount(validateResult.detected, engine, userVisibleParams);
-  const ratio = effectiveRatio(rows, validateResult.detected, engine, userVisibleParams);
+  const paramCount = effectiveParamCount(validateResult.detected, engine, userVisibleParams, useHolidays);
+  const ratio = effectiveRatio(rows, validateResult.detected, engine, userVisibleParams, useHolidays);
 
   // ── 1. Ready-state summary ──
   if (kpiNames.length > 0 && mediaCount > 0) {

@@ -163,26 +163,39 @@ export function severityTo3Tier(severity) {
  * только выбор по режиму — собирать состав на фронте нельзя, это завело бы
  * второй источник истины.
  *
+ * 🔴 Мастер-переключатель праздников (внешний аудит, High, 2026-08-03). Экран
+ * «Учитывать праздники РФ» шлёт в обучение `use_holidays`, и при ВЫКЛ движок
+ * не заводит ни одного праздника (`modeler.py`: инъекция под флагом). Валидация
+ * идёт раньше и флага не знает, поэтому авто-часть корректируется здесь. Без
+ * этого встроенная справка советует выключить праздники при нехватке данных,
+ * пользователь так и делает, а число на экране не двигается.
+ *
  * @param {any} detected  блок `result.detected` из ответа /compute/validate
  * @param {'bayesian'|'ols'|string|null|undefined} engine  текущий режим
  * @param {number|null} [nPredictorsOverride]  актуальное число назначенных
  *   столбцов, когда пользователь меняет роли на лету и число из ответа движка
  *   уже устарело. Авто-часть (праздники, свободный член) берётся из ответа —
  *   она от ролей не зависит.
+ * @param {boolean} [useHolidays]  состояние мастер-переключателя праздников;
+ *   при `false` авто-праздники не заводятся ни в одном режиме.
  * @returns {number} число параметров, которое модель заведёт на самом деле
  */
-export function effectiveParamCount(detected, engine, nPredictorsOverride = null) {
+export function effectiveParamCount(detected, engine, nPredictorsOverride = null, useHolidays = true) {
   const nPredictors = Number(detected?.n_predictors ?? 0) || 0;
-  const isOls = engine === 'ols';
+  const noHolidays = engine === 'ols' || useHolidays === false;
 
   if (nPredictorsOverride != null && Number.isFinite(Number(nPredictorsOverride))) {
     const live = Number(nPredictorsOverride);
     const intercept = Number(detected?.n_intercept ?? 1) || 1;
-    const holidays = isOls ? 0 : (Number(detected?.n_holidays_auto ?? 12) || 0);
+    const holidays = noHolidays ? 0 : (Number(detected?.n_holidays_auto ?? 12) || 0);
     return Math.max(live + holidays + intercept, 1);
   }
 
-  const fromBackend = isOls
+  // Праздники выключены мастер-флагом: готовое байесовское число из ответа
+  // движка их уже включает, а OLS-число — нет и никогда не включало. Значит
+  // при ВЫКЛ обе ветки сходятся к одному знаменателю «предикторы + свободный
+  // член», и брать его надо из OLS-поля, а не вычитать из байесовского.
+  const fromBackend = noHolidays
     ? detected?.n_params_effective_ols
     : (detected?.n_params_effective_bayesian ?? detected?.n_params_effective_pretrain);
   const parsed = Number(fromBackend);
@@ -193,7 +206,7 @@ export function effectiveParamCount(detected, engine, nPredictorsOverride = null
   // оценка консервативная (знаменатель не меньше фактического).
   const N_HOLIDAYS_DEFAULT = 12;
   const N_INTERCEPT = 1;
-  return isOls
+  return noHolidays
     ? nPredictors + N_INTERCEPT
     : nPredictors + N_HOLIDAYS_DEFAULT + N_INTERCEPT;
 }
@@ -205,11 +218,45 @@ export function effectiveParamCount(detected, engine, nPredictorsOverride = null
  * @param {any} detected     блок `result.detected`
  * @param {'bayesian'|'ols'|string|null|undefined} engine
  * @param {number|null} [nPredictorsOverride]  см. effectiveParamCount
+ * @param {boolean} [useHolidays]  см. effectiveParamCount
  * @returns {number} наблюдений на фактический параметр, 0 если посчитать не из чего
  */
-export function effectiveRatio(nObs, detected, engine, nPredictorsOverride = null) {
+export function effectiveRatio(nObs, detected, engine, nPredictorsOverride = null, useHolidays = true) {
   const obs = Number(nObs) || 0;
-  const params = effectiveParamCount(detected, engine, nPredictorsOverride);
+  const params = effectiveParamCount(detected, engine, nPredictorsOverride, useHolidays);
   if (obs <= 0 || params <= 0) return 0;
   return obs / params;
+}
+
+/**
+ * 🔴 ЗАПАС ДАННЫХ ДЛЯ ГЕЙТА — то, чем блокируется работа, а не то, что показано.
+ *
+ * Решение владельца 2026-08-03 по Critical внешнего аудита: показ остаётся
+ * эффективным (честное число параметров фактического режима), а жёсткая
+ * блокировка кнопки «Подтвердить роли» считается по САМОМУ МЯГКОМУ
+ * знаменателю — тому же, которым гейтит движок (`validator.py`: `ratio_gate`
+ * по `n_params_effective_ols`).
+ *
+ * Зачем расходятся показ и гейт. Правка P0.3 перевела на эффективный
+ * знаменатель и показ, и блокировку — а вместе с ней и порог. Проект с сырым
+ * запасом 4,0 получал 1,7 и переставал проходить валидацию: действующий пилот
+ * вставал на экране, который вчера пропускал его дальше. При этом «лекарство»
+ * из текста блокировки (исключить малоактивные каналы) авто-часть знаменателя
+ * не убирает вовсе — выхода у пользователя не оставалось.
+ *
+ * Почему именно OLS-знаменатель, а не сырой. Он ровно повторяет гейт движка:
+ * фронт перестаёт быть строже расчёта, и «критически мало» на экране означает
+ * то же, что «критически мало» в сообщениях движка — мало для ЛЮБОГО режима.
+ * Сырой (obs / назначенные столбцы) завёл бы на фронте третью формулу, не
+ * совпадающую ни с показом, ни с движком.
+ *
+ * @param {number} nObs      число наблюдений
+ * @param {any} detected     блок `result.detected`
+ * @param {number|null} [nPredictorsOverride]  живое число назначенных столбцов
+ * @returns {number} запас данных по гейтовому знаменателю, 0 если не из чего считать
+ */
+export function gateRatio(nObs, detected, nPredictorsOverride = null) {
+  // Режим передаётся жёстко 'ols': гейтовый знаменатель от выбора пользователя
+  // не зависит по определению — это нижняя граница числа параметров.
+  return effectiveRatio(nObs, detected, 'ols', nPredictorsOverride);
 }

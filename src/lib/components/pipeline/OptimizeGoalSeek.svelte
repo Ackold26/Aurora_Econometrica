@@ -113,9 +113,16 @@
    * нужен один и тот же прямой проход через модель, считать порознь значит
    * делать работу дважды.
    */
-  const corridorIsObserved = $derived(
-    salesCorridor?.lo != null && salesCorridor?.hi != null,
-  );
+  // Коридор считается пришедшим только если он ОСМЫСЛЕН как диапазон
+  // (развилка задачи 0, решена 2026-08-03). Проверки `!= null` мало: при
+  // {lo: 0, hi: 0}, бесконечности или перевёрнутых границах экран утверждал
+  // «диапазон, наблюдавшийся в данных», хотя наблюдать там нечего. Честная
+  // ветка текста рядом уже написана — теперь в неё есть попадание.
+  const corridorIsObserved = $derived.by(() => {
+    const lo = Number(salesCorridor?.lo);
+    const hi = Number(salesCorridor?.hi);
+    return Number.isFinite(lo) && Number.isFinite(hi) && lo > 0 && hi > lo;
+  });
 
   const corridorNote = $derived(
     corridorIsObserved

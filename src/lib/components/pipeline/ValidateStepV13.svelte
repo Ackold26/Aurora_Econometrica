@@ -35,8 +35,11 @@
     mediaPlanDetected,
     // P0.3: запас данных считается по режиму — байес заводит праздники, OLS нет.
     modelEngine,
+    // Внешний аудит (High, 2026-08-03): мастер-переключатель праздников меняет
+    // состав модели, значит и знаменатель запаса данных на этом же экране.
+    useHolidays,
   } from '$lib/project-state.js';
-  import { effectiveParamCount, effectiveRatio } from '$lib/ratio-classifier.js';
+  import { effectiveParamCount, effectiveRatio, gateRatio } from '$lib/ratio-classifier.js';
   import {
     deriveModeWithExplanation,
     kpiKindForType,
@@ -803,25 +806,37 @@
     // ролей: пользователь меняет их прямо на этом экране, и значение из ответа
     // движка успевает устареть. Авто-часть от ролей не зависит и приходит
     // из ответа.
-    const ratio = effectiveRatio(nObs, result.detected, $modelEngine, nPredictors);
-    const nParamsEffective = effectiveParamCount(result.detected, $modelEngine, nPredictors);
+    const ratio = effectiveRatio(nObs, result.detected, $modelEngine, nPredictors, $useHolidays);
+    const nParamsEffective = effectiveParamCount(result.detected, $modelEngine, nPredictors, $useHolidays);
     const ratioRaw = nObs / nPredictors;
+    // 🔴 Гейтовое число (внешний аудит, Critical, решение владельца 2026-08-03):
+    // блокировка кнопки считается по знаменателю движка, а не по показанному.
+    // Показ остаётся честным эффективным, гейт — не строже расчёта.
+    const gate = gateRatio(nObs, result.detected, nPredictors);
     // Weak: media каналы с >50% нулей.
     const weakMedia = cols.filter((/** @type {any} */ c) =>
       c?.role === 'media' && Number(c?.stats?.zeros_pct ?? 0) > 50
     );
-    const afterExclude = nPredictors - weakMedia.length > 0
-      ? effectiveRatio(nObs, result.detected, $modelEngine, nPredictors - weakMedia.length)
+    const nAfter = nPredictors - weakMedia.length;
+    const afterExclude = nAfter > 0
+      ? effectiveRatio(nObs, result.detected, $modelEngine, nAfter, $useHolidays)
+      : null;
+    // Лекарство из текста блокировки обещает снять саму блокировку — значит
+    // считается тем же числом, что её держит.
+    const afterExcludeGate = nAfter > 0
+      ? gateRatio(nObs, result.detected, nAfter)
       : null;
     return {
       ratio,
       ratioRaw,
+      gate,
       nParamsEffective,
       nObs,
       nPredictors,
       weakChannelsCount: weakMedia.length,
       weakChannelNames: weakMedia.map((/** @type {any} */ c) => c?.name).filter(Boolean),
       afterExcludeRatio: afterExclude,
+      afterExcludeGate,
     };
   });
 
@@ -835,10 +850,15 @@
   const ratioBlockedReason = $derived.by(() => {
     const data = ratioCardData;
     if (!data) return null;
-    if (data.ratio >= 2) return null;  // unblock at ratio >= 2:1
-    const after = data.afterExcludeRatio;
+    // 🔴 Гейт по знаменателю движка, не по показанному (Critical внешнего
+    // аудита, решение владельца 2026-08-03). Экран не строже расчёта: пока
+    // движок считает данные достаточными хотя бы для одного режима, работу не
+    // останавливаем — иначе действующий пилот встаёт на шаге, который вчера
+    // проходил, а «исключите слабые каналы» авто-часть знаменателя не убирает.
+    if (data.gate >= 2) return null;  // unblock at gate ratio >= 2:1
+    const after = data.afterExcludeGate;
     const canFix = data.weakChannelsCount > 0 && after != null && after >= 2;
-    let reason = `Текущий ratio ${data.ratio.toFixed(1)}:1 ниже минимального 2:1 - модель «выучит» точки вместо закономерности. `;
+    let reason = `Наблюдений на параметр ${data.gate.toFixed(1)}:1 - ниже минимальных 2:1 даже для самого экономного режима. Модель «выучит» точки вместо закономерности. `;
     if (canFix) {
       reason += `Исключите ${data.weakChannelsCount} малоактивн${data.weakChannelsCount === 1 ? 'ый канал' : data.weakChannelsCount < 5 ? 'ых канала' : 'ых каналов'} (кнопка «Применить рекомендацию» выше) → ratio станет ${after.toFixed(1)}:1.`;
     } else {
@@ -914,7 +934,7 @@
     const map = {};
     try {
       // P0.3: режим передаётся явно — запас данных зависит от него.
-      const insights = validateInsights(result, objective, $modelEngine);
+      const insights = validateInsights(result, objective, $modelEngine, $useHolidays);
       for (const ins of (insights || [])) {
         // Filter: только жёсткие issues (warning + error), не optimization tips.
         if (ins?.severity !== 'warning' && ins?.severity !== 'error') continue;

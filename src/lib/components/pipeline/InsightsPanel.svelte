@@ -37,7 +37,7 @@
     validateKpiInsights, validateRolesInsights, validateMetricsInsights, validateConfirmInsights,
   } from '$lib/insights-rules.js';
   // v2.1.0 (rc2 U-05): subStep store для контекстной маршрутизации.
-  import { validateSubStep, analysisMode, perChannelInput, unitCosts, unitCostInputMode, budgetInputs, modelEnabledMediaNames, validationHeaderMetrics, modelEngine } from '$lib/project-state.js';
+  import { validateSubStep, analysisMode, perChannelInput, unitCosts, unitCostInputMode, budgetInputs, modelEnabledMediaNames, validationHeaderMetrics, modelEngine, useHolidays } from '$lib/project-state.js';
   // Tier 2 (Claude-усилитель инсайтов, «Phase 10»). Видим только в облачной
   // редакции с согласием и для продукта Econometrica.
   import { isEconometrica } from '$lib/creative-store.js';
@@ -293,7 +293,10 @@
         if (sub === 2)  return validateMetricsInsights(val?.result, ctx);
         if (sub === 3)  return validateConfirmInsights(val?.result, ctx);
         // -1 (Роли колонок) и 0 / 1 (legacy) - общая validateInsights logic
-        return validateRolesInsights(val?.result, objective);
+        // Внешний аудит (High, 2026-08-03): режим и мастер-переключатель
+        // праздников доезжают до под-шага «Роли колонок» — раньше он молча
+        // считал по байесовскому знаменателю и противоречил шапке над собой.
+        return validateRolesInsights(val?.result, objective, $modelEngine, $useHolidays);
       }
       case 2: {
         // If training hasn't produced diagnostics yet → educational/context insights.
@@ -304,7 +307,7 @@
           const activeMedia = $modelEnabledMediaNames;
           // P0.3: режим передаётся явно — запас данных считается по нему
           // (байес заводит авто-праздники, OLS не заводит ни одного).
-          return modelPreTrainingInsights(val?.result, activeMedia.length > 0 ? activeMedia : undefined, $modelEngine);
+          return modelPreTrainingInsights(val?.result, activeMedia.length > 0 ? activeMedia : undefined, $modelEngine, $useHolidays);
         }
         // v2.1.0 (пилот 2026-05-16): передаём frontend SSOT ratio - Антон:
         // «ratio в расчёте было 3.9, на модели опять неверные ratio».

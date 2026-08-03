@@ -462,7 +462,31 @@ export const modelEnabledMediaNames = derived(modelChannelEnabled, ($map) => {
  */
 export const modelEngine = writable('bayesian');
 
-export const validationHeaderMetrics = derived([validateData, modelEngine], ([$vd, $engine]) => {
+/**
+ * Мастер-флаг «учитывать праздники РФ как факторы» (2026-06-13). ON по умолчанию.
+ * Когда False — modeler.py НЕ инжектит ~12 holiday-контролей → n_params падает →
+ * Ratio (степени свободы) растёт. Полезно при тонких данных или категории,
+ * независимой от праздников (с риском OVB, если праздники реально влияют). Персистится
+ * в project.json через project_update; buildTrainConfig шлёт как `use_holidays`.
+ * Гидрируется из activeProject; legacy-проекты без флага → true (всегда учитывали).
+ *
+ * Внешний аудит (High, 2026-08-03): объявлен ЗДЕСЬ, выше validationHeaderMetrics,
+ * по той же причине, что и modelEngine, — derived ниже подписан на этот стор, и
+ * объявление после подписки упало бы в мёртвую зону инициализации. Флаг влияет
+ * на состав модели, а значит и на знаменатель запаса данных.
+ * @type {import('svelte/store').Writable<boolean>}
+ */
+export const useHolidays = writable(true);
+
+activeProject.subscribe((p) => {
+  if (p && typeof p.use_holidays === 'boolean') {
+    useHolidays.set(p.use_holidays);
+  } else {
+    useHolidays.set(true);  // default ON (нет проекта / legacy без флага)
+  }
+});
+
+export const validationHeaderMetrics = derived([validateData, modelEngine, useHolidays], ([$vd, $engine, $useHolidays]) => {
   const result = $vd?.result;
   if (!result) return null;
 
@@ -481,14 +505,19 @@ export const validationHeaderMetrics = derived([validateData, modelEngine], ([$v
   // F-A1-5: эффективное число параметров с учётом авто-контролей (праздники + intercept).
   // Backend проставляет detected.n_params_effective_pretrain при вызове /compute/validate;
   // для реконструированных проектов (нет свежего validate) — пересчёт с дефолтными 12+1.
-  const nParamsEffectivePretrain = effectiveParamCount(result.detected, $engine);
+  // 🔴 Живое число ролей передаётся сюда (внешний аудит, High, 2026-08-03).
+  // Раньше авто-часть и число предикторов брались из ответа движка целиком, а
+  // ratioRaw строкой ниже считался по текущим ролям: сняв роль с трёх каналов,
+  // пользователь видел на одном экране три разных числа одной величины —
+  // карточку, липкую шапку и вторую строку подписи.
+  const nParamsEffectivePretrain = effectiveParamCount(result.detected, $engine, nPredictors, $useHolidays);
   // P0.3 (решение владельца «всё к эффективному»): запас данных считается по
   // числу параметров, которое модель заведёт НА САМОМ ДЕЛЕ — с авто-праздниками
   // и свободным членом для байеса, только со свободным членом для OLS. Сырой
   // (obs / назначенные столбцы) завышал достаточность (INV-50) и давал скачок:
   // до обучения «Рекомендуемый уровень», после — «Критически мало» на тех же
   // данных. Сырой оставлен рядом справочно, для второй строки подписи.
-  const ratio = effectiveRatio(nObs, result.detected, $engine);
+  const ratio = effectiveRatio(nObs, result.detected, $engine, nPredictors, $useHolidays);
   const ratioRaw = nObs > 0 && nPredictors > 0 ? nObs / nPredictors : 0;
 
   // VIF max - collinearity worst-case среди media каналов
@@ -704,25 +733,6 @@ activeProject.subscribe((p) => {
     disabledHolidays.set(/** @type {string[]} */ (p.disabled_holidays));
   } else if (!p) {
     disabledHolidays.set([]);
-  }
-});
-
-/**
- * Мастер-флаг «учитывать праздники РФ как факторы» (2026-06-13). ON по умолчанию.
- * Когда False — modeler.py НЕ инжектит ~12 holiday-контролей → n_params падает →
- * Ratio (степени свободы) растёт. Полезно при тонких данных или категории,
- * независимой от праздников (с риском OVB, если праздники реально влияют). Персистится
- * в project.json через project_update; buildTrainConfig шлёт как `use_holidays`.
- * Гидрируется из activeProject; legacy-проекты без флага → true (всегда учитывали).
- * @type {import('svelte/store').Writable<boolean>}
- */
-export const useHolidays = writable(true);
-
-activeProject.subscribe((p) => {
-  if (p && typeof p.use_holidays === 'boolean') {
-    useHolidays.set(p.use_holidays);
-  } else {
-    useHolidays.set(true);  // default ON (нет проекта / legacy без флага)
   }
 });
 
