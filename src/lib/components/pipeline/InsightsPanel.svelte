@@ -37,7 +37,9 @@
     validateKpiInsights, validateRolesInsights, validateMetricsInsights, validateConfirmInsights,
   } from '$lib/insights-rules.js';
   // v2.1.0 (rc2 U-05): subStep store для контекстной маршрутизации.
-  import { validateSubStep, analysisMode, perChannelInput, unitCosts, unitCostInputMode, budgetInputs, modelEnabledMediaNames, validationHeaderMetrics, modelEngine, useHolidays } from '$lib/project-state.js';
+  import { validateSubStep, analysisMode, perChannelInput, unitCosts, unitCostInputMode, budgetInputs, modelEnabledMediaNames, validationHeaderMetrics, modelEngine, useHolidays, disabledHolidays } from '$lib/project-state.js';
+  // Гейт шага считается тем же знаменателем, что и гейт кнопки, — знаменателем движка.
+  import { gateRatio } from '$lib/ratio-classifier.js';
   // Tier 2 (Claude-усилитель инсайтов, «Phase 10»). Видим только в облачной
   // редакции с согласием и для продукта Econometrica.
   import { isEconometrica } from '$lib/creative-store.js';
@@ -193,8 +195,13 @@
     const mediaCount = cols.filter(/** @param {any} c */ c => c?.role === 'media').length;
     const controlCount = cols.filter(/** @param {any} c */ c => c?.role === 'control').length;
     const rows = result.file?.rows ?? result.detected?.rows ?? 0;
-    const paramCount = mediaCount + controlCount;
-    const liveRatio = rows > 0 && paramCount > 0 ? rows / paramCount : 0;
+    // 🔴 Третья формула убрана (внешний аудит починки, Medium, 2026-08-03).
+    // Блокировка ШАГА считалась по сырому `rows / (media + control)` — без
+    // свободного члена, без праздников, без режима — и печатала своё число в
+    // бейдж: при 9 наблюдениях на 10 столбцов шапка показывала 0,4, бейдж рядом
+    // 0,9, плашка под таблицей 0,8. Три числа одной величины, два — в одной
+    // строке заголовка. Гейт здесь тот же, что у кнопки: знаменатель движка.
+    const liveRatio = gateRatio(rows, result.detected, mediaCount + controlCount);
 
     // F-001 guard (pilot 2026-05-18): «2 KPI» error показывать только на
     // sub-step «Роли колонок» (-1) и позже - не на sub-step «Целевая метрика» (-2).
@@ -212,7 +219,9 @@
     // модель идентифицируема (директивно, приемлемо для пилота) - не «Ошибка»;
     // предупреждение «Критически мало» показывает RatioInfoCard. Согласовано с
     // ratio-classifier.js + insights-rules.js (порог DEGENERATE=1).
-    else if (liveRatio > 0 && liveRatio < 1) errorMsg = `Ratio ${liveRatio.toFixed(1)}:1 - модель не определяется (переменных больше, чем точек данных)`;
+    // Число в бейдж не печатается: его показывает карточка запаса данных, одна
+    // на экране. Бейдж говорит, ЧТО не так, а не повторяет величину своей формулой.
+    else if (liveRatio > 0 && liveRatio < 1) errorMsg = 'Модель не определяется: параметров больше, чем точек данных';
 
     if (errorMsg) {
       setStepError(1, errorMsg);
@@ -291,12 +300,12 @@
         };
         if (sub === -2) return validateKpiInsights(val?.result, ctx);
         if (sub === 2)  return validateMetricsInsights(val?.result, ctx);
-        if (sub === 3)  return validateConfirmInsights(val?.result, ctx);
+        if (sub === 3)  return validateConfirmInsights(val?.result, ctx, $modelEngine, $useHolidays, $disabledHolidays.length);
         // -1 (Роли колонок) и 0 / 1 (legacy) - общая validateInsights logic
         // Внешний аудит (High, 2026-08-03): режим и мастер-переключатель
         // праздников доезжают до под-шага «Роли колонок» — раньше он молча
         // считал по байесовскому знаменателю и противоречил шапке над собой.
-        return validateRolesInsights(val?.result, objective, $modelEngine, $useHolidays);
+        return validateRolesInsights(val?.result, objective, $modelEngine, $useHolidays, $disabledHolidays.length);
       }
       case 2: {
         // If training hasn't produced diagnostics yet → educational/context insights.
@@ -307,7 +316,7 @@
           const activeMedia = $modelEnabledMediaNames;
           // P0.3: режим передаётся явно — запас данных считается по нему
           // (байес заводит авто-праздники, OLS не заводит ни одного).
-          return modelPreTrainingInsights(val?.result, activeMedia.length > 0 ? activeMedia : undefined, $modelEngine, $useHolidays);
+          return modelPreTrainingInsights(val?.result, activeMedia.length > 0 ? activeMedia : undefined, $modelEngine, $useHolidays, $disabledHolidays.length);
         }
         // v2.1.0 (пилот 2026-05-16): передаём frontend SSOT ratio - Антон:
         // «ratio в расчёте было 3.9, на модели опять неверные ratio».

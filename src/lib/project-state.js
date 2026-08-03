@@ -486,7 +486,31 @@ activeProject.subscribe((p) => {
   }
 });
 
-export const validationHeaderMetrics = derived([validateData, modelEngine, useHolidays], ([$vd, $engine, $useHolidays]) => {
+/**
+ * #6 Tier-3/OVB (2026-06-07): имена авто-праздников (holiday_*), отключённых юзером
+ * в ControlsPanel. Праздники с posterior contraction<0.1 неинформативны (данные их
+ * не определили) → удаление БЕЗ omitted-variable bias. Персистится в project.json
+ * через project_update; buildTrainConfig шлёт как `disabled_holidays` → modeler.py
+ * пропускает их при инъекции (modeler.py:415). Гидрируется из activeProject на reload.
+ *
+ * Внешний аудит починки (Medium, 2026-08-03): объявлен ЗДЕСЬ, выше
+ * validationHeaderMetrics, по той же причине, что modelEngine и useHolidays —
+ * derived ниже подписан на этот стор, и объявление после подписки упало бы в
+ * мёртвую зону инициализации. Поштучно отключённые праздники меняют состав
+ * модели, а значит и знаменатель запаса данных.
+ * @type {import('svelte/store').Writable<string[]>}
+ */
+export const disabledHolidays = writable(/** @type {string[]} */ ([]));
+
+activeProject.subscribe((p) => {
+  if (p && Array.isArray(p.disabled_holidays)) {
+    disabledHolidays.set(/** @type {string[]} */ (p.disabled_holidays));
+  } else if (!p) {
+    disabledHolidays.set([]);
+  }
+});
+
+export const validationHeaderMetrics = derived([validateData, modelEngine, useHolidays, disabledHolidays], ([$vd, $engine, $useHolidays, $disabledHolidays]) => {
   const result = $vd?.result;
   if (!result) return null;
 
@@ -510,14 +534,14 @@ export const validationHeaderMetrics = derived([validateData, modelEngine, useHo
   // ratioRaw строкой ниже считался по текущим ролям: сняв роль с трёх каналов,
   // пользователь видел на одном экране три разных числа одной величины —
   // карточку, липкую шапку и вторую строку подписи.
-  const nParamsEffectivePretrain = effectiveParamCount(result.detected, $engine, nPredictors, $useHolidays);
+  const nParamsEffectivePretrain = effectiveParamCount(result.detected, $engine, nPredictors, $useHolidays, $disabledHolidays.length);
   // P0.3 (решение владельца «всё к эффективному»): запас данных считается по
   // числу параметров, которое модель заведёт НА САМОМ ДЕЛЕ — с авто-праздниками
   // и свободным членом для байеса, только со свободным членом для OLS. Сырой
   // (obs / назначенные столбцы) завышал достаточность (INV-50) и давал скачок:
   // до обучения «Рекомендуемый уровень», после — «Критически мало» на тех же
   // данных. Сырой оставлен рядом справочно, для второй строки подписи.
-  const ratio = effectiveRatio(nObs, result.detected, $engine, nPredictors, $useHolidays);
+  const ratio = effectiveRatio(nObs, result.detected, $engine, nPredictors, $useHolidays, $disabledHolidays.length);
   const ratioRaw = nObs > 0 && nPredictors > 0 ? nObs / nPredictors : 0;
 
   // VIF max - collinearity worst-case среди media каналов
@@ -715,24 +739,6 @@ activeProject.subscribe((p) => {
     channelCategories.set(/** @type {Record<string, 'brand' | 'performance' | 'mixed'>} */ (p.channel_categories));
   } else if (!p) {
     channelCategories.set({});
-  }
-});
-
-/**
- * #6 Tier-3/OVB (2026-06-07): имена авто-праздников (holiday_*), отключённых юзером
- * в ControlsPanel. Праздники с posterior contraction<0.1 неинформативны (данные их
- * не определили) → удаление БЕЗ omitted-variable bias. Персистится в project.json
- * через project_update; buildTrainConfig шлёт как `disabled_holidays` → modeler.py
- * пропускает их при инъекции (modeler.py:279). Гидрируется из activeProject на reload.
- * @type {import('svelte/store').Writable<string[]>}
- */
-export const disabledHolidays = writable(/** @type {string[]} */ ([]));
-
-activeProject.subscribe((p) => {
-  if (p && Array.isArray(p.disabled_holidays)) {
-    disabledHolidays.set(/** @type {string[]} */ (p.disabled_holidays));
-  } else if (!p) {
-    disabledHolidays.set([]);
   }
 });
 

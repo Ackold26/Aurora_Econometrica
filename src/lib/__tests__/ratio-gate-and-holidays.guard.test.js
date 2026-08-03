@@ -27,7 +27,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { effectiveParamCount, effectiveRatio, gateRatio } from '../ratio-classifier.js';
-import { validateInsights, validateRolesInsights } from '../insights-rules.js';
+import { validateInsights, validateRolesInsights, validateConfirmInsights } from '../insights-rules.js';
 import validateStepSrc from '../components/pipeline/ValidateStepV13.svelte?raw';
 
 /**
@@ -92,7 +92,31 @@ describe('блокировка кнопки считается гейтовым 
     // Иначе продукт обещает «исключите каналы → станет N:1», где N посчитано
     // другой формулой, и после исключения блокировка не снимается.
     expect(validateStepSrc).toMatch(/afterExcludeGate\s*=\s*[\s\S]{0,200}gateRatio\(/);
-    expect(validateStepSrc).toMatch(/const after = data\.afterExcludeGate/);
+    // Условие «это поможет» проверяет гейтовое поле, а не показанное.
+    const reason = validateStepSrc.slice(
+      validateStepSrc.indexOf('const ratioBlockedReason'),
+      validateStepSrc.indexOf('const kpiCountBlockedReason'),
+    );
+    expect(reason).toMatch(/canFix[\s\S]{0,200}afterExcludeGate/);
+    expect(reason).not.toMatch(/afterExcludeRatio/);
+  });
+
+  it('плашка блокировки не печатает своего числа', () => {
+    // Внешний аудит починки (High, 2026-08-03): карточка печатала эффективный
+    // запас, плашка под ней — гейтовый, и на одном экране оказывались два разных
+    // числа одной величины (0,9 против 1,8). Число показывает карточка, одна;
+    // плашка объясняет словами. Мутация «вернуть ${data.gate.toFixed(1)}:1
+    // в текст» красит этот тест.
+    const reason = validateStepSrc.slice(
+      validateStepSrc.indexOf('const ratioBlockedReason'),
+      validateStepSrc.indexOf('const kpiCountBlockedReason'),
+    );
+    const clientText = reason
+      .split('\n')
+      .filter((/** @type {string} */ l) => !l.trim().startsWith('//'))
+      .join('\n');
+    expect(clientText).not.toMatch(/toFixed\(\d\)\}:1/);
+    expect(clientText).not.toMatch(/\$\{(data\.)?(gate|ratio|after)[^}]*\}/);
   });
 
   it('показ карточки остаётся эффективным — гейт его не подменил', () => {
@@ -176,5 +200,72 @@ describe('режим доезжает до под-шага «Роли колон
   it('умолчания сохранены — старые вызовы считают как раньше', () => {
     expect(validateRolesInsights(result, 'roi'))
       .toEqual(validateInsights(result, 'roi', 'bayesian', true));
+  });
+});
+
+describe('поштучное отключение праздников доезжает до знаменателя', () => {
+  // Внешний аудит починки (Medium, 2026-08-03): мастер-переключатель знаменателю
+  // передали, а слой ниже — нет. `modeler.py` пропускает отключённые праздники
+  // поимённо, значит состав модели меняется ровно так же, как от мастер-флага:
+  // пользователь снимает 10 из 12 праздников, модель заводит 13 параметров,
+  // а экран продолжает показывать 23 и прежний вердикт.
+  const d = mkDetected();
+
+  it('отключённые поштучно вычитаются из авто-части', () => {
+    expect(effectiveParamCount(d, 'bayesian', null, true, 0)).toBe(23);
+    expect(effectiveParamCount(d, 'bayesian', null, true, 10)).toBe(13);
+  });
+
+  it('то же с живым числом ролей', () => {
+    expect(effectiveParamCount(d, 'bayesian', 7, true, 10)).toBe(10);
+  });
+
+  it('нельзя вычесть больше, чем есть авто-праздников', () => {
+    expect(effectiveParamCount(d, 'bayesian', null, true, 99)).toBe(11);
+    expect(effectiveParamCount(d, 'bayesian', 7, true, 99)).toBe(8);
+  });
+
+  it('в OLS и при выключенном мастер-флаге ничего не меняется', () => {
+    expect(effectiveParamCount(d, 'ols', null, true, 10)).toBe(11);
+    expect(effectiveParamCount(d, 'bayesian', null, false, 10)).toBe(11);
+  });
+
+  it('сценарий из отчёта: экран перестал показывать прежнее число', () => {
+    const before = effectiveRatio(40, d, 'bayesian', 10, true, 0);
+    const after = effectiveRatio(40, d, 'bayesian', 10, true, 10);
+    expect(before).toBeCloseTo(1.74, 2);
+    expect(after).toBeCloseTo(3.08, 2);
+  });
+});
+
+describe('под-шаг «Подтверждение» считает тем же источником', () => {
+  // Внешний аудит починки (High, 2026-08-03): у него оставалась своя формула —
+  // всегда байесовская, всегда с 12 праздниками, — и он ПЕЧАТАЛ это число.
+  // Через один клик пользователь видел 3,6 и 1,7. Рассинхрон создала правка P0.3.
+  const result = {
+    file: { rows: 40 },
+    detected: mkDetected(),
+    columns: [
+      { name: 'sales', role: 'kpi', stats: { zeros_pct: 0 } },
+      ...Array.from({ length: 8 }, (_, i) => ({ name: `m${i}`, role: 'media', stats: { zeros_pct: 5, cv: 40 } })),
+      ...Array.from({ length: 2 }, (_, i) => ({ name: `c${i}`, role: 'control', stats: { zeros_pct: 0, cv: 30 } })),
+    ],
+    issues: [], warnings: [],
+  };
+  const num = (/** @type {{text?: string}[]} */ list) => {
+    const m = list.map(i => i.text ?? '').join('\n').match(/(\d+[.,]\d):1/);
+    return m ? Number(m[1].replace(',', '.')) : null;
+  };
+
+  it('OLS: «Подтверждение» и «Роли колонок» показывают одно число', () => {
+    expect(num(validateConfirmInsights(result, {}, 'ols')))
+      .toBe(num(validateRolesInsights(result, 'roi', 'ols')));
+  });
+
+  it('мастер-переключатель праздников доезжает и сюда', () => {
+    const on = num(validateConfirmInsights(result, {}, 'bayesian', true));
+    const off = num(validateConfirmInsights(result, {}, 'bayesian', false));
+    expect(on).not.toBe(off);
+    expect(off).toBe(num(validateConfirmInsights(result, {}, 'ols')));
   });
 });

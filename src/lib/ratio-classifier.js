@@ -178,17 +178,41 @@ export function severityTo3Tier(severity) {
  *   она от ролей не зависит.
  * @param {boolean} [useHolidays]  состояние мастер-переключателя праздников;
  *   при `false` авто-праздники не заводятся ни в одном режиме.
+ * @param {number} [disabledHolidaysCount]  сколько авто-праздников пользователь
+ *   отключил ПОШТУЧНО на той же панели. Внешний аудит починки (Medium,
+ *   2026-08-03): мастер-переключатель знаменателю передали, а слой ниже — нет,
+ *   и он остался инертным. `modeler.py` пропускает такие праздники поимённо
+ *   (`if hcol in disabled_holidays: continue`), то есть состав модели меняется
+ *   ровно так же, как от мастер-флага.
  * @returns {number} число параметров, которое модель заведёт на самом деле
  */
-export function effectiveParamCount(detected, engine, nPredictorsOverride = null, useHolidays = true) {
+export function effectiveParamCount(detected, engine, nPredictorsOverride = null, useHolidays = true, disabledHolidaysCount = 0) {
   const nPredictors = Number(detected?.n_predictors ?? 0) || 0;
   const noHolidays = engine === 'ols' || useHolidays === false;
+  const disabled = Math.max(Number(disabledHolidaysCount) || 0, 0);
+
+  /**
+   * Авто-праздники за вычетом отключённых поштучно, но не меньше нуля.
+   * @param {number} base
+   * @returns {number}
+   */
+  const autoHolidays = (base) => (noHolidays ? 0 : Math.max(base - disabled, 0));
 
   if (nPredictorsOverride != null && Number.isFinite(Number(nPredictorsOverride))) {
     const live = Number(nPredictorsOverride);
     const intercept = Number(detected?.n_intercept ?? 1) || 1;
-    const holidays = noHolidays ? 0 : (Number(detected?.n_holidays_auto ?? 12) || 0);
+    const holidays = autoHolidays(Number(detected?.n_holidays_auto ?? 12) || 0);
     return Math.max(live + holidays + intercept, 1);
+  }
+
+  // Поштучное отключение вычитается и из готового числа движка: оно посчитано
+  // при валидации, когда список отключённых ещё не известен.
+  if (!noHolidays && disabled > 0) {
+    const fromBackendFull = Number(detected?.n_params_effective_bayesian ?? detected?.n_params_effective_pretrain);
+    if (Number.isFinite(fromBackendFull) && fromBackendFull > 0) {
+      const auto = Number(detected?.n_holidays_auto ?? 12) || 0;
+      return Math.max(fromBackendFull - Math.min(disabled, auto), 1);
+    }
   }
 
   // Праздники выключены мастер-флагом: готовое байесовское число из ответа
@@ -219,11 +243,12 @@ export function effectiveParamCount(detected, engine, nPredictorsOverride = null
  * @param {'bayesian'|'ols'|string|null|undefined} engine
  * @param {number|null} [nPredictorsOverride]  см. effectiveParamCount
  * @param {boolean} [useHolidays]  см. effectiveParamCount
+ * @param {number} [disabledHolidaysCount]  см. effectiveParamCount
  * @returns {number} наблюдений на фактический параметр, 0 если посчитать не из чего
  */
-export function effectiveRatio(nObs, detected, engine, nPredictorsOverride = null, useHolidays = true) {
+export function effectiveRatio(nObs, detected, engine, nPredictorsOverride = null, useHolidays = true, disabledHolidaysCount = 0) {
   const obs = Number(nObs) || 0;
-  const params = effectiveParamCount(detected, engine, nPredictorsOverride, useHolidays);
+  const params = effectiveParamCount(detected, engine, nPredictorsOverride, useHolidays, disabledHolidaysCount);
   if (obs <= 0 || params <= 0) return 0;
   return obs / params;
 }

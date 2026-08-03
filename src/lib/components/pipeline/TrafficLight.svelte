@@ -90,6 +90,13 @@
 
   /** @param {number} cv */
   function cvClass(cv) {
+    // 🔴 Не измерено ≠ хорошо (внешний аудит починки, Medium, 2026-08-03).
+    // У нечисловой колонки статистики нет, и `undefined < 5` / `undefined < 20`
+    // оба дают false — колонка получала ЗЕЛЁНУЮ подсветку именно там, где
+    // данные негодны. Чинили «0% пропусков на самой битой колонке» — получили
+    // бы «зелёный разброс на самой битой», тот же класс: признак здоровья
+    // там, где здоровья нет.
+    if (!Number.isFinite(cv)) return 'val-na';
     if (cv < 5) return 'val-bad';
     if (cv < 20) return 'val-warn';
     return 'val-ok';
@@ -97,6 +104,7 @@
 
   /** @param {number} zeros */
   function zerosClass(zeros) {
+    if (!Number.isFinite(zeros)) return 'val-na';
     if (zeros > 60) return 'val-bad';
     if (zeros > 30) return 'val-warn';
     return 'val-ok';
@@ -509,6 +517,9 @@
   .val-ok   { color: var(--success, #16a34a) !important; }
   .val-warn { color: var(--warning, #d97706) !important; }
   .val-bad  { color: var(--danger, #dc2626) !important; }
+  /* Величина не измерена (нечисловая колонка) — приглушённый нейтральный цвет,
+     а не зелёный: отсутствие измерения не является хорошим показателем. */
+  .val-na   { color: var(--text-muted, #6b7280) !important; }
 
   /* v2.1.0 п.5.6: static border for unknown column indicator */
   @media (prefers-reduced-motion: reduce) {

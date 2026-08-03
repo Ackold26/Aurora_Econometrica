@@ -38,6 +38,8 @@
     // Внешний аудит (High, 2026-08-03): мастер-переключатель праздников меняет
     // состав модели, значит и знаменатель запаса данных на этом же экране.
     useHolidays,
+    // Поштучное отключение праздников меняет состав модели так же, как мастер-флаг.
+    disabledHolidays,
   } from '$lib/project-state.js';
   import { effectiveParamCount, effectiveRatio, gateRatio } from '$lib/ratio-classifier.js';
   import {
@@ -806,8 +808,8 @@
     // ролей: пользователь меняет их прямо на этом экране, и значение из ответа
     // движка успевает устареть. Авто-часть от ролей не зависит и приходит
     // из ответа.
-    const ratio = effectiveRatio(nObs, result.detected, $modelEngine, nPredictors, $useHolidays);
-    const nParamsEffective = effectiveParamCount(result.detected, $modelEngine, nPredictors, $useHolidays);
+    const ratio = effectiveRatio(nObs, result.detected, $modelEngine, nPredictors, $useHolidays, $disabledHolidays.length);
+    const nParamsEffective = effectiveParamCount(result.detected, $modelEngine, nPredictors, $useHolidays, $disabledHolidays.length);
     const ratioRaw = nObs / nPredictors;
     // 🔴 Гейтовое число (внешний аудит, Critical, решение владельца 2026-08-03):
     // блокировка кнопки считается по знаменателю движка, а не по показанному.
@@ -819,7 +821,7 @@
     );
     const nAfter = nPredictors - weakMedia.length;
     const afterExclude = nAfter > 0
-      ? effectiveRatio(nObs, result.detected, $modelEngine, nAfter, $useHolidays)
+      ? effectiveRatio(nObs, result.detected, $modelEngine, nAfter, $useHolidays, $disabledHolidays.length)
       : null;
     // Лекарство из текста блокировки обещает снять саму блокировку — значит
     // считается тем же числом, что её держит.
@@ -856,11 +858,20 @@
     // останавливаем — иначе действующий пилот встаёт на шаге, который вчера
     // проходил, а «исключите слабые каналы» авто-часть знаменателя не убирает.
     if (data.gate >= 2) return null;  // unblock at gate ratio >= 2:1
-    const after = data.afterExcludeGate;
-    const canFix = data.weakChannelsCount > 0 && after != null && after >= 2;
-    let reason = `Наблюдений на параметр ${data.gate.toFixed(1)}:1 - ниже минимальных 2:1 даже для самого экономного режима. Модель «выучит» точки вместо закономерности. `;
+    // 🔴 Плашка НЕ печатает своё число (внешний аудит починки, High, 2026-08-03).
+    // Гейтовое и показанное числа честны каждое по себе, но подписаны одинаково
+    // по смыслу, и рядом на одном экране читаются как противоречие: карточка
+    // «Запас данных 0,9:1», плашка под ней «Наблюдений на параметр 1,8:1». Это
+    // тот же дефект, ради которого писался P0.3, — число просто переехало бы из
+    // сообщения движка в плашку фронта. Здесь говорим качественно; число
+    // показывает карточка, она одна на экране.
+    const canFix = data.weakChannelsCount > 0
+      && data.afterExcludeGate != null && data.afterExcludeGate >= 2;
+    let reason = 'Наблюдений на параметр слишком мало - меньше минимума даже для самого экономного режима расчёта. Модель «выучит» точки вместо закономерности. ';
     if (canFix) {
-      reason += `Исключите ${data.weakChannelsCount} малоактивн${data.weakChannelsCount === 1 ? 'ый канал' : data.weakChannelsCount < 5 ? 'ых канала' : 'ых каналов'} (кнопка «Применить рекомендацию» выше) → ratio станет ${after.toFixed(1)}:1.`;
+      // Обещание тоже без числа: снимет блокировку гейтовый запас, а показан
+      // будет эффективный — назвать одно, показать другое значит соврать.
+      reason += `Исключите ${data.weakChannelsCount} малоактивн${data.weakChannelsCount === 1 ? 'ый канал' : data.weakChannelsCount < 5 ? 'ых канала' : 'ых каналов'} (кнопка «Применить рекомендацию» выше) - запаса данных станет достаточно, чтобы продолжить.`;
     } else {
       reason += `Добавьте больше истории (≥52 недель) или сократите число каналов в модели.`;
     }
@@ -934,7 +945,7 @@
     const map = {};
     try {
       // P0.3: режим передаётся явно — запас данных зависит от него.
-      const insights = validateInsights(result, objective, $modelEngine, $useHolidays);
+      const insights = validateInsights(result, objective, $modelEngine, $useHolidays, $disabledHolidays.length);
       for (const ins of (insights || [])) {
         // Filter: только жёсткие issues (warning + error), не optimization tips.
         if (ins?.severity !== 'warning' && ins?.severity !== 'error') continue;

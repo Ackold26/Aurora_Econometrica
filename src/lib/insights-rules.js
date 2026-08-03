@@ -272,8 +272,8 @@ export function validateKpiInsights(result, context = {}) {
  * @param {boolean} [useHolidays]
  * @returns {Insight[]}
  */
-export function validateRolesInsights(result, objective = 'roi', engine = 'bayesian', useHolidays = true) {
-  return validateInsights(result, objective, engine, useHolidays);
+export function validateRolesInsights(result, objective = 'roi', engine = 'bayesian', useHolidays = true, disabledHolidaysCount = 0) {
+  return validateInsights(result, objective, engine, useHolidays, disabledHolidaysCount);
 }
 
 /**
@@ -363,9 +363,11 @@ export function validateMetricsInsights(result, context = {}) {
  *
  * @param {any} result
  * @param {{ analysisMode?: string }} [context]
+ * @param {'bayesian'|'ols'|string} [engine]  режим моделирования
+ * @param {boolean} [useHolidays]  мастер-переключатель праздников
  * @returns {Insight[]}
  */
-export function validateConfirmInsights(result, context = {}) {
+export function validateConfirmInsights(result, context = {}, engine = 'bayesian', useHolidays = true, disabledHolidaysCount = 0) {
   /** @type {Insight[]} */
   const out = [];
   if (!result) return out;
@@ -374,11 +376,13 @@ export function validateConfirmInsights(result, context = {}) {
   const mediaCount = cols.filter(/** @param {any} c */ c => c.role === 'media').length;
   const controlCount = cols.filter(/** @param {any} c */ c => c.role === 'control').length;
   const rows = result.file?.rows ?? 0;
-  // F-A1-5: читаем эффективное число параметров из SSOT (backend /compute/validate
-  // проставляет detected.n_params_effective_pretrain = media + controls + 12 праздников
-  // + intercept). Фолбэк: user-visible media+controls (без авто-контролей).
-  const nParamsEffective = result.detected?.n_params_effective_pretrain ?? (mediaCount + controlCount);
-  const ratio = rows > 0 && nParamsEffective > 0 ? rows / nParamsEffective : 0;
+  // 🔴 Единый источник знаменателя (внешний аудит починки, High, 2026-08-03).
+  // Здесь жила своя формула: `rows / detected.n_params_effective_pretrain` —
+  // всегда байесовская, всегда с 12 праздниками, с числом предикторов из ответа
+  // движка. До правки P0.3 расхождения не было (соседний под-шаг считал так же),
+  // а после — под-шаг «Роли колонок» показывал 3,6, этот через один клик 1,7,
+  // и оба числа печатались. Рассинхрон был создан самой починкой.
+  const ratio = effectiveRatio(rows, result.detected, engine, mediaCount + controlCount, useHolidays, disabledHolidaysCount);
 
   out.push({
     severity: 'success',
@@ -388,7 +392,7 @@ export function validateConfirmInsights(result, context = {}) {
   if (ratio < 4) {
     out.push({
       severity: 'warning',
-      text: `Ratio данных ${ratio.toFixed(1)}:1 (наблюдения ÷ выбранные признаки, оценка до обучения) ниже рекомендованного 4:1 с учётом авто-контролей (авто-праздники; сезонность может добавить ещё несколько признаков после обучения). Модель обучится, но результаты с широкими диапазонами возможных значений.`,
+      text: `Запас данных ${ratio.toFixed(1)}:1 (наблюдения ÷ параметры, которые заведёт модель) ниже рекомендованного 4:1${useHolidays && engine !== 'ols' ? ' с учётом авто-праздников' : ''}; сезонность может добавить ещё несколько признаков после обучения. Модель обучится, но результаты с широкими диапазонами возможных значений.`,
       tip: 'После обучения смотрите R-hat (показатель сходимости модели – должен быть ниже 1.05) и MQS: модель надёжна для пилотных решений, если качество на уровне «Хорошее» и выше.',
     });
   }
@@ -410,7 +414,7 @@ export function validateConfirmInsights(result, context = {}) {
  *   при ВЫКЛ авто-праздники не заводятся ни в одном режиме.
  * @returns {Insight[]}
  */
-export function validateInsights(result, objective = 'roi', engine = 'bayesian', useHolidays = true) {
+export function validateInsights(result, objective = 'roi', engine = 'bayesian', useHolidays = true, disabledHolidaysCount = 0) {
   /** @type {Insight[]} */
   const out = [];
   if (!result) return out;
@@ -429,8 +433,8 @@ export function validateInsights(result, objective = 'roi', engine = 'bayesian',
   // Число назначенных столбцов берём живое (из ролей): пользователь меняет их
   // на этом же экране. Авто-часть (праздники для байеса, свободный член) — из
   // ответа движка, она от ролей не зависит.
-  const paramCountCheck = effectiveParamCount(result.detected, engine, mediaCount + controlCount, useHolidays);
-  const liveRatio = effectiveRatio(rowsCheck, result.detected, engine, mediaCount + controlCount, useHolidays);
+  const paramCountCheck = effectiveParamCount(result.detected, engine, mediaCount + controlCount, useHolidays, disabledHolidaysCount);
+  const liveRatio = effectiveRatio(rowsCheck, result.detected, engine, mediaCount + controlCount, useHolidays, disabledHolidaysCount);
   /** @type {'ok'|'warning'|'error'} */
   let effectiveStatus = 'ok';
   if (kpiCount !== 1 || mediaCount === 0 || liveRatio < 2) {
@@ -995,7 +999,7 @@ export function validateInsights(result, objective = 'roi', engine = 'bayesian',
   // параметров. Из-за этого блок готовности противоречил статусу на том же
   // экране. Теперь оба идут через единый источник.
   const currentRatio = mediaCols.length > 0
-    ? effectiveRatio(totalRows, result.detected, engine, mediaCols.length + controlCols.length, useHolidays)
+    ? effectiveRatio(totalRows, result.detected, engine, mediaCols.length + controlCols.length, useHolidays, disabledHolidaysCount)
     : 0;
   const maxChannels = Math.max(2, Math.floor(totalRows / 4) - controlCols.length);
   const excessChannels = mediaCols.length - maxChannels;
@@ -1083,7 +1087,7 @@ export function validateInsights(result, objective = 'roi', engine = 'bayesian',
  *   при 7 включённых чекбоксах.
  * @returns {Insight[]}
  */
-export function modelPreTrainingInsights(validateResult, enabledMediaNames = undefined, engine = 'bayesian', useHolidays = true) {
+export function modelPreTrainingInsights(validateResult, enabledMediaNames = undefined, engine = 'bayesian', useHolidays = true, disabledHolidaysCount = 0) {
   /** @type {Insight[]} */
   const out = [];
   if (!validateResult) return out;
@@ -1105,8 +1109,8 @@ export function modelPreTrainingInsights(validateResult, enabledMediaNames = und
   // медиа-ролям — потому число назначенных передаём явно; авто-часть приходит
   // из ответа движка и зависит от режима (у OLS праздников нет).
   const userVisibleParams = mediaCount + controlCount;
-  const paramCount = effectiveParamCount(validateResult.detected, engine, userVisibleParams, useHolidays);
-  const ratio = effectiveRatio(rows, validateResult.detected, engine, userVisibleParams, useHolidays);
+  const paramCount = effectiveParamCount(validateResult.detected, engine, userVisibleParams, useHolidays, disabledHolidaysCount);
+  const ratio = effectiveRatio(rows, validateResult.detected, engine, userVisibleParams, useHolidays, disabledHolidaysCount);
 
   // ── 1. Ready-state summary ──
   if (kpiNames.length > 0 && mediaCount > 0) {

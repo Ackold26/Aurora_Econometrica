@@ -655,20 +655,39 @@ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, A
             # что не читается как число, становится NaN — это ровно та доля,
             # которую модель прочитать не сможет. Кладём её в то же поле
             # `missing_pct`, чтобы пять экранов показали правду без своей правки.
-            _numeric = pd.to_numeric(df[col], errors='coerce')
-            _bad = int(_numeric.isna().sum())
             _n_rows_total = len(df)
+            _raw = df[col]
+            _empty_mask = _raw.isna()
+            _nulls = int(_empty_mask.sum())
+            # 🔴 Пустая ячейка — НЕ «нечитаемое значение» (внешний аудит починки,
+            # Medium, 2026-08-03). Первая версия считала их вместе через
+            # `to_numeric(errors='coerce').isna()`, и сообщение советовало
+            # «оставьте ячейки пустыми», противореча собственному счёту: те же
+            # три пустые ячейки в числовой колонке дают мягкое предупреждение
+            # «считаются нулём», а рядом с одной текстовой — critical.
+            #
+            # 🔴 Парсер числа берётся ОДИН — тот же, что у гейта роли
+            # (`_is_numeric_parseable`): он чистит валюту и пробелы и пробует обе
+            # трактовки запятой. Голый `to_numeric` объявлял нечитаемым «11,35»
+            # из русского Excel, то есть critical выпадал на каждую денежную
+            # колонку. Два парсера в одной функции — это два разных ответа на
+            # один вопрос «число ли это».
+            _filled = _raw[~_empty_mask]
+            _txt = _filled.astype(str).str.strip().str.replace(r'[\s\xa0₽$€%]', '', regex=True)
+            _as_thousands = pd.to_numeric(_txt.str.replace(',', '', regex=False), errors='coerce')
+            _as_decimal = pd.to_numeric(_txt.str.replace(',', '.', regex=False), errors='coerce')
+            # Значение непригодно, только если не читается НИ ОДНОЙ трактовкой.
+            _bad_mask = _as_thousands.isna() & _as_decimal.isna()
+            _bad = int(_bad_mask.sum())
             _bad_pct = round(_bad / _n_rows_total * 100, 1) if _n_rows_total else 0.0
             col_info['stats'] = {
-                'nulls': _bad,
-                'missing_pct': _bad_pct,
+                'nulls': _nulls,
+                'missing_pct': round(_nulls / _n_rows_total * 100, 1) if _n_rows_total else 0.0,
+                'non_numeric_pct': _bad_pct,
                 'non_numeric': True,
             }
             if _bad > 0:
-                _examples = sorted({
-                    str(v).strip() for v, is_bad in zip(df[col], _numeric.isna())
-                    if is_bad and str(v).strip() and str(v).strip().lower() != 'nan'
-                })[:3]
+                _examples = sorted({str(v).strip() for v in _filled[_bad_mask]})[:3]
                 _hint = f' Например: {", ".join(_examples)}.' if _examples else ''
                 issues.append({
                     'column': col,
@@ -676,9 +695,39 @@ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, A
                     'message': (
                         f'{col} - {_bad_pct}% значений не читаются как числа '
                         f'({_bad} из {_n_rows_total}).{_hint} Обучение на такой колонке '
-                        f'не запустится. Замените текст числами или оставьте ячейки пустыми.'
+                        f'не запустится: замените текст числами либо очистите эти ячейки.'
                     ),
                     'severity': 'critical',
+                })
+            elif not pd.api.types.is_numeric_dtype(_raw):
+                # Значения читаются, но колонка осталась текстовой — типичный
+                # случай русского Excel: десятичная запятая или разделитель
+                # разрядов. Обучение всё равно упадёт (`astype(float)` не чистит
+                # строки), но советовать «замените текст числами» здесь нельзя:
+                # пользователь видит в ячейках числа. Говорим про формат.
+                issues.append({
+                    'column': col,
+                    'type': 'non_numeric_format',
+                    'message': (
+                        f'{col} - значения записаны как текст, а не как числа '
+                        f'(обычно из-за десятичной запятой или разделителя разрядов). '
+                        f'Обучение на такой колонке не запустится: задайте столбцу '
+                        f'числовой формат в исходном файле и загрузите его заново.'
+                    ),
+                    'severity': 'critical',
+                })
+            if _nulls > 0:
+                # Пропуски в текстовой колонке ведут себя так же, как в числовой:
+                # при обучении становятся нулём. Молчать о них нельзя.
+                warnings.append({
+                    'column': col,
+                    'type': 'missing_filled_with_zero',
+                    'message': (
+                        f'{col} - пропусков {col_info["stats"]["missing_pct"]}% '
+                        f'({_nulls} из {_n_rows_total}). При обучении они считаются нулём, '
+                        f'то есть «активности не было».'
+                    ),
+                    'severity': 'warning',
                 })
 
         columns.append(col_info)
