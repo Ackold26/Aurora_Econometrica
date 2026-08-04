@@ -1225,12 +1225,39 @@ fn build_xlsx(
         let thinness_cap = model["diagnostics"]["mqs"]["thinness_cap"].as_f64();
         let ratio_eff = model["diagnostics"]["metrics"]["ratio"].as_f64();
         if let (Some(_cap), Some(ratio)) = (thinness_cap, ratio_eff) {
+            // 🔴 Зеркало ДОСЛОВНОЕ. 2026-08-04: Python-сторона была переписана на
+            // тон McElreath (не «артефакт переобучения» и не «результаты ненадёжны»,
+            // а честно про механизм), а эта половина осталась прежней — клиент
+            // получал в XLSX одну формулировку, в HTML и PPTX другую, причём
+            // XLSX нёс ровно тот алармизм, от которого отказались. Сторожа,
+            // обещанного комментарием выше, не существовало вовсе; теперь он есть:
+            // sidecar/econometrica/tests/test_thinness_caveat_mirror.py
             let caveat = if ratio < 2.0 {
-                format!("⚠ Данных критически мало (Ratio {ratio:.1}:1) – высокий риск переобучения, результаты ненадёжны.")
+                format!("⚠ Данных мало (Ratio {ratio:.1}:1) - модель сильно опирается на априорные предположения, правдоподобный диапазон широкий, точечная надёжность ограничена.")
             } else {
-                format!("⚠ Данных мало (Ratio {ratio:.1}:1 < 4:1) – высокий R² может быть артефактом переобучения. Правдоподобные диапазоны будут широкими.")
+                format!("⚠ Данных мало (Ratio {ratio:.1}:1 < 4:1) - модель сдержана, опирается на априорные предположения; правдоподобный диапазон будет широким.")
             };
             ws.write(11, 0, caveat).map_err(|e| format!("{e}"))?;
+        }
+
+        // Плашка надёжности модели — та же, что в Markdown (reliability_label +
+        // caveat_text VERBATIM из optimization.json, SSOT optimizer_honesty, INV-50).
+        // 🔴 До 2026-08-04 она доходила только до Markdown: при переносе функций
+        // вызов в XLSX не был добавлен, хотя отчёт об этом утверждал обратное.
+        // Поймано сторожем проводки (test_report_rs_wiring.py), а не глазами:
+        // юнит-тест самой reliability_label был зелёным — функция цела, её просто
+        // никто не звал на этом пути. Следствие для клиента: в XLSX не было
+        // предупреждения о ненадёжной модели, а в Markdown и HTML было.
+        {
+            let mr_verdict = optimize["model_reliability"]["verdict"]
+                .as_str().unwrap_or("").to_lowercase();
+            let mr_label = reliability_label(&mr_verdict);
+            let mr_caveat = optimize["model_reliability"]["caveat_text"]
+                .as_str().unwrap_or("");
+            if !mr_label.is_empty() && !mr_caveat.is_empty() {
+                ws.write(12, 0, format!("⚠ {mr_label}. {mr_caveat}"))
+                    .map_err(|e| format!("{e}"))?;
+            }
         }
 
         // Widths from XLSX_reference.xlsx - A:C = 26.43
