@@ -138,7 +138,10 @@ def test_single_source_has_more_terms_than_fallback() -> None:
     """
     js = _GLOSSARY_JS.read_text(encoding="utf-8")
     terms = js.count("\n  term: ") or js.count("term:")
-    assert terms >= 20, (
+    # 🔴 Порог поднят с 20 до 40 по находке аудита: при заявленных 50 терминах
+    # порог 20 пропускал поломку генератора, отдающую половину корпуса, — клиент
+    # получал бы неполный лист «Глоссарий» при зелёном стороже.
+    assert terms >= 40, (
         f"единый источник глоссария содержит подозрительно мало терминов "
         f"({terms}): передавать его на замену запасным 11 незачем — проверьте "
         f"tools/build_glossary.py и docs/GLOSSARY_v2_1_0.md."
