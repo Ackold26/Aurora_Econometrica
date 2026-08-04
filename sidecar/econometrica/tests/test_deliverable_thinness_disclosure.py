@@ -154,13 +154,24 @@ def _payload_opt(opt):
 
 
 def test_seam_carries_model_reliability_when_uncertain():
-    """Мост доносит model_reliability в diagnostics при verdict != reliable, текст verbatim."""
-    pdiag = _payload_opt({"model_reliability": MR_UNCERTAIN})["diagnostics"]
-    mr = pdiag.get("model_reliability")
-    assert mr is not None, "мост обязан донести model_reliability при uncertain"
-    assert mr["verdict"] == "uncertain"
-    assert mr["caveat_text"] == MR_UNCERTAIN["caveat_text"]  # VERBATIM (INV-50)
-    assert mr["reasons"]
+    """Мост доносит вердикт надёжности модели в diagnostics при verdict != reliable,
+    caveat_text VERBATIM (INV-50).
+
+    Правка 2026-08-04 (после уточнения от команды): исходный тест ждал вердикт
+    через optimize_data["model_reliability"] - это шов из июньской ветки
+    ai-insights-tier2, которого в нашей архитектуре НЕТ. Действующий источник
+    честности - model_data["diagnostics"] через
+    utils.optimizer_honesty.model_reliability_verdict (тот же вокабуляр
+    reliable/uncertain/unreliable/unknown), уже подключённый к
+    soften_verdict_display в narrative_adapter.py/aurora_html/aurora_pptx.
+    Проверяемое свойство (плашка видна при не-reliable, текст verbatim) не
+    меняется - меняется только источник данных в фикстуре теста."""
+    from utils.optimizer_honesty import model_reliability_verdict
+    expected = model_reliability_verdict(THIN)
+    pdiag = _payload(THIN)["diagnostics"]
+    assert pdiag.get("honesty_verdict") == "uncertain" == expected["verdict"]
+    assert pdiag.get("honesty_reasons")
+    assert pdiag.get("honesty_caveat_text") == expected["caveat_text"]  # VERBATIM (INV-50)
 
 
 def test_seam_drops_model_reliability_when_reliable():
@@ -170,16 +181,22 @@ def test_seam_drops_model_reliability_when_reliable():
 
 
 def test_html_carries_reliability_plaque_when_uncertain():
-    """HTML несёт плашку надёжности (verdict != reliable) с текстом verbatim."""
+    """HTML несёт плашку надёжности (verdict != reliable) с текстом verbatim.
+
+    Правка 2026-08-04 (после уточнения от команды): источник - model_data
+    diagnostics honesty_verdict (см. правку test_seam_carries_model_reliability_
+    when_uncertain выше), не optimize_data. Плашка - действующий баннер
+    reliability-disclaimer (F-A1-9, 2026-07-06), не «mqs-reliability» из
+    июньской ветки, которого в коде никогда не было."""
     from engines.html_export import build_html
+    from utils.optimizer_honesty import model_reliability_verdict
+    expected_caveat = model_reliability_verdict(THIN)["caveat_text"]
     out = tempfile.gettempdir() + "/test_mr_uncertain.html"
-    build_html(model_data={"diagnostics": FAT}, decompose_data={},
-               optimize_data={"model_reliability": MR_UNCERTAIN},
-               output_path=out, project_id="test")
+    build_html(model_data={"diagnostics": THIN}, decompose_data={},
+               optimize_data={}, output_path=out, project_id="test")
     html = open(out, encoding="utf-8").read()
-    assert "mqs-reliability" in html, "HTML обязан нести плашку надёжности при uncertain"
-    assert "Ограниченная надёжность модели" in html
-    assert MR_UNCERTAIN["caveat_text"] in html  # verbatim из SSOT
+    assert "reliability-disclaimer" in html, "HTML обязан нести плашку надёжности при uncertain"
+    assert expected_caveat in html  # verbatim из SSOT (INV-50)
 
 
 def test_html_no_reliability_plaque_when_reliable():
@@ -235,10 +252,15 @@ _DEC_DIRECTIVE = {"channels": [
 
 
 def test_seam_channel_verdict_softened_when_uncertain():
-    """Мост смягчает verdict_display при не-reliable; machine-key verdict цел (counts)."""
+    """Мост смягчает verdict_display при не-reliable; machine-key verdict цел (counts).
+
+    Правка 2026-08-04 (после уточнения от команды): источник честности -
+    model_data diagnostics (THIN, ratio 2.4:1 < 4:1 → honesty_verdict=uncertain),
+    не optimize_data["model_reliability"] (тот шов не существует - см. правки
+    выше в этом файле)."""
     payload = _map_pipeline_to_builder_data(
-        model_data={}, decompose_data=_DEC_DIRECTIVE,
-        optimize_data={"model_reliability": MR_UNCERTAIN}, scenarios=[], project_id="t")
+        model_data={"diagnostics": THIN}, decompose_data=_DEC_DIRECTIVE,
+        optimize_data={}, scenarios=[], project_id="t")
     for ch in payload["channels"]:
         assert ch.get("verdict_modality") == "tentative"
         assert ch.get("verdict") in ("Scale", "Hold", "Watch", "Reduce", "Cut", "Uncertain")

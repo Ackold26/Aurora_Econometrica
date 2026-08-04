@@ -991,6 +991,15 @@ def _map_pipeline_to_builder_data(
             _reasons = [str(r) for r in (_verdict.get("reasons") or [])]
             if _reasons:
                 diagnostics["honesty_reasons"] = _reasons[:3]
+            # 2026-08-04: caveat_text считался, но нигде не сохранялся - сама
+            # model_reliability_verdict документирует «UI потребляет результат
+            # verbatim (INV-50), не пере-выводит», но до этой правки её
+            # caveat_text просто не доезжал никуда (HTML-баннер держал 2 своих
+            # канонических текста по verdict вместо настоящей причины - Ratio,
+            # тир, дивергенции). Пробрасываем дословно.
+            _caveat_text = _verdict.get("caveat_text")
+            if _caveat_text:
+                diagnostics["honesty_caveat_text"] = str(_caveat_text)
         except Exception:  # noqa: BLE001 - honesty-доставка не роняет экспорт
             pass
         _pf = diag_src.get("preflight") or {}

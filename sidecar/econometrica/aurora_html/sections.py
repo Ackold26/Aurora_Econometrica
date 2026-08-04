@@ -444,10 +444,17 @@ def _reliability_disclaimer_html(ctx: dict) -> str:
             verdict_str = "unknown"
     if verdict_str not in ("unreliable", "uncertain"):
         return ""
-    if verdict_str == "unreliable":
-        note = "Модель имеет высокий R-hat или много расходящихся цепей – результаты ниже ориентировочные."
-    else:
-        note = "Узкий объём данных или слабый prior-coverage – результаты ниже трактуйте осторожно."
+    # 2026-08-04: verbatim caveat_text из SSOT (model_reliability_verdict),
+    # когда доехал по мосту (diagnostics["honesty_caveat_text"] -
+    # narrative_adapter._map_pipeline_to_builder_data) - несёт настоящую
+    # причину (Ratio, тир модели, дивергенции), а не общую фразу по verdict.
+    # Fallback - legacy diagnostics без этого поля (старые pickles).
+    note = diag.get("honesty_caveat_text")
+    if not note:
+        if verdict_str == "unreliable":
+            note = "Модель имеет высокий R-hat или много расходящихся цепей – результаты ниже ориентировочные."
+        else:
+            note = "Узкий объём данных или слабый prior-coverage – результаты ниже трактуйте осторожно."
     return (
         '<div class="reliability-disclaimer" role="alert" style="'
         "margin:16px 0;padding:14px 18px;background:rgba(201,164,73,0.12);"
