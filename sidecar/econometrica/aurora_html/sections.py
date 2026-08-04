@@ -1241,6 +1241,14 @@ def render_action_table(ctx: dict) -> str:
         spend_mln = float(c.get("spend") or 0) / 1_000_000.0
         mroas = c.get("mroas")
         verdict = c.get("verdict") or "Watch"
+        # Волна 1 пункт 3 (2026-06-20, перенесено 2026-08-04): отображаемый
+        # вердикт — рус + honesty-смягчение (решение 2a). verdict_display несёт
+        # «Увеличить (предв.)» при не-reliable модели; machine-key `verdict`
+        # оставляем для CSS-класса цвета. Fallback на локализацию по ключу, если
+        # поле не пришло (legacy/wireframe payload).
+        from engines.channel_action import soften_verdict_display
+        v_display = c.get("verdict_display") or soften_verdict_display(verdict, None)[0]
+        v_modality = c.get("verdict_modality") or "firm"
         share_pct = int(round(float(c.get("contribution") or 0) / total_contrib * 100))
         fn = fn_by_name.get(name, "")
         fn_html = f'<sup class="fn-marker">{fn}</sup>' if fn else ''
@@ -1261,7 +1269,7 @@ def render_action_table(ctx: dict) -> str:
             f'<td class="num" data-sort="{float(c.get("contribution") or 0):.2f}">{_fmt_contrib(c.get("contribution"), contrib_scale)}</td>'
             f'<td class="num" data-sort="{float(mroas or 0):.3f}">{mroas_html}{fn_html}</td>'
             f'<td class="num" data-sort="{share_pct}">{share_pct}</td>'
-            f'<td><span class="verdict-badge verdict-{escape(verdict)}">{escape(verdict)}</span></td>'
+            f'<td><span class="verdict-badge verdict-{escape(verdict)} verdict-mod-{escape(v_modality)}">{escape(v_display)}</span></td>'
             f'</tr>'
         )
 
@@ -1964,6 +1972,16 @@ def render_sources(ctx: dict) -> str:
     mqs_caveat = format_thinness_caveat(diag.get("ratio"), diag.get("thinness_cap"),
                                         leading_space=False)
 
+    # Волна 3 (2026-06-20, перенесено 2026-08-04): метка режима анализа + типа
+    # KPI (контекст метрик) — без неё клиент может принять долю вклада за ROI.
+    _mode_label = diag.get("analysis_mode_label")
+    _kind_label = diag.get("kpi_kind_label")
+    mode_html = ""
+    if _mode_label:
+        _kpi_part = f" · KPI: {escape(_kind_label)}" if _kind_label else ""
+        mode_html = (f'<div class="mqs-mode">Режим анализа: '
+                     f'{escape(_mode_label)}{_kpi_part}</div>')
+
     mqs_diag_html = ""
     if is_ols:
         # OLS: показываем только R²/MAPE + frequentist метод (без MCMC).
@@ -2020,6 +2038,7 @@ def render_sources(ctx: dict) -> str:
     <div class="mqs-label">Model Quality Score</div>
     {mqs_score_block}
     {f'<div class="mqs-caveat">{escape(mqs_caveat)}</div>' if mqs_caveat else ''}
+    {mode_html}
     {f'<div class="mqs-diag">{mqs_diag_html}</div>' if mqs_diag_html else ''}
     <a class="method-badge" href="#method">{escape(_badge_text)}</a>
   </div>

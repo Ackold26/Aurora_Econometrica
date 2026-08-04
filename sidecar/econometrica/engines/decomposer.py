@@ -54,6 +54,14 @@ def _fmt_roi(r) -> str:
     return f"{r:.2f}×" if abs(r) < 1 else f"{r:.1f}×"
 
 
+def _clean_name(s) -> str:
+    """Имя канала без `\\n`/двойных пробелов (исходные Excel-заголовки несут переносы).
+    Зеркалит Rust report.rs::clean_label — иначе нарратив-insight (и таблицы XLSX/MD,
+    читающие его) рвут имя на строки (INV-50 гигиена клиентского текста, перенесено
+    2026-08-04)."""
+    return ' '.join(str(s).split())
+
+
 def _build_channel_insight(
     channels,
     money_roi_unavailable: bool = False,
@@ -131,6 +139,13 @@ def _build_channel_insight(
             'Точную оценку отдачи и сценарии перераспределения см. в шаге «Оптимизация».'
         )
     top_roi = float(top.get('roi') or 0)
+    # INV-50 (2026-06-21, перенесено 2026-08-04): чистое имя канала — исходные
+    # Excel-заголовки несут `\n`/двойные пробелы, иначе грязное имя утекает в
+    # клиентский текст insight. Зеркалит Rust report.rs::clean_label. НЕ путать
+    # с _normalize_channel_name (вырезает суффиксы вроде «Бюджет до НДС») —
+    # другая задача, не трогаем.
+    top_name = _clean_name(top['name'])
+    worst_name = _clean_name(worst['name'])
 
     # Форматирование метрики и словарь зависят от режима
     if _eff_mode:
@@ -162,32 +177,32 @@ def _build_channel_insight(
         # Абсолютный вердикт окупаемости требует ценности единицы (её тут нет) → даём
         # ОТНОСИТЕЛЬНОЕ сравнение по CPU (channels отсортированы по roi desc → top = мин CPU).
         insight = (
-            f"{top['name']} - самая низкая стоимость единицы (CPU {fmt_top}). "
-            f"{worst['name']} - самая высокая (CPU {fmt_worst})."
+            f"{top_name} - самая низкая стоимость единицы (CPU {fmt_top}). "
+            f"{worst_name} - самая высокая (CPU {fmt_worst})."
         )
         if top.get('efficiency_gap', 0) > GAP_GOOD and worst.get('efficiency_gap', 0) < -GAP_GOOD:
             insight += (
-                f" Канал {worst['name']} использует больше бюджета чем даёт эффекта "
+                f" Канал {worst_name} использует больше бюджета чем даёт эффекта "
                 f"(gap {worst['efficiency_gap']:+.0f} пп) - рассмотрите перераспределение "
-                f"в {top['name']}. Точную оценку прироста см. в шаге «Оптимизация»."
+                f"в {top_name}. Точную оценку прироста см. в шаге «Оптимизация»."
             )
     else:
         # Monetary: поведение как раньше (ROI ×)
         if top_roi >= ROI_BREAKEVEN:
             insight = (
-                f"{top['name']} - самый эффективный канал (ROI {_fmt_roi(top['roi'])}). "
-                f"{worst['name']} - наименее эффективный (ROI {_fmt_roi(worst['roi'])})."
+                f"{top_name} - самый эффективный канал (ROI {_fmt_roi(top['roi'])}). "
+                f"{worst_name} - наименее эффективный (ROI {_fmt_roi(worst['roi'])})."
             )
             if top.get('efficiency_gap', 0) > GAP_GOOD and worst.get('efficiency_gap', 0) < -GAP_GOOD:
                 insight += (
-                    f" Канал {worst['name']} использует больше бюджета чем даёт эффекта "
+                    f" Канал {worst_name} использует больше бюджета чем даёт эффекта "
                     f"(gap {worst['efficiency_gap']:+.0f} пп) - рассмотрите перераспределение "
-                    f"в {top['name']}. Точную оценку прироста см. в шаге «Оптимизация»."
+                    f"в {top_name}. Точную оценку прироста см. в шаге «Оптимизация»."
                 )
         else:
             # INV-50: лучший канал сам не окупается → честная формулировка без «эффективный».
             insight = (
-                f"Ни один канал не окупается напрямую (лучший - {top['name']}, "
+                f"Ни один канал не окупается напрямую (лучший - {top_name}, "
                 f"ROI {_fmt_roi(top['roi'])}). Продажи определяются в основном базовым "
                 f"спросом, прямой медиа-вклад невелик. Точную оценку отдачи и сценарии "
                 f"перераспределения см. в шаге «Оптимизация»."

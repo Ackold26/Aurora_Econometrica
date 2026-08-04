@@ -31,6 +31,9 @@ Public API:
   ACTION_LABEL_RU     - RU label per key
   ACTION_TONE         - tone (good/warn/bad/neutral) per key
   ACTION_PRIORITY     - sort priority per key (Scale=5, Hold=4, ..., Cut=0)
+  VERDICT_DISPLAY_RU  - краткий рус-вердикт для табличных ячеек отчётов
+  soften_verdict_display(verdict_key, reliability_verdict) → (label, modality) -
+                         honesty-потолок: смягчает директивность по надёжности модели
   compute_channel_action(channel_dict, *, kpi_kind, vpcu, money_roi_unavailable,
                          metric_short, cpu_per_label) → ChannelAction
   build_action_summary(channels) → dict с counts + top_by_action_list
@@ -79,6 +82,45 @@ ACTION_PRIORITY: dict[str, int] = {
     'Cut':       0,
     'Uncertain': 3,  # mid - needs human review, не automatic action
 }
+
+
+# Волна 1 пункт 3 (2026-06-20, перенесено 2026-08-04): краткий отображаемый
+# вердикт-действие для ТАБЛИЦ отчётов (HTML badge / PPTX action table). Единый
+# рус-источник — прежде HTML/PPTX могли показывать один канал по-разному в
+# разных форматах.
+VERDICT_DISPLAY_RU: dict[str, str] = {
+    'Scale':     'Увеличить',
+    'Hold':      'Держать',
+    'Watch':     'Наблюдать',
+    'Reduce':    'Сократить',
+    'Cut':       'Остановить',
+    'Uncertain': 'Недостаточно данных',
+}
+
+
+def soften_verdict_display(verdict_key: str, reliability_verdict: str | None) -> tuple[str, str]:
+    """Honesty-потолок (решение 2a, Антон): глобальная надёжность модели смягчает
+    ДИРЕКТИВНОСТЬ канального вердикта по МОДАЛЬНОСТИ, сохраняя НАПРАВЛЕНИЕ.
+
+    Снимает противоречие «канал Scale в отчёте vs Uncertain в декомпозиции»: при
+    неуверенной модели ни один канал не подаётся как директива к масштабированию.
+
+    Returns (label, modality):
+      • reliable / нет вердикта → директивный label («Увеличить»), modality 'firm'
+      • uncertain / unknown → label + « (предв.)» («Увеличить (предв.)»), modality
+        'tentative'; нейтральные Watch/Uncertain — без суффикса (уже неуверенные)
+      • unreliable → «Требует переобучения», modality 'refused' (модель не сошлась —
+        направление ненадёжно, не показываем; согласуется с гейтом M2 refused)
+    """
+    base = VERDICT_DISPLAY_RU.get(verdict_key, verdict_key)
+    rv = (reliability_verdict or '').lower()
+    if rv == 'unreliable':
+        return ('Требует переобучения', 'refused')
+    if rv in ('uncertain', 'unknown'):
+        if verdict_key in ('Uncertain', 'Watch'):
+            return (base, 'tentative')
+        return (f'{base} (предв.)', 'tentative')
+    return (base, 'firm')
 
 
 @dataclass(frozen=True)
@@ -284,7 +326,7 @@ def compute_channel_action(
             label_ru=ACTION_LABEL_RU['Cut'],
             tone=ACTION_TONE['Cut'],
             reasoning=(
-                f'Optimizer рекомендует -{(1 - ratio) * 100:.0f}% - '
+                f'Оптимизатор рекомендует -{(1 - ratio) * 100:.0f}% - '
                 f'бюджет лучше использовать на других каналах'
             ),
             priority=ACTION_PRIORITY['Cut'],
@@ -302,7 +344,7 @@ def compute_channel_action(
                 label_ru=ACTION_LABEL_RU['Reduce'],
                 tone=ACTION_TONE['Reduce'],
                 reasoning=(
-                    f'{_metric_str}; Optimizer рекомендует {(ratio - 1) * 100:+.0f}% - '
+                    f'{_metric_str}; Оптимизатор рекомендует {(ratio - 1) * 100:+.0f}% - '
                     f'задайте ценность единицы для оценки окупаемости'
                 ),
                 priority=ACTION_PRIORITY['Reduce'],
@@ -314,7 +356,7 @@ def compute_channel_action(
                 label_ru=ACTION_LABEL_RU['Scale'],
                 tone=ACTION_TONE['Scale'],
                 reasoning=(
-                    f'{_metric_str}; Optimizer рекомендует +{(ratio - 1) * 100:.0f}% - '
+                    f'{_metric_str}; Оптимизатор рекомендует +{(ratio - 1) * 100:.0f}% - '
                     f'задайте ценность единицы для оценки окупаемости'
                 ),
                 priority=ACTION_PRIORITY['Scale'],
@@ -345,7 +387,7 @@ def compute_channel_action(
             key='Cut',
             label_ru=ACTION_LABEL_RU['Cut'],
             tone=ACTION_TONE['Cut'],
-            reasoning=f'{_metric_str} глубоко ниже breakeven - каждый рубль приносит убыток',
+            reasoning=f'{_metric_str} глубоко ниже точки безубыточности - каждый рубль приносит убыток',
             priority=ACTION_PRIORITY['Cut'],
             confidence=confidence,
         )
@@ -357,7 +399,7 @@ def compute_channel_action(
             label_ru=ACTION_LABEL_RU['Reduce'],
             tone=ACTION_TONE['Reduce'],
             reasoning=(
-                f'Optimizer рекомендует {(ratio - 1) * 100:+.0f}% - насыщение, '
+                f'Оптимизатор рекомендует {(ratio - 1) * 100:+.0f}% - насыщение, '
                 f'{_metric_str} падает с ростом вложения'
             ),
             priority=ACTION_PRIORITY['Reduce'],
@@ -370,7 +412,7 @@ def compute_channel_action(
             key='Reduce',
             label_ru=ACTION_LABEL_RU['Reduce'],
             tone=ACTION_TONE['Reduce'],
-            reasoning=f'{_metric_str} близко к breakeven - снизить риск',
+            reasoning=f'{_metric_str} близко к точке безубыточности - снизить риск',
             priority=ACTION_PRIORITY['Reduce'],
             confidence=confidence,
         )
@@ -382,7 +424,7 @@ def compute_channel_action(
             label_ru=ACTION_LABEL_RU['Scale'],
             tone=ACTION_TONE['Scale'],
             reasoning=(
-                f'Optimizer рекомендует +{(ratio - 1) * 100:.0f}%, {_metric_str} - '
+                f'Оптимизатор рекомендует +{(ratio - 1) * 100:.0f}%, {_metric_str} - '
                 f'недо-инвестирован'
             ),
             priority=ACTION_PRIORITY['Scale'],

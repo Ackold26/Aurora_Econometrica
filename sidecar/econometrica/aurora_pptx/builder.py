@@ -368,6 +368,11 @@ class AuroraPPTXBuilder:
         # применил cap (thinness_cap=50/70). ratio_eff — эффективный (драйвит cap).
         self.thinness_cap = diag.get("thinness_cap")
         self.ratio_eff = diag.get("ratio")
+        # Волна 3 (2026-06-20, перенесено 2026-08-04): метка режима анализа +
+        # типа KPI (контекст метрик) — без неё клиент может принять долю
+        # вклада за ROI.
+        self.analysis_mode_label = diag.get("analysis_mode_label")
+        self.kpi_kind_label = diag.get("kpi_kind_label")
         # v2.1.0 (Pilot C): engine detection. 'ols' для small-data fallback,
         # 'bayesian' (default) для production v1.2/v1.3 pickles. Determines
         # methodology labels (MCMC/NUTS vs closed-form/bootstrap).
@@ -2090,16 +2095,13 @@ class AuroraPPTXBuilder:
             "Reduce": (self.gold_muted, True),
             "Cut":    (self.gold, True),
         }
-        # Stage C.3: display verdicts in Russian. Enum keys stay English
-        # internally so derive_verdict() and downstream narrative helpers
-        # remain unchanged.
-        verdict_ru = {
-            "Scale":  "Увеличить",
-            "Hold":   "Держать",
-            "Watch":  "Наблюдать",
-            "Reduce": "Сократить",
-            "Cut":    "Остановить",
-        }
+        # Волна 1 пункт 3 (2026-06-20, перенесено 2026-08-04): рус-локализация +
+        # honesty-смягчение вердикта — единый источник
+        # engines.channel_action.soften_verdict_display (VERDICT_DISPLAY_RU),
+        # синхрон с HTML. Прежний локальный verdict_ru убран (рассогласовывался
+        # с HTML при не-reliable модели). Enum-ключи (machine-key) остаются
+        # англ. внутри для verdict_colors / derive_verdict.
+        from engines.channel_action import soften_verdict_display
         row_y = table_y + 0.65
         for row in rows:
             # Phase 1.9: rows are 8-tuples (added ci_str). Backward compat for fallback
@@ -2172,7 +2174,9 @@ class AuroraPPTXBuilder:
             x += col_widths[4]
             # Verdict - fallback to Hold styling if unknown key
             vcolor, vbold = verdict_colors.get(verdict, (self.deep_60, False))
-            verdict_label = verdict_ru.get(verdict, verdict)
+            verdict_label, _v_mod = soften_verdict_display(verdict, self.honesty_verdict)
+            if _v_mod == "refused":  # модель не сошлась — направление не показываем
+                vcolor, vbold = self.deep_60, False
             self._text(
                 slide, x + 0.05, row_y, col_widths[5] - 0.1, 0.3, verdict_label,
                 font=self.sans, size=11, bold=vbold, color=vcolor,
@@ -3284,6 +3288,13 @@ class AuroraPPTXBuilder:
                 ("Полнота",             "100% (0 пропусков)"),
                 ("Аномалии",            "обработаны (праздничные недели)"),
             ]
+        # Волна 3 (2026-06-20, перенесено 2026-08-04): метка режима анализа +
+        # типа KPI — без неё клиент может принять долю вклада за ROI.
+        if self.analysis_mode_label:
+            _mode_val = self.analysis_mode_label
+            if self.kpi_kind_label:
+                _mode_val += f" · KPI: {self.kpi_kind_label}"
+            data_info.append(("Режим анализа", _mode_val))
         dy = card_y + 0.55
         for label, val in data_info:
             self._text(

@@ -50,8 +50,14 @@ def _fmt_ru_date(dt: datetime) -> str:
 _SLUG_INTERNAL_MARKERS = {
     "исходник", "источник", "dataset", "data", "source",
     "test", "debug", "tmp", "temp", "backup", "bak",
-    "ммх", "mmx", "mmm",  # platform/methodology tags - not client name
 }
+
+# Методологические метки платформы (не часть клиентского имени). Обрабатываются
+# отдельно от _SLUG_INTERNAL_MARKERS: следом за ними часто идёт 4-значный токен
+# вида "ммх-2404" - это дата-код методологии (ДДММ, «24 апреля»), а не год, и
+# в клиентское имя течь не должен. Отличаем его от НАСТОЯЩЕГО года-диапазона
+# ("mmx-2021-2025") по тому, что за диапазоном следует ВТОРОЙ 4-значный токен.
+_SLUG_DATE_MARKER_TOKENS = {"ммх", "mmx", "mmm"}
 
 
 def _sanitize_project_slug(raw: str | None) -> tuple[str, str]:
@@ -80,18 +86,32 @@ def _sanitize_project_slug(raw: str | None) -> tuple[str, str]:
 
     parts = [p for p in re.split(r'[-_\s]+', s) if p]
     clean_parts = []
-    year_range = None
-    for p in parts:
+    i = 0
+    while i < len(parts):
+        p = parts[i]
+        pl = p.lower()
+        if pl in _SLUG_DATE_MARKER_TOKENS:
+            nxt = parts[i + 1] if i + 1 < len(parts) else None
+            nxt2 = parts[i + 2] if i + 2 < len(parts) else None
+            if nxt and re.fullmatch(r'\d{4}', nxt) and not (nxt2 and re.fullmatch(r'\d{4}', nxt2)):
+                i += 2  # метка + дата-код (ДДММ) - оба служебные, не год
+                continue
+            i += 1  # только метка; настоящий год-диапазон следом обработается ниже
+            continue
         # Detect year range like "2021-2025" (already a token or captured)
         if re.fullmatch(r'\d{4}', p):
             clean_parts.append(p)
+            i += 1
             continue
-        if p.lower() in _SLUG_INTERNAL_MARKERS:
+        if pl in _SLUG_INTERNAL_MARKERS:
+            i += 1
             continue
         # Drop pure-digit suffix tokens shorter than 4 chars (revisions)
         if re.fullmatch(r'\d{1,3}', p):
+            i += 1
             continue
         clean_parts.append(p)
+        i += 1
 
     # Post-process: collapse adjacent year tokens into ranges
     def _fmt_token(tok: str) -> str:
@@ -114,7 +134,12 @@ def _sanitize_project_slug(raw: str | None) -> tuple[str, str]:
             labels.append(_fmt_token(tok))
             i += 1
 
-    client_label = " ".join(labels)
+    # Клиентское имя - короткий ярлык, не полное описание проекта (докстринг:
+    # "имя ≤2 токенов"); служебные слова из внутреннего slug'а («данные»,
+    # «для», «на» и т.п.) не входят в маркеры выше, но и в клиентское имя
+    # течь не должны - обрезаем после первых двух групп (год-диапазон уже
+    # свёрнут в одну группу строкой выше).
+    client_label = " ".join(labels[:2])
     # Project code: uppercase, hyphen-joined
     project_code = "-".join(labels).upper()
     return (client_label, project_code)
@@ -234,6 +259,22 @@ def _merge_channels(decomp_chs: list | None, opt_chs: list | None) -> list[dict]
         if oc.get('mroi_optimal_ci_low') is not None:
             merged_ch['mroas_optimal_ci_low'] = oc.get('mroi_optimal_ci_low')
             merged_ch['mroas_optimal_ci_high'] = oc.get('mroi_optimal_ci_high')
+        # Волна 1 Шаг 2 (2026-06-20): honesty-поля (unit_smell/smell_flags из
+        # decomposer's ROI-guard - канал в TRP/GRP, а не в рублях, roi=18500×
+        # выглядит абсурдно) прежде роняло на этом шве - hero-гард ниже
+        # (_by_mroas_clean) читает `unit_smell`, но получал его пустым и
+        # коронировал битый ROI-канал «лучшим» (INV-50). Пробрасываем как есть
+        # + заглушка числовых ROI-полей: битую единицу измерения нельзя честно
+        # показать никаким числом, roi_unreliable сигналит UI показать прочерк.
+        if dc.get('unit_smell'):
+            merged_ch['unit_smell'] = True
+            merged_ch['smell_flags'] = dc.get('smell_flags')
+            merged_ch['roi_unreliable'] = True
+            merged_ch['roi'] = None
+            merged_ch['avg_roi'] = None
+            merged_ch['mroas'] = None
+        else:
+            merged_ch['roi_unreliable'] = False
         merged.append(merged_ch)
     if dropped_empty:
         logger.warning(
@@ -972,6 +1013,22 @@ def _map_pipeline_to_builder_data(
                 "checks": _calib_checks,
             }
 
+    # Волна 3 (2026-06-20, перенесено 2026-08-04): метка режима анализа + типа
+    # KPI — контекст метрик для клиента (ROI vs Эффективность/доля; денежный
+    # vs количественный KPI). Источник — decompose (derived_mode/kpi_kind).
+    # Без метки клиент может принять долю вклада за ROI.
+    _mode = str(decompose_data.get("derived_mode") or "roi").lower()
+    _kind = str(decompose_data.get("kpi_kind") or "monetary").lower()
+    diagnostics["analysis_mode"] = _mode
+    diagnostics["analysis_mode_label"] = {
+        "roi": "ROI (деньги)", "effectiveness": "Эффективность (доля вклада)",
+        "mixed": "Смешанный (эксперт)", "expert": "Смешанный (эксперт)",
+    }.get(_mode, _mode)
+    diagnostics["kpi_kind"] = _kind
+    diagnostics["kpi_kind_label"] = {
+        "monetary": "денежный", "count": "количественный",
+    }.get(_kind, _kind)
+
     data: dict[str, Any] = {"meta": meta}
     if diagnostics:
         data["diagnostics"] = diagnostics
@@ -1039,7 +1096,17 @@ def _map_pipeline_to_builder_data(
     # генерируя свои hardcoded строки → coherence between table + commentary.
     # Фаза 3, пласт 1 (2026-07-11): прокидываем kpi_action_kwargs → честные
     # вердикты для count-метрик (исправляет «огульный Cut» при mROAS=0.01–0.05).
-    from engines.channel_action import compute_channel_action
+    from engines.channel_action import compute_channel_action, soften_verdict_display
+    # Волна 1 пункт 3 (2026-06-20, перенесено 2026-08-04): honesty-потолок
+    # (решение 2a, Антон). Глобальная надёжность модели (SSOT — diagnostics
+    # ["honesty_verdict"], тот же вердикт, что в model_reliability_verdict
+    # выше) смягчает ДИРЕКТИВНОСТЬ вердикта канала по МОДАЛЬНОСТИ, сохраняя
+    # НАПРАВЛЕНИЕ: при не-reliable «Увеличить»→«Увеличить (предв.)», при
+    # unreliable→«Требует переобучения». Снимает противоречие «Scale в отчёте
+    # vs Uncertain в декомпозиции». machine-key ch["verdict"] НЕ трогаем
+    # (нужен для counts/narrative_facts) — смягчаем только отображаемый слой
+    # verdict_display (билдеры читают его).
+    _mr_verdict = diagnostics.get("honesty_verdict")
     for ch in channels:
         action = compute_channel_action(ch, **_kpi_action_kwargs)
         ch["verdict"] = action.key
@@ -1049,6 +1116,9 @@ def _map_pipeline_to_builder_data(
         ch["action_tone"] = action.tone
         ch["action_priority"] = action.priority
         ch["action_confidence"] = action.confidence
+        v_label, v_modality = soften_verdict_display(action.key, _mr_verdict)
+        ch["verdict_display"] = v_label
+        ch["verdict_modality"] = v_modality
 
     narrative_facts: dict | None = None
     if len(channels) >= 2:

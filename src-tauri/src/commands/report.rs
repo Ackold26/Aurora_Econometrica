@@ -15,6 +15,93 @@ use crate::commands::mqs_tiers;
 
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
+/// Канал с ненадёжным ROI (битые единицы / артефакт): unit_smell ИЛИ маркер
+/// артефакта в тексте вердикта. Зеркалит narrative_adapter._roi_unreliable
+/// (Python-мост сюда не доходит — Rust XLSX/MD читают results JSON напрямую).
+/// Битый ROI нельзя подавать клиенту числом (INV-50) — билдер пишет «н/д».
+fn roi_unreliable(ch: &Value) -> bool {
+    if ch["unit_smell"].as_bool().unwrap_or(false) {
+        return true;
+    }
+    let v = ch["verdict"].as_str().unwrap_or("").to_lowercase();
+    v.contains("завышен")
+        || v.contains("нереалистичн")
+        || v.contains("артефакт")
+        || v.contains("не рубл")
+}
+
+/// Волна 1 пункт 2 (2026-06-20): заголовок-вердикт плашки надёжности модели.
+/// Зеркалит лейблы Python (narrative_adapter / sections.py / builder.py) — Rust
+/// XLSX/MD читают optimization.json напрямую, мимо Python-моста. caveat_text сам
+/// идёт VERBATIM из optimization.json (SSOT optimizer_honesty, INV-50) — здесь
+/// только заголовок. Пустая строка ⇒ плашку не рисуем (verdict reliable/нет).
+fn reliability_label(verdict: &str) -> &'static str {
+    match verdict {
+        "uncertain" => "Ограниченная надёжность модели",
+        "unreliable" => "Модель ненадёжна – переброска отключена",
+        "unknown" => "Надёжность модели не подтверждена",
+        "" | "reliable" => "",
+        _ => "Надёжность модели",
+    }
+}
+
+/// Волна 1 пункт 3 (2026-06-20): отображаемый вердикт-действие (рус) + honesty-
+/// смягчение (решение 2a). Зеркалит engines.channel_action.soften_verdict_display
+/// (Python) — Rust XLSX/MD читают results JSON напрямую, мимо Python-моста, поэтому
+/// рус-локализацию и смягчение держим здесь. Глобальная надёжность модели смягчает
+/// ДИРЕКТИВНОСТЬ, сохраняя НАПРАВЛЕНИЕ: reliable→«Увеличить»; uncertain/unknown→
+/// «Увеличить (предв.)»; unreliable→«Требует переобучения». Снимает рассогласование
+/// (прежде XLSX/MD писали англ. machine-key «Scale», PPTX – рус «Увеличить»).
+fn verdict_display(verdict_key: &str, reliability_verdict: &str) -> String {
+    let base = match verdict_key {
+        "Scale" => "Увеличить",
+        "Hold" => "Держать",
+        "Watch" => "Наблюдать",
+        "Reduce" => "Сократить",
+        "Cut" => "Остановить",
+        "Uncertain" => "Недостаточно данных",
+        other => other,
+    };
+    match reliability_verdict {
+        "unreliable" => "Требует переобучения".to_string(),
+        "uncertain" | "unknown" => {
+            if verdict_key == "Uncertain" || verdict_key == "Watch" {
+                base.to_string()
+            } else {
+                format!("{base} (предв.)")
+            }
+        }
+        _ => base.to_string(),
+    }
+}
+
+/// Волна 2 (2026-06-20): чистка мусора в клиентских метках. Имена каналов несут
+/// `\n` и двойные пробелы из исходных Excel-заголовков («Статьи Бюджет \nДО НДС
+/// до АК») — в отчёте это многострочные ячейки и рваный текст. Схлопывает любой
+/// whitespace (вкл. переводы строк) в один пробел, обрезает края.
+fn clean_label(s: &str) -> String {
+    s.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// Волна 3 (2026-06-20): метка режима анализа + типа KPI (контекст метрик для
+/// клиента). Зеркало Python (narrative_adapter). Rust XLSX/MD читают decompose
+/// JSON напрямую. Пустая строка ⇒ метку не показываем.
+fn analysis_mode_label(mode: &str) -> &'static str {
+    match mode {
+        "roi" => "ROI (деньги)",
+        "effectiveness" => "Эффективность (доля вклада)",
+        "mixed" | "expert" => "Смешанный (эксперт)",
+        _ => "",
+    }
+}
+fn kpi_kind_label(kind: &str) -> &'static str {
+    match kind {
+        "monetary" => "денежный",
+        "count" => "количественный",
+        _ => "",
+    }
+}
+
 /// Transliterate Cyrillic to Latin per GOST 7.79-2000 System B, then strip to
 /// ASCII-alphanumeric + underscore. Used for client-slug segment of XLSX
 /// filename (Aurora_Econometrica_{slug}_Model_{date}_v{NN}.xlsx). Returns
@@ -365,9 +452,13 @@ fn build_markdown(model: &Value, decompose: &Value, optimize: &Value) -> String 
         .unwrap_or(0.0);
 
     // Top ROI channel (by decompose channels)
+    // INV-50: исключаем roi_unreliable каналы — иначе битый ROI (unit_smell
+    // «не рубли», артефакт единиц) коронуется «лучшим» и «Приоритизировать».
+    // clean_label — имя может нести `\n` из исходных Excel-заголовков.
     let top_ch = decompose["channels"].as_array()
         .and_then(|chs| {
             chs.iter()
+                .filter(|c| !roi_unreliable(c))
                 .max_by(|a, b| {
                     let ra = a["roi"].as_f64().unwrap_or(0.0);
                     let rb = b["roi"].as_f64().unwrap_or(0.0);
@@ -375,7 +466,8 @@ fn build_markdown(model: &Value, decompose: &Value, optimize: &Value) -> String 
                 })
                 .and_then(|c| c["name"].as_str())
         })
-        .unwrap_or("н/д");
+        .map(clean_label)
+        .unwrap_or_else(|| "н/д".to_string());
 
     let now = Local::now().format("%d.%m.%Y %H:%M").to_string();
     let mut md = String::with_capacity(4096);
@@ -393,12 +485,32 @@ fn build_markdown(model: &Value, decompose: &Value, optimize: &Value) -> String 
         )),
         None => md.push_str(&format!("- **Качество модели (MQS):** {MQS_ABSENT_TEXT}\n")),
     }
+    // Волна 3 (2026-06-20): метка режима анализа + типа KPI (контекст метрик).
+    {
+        let md_mode = analysis_mode_label(&decompose["derived_mode"].as_str().unwrap_or("roi").to_lowercase());
+        let md_kind = kpi_kind_label(&decompose["kpi_kind"].as_str().unwrap_or("monetary").to_lowercase());
+        if !md_mode.is_empty() {
+            let kpi_part = if md_kind.is_empty() { String::new() } else { format!(" · KPI: {md_kind}") };
+            md.push_str(&format!("- **Режим анализа:** {md_mode}{kpi_part}\n"));
+        }
+    }
     md.push_str(&format!("- **R²:** {r_squared:.4} (объяснённая дисперсия: {:.1}%)\n", r_squared * 100.0));
     md.push_str(&format!("- **MAPE:** {mape:.2}%\n"));
     md.push_str(&format!("- **Ожидаемый прирост от оптимизации:** {:+.1}%\n", lift));
     md.push_str(&format!("- **Лучший канал по ROI:** {top_ch}\n"));
     if budget > 0.0 {
         md.push_str(&format!("- **Оптимизированный бюджет:** {budget:.0} руб.\n"));
+    }
+    // Волна 1 пункт 2 (2026-06-20): плашка надёжности модели (verdict != reliable).
+    // caveat_text VERBATIM из optimization.json (SSOT optimizer_honesty, INV-50) —
+    // тот же текст, что в UI/HTML/PPTX. Заголовок-вердикт — reliability_label.
+    {
+        let mr_verdict = optimize["model_reliability"]["verdict"].as_str().unwrap_or("").to_lowercase();
+        let mr_label = reliability_label(&mr_verdict);
+        let mr_caveat = optimize["model_reliability"]["caveat_text"].as_str().unwrap_or("");
+        if !mr_label.is_empty() && !mr_caveat.is_empty() {
+            md.push_str(&format!("\n> ⚠ **{mr_label}.** {mr_caveat}\n"));
+        }
     }
     md.push_str("\n---\n\n");
 
@@ -439,7 +551,7 @@ fn build_markdown(model: &Value, decompose: &Value, optimize: &Value) -> String 
         md.push_str("| Категория | Вклад | % |\n");
         md.push_str("|-----------|------:|--:|\n");
         for item in wf {
-            let cat = item["category"].as_str().unwrap_or("-");
+            let cat = clean_label(item["category"].as_str().unwrap_or("-"));
             let val = item["value"].as_f64().unwrap_or(0.0);
             let pct = item["contribution_pct"].as_f64().unwrap_or(0.0);
             md.push_str(&format!("| {cat} | {val:.0} | {pct:.1}% |\n"));
@@ -448,17 +560,26 @@ fn build_markdown(model: &Value, decompose: &Value, optimize: &Value) -> String 
     }
 
     // ── Channel ROI ──────────────────────────────────────────
+    // Волна 1 пункт 3 (2026-06-20): honesty-смягчение вердикта (решение 2a) —
+    // verdict_display несёт рус + «(предв.)» при не-reliable модели.
+    let mr_v_md = optimize["model_reliability"]["verdict"].as_str().unwrap_or("").to_lowercase();
     if let Some(chs) = decompose["channels"].as_array() {
         md.push_str("## БЛОК: Инвестиции. ROI по каналам\n\n");
         md.push_str("| Канал | Расход | Вклад | ROI | Вердикт |\n");
         md.push_str("|-------|-------:|------:|----:|---------|\n");
         for ch in chs {
-            let name   = ch["name"].as_str().unwrap_or("-");
+            let name   = clean_label(ch["name"].as_str().unwrap_or("-"));
             let spend  = ch["spend"].as_f64().unwrap_or(0.0);
             let contrib = ch["contribution"].as_f64().unwrap_or(0.0);
-            let roi    = ch["roi"].as_f64().unwrap_or(0.0);
             let verdict = ch["verdict"].as_str().unwrap_or("-");
-            md.push_str(&format!("| {name} | {spend:.0} | {contrib:.0} | {roi:.2}x | {verdict} |\n"));
+            // INV-50: битый ROI (артефакт единиц) не пишем числом.
+            let roi_cell = if roi_unreliable(ch) {
+                "н/д".to_string()
+            } else {
+                format!("{:.2}x", ch["roi"].as_f64().unwrap_or(0.0))
+            };
+            let vshow = verdict_display(verdict, &mr_v_md);
+            md.push_str(&format!("| {name} | {spend:.0} | {contrib:.0} | {roi_cell} | {vshow} |\n"));
         }
         md.push('\n');
 
@@ -469,11 +590,15 @@ fn build_markdown(model: &Value, decompose: &Value, optimize: &Value) -> String 
             md.push_str("| Канал | ROI | Диапазон нижний | Диапазон верхний |\n");
             md.push_str("|-------|----:|----------:|-----------:|\n");
             for ch in chs_for_ci {
-                let ch_name = ch["name"].as_str().unwrap_or("-");
-                let roi     = ch["roi"].as_f64().unwrap_or(0.0);
-                let ci_lo   = ch["roi_ci_low"].as_f64().unwrap_or(0.0);
-                let ci_hi   = ch["roi_ci_high"].as_f64().unwrap_or(0.0);
-                md.push_str(&format!("| {ch_name} | {roi:.2}x | {ci_lo:.2}x | {ci_hi:.2}x |\n"));
+                let ch_name = clean_label(ch["name"].as_str().unwrap_or("-"));
+                if roi_unreliable(ch) {
+                    md.push_str(&format!("| {ch_name} | н/д | – | – |\n"));
+                } else {
+                    let roi   = ch["roi"].as_f64().unwrap_or(0.0);
+                    let ci_lo = ch["roi_ci_low"].as_f64().unwrap_or(0.0);
+                    let ci_hi = ch["roi_ci_high"].as_f64().unwrap_or(0.0);
+                    md.push_str(&format!("| {ch_name} | {roi:.2}x | {ci_lo:.2}x | {ci_hi:.2}x |\n"));
+                }
             }
             md.push('\n');
         }
@@ -496,7 +621,7 @@ fn build_markdown(model: &Value, decompose: &Value, optimize: &Value) -> String 
         md.push_str("| Канал | Текущий, ₽ | Оптимальный, ₽ | Δ, ₽ | Δ% |\n");
         md.push_str("|-------|-----------:|---------------:|-----:|---:|\n");
         for ch in opt_chs {
-            let name  = ch["name"].as_str().unwrap_or("-");
+            let name  = clean_label(ch["name"].as_str().unwrap_or("-"));
             let curr  = ch["current_spend_money"].as_f64()
                 .unwrap_or_else(|| ch["current_spend"].as_f64().unwrap_or(0.0));
             let opt   = ch["optimal_spend_money"].as_f64()
@@ -602,6 +727,9 @@ pub async fn econ_export_xlsx(
     model_data: Value,
     decompose_data: Value,
     optimize_data: Value,
+    // Волна 3 (2026-06-20): глоссарий из фронта (SSOT glossary.js, 50 терминов).
+    // Option → старые вызовы без поля дают None → fallback на встроенные 11.
+    glossary: Option<Value>,
 ) -> Result<Value, String> {
     info!("econ_export_xlsx: project={project_id}");
 
@@ -627,7 +755,7 @@ pub async fn econ_export_xlsx(
     // Прогноз - опциональный. Лист «Прогноз» добавляется только при наличии данных.
     let forecast = read_forecast(&project_id);
 
-    build_xlsx(&model_data, &decompose_data, &optimize_data, &scenarios, forecast.as_ref(), &project_id, &path)?;
+    build_xlsx(&model_data, &decompose_data, &optimize_data, &scenarios, forecast.as_ref(), &project_id, &path, glossary.as_ref())?;
 
     info!("XLSX saved: {}", path.display());
     Ok(serde_json::json!({
@@ -775,6 +903,9 @@ fn build_xlsx(
     forecast: Option<&Value>,
     project_id: &str,
     path: &PathBuf,
+    // Волна 3 (2026-06-20): глоссарий из фронта (SSOT glossary.js, 50 терминов);
+    // None → fallback на встроенные 11.
+    glossary: Option<&Value>,
 ) -> Result<(), String> {
     use rust_xlsxwriter::{Chart, ChartType, Color, ConditionalFormatCell, ConditionalFormatCellRule, Formula, Image};
 
@@ -966,11 +1097,17 @@ fn build_xlsx(
         let value_fmt = base_fmt.clone().set_font_color(Color::RGB(DEEP_100));
 
         let today = Local::now().format("%d.%m.%Y").to_string();
+        // Волна 3 (2026-06-20): метка режима анализа + типа KPI (контекст метрик).
+        let mode_lbl = analysis_mode_label(&decompose["derived_mode"].as_str().unwrap_or("roi").to_lowercase());
+        let kind_lbl = kpi_kind_label(&decompose["kpi_kind"].as_str().unwrap_or("monetary").to_lowercase());
+        let mode_meta = if kind_lbl.is_empty() { mode_lbl.to_string() }
+                        else { format!("{mode_lbl} · KPI: {kind_lbl}") };
         let meta_rows: &[(&str, String)] = &[
             ("Подготовлено для:", client_label.to_string()),
             ("Проект:",           project_id.to_string()),
             ("Дата:",             today),
             ("Версия:",           "v1.0.13".to_string()),
+            ("Режим анализа:",    mode_meta),
             ("Гриф:",             "Конфиденциально".to_string()),
         ];
         for (i, (k, v)) in meta_rows.iter().enumerate() {
@@ -1216,7 +1353,7 @@ fn build_xlsx(
 
         for (i, item) in wf.iter().enumerate() {
             let row = (i + 3) as u32; // header at row 2 → data starts row 3
-            let cat = item["category"].as_str().unwrap_or("-");
+            let cat = clean_label(item["category"].as_str().unwrap_or("-"));
             let val = item["value"].as_f64().unwrap_or(0.0);
             ws.write(row, 0, cat).map_err(|e| format!("{e}"))?;
             ws.write_with_format(row, 1, val, &num_fmt).map_err(|e| format!("{e}"))?;
@@ -1260,26 +1397,48 @@ fn build_xlsx(
             ws.write_with_format(2, c as u16, *h, &header_fmt).map_err(|e| format!("{e}"))?;
         }
 
+        // Волна 1 пункт 3 (2026-06-20): honesty-смягчение вердикта (решение 2a) —
+        // verdict_display несёт рус + «(предв.)» при не-reliable модели.
+        let mr_v = optimize["model_reliability"]["verdict"].as_str().unwrap_or("").to_lowercase();
+
         // 5c (2026-05-04) FIX: CI fields live in decompose.channels[i].roi_ci_low/high,
         // NOT в model["channelParams"] (modeler output не содержит CI). Pre-fix Rust
         // читал из wrong source с typo (ci_lower vs ci_low) → CI=0 для всех каналов.
         for (i, ch) in chs.iter().enumerate() {
             let row = (i + 3) as u32;
-            let name = ch["name"].as_str().unwrap_or("-");
+            let name = clean_label(ch["name"].as_str().unwrap_or("-"));
             let spend = ch["spend"].as_f64().unwrap_or(0.0);
             let contrib = ch["contribution"].as_f64().unwrap_or(0.0);
             let verdict = ch["verdict"].as_str().unwrap_or("-");
             let ci_lo = ch["roi_ci_low"].as_f64().unwrap_or(0.0);
             let ci_hi = ch["roi_ci_high"].as_f64().unwrap_or(0.0);
 
+            // Волна 1 Шаг 2: битый ROI (битые единицы / артефакт) не пишем числом —
+            // абсурдные значения нельзя подавать клиенту как факт (INV-50). Признак —
+            // helper roi_unreliable (зеркалит narrative_adapter._roi_unreliable; Python
+            // мост сюда не доходит: Rust XLSX читает results JSON напрямую).
+            let roi_bad = roi_unreliable(ch);
+
             ws.write(row, 0, name).map_err(|e| format!("{e}"))?;
             ws.write_with_format(row, 1, spend, &num_fmt).map_err(|e| format!("{e}"))?;
             ws.write_with_format(row, 2, contrib, &num_fmt).map_err(|e| format!("{e}"))?;
-            let roi = if spend > 0.0 { contrib / spend } else { 0.0 };
-            ws.write_with_format(row, 3, roi, &roi_fmt).map_err(|e| format!("{e}"))?;
-            ws.write_with_format(row, 4, ci_lo, &roi_fmt).map_err(|e| format!("{e}"))?;
-            ws.write_with_format(row, 5, ci_hi, &roi_fmt).map_err(|e| format!("{e}"))?;
-            ws.write(row, 6, verdict).map_err(|e| format!("{e}"))?;
+            if roi_bad {
+                ws.write(row, 3, "н/д*").map_err(|e| format!("{e}"))?;
+                ws.write(row, 4, "–").map_err(|e| format!("{e}"))?;
+                ws.write(row, 5, "–").map_err(|e| format!("{e}"))?;
+            } else {
+                let roi = if spend > 0.0 { contrib / spend } else { 0.0 };
+                ws.write_with_format(row, 3, roi, &roi_fmt).map_err(|e| format!("{e}"))?;
+                ws.write_with_format(row, 4, ci_lo, &roi_fmt).map_err(|e| format!("{e}"))?;
+                ws.write_with_format(row, 5, ci_hi, &roi_fmt).map_err(|e| format!("{e}"))?;
+            }
+            ws.write(row, 6, verdict_display(verdict, &mr_v)).map_err(|e| format!("{e}"))?;
+        }
+        // Сноска-пояснение «н/д*» (если был хоть один битый ROI-канал).
+        if chs.iter().any(roi_unreliable) {
+            let note_row = chs.len() as u32 + 4;
+            ws.write(note_row, 0, "* ROI н/д – единицы канала требуют проверки (не сопоставим с рублёвыми); сравнивайте по доле вклада.")
+                .map_err(|e| format!("{e}"))?;
         }
 
         // Conditional formatting: ROI > 2 = green, ROI < 1 = red (data rows 3..3+len)
@@ -1334,7 +1493,7 @@ fn build_xlsx(
 
         for (i, ch) in chs.iter().enumerate() {
             let row = (i + 3) as u32;
-            let name = ch["name"].as_str().unwrap_or("-");
+            let name = clean_label(ch["name"].as_str().unwrap_or("-"));
             let spend = ch["spend"].as_f64().unwrap_or(0.0);
             let contrib = ch["contribution"].as_f64().unwrap_or(0.0);
             let spend_pct = if total_spend > 0.0 { spend / total_spend } else { 0.0 };
@@ -1398,7 +1557,7 @@ fn build_xlsx(
             // Header row at row 2
             ws.write_with_format(2, 0, "Дата", &header_fmt).map_err(|e| format!("{e}"))?;
             for (j, (header, _)) in columns.iter().enumerate() {
-                ws.write_with_format(2, (j + 1) as u16, header.as_str(), &header_fmt)
+                ws.write_with_format(2, (j + 1) as u16, clean_label(header), &header_fmt)
                     .map_err(|e| format!("{e}"))?;
             }
             let last_col = columns.len() as u16; // индекс последней колонки данных
@@ -1496,7 +1655,7 @@ fn build_xlsx(
             let delta_pct = if curr.abs() > 1e-9 { delta / curr } else { 0.0 };
             let curr_roi = decompose_roi_by_name.get(&normalize_name(name)).copied().unwrap_or(0.0);
 
-            ws.write(row, 0, name).map_err(|e| format!("{e}"))?;
+            ws.write(row, 0, clean_label(name)).map_err(|e| format!("{e}"))?;
             ws.write_with_format(row, 1, curr, &num_fmt).map_err(|e| format!("{e}"))?;
             ws.write_with_format(row, 2, opt, &num_fmt).map_err(|e| format!("{e}"))?;
             ws.write_with_format(row, 3, delta, &num_fmt).map_err(|e| format!("{e}"))?;
@@ -1806,7 +1965,7 @@ fn build_xlsx(
         ws.write_with_format(2, 0, "Период", &header_fmt).map_err(|e| format!("{e}"))?;
         ws.write_with_format(2, 1, "Базовый спрос", &header_fmt).map_err(|e| format!("{e}"))?;
         for (i, name) in channel_names.iter().enumerate() {
-            ws.write_with_format(2, (i + 2) as u16, name.as_str(), &header_fmt).map_err(|e| format!("{e}"))?;
+            ws.write_with_format(2, (i + 2) as u16, clean_label(name), &header_fmt).map_err(|e| format!("{e}"))?;
         }
         let total_col = (channel_names.len() + 2) as u16;
         let kpi_col = total_col + 1;
@@ -1873,7 +2032,13 @@ fn build_xlsx(
             "Model Quality Score – комплексная оценка качества модели (0-100). {}.",
             mqs_tiers::mqs_scale_text()
         );
-        let terms: &[(&str, &str)] = &[
+        // Волна 3 (2026-06-20): глоссарий из фронта (SSOT glossary.js, 50 терминов
+        // {term, definition}). XLSX перестаёт быть «расходящимся глоссарием» —
+        // единый источник glossary.js, Rust пассивно пишет переданное. Fallback на
+        // встроенные 11 (канон терминологии этого файла, включая mqs_glossary_text
+        // из mqs_tiers и «Правдоподобный диапазон» вместо «CI») — только при
+        // отсутствии параметра (legacy-вызовы без поля).
+        let fallback: &[(&str, &str)] = &[
             ("MQS", mqs_glossary_text.as_str()),
             ("R²", "Коэффициент детерминации – доля дисперсии KPI, объяснённая моделью. 1.0 = идеальная модель."),
             ("MAPE", "Mean Absolute Percentage Error – средняя абсолютная ошибка в %. <10% = отлично."),
@@ -1889,10 +2054,23 @@ fn build_xlsx(
             ("Base sales", "Продажи без рекламного воздействия (органический спрос, бренд-эффект, сезонность)."),
             ("Efficiency Index", "Отношение доли эффекта к доле бюджета. >1.0 = канал эффективнее среднего."),
         ];
-        for (i, (term, def)) in terms.iter().enumerate() {
-            let row = (i + 3) as u32;
-            ws.write_with_format(row, 0, *term, &bold).map_err(|e| format!("{e}"))?;
-            ws.write(row, 1, *def).map_err(|e| format!("{e}"))?;
+        let mut row = 3u32;
+        if let Some(arr) = glossary.and_then(|g| g.as_array()).filter(|a| !a.is_empty()) {
+            for item in arr {
+                let term = item["term"].as_str().unwrap_or("-");
+                let def = item["definition"].as_str()
+                    .or_else(|| item["short"].as_str())
+                    .unwrap_or("");
+                ws.write_with_format(row, 0, term, &bold).map_err(|e| format!("{e}"))?;
+                ws.write(row, 1, def).map_err(|e| format!("{e}"))?;
+                row += 1;
+            }
+        } else {
+            for (term, def) in fallback.iter() {
+                ws.write_with_format(row, 0, *term, &bold).map_err(|e| format!("{e}"))?;
+                ws.write(row, 1, *def).map_err(|e| format!("{e}"))?;
+                row += 1;
+            }
         }
         // Widths - Глоссарий (A = 3 cm; B = 19.2 cm; C hidden, per Антон)
         ws.set_column_width(0, 16.2).map_err(|e| format!("{e}"))?;
@@ -2218,5 +2396,148 @@ mod tests {
             MqsCell::Absent => panic!("настоящий ноль - валидное значение, не отсутствие"),
         }
         assert_eq!(grade, "Ненадёжное");
+    }
+
+    // ── Перенос из origin/feat/ai-insights-tier2 (2026-08-04) ────────────────
+
+    /// Заголовок плашки надёжности. Пустая строка ⇒ плашки нет (reliable/нет
+    /// verdict); прочие verdict дают заголовок.
+    #[test]
+    fn reliability_label_gates_on_verdict() {
+        assert_eq!(reliability_label(""), "");
+        assert_eq!(reliability_label("reliable"), "");
+        assert_eq!(reliability_label("uncertain"), "Ограниченная надёжность модели");
+        assert_eq!(reliability_label("unreliable"), "Модель ненадёжна – переброска отключена");
+        assert_eq!(reliability_label("unknown"), "Надёжность модели не подтверждена");
+        assert_eq!(reliability_label("какой-то новый"), "Надёжность модели");
+    }
+
+    /// Honesty-смягчение вердикта: reliable→директивный; uncertain→«(предв.)»
+    /// (направление сохранено); unreliable→нейтрализация.
+    #[test]
+    fn verdict_display_softens_by_reliability() {
+        assert_eq!(verdict_display("Scale", "reliable"), "Увеличить");
+        assert_eq!(verdict_display("Scale", ""), "Увеличить");
+        assert_eq!(verdict_display("Scale", "uncertain"), "Увеличить (предв.)");
+        assert_eq!(verdict_display("Cut", "unknown"), "Остановить (предв.)");
+        assert_eq!(verdict_display("Watch", "uncertain"), "Наблюдать");
+        assert_eq!(verdict_display("Scale", "unreliable"), "Требует переобучения");
+    }
+
+    /// Метки режима анализа + типа KPI. Неизвестное ⇒ пустая строка.
+    #[test]
+    fn analysis_and_kpi_labels() {
+        assert_eq!(analysis_mode_label("roi"), "ROI (деньги)");
+        assert_eq!(analysis_mode_label("effectiveness"), "Эффективность (доля вклада)");
+        assert_eq!(analysis_mode_label("expert"), "Смешанный (эксперт)");
+        assert_eq!(analysis_mode_label("xyz"), "");
+        assert_eq!(kpi_kind_label("monetary"), "денежный");
+        assert_eq!(kpi_kind_label("count"), "количественный");
+        assert_eq!(kpi_kind_label("xyz"), "");
+    }
+
+    /// Чистка `\n`/двойных пробелов в именах каналов (исходные Excel-заголовки) —
+    /// иначе многострочные ячейки и рваный текст в отчёте.
+    #[test]
+    fn clean_label_collapses_whitespace() {
+        assert_eq!(clean_label("Статьи Бюджет \nДО НДС до АК"), "Статьи Бюджет ДО НДС до АК");
+        assert_eq!(clean_label("  TV  \n\n Digital "), "TV Digital");
+        assert_eq!(clean_label("OLV"), "OLV");
+    }
+
+    /// Признак битого ROI: unit_smell ИЛИ маркер артефакта в тексте вердикта.
+    #[test]
+    fn roi_unreliable_detects_unit_smell_and_verdict_markers() {
+        assert!(roi_unreliable(&json!({"unit_smell": true, "verdict": "Scale"})));
+        assert!(roi_unreliable(&json!({"verdict": "ROI завышен из-за единиц"})));
+        assert!(roi_unreliable(&json!({"verdict": "нереалистичный артефакт"})));
+        assert!(!roi_unreliable(&json!({"unit_smell": false, "verdict": "Scale"})));
+        assert!(!roi_unreliable(&json!({"verdict": "Hold"})));
+    }
+
+    /// Волна 3: глоссарий из фронта (SSOT glossary.js) — извлечение term/definition.
+    /// definition с fallback на short; пустой/None → ветка fallback (11 встроенных).
+    #[test]
+    fn glossary_from_frontend_extraction() {
+        let g = json!([
+            {"term": "ROAS", "definition": "возврат на рекламные расходы"},
+            {"term": "Adstock", "short": "остаточный эффект"},
+        ]);
+        let arr = g.as_array().unwrap();
+        assert_eq!(arr[0]["term"].as_str().unwrap(), "ROAS");
+        assert_eq!(arr[0]["definition"].as_str().unwrap(), "возврат на рекламные расходы");
+        let def = arr[1]["definition"].as_str().or_else(|| arr[1]["short"].as_str());
+        assert_eq!(def, Some("остаточный эффект"));
+        let empty: Option<Value> = Some(json!([]));
+        assert!(empty.as_ref().and_then(|x| x.as_array()).filter(|a| !a.is_empty()).is_none());
+        let none: Option<Value> = None;
+        assert!(none.as_ref().and_then(|x| x.as_array()).filter(|a| !a.is_empty()).is_none());
+    }
+
+    /// Мутационно проверено (2026-08-04, при переносе glossary из
+    /// ai-insights-tier2): временно закомментировав ветку `if let Some(arr) =
+    /// glossary...` в листе «Глоссарий» (build_xlsx) - тест падал на отсутствии
+    /// маркерного термина фронта; вернув ветку - тест снова зелёный. Подтверждает,
+    /// что параметр glossary реально доезжает до XLSX, а не тонет по пути
+    /// econ_export_xlsx → build_xlsx → лист «Глоссарий».
+    #[test]
+    fn glossary_xlsx_uses_frontend_terms_when_provided() {
+        fn xlsx_contains(path: &Path, needle: &str) -> bool {
+            let bytes = std::fs::read(path).expect("read xlsx");
+            let mut archive = zip::read::ZipArchive::new(Cursor::new(bytes)).expect("open xlsx zip");
+            for i in 0..archive.len() {
+                let mut entry = archive.by_index(i).expect("zip entry");
+                let mut content = String::new();
+                // Бинарные записи (напр. brand_mark.png) не UTF-8 - пропускаем, не паникуем.
+                if entry.read_to_string(&mut content).is_err() {
+                    continue;
+                }
+                if content.contains(needle) {
+                    return true;
+                }
+            }
+            false
+        }
+
+        let model = json!({"diagnostics": {"mqs": {"score": 70.0, "tier_label": "Хорошее"}}});
+        let decompose = json!({"channels": [
+            {"name": "TV", "spend": 100.0, "contribution": 150.0, "roi": 1.5}
+        ]});
+        // Sheet «Оптимизация» не гейтит conditional-format/chart на пустых
+        // channels (в отличие от «ROI каналов»/«Spend vs Effect») - в проде
+        // недостижимо (channels = цикл по media_cols ≥ 1), но пустой массив
+        // здесь уронил бы диапазон chart (last_row < first_row). Не в объёме
+        // переноса glossary - даём непустой optimize.channels, чтобы тест
+        // проверял именно глоссарий, а не наступал на этот отдельный пробел.
+        let optimize = json!({"channels": [
+            {"name": "TV", "current_spend_money": 100.0, "optimal_spend_money": 120.0}
+        ]});
+
+        // Без glossary - лист «Глоссарий» обязан показать встроенный fallback-термин.
+        let path_none = std::env::temp_dir().join("aurora_glossary_fallback_test.xlsx");
+        build_xlsx(&model, &decompose, &optimize, &[], None, "test", &path_none, None)
+            .expect("build_xlsx без glossary");
+        assert!(
+            xlsx_contains(&path_none, "Efficiency Index"),
+            "без glossary лист «Глоссарий» обязан показать встроенный fallback-термин"
+        );
+        let _ = std::fs::remove_file(&path_none);
+
+        // С glossary - термин фронта присутствует, fallback-термин пропадает.
+        let glossary = json!([
+            {"term": "УникальныйТестТермин42", "definition": "проверка передачи glossary с фронта"},
+        ]);
+        let path_some = std::env::temp_dir().join("aurora_glossary_frontend_test.xlsx");
+        build_xlsx(&model, &decompose, &optimize, &[], None, "test", &path_some, Some(&glossary))
+            .expect("build_xlsx с glossary");
+        assert!(
+            xlsx_contains(&path_some, "УникальныйТестТермин42"),
+            "с glossary лист «Глоссарий» обязан показать переданный термин фронта"
+        );
+        assert!(
+            !xlsx_contains(&path_some, "Efficiency Index"),
+            "с непустым glossary встроенный fallback-термин не должен появляться"
+        );
+        let _ = std::fs::remove_file(&path_some);
     }
 }

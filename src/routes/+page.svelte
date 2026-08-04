@@ -334,11 +334,13 @@
 
     {:else}
       <div class="pipeline-stage">
-        <img
-          src="/logo-hero.png"
-          alt="Aurora AI"
-          class="hero-logo"
-        />
+        <div class="hero-zone">
+          <img
+            src="/logo-hero.png"
+            alt="Aurora AI"
+            class="hero-logo"
+          />
+        </div>
         <div class="pipeline-promo pipeline-promo-rich">
           <div class="promo-head">
             <div class="promo-icon">
@@ -1017,7 +1019,32 @@
     max-width: 900px;
   }
 
+  /* Зона логотипа – несёт его подсветку (утверждено Антоном в живой подгонке,
+     восстановлено после потери при развитии продукта). */
+  .hero-zone {
+    position: relative;
+    display: flex;
+    justify-content: center;
+  }
+
+  /* Hero-подсветка логотипа: радиальное accent-свечение за логотипом.
+     --accent-glow определён на обе темы (app.css) – глушится сам на светлом фоне. */
+  .hero-zone::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: 420px;
+    height: 260px;
+    transform: translate(-50%, -50%);
+    background: radial-gradient(ellipse at center, var(--accent-glow) 0%, transparent 70%);
+    pointer-events: none;
+    z-index: 0;
+  }
+
   .hero-logo {
+    position: relative;
+    z-index: 1;
     width: 180px;
     max-width: 60%;
     height: auto;
