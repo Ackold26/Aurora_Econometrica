@@ -5,10 +5,20 @@
    AETHER MESH - Design System
    Tauri v2 + SvelteKit 5, dark cyber-minimalism
 
-   Hybrid DS (2026-07-02): tokens.generated.css supplies --color-brand-*,
-   --color-ui-*, --color-semantic-* (W3C DTCG SSOT). Живые --bg-*/--accent-*
+   Hybrid DS (2026-07-02): tokens.generated.css supplies --color-brand-…,
+   --color-ui-…, --color-semantic-… (W3C DTCG SSOT). Живые --bg-… и --accent-…
    aliases сохранены. App-themes (themes.json) НЕ мигрирован — живой богаче
    SSOT (fun card-accents/pill/insight), см. DESIGN_GAP_MAP_2026-07-01.md.
+
+   🔴 НЕ ПИСАТЬ здесь звёздочку перед косой чертой (перечисляя группы токенов
+   через дробь). Эта пара символов закрывает блочный комментарий досрочно, и с
+   2026-07-02 по 2026-08-04 файл жил именно так: строки пояснения утекали в CSS
+   как мусорный селектор, а следующее за ними правило браузер отбрасывал вместе
+   с ним. Отбрасывалось @font-face — единственное объявление Inter Variable во
+   всём продукте (в app.html шрифт не подключается). То есть продукт рисовался
+   системным шрифтом больше месяца, при зелёной сборке и зелёных тестах.
+   Доказано на СОБРАННОМ css: мусор доезжает до bundle и стоит вплотную перед
+   @font-face. Сторож — sidecar/econometrica/tests/test_css_comments_do_not_swallow_rules.py
    ═══════════════════════════════════════════════════ */
 
 /* ─── Font — Inter Variable (self-hosted, premium typography) ─── */
