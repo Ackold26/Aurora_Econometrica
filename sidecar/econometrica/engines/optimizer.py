@@ -1636,8 +1636,23 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
         load_model_diagnostics,
         model_reliability_verdict,
     )
-    result_data['model_reliability'] = model_reliability_verdict(
-        load_model_diagnostics(project_path))
+    _diagnostics = load_model_diagnostics(project_path)
+    # Вердикт берём ГОТОВЫМ из диагностики: с 2026-08-07 он проставляется на
+    # границе её записи (stamp_reliability), то есть по построению соответствует
+    # содержимому файла. Пересчёт остаётся запасным путём для проектов,
+    # обученных до этой правки, — у них поля просто нет.
+    result_data['model_reliability'] = (
+        _diagnostics.get('model_reliability')
+        or model_reliability_verdict(_diagnostics)
+    )
+    # Опознаватель модели, на которой посчитана ЭТА оптимизация. Отчёт сверит его
+    # с опознавателем показанной диагностики и честно скажет, если они разошлись:
+    # переобучение не удаляет optimization.json (чистится только память,
+    # project-state.js:1394), и прошлые числа возвращаются с диска при открытии
+    # проекта (project.rs:631 → project-state.js:1260).
+    _model_fingerprint = _diagnostics.get('model_fingerprint')
+    if _model_fingerprint:
+        result_data['model_fingerprint'] = _model_fingerprint
 
     # Save (NaN-safe 2026-06-04 аудит: NaN→null, иначе Rust serde_json роняет файл).
     from utils.safe_io import sanitize_nonfinite

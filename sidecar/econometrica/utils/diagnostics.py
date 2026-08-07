@@ -220,6 +220,23 @@ def model_quality_score(r_squared: float, mape: float, r_hat_max: float,
     }
 
 
+# Отчёт может собраться из ДВУХ РАЗНЫХ моделей и промолчать: переобучение
+# чистит только состояние в памяти (src/lib/project-state.js:1394), а
+# results/optimization.json остаётся на диске и воскресает при открытии проекта
+# (src-tauri/src/commands/project.rs:631 → project-state.js:1260). Тогда рядом
+# оказываются живая диагностика новой модели и числа переброски от старой.
+#
+# 🔴 ЗЕРКАЛО: тот же текст ДОСЛОВНО живёт в src-tauri/src/commands/report.rs —
+# Rust не импортирует Python и собирает Markdown и XLSX сам. Сверяет их сторож
+# tests/test_reliability_stamp_and_provenance.py. Правя здесь, правь и там.
+# Клиентский текст: короткое тире «–», без англицизмов.
+PROVENANCE_MISMATCH_NOTE = (
+    'Результаты оптимизации получены на другой модели, чем показанная '
+    'диагностика – пересчитайте оптимизацию, прежде чем опираться на '
+    'переброску бюджета.'
+)
+
+
 def format_thinness_caveat(ratio: float | None, thinness_cap: int | None,
                            *, leading_space: bool = True) -> str:
     """SSOT-формулировка оговорки о тонких данных / переобучении.

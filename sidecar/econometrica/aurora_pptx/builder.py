@@ -309,6 +309,15 @@ class AuroraPPTXBuilder:
         self.honesty_verdict = diag.get("honesty_verdict")
         self.honesty_reasons = diag.get("honesty_reasons") or []
         self.preflight = diag.get("preflight") or {}
+        # 2026-08-07: расхождение происхождения — риск, что отчёт склеен из
+        # ДВУХ моделей (переобучение не чистит results/optimization.json, тот
+        # "воскресает" при открытии проекта: рядом оказывается диагностика
+        # новой модели и числа переброски старой). Текст — из diagnostics
+        # (SSOT diagnostics.PROVENANCE_MISMATCH_NOTE через narrative_adapter),
+        # не переписывается здесь. Синхронизировано с HTML
+        # _reliability_disclaimer_html (sections.py).
+        self.provenance_mismatch = bool(diag.get("provenance_mismatch"))
+        self.provenance_note = diag.get("provenance_note") or ""
         # E2 (2026-07-03): калибровка lift-тестами — [CALIBRATED]-пометка у
         # канала в таблице + строки честности (включая расхождение модель-vs-
         # тест) на слайде «Данные и качество». Только live (из диагностики).
@@ -3338,6 +3347,19 @@ class AuroraPPTXBuilder:
                 slide, right_x, _hy, right_w, 0.45,
                 f"Проверка приоров: расхождение с данными{_cov_sfx} – "
                 "оценки чувствительны к допущениям модели.",
+                font=self.sans, size=10, italic=True, color=self.gold,
+            )
+            _hy += 0.45
+
+        # 2026-08-07: предупреждение о разном происхождении данных — рисуется
+        # НЕЗАВИСИМО от вердикта надёжности выше (условие не заглядывает в
+        # self.honesty_verdict): модель может быть сколь угодно надёжной, но
+        # если диагностика рядом посчитана на другой модели, чем числа
+        # переброски бюджета, молчать нельзя. Синхронизировано с HTML.
+        if self.provenance_mismatch and self.provenance_note:
+            self._text(
+                slide, right_x, _hy, right_w, 0.9,
+                f"Разное происхождение данных: {self.provenance_note}",
                 font=self.sans, size=10, italic=True, color=self.gold,
             )
             _hy += 0.45

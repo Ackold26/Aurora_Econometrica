@@ -986,7 +986,11 @@ def _map_pipeline_to_builder_data(
     if diag_src:
         try:
             from utils.optimizer_honesty import model_reliability_verdict
-            _verdict = model_reliability_verdict(diag_src)
+            # Единый источник (2026-08-07): вердикт берём ГОТОВЫМ из диагностики —
+            # он проставлен на границе её записи (stamp_reliability) и по
+            # построению соответствует её содержимому. Пересчёт остаётся
+            # запасным путём: проекты, обученные до этой правки, поля не имеют.
+            _verdict = diag_src.get('model_reliability') or model_reliability_verdict(diag_src)
             diagnostics["honesty_verdict"] = _verdict.get("verdict")
             _reasons = [str(r) for r in (_verdict.get("reasons") or [])]
             if _reasons:
@@ -1002,6 +1006,19 @@ def _map_pipeline_to_builder_data(
                 diagnostics["honesty_caveat_text"] = str(_caveat_text)
         except Exception:  # noqa: BLE001 - honesty-доставка не роняет экспорт
             pass
+        # Происхождение (2026-08-07): числа переброски могли быть посчитаны на
+        # ДРУГОЙ модели — переобучение не удаляет optimization.json, и он
+        # воскресает с диска при открытии проекта. Сверяем подписи и, если они
+        # разошлись, честно говорим об этом клиенту, вместо того чтобы молча
+        # ставить свежий вердикт надёжности рядом с мёртвыми числами. Обе
+        # подписи могут отсутствовать (старые проекты) — тогда сверки нет.
+        _diag_fp = diag_src.get("model_fingerprint")
+        _opt_fp = optimize_data.get("model_fingerprint")
+        if _diag_fp and _opt_fp and _diag_fp != _opt_fp:
+            from utils.diagnostics import PROVENANCE_MISMATCH_NOTE
+            diagnostics["provenance_mismatch"] = True
+            diagnostics["provenance_note"] = PROVENANCE_MISMATCH_NOTE
+
         _pf = diag_src.get("preflight") or {}
         _pp = _pf.get("prior_predictive") or {}
         _qp = _pf.get("quick_proxy") or {}

@@ -10,6 +10,7 @@
    */
   import EChartBase from '$lib/components/charts/EChartBase.svelte';
   import ExpandableCard from '$lib/components/ExpandableCard.svelte';
+  import PPCScatter from '$lib/components/pipeline/PPCScatter.svelte';
   import { chartTooltipDark, escapeHtml } from '$lib/echarts-setup.js';
   import { TriangleAlert, Check } from 'lucide-svelte';
   import Tooltip from '$lib/components/Tooltip.svelte';
@@ -168,6 +169,21 @@
     };
   });
 
+  /** Panel C: PPC-данные (адаптация имён полей actual_vs_predicted под проп ppcData
+   *  PPCScatter). residuals не передаём - компонент сам вычитает факт-прогноз (в OLS-ветке
+   *  поле называется 'residual' в ед.ч. и с пропом не совпадает - пропуск осознанный).
+   *  r2 - metrics.r_squared под другим именем. durbin_watson в движке нигде не считается -
+   *  не передаём, компонент сам скрывает подпись DW при отсутствии значения. */
+  const ppcData = $derived.by(() => {
+    const avp = diagnostics?.actual_vs_predicted;
+    if (!avp) return null;
+    return {
+      actual: avp.actual,
+      predicted: avp.predicted,
+      r2: diagnostics?.metrics?.r_squared,
+    };
+  });
+
   /** Check counts for warnings */
   const convergenceOk = $derived(diagnostics?.checks?.convergence !== false);
   const divergences = $derived(diagnostics?.metrics?.divergences || 0);
@@ -191,6 +207,7 @@
   const HELP = {
     rhatChart: 'R-hat по параметрам - проверка сходимости MCMC для каждого параметра модели отдельно.\n\nЧто это: горизонтальные бары для sigma (шум), intercept (базовая линия) и media_betas[N] (коэффициенты каналов). Красная зона - R-hat ≥ 1.05.\n\nКак читать: все бары в зелёной зоне → модель сошлась; один канал в красной → его ROI ненадёжен; sigma или intercept красные → нужно увеличить warmup/samples.',
     avpChart:  'Факт vs Прогноз - визуальная проверка качества модели.\n\nЧто это: синяя линия - реальные продажи, зелёная пунктирная - предсказание модели. В правом верхнем углу - R² и MAPE.\n\nКак читать: линии почти совпадают → модель хорошая; зелёная систематически выше/ниже синей → bias; большие выбросы в отдельных точках → пропущенный событие (промо, launch, кризис).',
+    ppcChart:  'Разброс прогноза и остатки - ещё одна проверка качества модели.\n\nЧто это: слева - точки «факт против прогноза» относительно диагонали идеальной подгонки; справа - остатки (факт минус прогноз) во времени с полосой среднее ± 2 стандартных отклонения.\n\nКак читать: точки плотно у диагонали → модель точна; остатки без явного тренда и в пределах полосы → ошибка случайна, не систематична.',
   };
 </script>
 
@@ -339,6 +356,18 @@
           </div>
         {/if}
         <EChartBase option={avpOption} height="260px" />
+      </div>
+    </ExpandableCard>
+  {/if}
+
+  <!-- Panel C: разброс прогноза (диагональ 45°) + остатки во времени (mean±2σ).
+       Осиротевший компонент PPCScatter подключён 2026-08-07 - те же данные,
+       что и Panel B, гейт идентичный. -->
+  {#if diagnostics.actual_vs_predicted}
+    <ExpandableCard title="Разброс прогноза и остатки">
+      <div class="chart-panel-body">
+        <span class="chart-title-help" title={HELP.ppcChart}>?</span>
+        <PPCScatter {ppcData} />
       </div>
     </ExpandableCard>
   {/if}

@@ -432,6 +432,23 @@ def _reliability_disclaimer_html(ctx: dict) -> str:
     Паттерн: аналогично PPTX narrative_adapter.honesty_verdict.
     """
     diag = ctx.get("diagnostics") or {}
+    # Расхождение происхождения (2026-08-07) рисуется НЕЗАВИСИМО от вердикта:
+    # модель может быть сколь угодно надёжной, но если числа переброски рядом
+    # посчитаны на другой модели, молчать нельзя. Поэтому блок собирается до
+    # раннего выхода «вердикт надёжен – показывать нечего».
+    provenance_html = ""
+    if diag.get("provenance_mismatch") and diag.get("provenance_note"):
+        provenance_html = (
+            '<div class="provenance-mismatch" role="alert" style="'
+            "margin:16px 0;padding:14px 18px;background:rgba(201,164,73,0.12);"
+            "border:1px solid rgba(201,164,73,0.4);border-radius:8px;"
+            "font-size:13px;line-height:1.5;color:#e2e8f0;"
+            '">'
+            '<strong style="color:#c9a449;">⚠ Разное происхождение данных.</strong> '
+            f'{escape(str(diag["provenance_note"]))}'
+            "</div>"
+        )
+
     # Приоритет: если honesty_verdict уже вычислен в diagnostics (modeler.py), читаем его.
     # Иначе — вычисляем здесь (legacy path: старые pickles без поля).
     verdict_str = diag.get("honesty_verdict")
@@ -443,7 +460,9 @@ def _reliability_disclaimer_html(ctx: dict) -> str:
         except Exception:
             verdict_str = "unknown"
     if verdict_str not in ("unreliable", "uncertain"):
-        return ""
+        # Даже у надёжной модели предупреждение о разном происхождении обязано
+        # доехать до клиента — иначе он примет старые числа за новые.
+        return provenance_html
     # 2026-08-04: verbatim caveat_text из SSOT (model_reliability_verdict),
     # когда доехал по мосту (diagnostics["honesty_caveat_text"] -
     # narrative_adapter._map_pipeline_to_builder_data) - несёт настоящую
@@ -455,7 +474,7 @@ def _reliability_disclaimer_html(ctx: dict) -> str:
             note = "Модель имеет высокий R-hat или много расходящихся цепей – результаты ниже ориентировочные."
         else:
             note = "Узкий объём данных или слабый prior-coverage – результаты ниже трактуйте осторожно."
-    return (
+    return provenance_html + (
         '<div class="reliability-disclaimer" role="alert" style="'
         "margin:16px 0;padding:14px 18px;background:rgba(201,164,73,0.12);"
         "border:1px solid rgba(201,164,73,0.4);border-radius:8px;"

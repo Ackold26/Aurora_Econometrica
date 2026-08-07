@@ -1428,20 +1428,14 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
         diagnostics['unit_costs_snapshot'] = dict(unit_costs_snapshot)
         diagnostics['engine'] = 'bayesian'
 
-        # F-A1-9 (2026-07-06): honesty_verdict прямо в diagnostics при обучении.
-        # Раньше вычислялся только в narrative_adapter (при PPTX) и optimizer (при оптимизации),
-        # поэтому DecomposeStep и OptimizeStep(до оптимизации) не видели вердикт.
-        # Теперь: modelData.diagnostics.honesty_verdict доступен СРАЗУ после train.
-        try:
-            from utils.optimizer_honesty import model_reliability_verdict
-            _r = model_reliability_verdict(diagnostics)
-            diagnostics['honesty_verdict'] = _r.get('verdict', 'unknown')
-            _hr = [str(x) for x in (_r.get('reasons') or [])]
-            if _hr:
-                diagnostics['honesty_reasons'] = _hr[:3]
-        except Exception as _hv_err:
-            logger.warning('honesty_verdict in diagnostics skipped: %s', _hv_err)
-            diagnostics['honesty_verdict'] = 'unknown'
+        # F-A1-9 (2026-07-06): honesty_verdict прямо в diagnostics при обучении —
+        # чтобы DecomposeStep и OptimizeStep (до оптимизации) видели вердикт.
+        # 🔴 ШТАМП ПЕРЕЕХАЛ ОТСЮДА НА ГРАНИЦУ ЗАПИСИ (2026-08-07). Здесь диагностика
+        # ещё НЕ собрана: признак `holidays_excluded` ставится ниже, на строке ~1851,
+        # и вердикт, посчитанный тут, не знал про смещение из-за исключённых
+        # праздников — экраны продукта молчали там, где отчёт предупреждал.
+        # Штамп ставит `utils.optimizer_honesty.stamp_reliability` перед записью
+        # файлов (см. ниже, рядом с latest-params.json). Сюда не возвращать.
 
         # Extract posterior means for channel contributions
         media_beta_means = trace.posterior['media_betas'].mean(dim=['chain', 'draw']).values.tolist()
@@ -1837,7 +1831,12 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
         from utils.file_lock import project_lock
         with project_lock(Path(project_dir), timeout=10.0):
             save_model_safe(model_data, model_path)
-            write_pkl_sha256_sidecar(model_path)
+            # Возвращает SHA-256 сохранённой модели. Берём его как опознаватель
+            # обучения: он ляжет в диагностику, а оттуда (через оптимизатор) — в
+            # результат оптимизации, чтобы отчёт мог заметить, что собран из двух
+            # РАЗНЫХ моделей. Подпись меняется тогда и только тогда, когда
+            # меняется сам файл модели, поэтому пересчёт MQS её не сдвигает.
+            model_fingerprint = write_pkl_sha256_sidecar(model_path)
 
         # NaN-safe запись (2026-06-04 fresh-train аудит): вырожденная модель даёт
         # r_hat_max/intercept/sigma=NaN. Голый json.dump писал литерал `NaN` (RFC 8259
@@ -1883,6 +1882,14 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
                 {k: c[k] for k in ('channel', 'test_type', 'date_from', 'date_to', 'lift_abs')}
                 for c in calibrations_prepared
             ]
+
+        # 🔴 Диагностика собрана целиком: последними легли holidays_excluded
+        # (выше) и калибровка. ТОЛЬКО ТЕПЕРЬ ставим опознаватель модели и вердикт
+        # надёжности — до этой точки вердикт не знал бы про исключённые праздники.
+        # Оба файла ниже (train-снимок и SSOT) получают уже проштампованную копию.
+        from utils.optimizer_honesty import stamp_reliability
+        diagnostics['model_fingerprint'] = model_fingerprint
+        stamp_reliability(diagnostics)
 
         # latest-params.json: train-снимок (channel_params/config/mcmc + КОПИЯ
         # diagnostics). SSOT диагностики для ЧТЕНИЯ = results/model-diagnostics.json

@@ -417,16 +417,11 @@ def train_ols(config: dict, project_dir: str, progress_callback=None) -> dict[st
 
     # F-A1-9/OLS: вердикт надёжности сразу при обучении — одинаково с Bayesian-веткой.
     # model_reliability_verdict умеет OLS (engine='ols' → uncertain максимум, без r_hat/MCMC).
-    try:
-        from utils.optimizer_honesty import model_reliability_verdict as _mrv
-        _r = _mrv(diagnostics)
-        diagnostics['honesty_verdict'] = _r.get('verdict', 'unknown')
-        _hr = [str(x) for x in (_r.get('reasons') or [])]
-        if _hr:
-            diagnostics['honesty_reasons'] = _hr[:3]
-    except Exception as _hv_err:
-        logger.warning('honesty_verdict in ols diagnostics skipped: %s', _hv_err)
-        diagnostics['honesty_verdict'] = 'unknown'
+    # 🔴 ШТАМП ПЕРЕЕХАЛ ОТСЮДА НА ГРАНИЦУ ЗАПИСИ (2026-08-07) — паритет с
+    # байесовской веткой, где ранний штамп не знал про исключённые праздники.
+    # Ставит `utils.optimizer_honesty.stamp_reliability` перед записью файлов.
+    # Сюда не возвращать: подпись модели, которая тоже кладётся штампом,
+    # существует только после сохранения самой модели.
 
     report('saving', pct=90)
 
@@ -497,7 +492,14 @@ def train_ols(config: dict, project_dir: str, progress_callback=None) -> dict[st
     from utils.file_lock import project_lock
     with project_lock(Path(project_dir), timeout=10.0):
         save_model_safe(model_data, model_path)
-        write_pkl_sha256_sidecar(model_path)
+        # SHA-256 сохранённой модели — её опознаватель (паритет с modeler.py).
+        model_fingerprint = write_pkl_sha256_sidecar(model_path)
+
+    # Диагностика собрана целиком — ставим опознаватель и вердикт надёжности
+    # последним действием перед записью обоих файлов.
+    from utils.optimizer_honesty import stamp_reliability
+    diagnostics['model_fingerprint'] = model_fingerprint
+    stamp_reliability(diagnostics)
 
     params_path = models_dir / 'latest-params.json'
     with open(params_path, 'w', encoding='utf-8') as f:

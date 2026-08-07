@@ -45,6 +45,30 @@ fn reliability_label(verdict: &str) -> &'static str {
     }
 }
 
+/// 2026-08-07: optimization.json переживает переобучение (project.rs:631
+/// безусловно читает файл с диска, project-state.js:1394 чистит только память,
+/// project-state.js:1260 кладёт обратно) — отчёт может собрать диагностику от
+/// НОВОЙ модели и результаты оптимизации от СТАРОЙ, и ничто на это не укажет
+/// клиенту. Контракт (SSOT — Python-сторона наполняет оба поля одним модулем):
+/// top-level "model_fingerprint" (64 hex) в model-diagnostics.json (тут читаем
+/// как model["diagnostics"]["model_fingerprint"]) и в optimization.json
+/// (optimize["model_fingerprint"]). Расхождение = ОБА поля присутствуют, оба
+/// непустые, и они НЕ равны. Отсутствие любого поля — старый проект, законно,
+/// сверка не делается (false), молчим.
+fn fingerprints_diverge(model: &Value, optimize: &Value) -> bool {
+    let mf = model["diagnostics"]["model_fingerprint"].as_str().filter(|s| !s.is_empty());
+    let of = optimize["model_fingerprint"].as_str().filter(|s| !s.is_empty());
+    match (mf, of) {
+        (Some(a), Some(b)) => a != b,
+        _ => false,
+    }
+}
+
+/// Текст предупреждения VERBATIM — синхрон со стороной Python (сторож на шве).
+/// Короткое тире «–» (U+2013), не длинное — линтер продукта валит длинное тире
+/// в клиентском тексте.
+const FINGERPRINT_MISMATCH_TEXT: &str = "Результаты оптимизации получены на другой модели, чем показанная диагностика – пересчитайте оптимизацию, прежде чем опираться на переброску бюджета.";
+
 /// Волна 1 пункт 3 (2026-06-20): отображаемый вердикт-действие (рус) + honesty-
 /// смягчение (решение 2a). Зеркалит engines.channel_action.soften_verdict_display
 /// (Python) — Rust XLSX/MD читают results JSON напрямую, мимо Python-моста, поэтому
@@ -81,6 +105,25 @@ fn verdict_display(verdict_key: &str, reliability_verdict: &str) -> String {
 /// whitespace (вкл. переводы строк) в один пробел, обрезает края.
 fn clean_label(s: &str) -> String {
     s.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+/// Excel ограничивает содержимое ячейки 32 767 символами (rust_xlsxwriter
+/// MAX_STRING_LEN) — запись строки длиннее лимита возвращает Err и роняет
+/// весь build_xlsx через `?` (разведка 2026-08-07, scratchpad/pulse_xlsx_reach.md).
+/// На сейчас (2026-08-07) определения глоссария приходят из фронта
+/// (getAllTerms()) и максимум ≈ 400-800 символов, но источник — Value с фронта,
+/// не статически проверяемый Rust-типом, поэтому страховка на будущее (заметки
+/// аналитика, склейка полей и т.п.). Обрезка по границе символа (`.chars()`,
+/// не байтов) - иначе кириллица/эмодзи ломаются на полуграфеме.
+fn truncate_to_excel_cell_limit(s: &str) -> std::borrow::Cow<'_, str> {
+    const XLSX_CELL_CHAR_LIMIT: usize = 32_767;
+    if s.chars().count() <= XLSX_CELL_CHAR_LIMIT {
+        std::borrow::Cow::Borrowed(s)
+    } else {
+        let mut truncated: String = s.chars().take(XLSX_CELL_CHAR_LIMIT - 1).collect();
+        truncated.push('…');
+        std::borrow::Cow::Owned(truncated)
+    }
 }
 
 /// Волна 3 (2026-06-20): метка режима анализа + типа KPI (контекст метрик для
@@ -511,6 +554,12 @@ fn build_markdown(model: &Value, decompose: &Value, optimize: &Value) -> String 
         if !mr_label.is_empty() && !mr_caveat.is_empty() {
             md.push_str(&format!("\n> ⚠ **{mr_label}.** {mr_caveat}\n"));
         }
+    }
+    // 2026-08-07: рассинхрон диагностики и оптимизации (fingerprints_diverge) —
+    // РЯДОМ с плашкой надёжности выше, не заменяет её (та про качество ЭТИХ
+    // чисел, эта про то, что числа — от другой модели, чем диагностика).
+    if fingerprints_diverge(model, optimize) {
+        md.push_str(&format!("\n> ⚠ {FINGERPRINT_MISMATCH_TEXT}\n"));
     }
     md.push_str("\n---\n\n");
 
@@ -1260,6 +1309,13 @@ fn build_xlsx(
             }
         }
 
+        // 2026-08-07: рассинхрон диагностики и оптимизации (fingerprints_diverge) —
+        // РЯДОМ с плашкой надёжности (строка 12), не поверх неё; строка 13 свободна.
+        if fingerprints_diverge(model, optimize) {
+            ws.write(13, 0, format!("⚠ {FINGERPRINT_MISMATCH_TEXT}"))
+                .map_err(|e| format!("{e}"))?;
+        }
+
         // Widths from XLSX_reference.xlsx - A:C = 26.43
         ws.set_column_width(0, 26.43).map_err(|e| format!("{e}"))?;
         ws.set_column_width(1, 26.43).map_err(|e| format!("{e}"))?;
@@ -1468,28 +1524,37 @@ fn build_xlsx(
                 .map_err(|e| format!("{e}"))?;
         }
 
-        // Conditional formatting: ROI > 2 = green, ROI < 1 = red (data rows 3..3+len)
-        let first_row = 3u32;
-        let last_row = chs.len() as u32 + 2;
-        let green_cond = ConditionalFormatCell::new()
-            .set_rule(ConditionalFormatCellRule::GreaterThanOrEqualTo(2.0))
-            .set_format(Format::new().set_font_color(Color::RGB(GO)));
-        let red_cond = ConditionalFormatCell::new()
-            .set_rule(ConditionalFormatCellRule::LessThan(1.0))
-            .set_format(Format::new().set_font_color(Color::RGB(STOP)));
-        ws.add_conditional_format(first_row, 3, last_row, 3, &green_cond).map_err(|e| format!("{e}"))?;
-        ws.add_conditional_format(first_row, 3, last_row, 3, &red_cond).map_err(|e| format!("{e}"))?;
+        // Conditional formatting + chart: только при непустых каналах — при
+        // chs.is_empty() last_row (= chs.len()+2 = 2) оказывается МЕНЬШЕ
+        // first_row (= 3 хардкод) и add_conditional_format/insert_chart вернут
+        // Err(RowColumnOrderError), что через `?` уронит build_xlsx целиком
+        // (весь экспорт, а не только этот лист) — разведка 2026-08-07,
+        // scratchpad/pulse_xlsx_reach.md. При нуле каналов лист собирается без
+        // украшений (заголовки уже написаны выше), но книга сохраняется.
+        if !chs.is_empty() {
+            // Conditional formatting: ROI > 2 = green, ROI < 1 = red (data rows 3..3+len)
+            let first_row = 3u32;
+            let last_row = chs.len() as u32 + 2;
+            let green_cond = ConditionalFormatCell::new()
+                .set_rule(ConditionalFormatCellRule::GreaterThanOrEqualTo(2.0))
+                .set_format(Format::new().set_font_color(Color::RGB(GO)));
+            let red_cond = ConditionalFormatCell::new()
+                .set_rule(ConditionalFormatCellRule::LessThan(1.0))
+                .set_format(Format::new().set_font_color(Color::RGB(STOP)));
+            ws.add_conditional_format(first_row, 3, last_row, 3, &green_cond).map_err(|e| format!("{e}"))?;
+            ws.add_conditional_format(first_row, 3, last_row, 3, &red_cond).map_err(|e| format!("{e}"))?;
 
-        // ROI bar chart
-        let mut chart = Chart::new(ChartType::Bar);
-        chart.add_series()
-            .set_categories(("ROI каналов", first_row, 0, last_row, 0))
-            .set_values(("ROI каналов", first_row, 3, last_row, 3))
-            .set_name("ROI");
-        chart.set_style(12);
-        chart.set_width(567).set_height(283); // matches XLSX_reference (15×7.5 cm)
-        chart.title().set_name("ROI по каналам");
-        ws.insert_chart(last_row + 2, 0, &chart).map_err(|e| format!("{e}"))?;
+            // ROI bar chart
+            let mut chart = Chart::new(ChartType::Bar);
+            chart.add_series()
+                .set_categories(("ROI каналов", first_row, 0, last_row, 0))
+                .set_values(("ROI каналов", first_row, 3, last_row, 3))
+                .set_name("ROI");
+            chart.set_style(12);
+            chart.set_width(567).set_height(283); // matches XLSX_reference (15×7.5 cm)
+            chart.title().set_name("ROI по каналам");
+            ws.insert_chart(last_row + 2, 0, &chart).map_err(|e| format!("{e}"))?;
+        }
 
         // Widths - ROI каналов (A = 4.4 cm ≈ 23.76; C = 3.91 cm; D = 2.2 cm, per Антон)
         ws.set_column_width(0, 23.76).map_err(|e| format!("{e}"))?;
@@ -1539,22 +1604,31 @@ fn build_xlsx(
             ws.write_with_format(row, 5, efficiency, &roi_fmt).map_err(|e| format!("{e}"))?;
         }
 
-        // Clustered bar chart: spend% vs effect% (data rows 3..3+len-1)
-        let first_row = 3u32;
-        let last_row = chs.len() as u32 + 2;
-        let mut chart = Chart::new(ChartType::Column);
-        chart.add_series()
-            .set_categories(("Spend vs Effect", first_row, 0, last_row, 0))
-            .set_values(("Spend vs Effect", first_row, 2, last_row, 2))
-            .set_name("% бюджета");
-        chart.add_series()
-            .set_categories(("Spend vs Effect", first_row, 0, last_row, 0))
-            .set_values(("Spend vs Effect", first_row, 4, last_row, 4))
-            .set_name("% эффекта");
-        chart.set_style(12);
-        chart.set_width(567).set_height(283); // matches XLSX_reference (15×7.5 cm)
-        chart.title().set_name("Доля бюджета vs Доля эффекта");
-        ws.insert_chart(last_row + 2, 0, &chart).map_err(|e| format!("{e}"))?;
+        // Тот же класс отказа, что на «ROI каналов»/«Оптимизация» (разведка
+        // 2026-08-07, scratchpad/pulse_xlsx_reach.md): при chs.is_empty() эта
+        // ветка выполняется (Some(пустой vec)), last_row=2 < first_row=3,
+        // insert_chart вернул бы Err(диапазон перевёрнут) и уронил бы
+        // build_xlsx целиком. Обнаружено ЖИВЬЁМ прогоном сторожа
+        // build_xlsx_survives_empty_optimize_and_decompose_channels: гейт на
+        // «ROI каналов» открыл путь сюда (раньше падало ещё ДО этого листа).
+        if !chs.is_empty() {
+            // Clustered bar chart: spend% vs effect% (data rows 3..3+len-1)
+            let first_row = 3u32;
+            let last_row = chs.len() as u32 + 2;
+            let mut chart = Chart::new(ChartType::Column);
+            chart.add_series()
+                .set_categories(("Spend vs Effect", first_row, 0, last_row, 0))
+                .set_values(("Spend vs Effect", first_row, 2, last_row, 2))
+                .set_name("% бюджета");
+            chart.add_series()
+                .set_categories(("Spend vs Effect", first_row, 0, last_row, 0))
+                .set_values(("Spend vs Effect", first_row, 4, last_row, 4))
+                .set_name("% эффекта");
+            chart.set_style(12);
+            chart.set_width(567).set_height(283); // matches XLSX_reference (15×7.5 cm)
+            chart.title().set_name("Доля бюджета vs Доля эффекта");
+            ws.insert_chart(last_row + 2, 0, &chart).map_err(|e| format!("{e}"))?;
+        }
 
         // Widths - Spend vs Effect (A:C = 3.50 cm ≈ 18.90 char, per Антон)
         ws.set_column_width(0, 18.90).map_err(|e| format!("{e}"))?;
@@ -1690,34 +1764,43 @@ fn build_xlsx(
             ws.write_with_format(row, 5, curr_roi, &roi_fmt).map_err(|e| format!("{e}"))?;
         }
 
-        // Conditional formatting on delta columns (data rows 3..3+len-1)
+        // Conditional formatting + chart: только при непустых каналах — при
+        // opt_chs.is_empty() last_row (= opt_chs.len()+2 = 2) оказывается МЕНЬШЕ
+        // first_row (= 3 хардкод) и add_conditional_format/insert_chart вернут
+        // Err(RowColumnOrderError), что через `?` уронит build_xlsx целиком
+        // (весь экспорт, а не только этот лист) — разведка 2026-08-07,
+        // scratchpad/pulse_xlsx_reach.md. При нуле каналов лист собирается без
+        // украшений (заголовки уже написаны выше), но книга сохраняется.
         let first_row = 3u32;
         let last_row = opt_chs.len() as u32 + 2;
-        let green_d = ConditionalFormatCell::new()
-            .set_rule(ConditionalFormatCellRule::GreaterThan(0.0))
-            .set_format(Format::new().set_font_color(Color::RGB(GO)));
-        let red_d = ConditionalFormatCell::new()
-            .set_rule(ConditionalFormatCellRule::LessThan(0.0))
-            .set_format(Format::new().set_font_color(Color::RGB(BERRY)));
-        ws.add_conditional_format(first_row, 3, last_row, 3, &green_d).map_err(|e| format!("{e}"))?;
-        ws.add_conditional_format(first_row, 3, last_row, 3, &red_d).map_err(|e| format!("{e}"))?;
-        ws.add_conditional_format(first_row, 4, last_row, 4, &green_d).map_err(|e| format!("{e}"))?;
-        ws.add_conditional_format(first_row, 4, last_row, 4, &red_d).map_err(|e| format!("{e}"))?;
+        if !opt_chs.is_empty() {
+            // Conditional formatting on delta columns (data rows 3..3+len-1)
+            let green_d = ConditionalFormatCell::new()
+                .set_rule(ConditionalFormatCellRule::GreaterThan(0.0))
+                .set_format(Format::new().set_font_color(Color::RGB(GO)));
+            let red_d = ConditionalFormatCell::new()
+                .set_rule(ConditionalFormatCellRule::LessThan(0.0))
+                .set_format(Format::new().set_font_color(Color::RGB(BERRY)));
+            ws.add_conditional_format(first_row, 3, last_row, 3, &green_d).map_err(|e| format!("{e}"))?;
+            ws.add_conditional_format(first_row, 3, last_row, 3, &red_d).map_err(|e| format!("{e}"))?;
+            ws.add_conditional_format(first_row, 4, last_row, 4, &green_d).map_err(|e| format!("{e}"))?;
+            ws.add_conditional_format(first_row, 4, last_row, 4, &red_d).map_err(|e| format!("{e}"))?;
 
-        // Clustered bar: current vs optimal
-        let mut chart = Chart::new(ChartType::Column);
-        chart.add_series()
-            .set_categories(("Оптимизация", first_row, 0, last_row, 0))
-            .set_values(("Оптимизация", first_row, 1, last_row, 1))
-            .set_name("Текущий");
-        chart.add_series()
-            .set_categories(("Оптимизация", first_row, 0, last_row, 0))
-            .set_values(("Оптимизация", first_row, 2, last_row, 2))
-            .set_name("Оптимальный");
-        chart.set_style(12);
-        chart.set_width(567).set_height(283); // matches XLSX_reference (15×7.5 cm)
-        chart.title().set_name("Текущий vs Оптимальный бюджет");
-        ws.insert_chart(last_row + 2, 0, &chart).map_err(|e| format!("{e}"))?;
+            // Clustered bar: current vs optimal
+            let mut chart = Chart::new(ChartType::Column);
+            chart.add_series()
+                .set_categories(("Оптимизация", first_row, 0, last_row, 0))
+                .set_values(("Оптимизация", first_row, 1, last_row, 1))
+                .set_name("Текущий");
+            chart.add_series()
+                .set_categories(("Оптимизация", first_row, 0, last_row, 0))
+                .set_values(("Оптимизация", first_row, 2, last_row, 2))
+                .set_name("Оптимальный");
+            chart.set_style(12);
+            chart.set_width(567).set_height(283); // matches XLSX_reference (15×7.5 cm)
+            chart.title().set_name("Текущий vs Оптимальный бюджет");
+            ws.insert_chart(last_row + 2, 0, &chart).map_err(|e| format!("{e}"))?;
+        }
 
         // 5c (2026-05-04) FIX: same formula-result issue - рrust_xlsxwriter writes
         // formulas with default cached result=0, Excel showed 0+0 для ИТОГО.
@@ -2089,7 +2172,9 @@ fn build_xlsx(
                     .or_else(|| item["short"].as_str())
                     .unwrap_or("");
                 ws.write_with_format(row, 0, term, &bold).map_err(|e| format!("{e}"))?;
-                ws.write(row, 1, def).map_err(|e| format!("{e}"))?;
+                // Определение приходит с фронта (getAllTerms(), не статически
+                // проверяемый тип) - страховка от превышения лимита ячейки Excel.
+                ws.write(row, 1, truncate_to_excel_cell_limit(def).as_ref()).map_err(|e| format!("{e}"))?;
                 row += 1;
             }
         } else {
@@ -2482,23 +2567,52 @@ mod tests {
         assert!(!roi_unreliable(&json!({"verdict": "Hold"})));
     }
 
-    /// Волна 3: глоссарий из фронта (SSOT glossary.js) — извлечение term/definition.
-    /// definition с fallback на short; пустой/None → ветка fallback (11 встроенных).
+    /// Волна 3: глоссарий из фронта (SSOT glossary.js) — путь «у термина есть
+    /// ТОЛЬКО short, definition нет» обязан реально попасть на лист «Глоссарий»
+    /// через `.or_else(|| item["short"].as_str())` (report.rs, лист Глоссарий).
+    /// Соседний тест glossary_xlsx_uses_frontend_terms_when_provided (:2548)
+    /// покрывает только путь с полем definition — путь «только short» не был
+    /// покрыт никем. Прежняя версия этого теста сравнивала литерал json! сам
+    /// с собой, не вызывая build_xlsx вовсе — переписана на настоящую сборку
+    /// XLSX и чтение листа «Глоссарий» из zip (приём — как в соседнем тесте).
     #[test]
     fn glossary_from_frontend_extraction() {
-        let g = json!([
-            {"term": "ROAS", "definition": "возврат на рекламные расходы"},
-            {"term": "Adstock", "short": "остаточный эффект"},
+        fn xlsx_contains(path: &Path, needle: &str) -> bool {
+            let bytes = std::fs::read(path).expect("read xlsx");
+            let mut archive = zip::read::ZipArchive::new(Cursor::new(bytes)).expect("open xlsx zip");
+            for i in 0..archive.len() {
+                let mut entry = archive.by_index(i).expect("zip entry");
+                let mut content = String::new();
+                if entry.read_to_string(&mut content).is_err() {
+                    continue;
+                }
+                if content.contains(needle) {
+                    return true;
+                }
+            }
+            false
+        }
+
+        let model = json!({"diagnostics": {"mqs": {"score": 70.0, "tier_label": "Хорошее"}}});
+        let decompose = json!({"channels": [
+            {"name": "TV", "spend": 100.0, "contribution": 150.0, "roi": 1.5}
+        ]});
+        let optimize = json!({"channels": [
+            {"name": "TV", "current_spend_money": 100.0, "optimal_spend_money": 120.0}
+        ]});
+        // Термин фронта БЕЗ definition - только short.
+        let glossary = json!([
+            {"term": "Adstock", "short": "УникальныйКраткийТермин42"},
         ]);
-        let arr = g.as_array().unwrap();
-        assert_eq!(arr[0]["term"].as_str().unwrap(), "ROAS");
-        assert_eq!(arr[0]["definition"].as_str().unwrap(), "возврат на рекламные расходы");
-        let def = arr[1]["definition"].as_str().or_else(|| arr[1]["short"].as_str());
-        assert_eq!(def, Some("остаточный эффект"));
-        let empty: Option<Value> = Some(json!([]));
-        assert!(empty.as_ref().and_then(|x| x.as_array()).filter(|a| !a.is_empty()).is_none());
-        let none: Option<Value> = None;
-        assert!(none.as_ref().and_then(|x| x.as_array()).filter(|a| !a.is_empty()).is_none());
+
+        let path = std::env::temp_dir().join("aurora_glossary_short_only_test.xlsx");
+        build_xlsx(&model, &decompose, &optimize, &[], None, "test", &path, Some(&glossary))
+            .expect("build_xlsx с glossary (только short)");
+        assert!(
+            xlsx_contains(&path, "УникальныйКраткийТермин42"),
+            "термин с ТОЛЬКО полем short обязан попасть в XLSX через .or_else(short)"
+        );
+        let _ = std::fs::remove_file(&path);
     }
 
     /// Мутационно проверено (2026-08-04, при переносе glossary из
@@ -2566,5 +2680,193 @@ mod tests {
             "с непустым glossary встроенный fallback-термин не должен появляться"
         );
         let _ = std::fs::remove_file(&path_some);
+    }
+
+    /// Разведка 2026-08-07 (scratchpad/pulse_xlsx_reach.md, задача team-lead
+    /// "зонд достижимости отказов XLSX") нашла: пустой decompose.channels/
+    /// optimize.channels даёт last_row = chs.len() as u32 + 2 = 2, а first_row
+    /// хардкожен 3u32 (report.rs, листы «ROI каналов»/«Оптимизация») →
+    /// add_conditional_format/insert_chart возвращают Err(RowColumnOrderError),
+    /// который через `?` рушит build_xlsx ЦЕЛИКОМ - книга вообще не сохраняется,
+    /// клиент не получает файл (ни один из остальных 9+ листов). Достижимость
+    /// с обычного UI-пути не доказана (ConfigPanel.svelte блокирует обучение
+    /// с 0 каналов), но единственная защита - на фронте, не в бэкенде. Фикс:
+    /// гейт `if !chs.is_empty()` вокруг блоков conditional-format/chart на этих
+    /// двух листах - на нуле каналов лист собирается без украшений, но книга
+    /// сохраняется целиком.
+    /// Мутационно проверено (2026-08-07): временно убрав гейт `if
+    /// !chs.is_empty()` на обоих листах (условие всегда true) - тест падал на
+    /// `result.is_ok()` с текстом "First row or column in range is greater than
+    /// last row or column" внутри Err; вернув гейт - тест снова зелёный.
+    #[test]
+    fn build_xlsx_survives_empty_optimize_and_decompose_channels() {
+        let model = json!({"diagnostics": {"mqs": {"score": 70.0, "tier_label": "Хорошее"}}});
+        let decompose = json!({"channels": []});
+        let optimize = json!({"channels": []});
+
+        let path = std::env::temp_dir().join("aurora_empty_channels_test.xlsx");
+        let result = build_xlsx(&model, &decompose, &optimize, &[], None, "test", &path, None);
+        assert!(
+            result.is_ok(),
+            "build_xlsx обязан пережить пустые decompose.channels/optimize.channels и \
+             сохранить книгу целиком, а не вернуть Err: {:?}",
+            result.err()
+        );
+        assert!(path.exists(), "книга обязана быть сохранена на диск даже при нуле каналов");
+        let meta = std::fs::metadata(&path).expect("read metadata");
+        assert!(meta.len() > 0, "сохранённый XLSX не должен быть пустым файлом");
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// Та же разведка 2026-08-07: определение термина глоссария приходит с
+    /// фронта (getAllTerms(), Value без статической проверки длины) и пишется
+    /// в ячейку «Определение» листа «Глоссарий». Excel ограничивает ячейку
+    /// 32 767 символами (rust_xlsxwriter MAX_STRING_LEN) - запись более длинной
+    /// строки возвращает Err и роняет build_xlsx целиком тем же путём, что и
+    /// пустые channels выше. На сейчас (2026-08-07) реальные определения не
+    /// длиннее ≈800 символов - но источник не типобезопасен, страховка на
+    /// будущее. Фикс: truncate_to_excel_cell_limit() обрезает по границе
+    /// символа и дописывает «…», чтобы обрыв был виден клиенту.
+    /// Мутационно проверено (2026-08-07): временно заменив вызов
+    /// `truncate_to_excel_cell_limit(def).as_ref()` на голый `def` - тест падал
+    /// на `result.is_ok()` с текстом "String exceeds Excel's limit of 32,767
+    /// characters" внутри Err; вернув обрезку - тест снова зелёный.
+    #[test]
+    fn glossary_definition_truncated_to_excel_cell_limit() {
+        fn xlsx_contains(path: &Path, needle: &str) -> bool {
+            let bytes = std::fs::read(path).expect("read xlsx");
+            let mut archive = zip::read::ZipArchive::new(Cursor::new(bytes)).expect("open xlsx zip");
+            for i in 0..archive.len() {
+                let mut entry = archive.by_index(i).expect("zip entry");
+                let mut content = String::new();
+                if entry.read_to_string(&mut content).is_err() {
+                    continue;
+                }
+                if content.contains(needle) {
+                    return true;
+                }
+            }
+            false
+        }
+
+        let model = json!({"diagnostics": {"mqs": {"score": 70.0, "tier_label": "Хорошее"}}});
+        let decompose = json!({"channels": [
+            {"name": "TV", "spend": 100.0, "contribution": 150.0, "roi": 1.5}
+        ]});
+        let optimize = json!({"channels": [
+            {"name": "TV", "current_spend_money": 100.0, "optimal_spend_money": 120.0}
+        ]});
+
+        // > предела ячейки Excel (32 767 симв.) - кириллица, чтобы проверить
+        // обрезку именно по границе символа (chars()), не байтов.
+        let too_long_def = "д".repeat(40_000);
+        let glossary = json!([
+            {"term": "СлишкомДлинныйТермин", "definition": too_long_def},
+        ]);
+        let path = std::env::temp_dir().join("aurora_glossary_overflow_test.xlsx");
+        let result = build_xlsx(&model, &decompose, &optimize, &[], None, "test", &path, Some(&glossary));
+        assert!(
+            result.is_ok(),
+            "build_xlsx обязан пережить определение глоссария длиннее лимита ячейки Excel: {:?}",
+            result.err()
+        );
+
+        let expected_truncated = format!("{}…", "д".repeat(32_766));
+        assert!(
+            xlsx_contains(&path, &expected_truncated),
+            "определение обязано быть обрезано ровно до лимита ячейки Excel (32767 симв. \
+             включая завершающее многоточие)"
+        );
+        assert!(
+            !xlsx_contains(&path, &too_long_def),
+            "исходное необрезанное определение (40000 симв.) не должно попасть в ячейку - \
+             иначе запись вернула бы Err и книга не сохранилась бы"
+        );
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// 2026-08-07: рассинхрон диагностики и оптимизации (fingerprints_diverge) —
+    /// предупреждение обязано появиться в Markdown И в XLSX при разных
+    /// model_fingerprint, и обязано отсутствовать при одинаковых, и обязано
+    /// отсутствовать когда поле не пришло вовсе (старый проект - молчим).
+    /// Мутационно проверено (обязательный шаг для этого проекта): временно
+    /// заставив fingerprints_diverge всегда возвращать false - обе ветки
+    /// "разные" (Markdown и XLSX) падали ровно на отсутствии текста
+    /// предупреждения; вернув логику - тест снова зелёный.
+    #[test]
+    fn model_optimization_fingerprint_mismatch_warns_in_both_formats() {
+        fn xlsx_contains(path: &Path, needle: &str) -> bool {
+            let bytes = std::fs::read(path).expect("read xlsx");
+            let mut archive = zip::read::ZipArchive::new(Cursor::new(bytes)).expect("open xlsx zip");
+            for i in 0..archive.len() {
+                let mut entry = archive.by_index(i).expect("zip entry");
+                let mut content = String::new();
+                if entry.read_to_string(&mut content).is_err() {
+                    continue;
+                }
+                if content.contains(needle) {
+                    return true;
+                }
+            }
+            false
+        }
+
+        let decompose = json!({"channels": [
+            {"name": "TV", "spend": 100.0, "contribution": 150.0, "roi": 1.5}
+        ]});
+        let optimize_channels = json!([
+            {"name": "TV", "current_spend_money": 100.0, "optimal_spend_money": 120.0}
+        ]);
+
+        // Расходятся: диагностика и оптимизация - от разных моделей.
+        let model_a = json!({"diagnostics": {"model_fingerprint": "aa".repeat(32)}});
+        let optimize_b = json!({"model_fingerprint": "bb".repeat(32), "channels": optimize_channels});
+        let md_diverge = build_markdown(&model_a, &decompose, &optimize_b);
+        assert!(
+            md_diverge.contains(FINGERPRINT_MISMATCH_TEXT),
+            "Markdown обязан предупредить при разных model_fingerprint"
+        );
+        let path_diverge = std::env::temp_dir().join("aurora_fingerprint_diverge_test.xlsx");
+        build_xlsx(&model_a, &decompose, &optimize_b, &[], None, "test", &path_diverge, None)
+            .expect("build_xlsx diverge");
+        assert!(
+            xlsx_contains(&path_diverge, FINGERPRINT_MISMATCH_TEXT),
+            "XLSX обязан предупредить при разных model_fingerprint"
+        );
+        let _ = std::fs::remove_file(&path_diverge);
+
+        // Совпадают: молчим.
+        let model_same = json!({"diagnostics": {"model_fingerprint": "cc".repeat(32)}});
+        let optimize_same = json!({"model_fingerprint": "cc".repeat(32), "channels": optimize_channels});
+        let md_same = build_markdown(&model_same, &decompose, &optimize_same);
+        assert!(
+            !md_same.contains(FINGERPRINT_MISMATCH_TEXT),
+            "Markdown не должен предупреждать при одинаковых model_fingerprint"
+        );
+        let path_same = std::env::temp_dir().join("aurora_fingerprint_same_test.xlsx");
+        build_xlsx(&model_same, &decompose, &optimize_same, &[], None, "test", &path_same, None)
+            .expect("build_xlsx same");
+        assert!(
+            !xlsx_contains(&path_same, FINGERPRINT_MISMATCH_TEXT),
+            "XLSX не должен предупреждать при одинаковых model_fingerprint"
+        );
+        let _ = std::fs::remove_file(&path_same);
+
+        // Поля нет вовсе (старый проект): молчим.
+        let model_absent = json!({"diagnostics": {}});
+        let optimize_absent = json!({"channels": optimize_channels});
+        let md_absent = build_markdown(&model_absent, &decompose, &optimize_absent);
+        assert!(
+            !md_absent.contains(FINGERPRINT_MISMATCH_TEXT),
+            "Markdown не должен предупреждать когда поле отсутствует (старый проект)"
+        );
+        let path_absent = std::env::temp_dir().join("aurora_fingerprint_absent_test.xlsx");
+        build_xlsx(&model_absent, &decompose, &optimize_absent, &[], None, "test", &path_absent, None)
+            .expect("build_xlsx absent");
+        assert!(
+            !xlsx_contains(&path_absent, FINGERPRINT_MISMATCH_TEXT),
+            "XLSX не должен предупреждать когда поле отсутствует (старый проект)"
+        );
+        let _ = std::fs::remove_file(&path_absent);
     }
 }

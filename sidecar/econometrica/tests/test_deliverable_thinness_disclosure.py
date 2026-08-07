@@ -210,8 +210,19 @@ def test_html_no_reliability_plaque_when_reliable():
 
 
 def test_pptx_carries_reliability_plaque_when_uncertain():
+    """PPTX несёт ОТЛИЧИМЫЙ текст вердикта «uncertain», а не просто корень слова
+    «надёжност» — тот совпадает и со статическим ярлыком «Вердикт надёжности:
+    модель надёжна» при verdict == reliable. Прежняя версия теста гнала payload
+    через мёртвый шов optimize_data["model_reliability"] (см.
+    test_seam_drops_model_reliability_when_reliable выше в этом файле) — на
+    самом деле получавшийся honesty_verdict был "reliable" (диагностика бралась
+    из FAT), и тест был зелёным случайно, поймав слово «надёжности» из чужого
+    текста, а не признак uncertain. Переписан на настоящий источник честности —
+    model_data["diagnostics"] (THIN → honesty_verdict == "uncertain", тот же
+    путь, что в test_seam_carries_model_reliability_when_uncertain)."""
     from aurora_pptx.builder import AuroraPPTXBuilder
-    b = AuroraPPTXBuilder(_payload_opt({"model_reliability": MR_UNCERTAIN}))
+    b = AuroraPPTXBuilder(_payload(THIN))
+    assert b.honesty_verdict == "uncertain"
     prs = b.build()
     out = tempfile.gettempdir() + "/test_mr_uncertain.pptx"
     prs.save(out)
@@ -219,8 +230,10 @@ def test_pptx_carries_reliability_plaque_when_uncertain():
     z = zipfile.ZipFile(out)
     txt = " ".join(z.read(n).decode("utf-8", "ignore") for n in z.namelist() if n.endswith(".xml"))
     stripped = re.sub(r"<[^>]+>", "", txt)
-    assert re.search(r"надёжност|ориентировочн", stripped, re.I), \
-        "PPTX обязан нести плашку надёжности при uncertain"
+    assert "Вердикт надёжности: требует осторожности" in stripped, \
+        "PPTX обязан нести плашку надёжности при uncertain (текст самого вердикта, не корень слова)"
+    assert "Вердикт надёжности: модель надёжна" not in stripped, \
+        "плашка не должна показывать текст reliable-вердикта, когда модель uncertain"
 
 
 # ── Волна 1 пункт 3 (2026-06-20): синхрон вердиктов — honesty-потолок (2a) ─────
