@@ -49,25 +49,42 @@ fn reliability_label(verdict: &str) -> &'static str {
 /// безусловно читает файл с диска, project-state.js:1394 чистит только память,
 /// project-state.js:1260 кладёт обратно) — отчёт может собрать диагностику от
 /// НОВОЙ модели и результаты оптимизации от СТАРОЙ, и ничто на это не укажет
-/// клиенту. Контракт (SSOT — Python-сторона наполняет оба поля одним модулем):
-/// top-level "model_fingerprint" (64 hex) в model-diagnostics.json (тут читаем
-/// как model["diagnostics"]["model_fingerprint"]) и в optimization.json
-/// (optimize["model_fingerprint"]). Расхождение = ОБА поля присутствуют, оба
-/// непустые, и они НЕ равны. Отсутствие любого поля — старый проект, законно,
-/// сверка не делается (false), молчим.
-fn fingerprints_diverge(model: &Value, optimize: &Value) -> bool {
-    let mf = model["diagnostics"]["model_fingerprint"].as_str().filter(|s| !s.is_empty());
-    let of = optimize["model_fingerprint"].as_str().filter(|s| !s.is_empty());
-    match (mf, of) {
-        (Some(a), Some(b)) => a != b,
-        _ => false,
-    }
+/// клиенту. Две независимые половины сверки (доработка 2026-08-08 — аудит
+/// вскрыл слепоту первой половины к tools/recompute_mqs.py: он пересчитывает
+/// диагностику БЕЗ переобучения, подпись модели остаётся той же, а вердикт
+/// надёжности в диагностике уже новый, в замороженной оптимизации — старый):
+/// (а) подписи модели — top-level "model_fingerprint" (64 hex) в
+///     model-diagnostics.json (тут: model["diagnostics"]["model_fingerprint"])
+///     и в optimization.json (optimize["model_fingerprint"]);
+/// (б) живой вердикт model["diagnostics"]["model_reliability"]["verdict"]
+///     против замороженного optimize["model_reliability"]["verdict"]
+///     (регистронезависимо).
+/// Рассинхрон = истина хотя бы по одной половине. Для каждой половины: обе
+/// величины должны присутствовать и быть непустыми, иначе эта половина сверки
+/// не делается (отсутствие поля — старый проект, законно, молчим; ложная
+/// тревога дороже пропуска).
+fn diagnostics_optimization_diverged(model: &Value, optimize: &Value) -> bool {
+    let fingerprints_diverge = {
+        let mf = model["diagnostics"]["model_fingerprint"].as_str().filter(|s| !s.is_empty());
+        let of = optimize["model_fingerprint"].as_str().filter(|s| !s.is_empty());
+        matches!((mf, of), (Some(a), Some(b)) if a != b)
+    };
+    let verdicts_diverge = {
+        let mv = model["diagnostics"]["model_reliability"]["verdict"].as_str()
+            .filter(|s| !s.is_empty()).map(|s| s.to_lowercase());
+        let ov = optimize["model_reliability"]["verdict"].as_str()
+            .filter(|s| !s.is_empty()).map(|s| s.to_lowercase());
+        matches!((mv, ov), (Some(a), Some(b)) if a != b)
+    };
+    fingerprints_diverge || verdicts_diverge
 }
 
 /// Текст предупреждения VERBATIM — синхрон со стороной Python (сторож на шве).
 /// Короткое тире «–» (U+2013), не длинное — линтер продукта валит длинное тире
-/// в клиентском тексте.
-const FINGERPRINT_MISMATCH_TEXT: &str = "Результаты оптимизации получены на другой модели, чем показанная диагностика – пересчитайте оптимизацию, прежде чем опираться на переброску бюджета.";
+/// в клиентском тексте. Доработка 2026-08-08: прежний текст («на другой
+/// модели») стал неправдой для случая (б) — там модель ТА ЖЕ, разошлись
+/// только вердикты диагностики и оптимизации по времени расчёта.
+const FINGERPRINT_MISMATCH_TEXT: &str = "Диагностика модели и результаты оптимизации получены в разных расчётах – пересчитайте оптимизацию, прежде чем опираться на переброску бюджета.";
 
 /// Волна 1 пункт 3 (2026-06-20): отображаемый вердикт-действие (рус) + honesty-
 /// смягчение (решение 2a). Зеркалит engines.channel_action.soften_verdict_display
@@ -555,10 +572,11 @@ fn build_markdown(model: &Value, decompose: &Value, optimize: &Value) -> String 
             md.push_str(&format!("\n> ⚠ **{mr_label}.** {mr_caveat}\n"));
         }
     }
-    // 2026-08-07: рассинхрон диагностики и оптимизации (fingerprints_diverge) —
+    // 2026-08-07/08: рассинхрон диагностики и оптимизации
+    // (diagnostics_optimization_diverged: подпись модели ИЛИ вердикт надёжности) —
     // РЯДОМ с плашкой надёжности выше, не заменяет её (та про качество ЭТИХ
-    // чисел, эта про то, что числа — от другой модели, чем диагностика).
-    if fingerprints_diverge(model, optimize) {
+    // чисел, эта про то, что диагностика и оптимизация — из разных расчётов).
+    if diagnostics_optimization_diverged(model, optimize) {
         md.push_str(&format!("\n> ⚠ {FINGERPRINT_MISMATCH_TEXT}\n"));
     }
     md.push_str("\n---\n\n");
@@ -1309,9 +1327,10 @@ fn build_xlsx(
             }
         }
 
-        // 2026-08-07: рассинхрон диагностики и оптимизации (fingerprints_diverge) —
+        // 2026-08-07/08: рассинхрон диагностики и оптимизации
+        // (diagnostics_optimization_diverged: подпись модели ИЛИ вердикт надёжности) —
         // РЯДОМ с плашкой надёжности (строка 12), не поверх неё; строка 13 свободна.
-        if fingerprints_diverge(model, optimize) {
+        if diagnostics_optimization_diverged(model, optimize) {
             ws.write(13, 0, format!("⚠ {FINGERPRINT_MISMATCH_TEXT}"))
                 .map_err(|e| format!("{e}"))?;
         }
@@ -2785,14 +2804,17 @@ mod tests {
         let _ = std::fs::remove_file(&path);
     }
 
-    /// 2026-08-07: рассинхрон диагностики и оптимизации (fingerprints_diverge) —
-    /// предупреждение обязано появиться в Markdown И в XLSX при разных
-    /// model_fingerprint, и обязано отсутствовать при одинаковых, и обязано
-    /// отсутствовать когда поле не пришло вовсе (старый проект - молчим).
-    /// Мутационно проверено (обязательный шаг для этого проекта): временно
-    /// заставив fingerprints_diverge всегда возвращать false - обе ветки
-    /// "разные" (Markdown и XLSX) падали ровно на отсутствии текста
-    /// предупреждения; вернув логику - тест снова зелёный.
+    /// 2026-08-07/08: рассинхрон диагностики и оптимизации
+    /// (diagnostics_optimization_diverged) — предупреждение обязано появиться в
+    /// Markdown И в XLSX по любой из двух половин: (а) разные model_fingerprint,
+    /// (б) те же подписи, но разошлись вердикты model_reliability (случай
+    /// tools/recompute_mqs.py — диагностика пересчиталась без переобучения).
+    /// Молчим, если обе стороны совпадают, и если сверяемого поля нет вовсе
+    /// (старый проект). Мутационно проверено (обязательный шаг для этого
+    /// проекта): временно заставив diagnostics_optimization_diverged всегда
+    /// возвращать false - все ветки "должны предупредить" (и по подписи, и по
+    /// вердикту) падали ровно на отсутствии текста предупреждения; вернув
+    /// логику - тест снова зелёный.
     #[test]
     fn model_optimization_fingerprint_mismatch_warns_in_both_formats() {
         fn xlsx_contains(path: &Path, needle: &str) -> bool {
@@ -2868,5 +2890,110 @@ mod tests {
             "XLSX не должен предупреждать когда поле отсутствует (старый проект)"
         );
         let _ = std::fs::remove_file(&path_absent);
+
+        // Подписи совпадают, но вердикты надёжности разошлись (случай
+        // tools/recompute_mqs.py: диагностика пересчиталась без переобучения
+        // модели) - предупреждение обязано появиться.
+        let model_verdict_diverge = json!({"diagnostics": {
+            "model_fingerprint": "dd".repeat(32),
+            "model_reliability": {"verdict": "uncertain"}
+        }});
+        let optimize_verdict_diverge = json!({
+            "model_fingerprint": "dd".repeat(32),
+            "model_reliability": {"verdict": "reliable"},
+            "channels": optimize_channels
+        });
+        let md_verdict_diverge = build_markdown(&model_verdict_diverge, &decompose, &optimize_verdict_diverge);
+        assert!(
+            md_verdict_diverge.contains(FINGERPRINT_MISMATCH_TEXT),
+            "Markdown обязан предупредить при разных вердиктах model_reliability \
+             (подписи модели те же)"
+        );
+        let path_verdict_diverge = std::env::temp_dir().join("aurora_verdict_diverge_test.xlsx");
+        build_xlsx(&model_verdict_diverge, &decompose, &optimize_verdict_diverge, &[], None, "test", &path_verdict_diverge, None)
+            .expect("build_xlsx verdict diverge");
+        assert!(
+            xlsx_contains(&path_verdict_diverge, FINGERPRINT_MISMATCH_TEXT),
+            "XLSX обязан предупредить при разных вердиктах model_reliability \
+             (подписи модели те же)"
+        );
+        let _ = std::fs::remove_file(&path_verdict_diverge);
+
+        // Подписи и вердикты совпадают: молчим.
+        let model_verdict_same = json!({"diagnostics": {
+            "model_fingerprint": "ee".repeat(32),
+            "model_reliability": {"verdict": "reliable"}
+        }});
+        let optimize_verdict_same = json!({
+            "model_fingerprint": "ee".repeat(32),
+            "model_reliability": {"verdict": "reliable"},
+            "channels": optimize_channels
+        });
+        let md_verdict_same = build_markdown(&model_verdict_same, &decompose, &optimize_verdict_same);
+        assert!(
+            !md_verdict_same.contains(FINGERPRINT_MISMATCH_TEXT),
+            "Markdown не должен предупреждать при одинаковых вердиктах model_reliability"
+        );
+        let path_verdict_same = std::env::temp_dir().join("aurora_verdict_same_test.xlsx");
+        build_xlsx(&model_verdict_same, &decompose, &optimize_verdict_same, &[], None, "test", &path_verdict_same, None)
+            .expect("build_xlsx verdict same");
+        assert!(
+            !xlsx_contains(&path_verdict_same, FINGERPRINT_MISMATCH_TEXT),
+            "XLSX не должен предупреждать при одинаковых вердиктах model_reliability"
+        );
+        let _ = std::fs::remove_file(&path_verdict_same);
+
+        // Вердикта нет в диагностике (старый проект), в оптимизации есть:
+        // молчим - ложная тревога у существующих клиентов дороже пропуска.
+        let model_verdict_absent = json!({"diagnostics": {
+            "model_fingerprint": "ff".repeat(32)
+        }});
+        let optimize_verdict_absent = json!({
+            "model_fingerprint": "ff".repeat(32),
+            "model_reliability": {"verdict": "reliable"},
+            "channels": optimize_channels
+        });
+        let md_verdict_absent = build_markdown(&model_verdict_absent, &decompose, &optimize_verdict_absent);
+        assert!(
+            !md_verdict_absent.contains(FINGERPRINT_MISMATCH_TEXT),
+            "Markdown не должен предупреждать когда вердикта нет в диагностике \
+             (старый проект)"
+        );
+        let path_verdict_absent = std::env::temp_dir().join("aurora_verdict_absent_test.xlsx");
+        build_xlsx(&model_verdict_absent, &decompose, &optimize_verdict_absent, &[], None, "test", &path_verdict_absent, None)
+            .expect("build_xlsx verdict absent");
+        assert!(
+            !xlsx_contains(&path_verdict_absent, FINGERPRINT_MISMATCH_TEXT),
+            "XLSX не должен предупреждать когда вердикта нет в диагностике \
+             (старый проект)"
+        );
+        let _ = std::fs::remove_file(&path_verdict_absent);
+
+        // Регистр вердиктов различается ("Uncertain" vs "uncertain") - это
+        // один и тот же вердикт, сверка регистронезависима: молчим.
+        let model_verdict_case = json!({"diagnostics": {
+            "model_fingerprint": "gg".repeat(32),
+            "model_reliability": {"verdict": "Uncertain"}
+        }});
+        let optimize_verdict_case = json!({
+            "model_fingerprint": "gg".repeat(32),
+            "model_reliability": {"verdict": "uncertain"},
+            "channels": optimize_channels
+        });
+        let md_verdict_case = build_markdown(&model_verdict_case, &decompose, &optimize_verdict_case);
+        assert!(
+            !md_verdict_case.contains(FINGERPRINT_MISMATCH_TEXT),
+            "Markdown не должен предупреждать при различии только в регистре \
+             вердикта ('Uncertain' vs 'uncertain')"
+        );
+        let path_verdict_case = std::env::temp_dir().join("aurora_verdict_case_test.xlsx");
+        build_xlsx(&model_verdict_case, &decompose, &optimize_verdict_case, &[], None, "test", &path_verdict_case, None)
+            .expect("build_xlsx verdict case-insensitive");
+        assert!(
+            !xlsx_contains(&path_verdict_case, FINGERPRINT_MISMATCH_TEXT),
+            "XLSX не должен предупреждать при различии только в регистре \
+             вердикта ('Uncertain' vs 'uncertain')"
+        );
+        let _ = std::fs::remove_file(&path_verdict_case);
     }
 }

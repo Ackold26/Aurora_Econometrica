@@ -58,7 +58,17 @@ _DEF = re.compile(r"^def\s+\w+")
 
 
 def _mutation_re(var: str) -> re.Pattern[str]:
-    return re.compile(rf"^\s*{re.escape(var)}\s*(\[[^\]]+\]\s*=|\.setdefault\(|\.update\()")
+    """Шаблон изменения словаря диагностики.
+
+    🔴 Скобочных групп может быть НЕСКОЛЬКО: внешний аудит показал, что первая
+    редакция ловила только `diagnostics['x'] = …` и пропускала вложенное
+    `diagnostics['metrics']['x'] = …`. А вложенные ключи — как раз то, что
+    вердикт и читает (`metrics`, `checks`, `mqs`), так что дыра была ровно в
+    самом чувствительном месте.
+    """
+    return re.compile(
+        rf"^\s*{re.escape(var)}\s*((\[[^\]]+\])+\s*=|\.setdefault\(|\.update\()"
+    )
 
 
 def _lines(path: Path) -> list[str]:
@@ -307,6 +317,37 @@ def test_writer_detector_actually_detects(tmp_path: Path) -> None:
         "красным всегда и его отключат"
     )
 
+    # 🔴 Другие естественные формы записи — их первая редакция поиска не видела
+    # (нашёл внешний аудит). Каждая обязана быть замечена, иначе новый писатель
+    # обойдёт сторожа, просто написав код чуть иначе.
+    формы = {
+        "inline_open.py": (
+            "import json\n"
+            "def save(results_dir, diagnostics):\n"
+            "    with open(results_dir / 'model-diagnostics.json', 'w') as f:\n"
+            "        json.dump(diagnostics, f)\n"
+        ),
+        "write_text_var.py": (
+            "import json\n"
+            "def save(results_dir, diagnostics):\n"
+            "    p = results_dir / 'model-diagnostics.json'\n"
+            "    p.write_text(json.dumps(diagnostics), encoding='utf-8')\n"
+        ),
+        "write_text_inline.py": (
+            "import json\n"
+            "def save(results_dir, diagnostics):\n"
+            "    (results_dir / 'model-diagnostics.json').write_text(json.dumps(diagnostics))\n"
+        ),
+    }
+    нарушитель.unlink()
+    for имя, текст in формы.items():
+        (tmp_path / имя).write_text(текст, encoding="utf-8")
+    assert sorted(_unstamped_writers(tmp_path)) == sorted(формы), (
+        f"поиск не увидел часть форм записи диагностики: ожидались {sorted(формы)}, "
+        f"найдено {sorted(_unstamped_writers(tmp_path))}. Новый писатель обойдёт "
+        f"сторожа, просто написав запись иначе."
+    )
+
 
 def _unstamped_writers(root: Path) -> list[str]:
     """Файлы под `root`, которые пишут диагностику мимо штампа."""
@@ -326,11 +367,25 @@ def _unstamped_writers(root: Path) -> list[str]:
         # Пишет, а не читает: имя файла кладётся в переменную, и ЭТА переменная
         # открывается на запись. Простое совпадение имени в файле ничего не значит —
         # диагностику многие только читают.
+        # 🔴 Формы записи, которые надо видеть. Первая редакция знала только
+        # «путь в переменную, потом open(переменная, 'w')» — внешний аудит
+        # показал, что ни встроенный open с самим именем файла, ни write_text
+        # она не замечает, то есть новый писатель прошёл бы мимо неё спокойно.
         writes = False
+        # (1) имя файла прямо в open(..., 'w')
+        if re.search(rf"open\s*\([^)]*{re.escape(_DIAG_FILE)}[^)]*['\"]w", text):
+            writes = True
         for var in re.findall(rf"(\w+)\s*=\s*[^\n]*{re.escape(_DIAG_FILE)}", text):
-            if re.search(rf"open\s*\(\s*{re.escape(var)}\s*,\s*['\"]w", text):
+            v = re.escape(var)
+            # (2) путь в переменную, потом open(переменная, 'w')
+            if re.search(rf"open\s*\(\s*{v}\s*,\s*['\"]w", text):
                 writes = True
-                break
+            # (3) путь в переменную, потом переменная.write_text(...)
+            if re.search(rf"{v}\s*\.\s*write_text\s*\(", text):
+                writes = True
+        # (4) write_text прямо на выражении с именем файла
+        if re.search(rf"{re.escape(_DIAG_FILE)}['\"]?\s*\)?\s*\.\s*write_text\s*\(", text):
+            writes = True
         if not writes:
             continue
         if py.resolve() in known:
@@ -349,7 +404,12 @@ def _unstamped_writers(root: Path) -> list[str]:
 # файлов до клиентского вывода.
 
 
-def _builder_data(diag_fp: str | None, opt_fp: str | None) -> dict:
+def _builder_data(
+    diag_fp: str | None,
+    opt_fp: str | None,
+    diag_verdict: str | None = None,
+    opt_verdict: str | None = None,
+) -> dict:
     from engines.narrative_adapter import _map_pipeline_to_builder_data
 
     diagnostics = {
@@ -360,9 +420,19 @@ def _builder_data(diag_fp: str | None, opt_fp: str | None) -> dict:
     }
     if diag_fp:
         diagnostics["model_fingerprint"] = diag_fp
+    if diag_verdict:
+        diagnostics["model_reliability"] = {
+            "verdict": diag_verdict, "refused": False,
+            "reasons": [], "caveat_text": "оговорка",
+        }
     optimize: dict = {}
     if opt_fp:
         optimize["model_fingerprint"] = opt_fp
+    if opt_verdict:
+        optimize["model_reliability"] = {
+            "verdict": opt_verdict, "refused": False,
+            "reasons": [], "caveat_text": "оговорка",
+        }
     return _map_pipeline_to_builder_data(
         model_data={"diagnostics": diagnostics},
         decompose_data={},
@@ -404,6 +474,42 @@ def test_bridge_raises_provenance_flag_only_on_real_mismatch() -> None:
             f"мост поднял тревогу в случае «{случай}» — все проекты, обученные до "
             f"этой правки, покроются ложным предупреждением"
         )
+
+
+def test_bridge_catches_stale_verdict_when_model_did_not_change() -> None:
+    """🔴 Одной подписи модели мало: пересчёт качества модель не трогает.
+
+    `tools/recompute_mqs.py` пересчитывает качество без переобучения. Диагностика
+    меняется, модель — нет, подпись остаётся ПРЕЖНЕЙ. Замороженный вердикт в
+    результатах оптимизации при этом устаревает, и расхождение форматов —
+    HTML и презентация от свежей диагностики, Markdown и XLSX от старой копии —
+    выживает незамеченным. Дыру нашёл внешний аудит, сверка по одной подписи её
+    не видела.
+    """
+    одна_подпись = "f" * 64
+    расхождение = _builder_data(
+        одна_подпись, одна_подпись, diag_verdict="uncertain", opt_verdict="reliable"
+    )["diagnostics"]
+    assert расхождение.get("provenance_mismatch") is True, (
+        "подписи совпадают, а вердикты разные — сверка обязана сработать: иначе "
+        "клиент получит в XLSX «модель надёжна», а в HTML «ориентировочно» по "
+        "одной и той же модели"
+    )
+
+    совпали = _builder_data(
+        одна_подпись, одна_подпись, diag_verdict="uncertain", opt_verdict="uncertain"
+    )["diagnostics"]
+    assert not совпали.get("provenance_mismatch"), (
+        "тревога поднята там, где оба вердикта одинаковы"
+    )
+
+    только_в_оптимизации = _builder_data(
+        одна_подпись, одна_подпись, opt_verdict="reliable"
+    )["diagnostics"]
+    assert not только_в_оптимизации.get("provenance_mismatch"), (
+        "у проектов, обученных до правки, вердикта в диагностике нет — сравнивать "
+        "не с чем, и молчание тут единственно честное поведение"
+    )
 
 
 def test_html_shows_provenance_note_even_when_model_is_reliable() -> None:
@@ -496,14 +602,25 @@ def test_fingerprint_key_is_written_by_python() -> None:
     ols = (_ENGINES / "ols_modeler.py").read_text(encoding="utf-8")
     optimizer = (_ENGINES / "optimizer.py").read_text(encoding="utf-8")
 
+    # 🔴 Проверяем ПРИСВОЕНИЕ, а не упоминание. Первая редакция этого сторожа
+    # искала имя поля как подстроку — и внешний аудит показал, что снятие
+    # переноса подписи в optimizer.py оставляет ВЕСЬ набор зелёным: имя всё ещё
+    # встречается в соседней строке ЧТЕНИЯ (`_diagnostics.get('model_fingerprint')`)
+    # и в пояснении. Вся сверка происхождения умирала молча. Тот же класс, что
+    # «наличие вызова не означает, что результат используется».
     for name, text in (("modeler.py", modeler), ("ols_modeler.py", ols)):
-        assert f"diagnostics['{_FINGERPRINT_KEY}']" in text, (
-            f"{name} не кладёт {_FINGERPRINT_KEY} в диагностику — отчёт не сможет "
-            f"понять, на какой модели посчитаны показанные числа"
+        assert re.search(rf"diagnostics\[['\"]{_FINGERPRINT_KEY}['\"]\]\s*=", text), (
+            f"{name} не ПРИСВАИВАЕТ {_FINGERPRINT_KEY} в диагностику — отчёт не "
+            f"сможет понять, на какой модели посчитаны показанные числа"
         )
-    assert f"'{_FINGERPRINT_KEY}'" in optimizer, (
-        "optimizer.py не переносит опознаватель модели в результат оптимизации — "
-        "сверка происхождения на стороне отчёта станет невозможной"
+    assert re.search(rf"result_data\[['\"]{_FINGERPRINT_KEY}['\"]\]\s*=", optimizer), (
+        "optimizer.py не ПЕРЕНОСИТ опознаватель модели в результат оптимизации — "
+        "сверка происхождения на стороне отчёта становится невозможной, и при этом "
+        "ничего не падает: именно так эта дыра и пряталась от первой редакции сторожа"
+    )
+    assert re.search(r"result_data\[['\"]model_reliability['\"]\]\s*=", optimizer), (
+        "optimizer.py не кладёт вердикт надёжности в результат оптимизации — "
+        "Markdown и XLSX останутся без плашки надёжности вовсе"
     )
 
 

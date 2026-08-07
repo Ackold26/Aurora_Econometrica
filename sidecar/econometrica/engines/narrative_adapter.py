@@ -1014,7 +1014,20 @@ def _map_pipeline_to_builder_data(
         # подписи могут отсутствовать (старые проекты) — тогда сверки нет.
         _diag_fp = diag_src.get("model_fingerprint")
         _opt_fp = optimize_data.get("model_fingerprint")
-        if _diag_fp and _opt_fp and _diag_fp != _opt_fp:
+        _подписи_разошлись = bool(_diag_fp and _opt_fp and _diag_fp != _opt_fp)
+        # 🔴 Вторая половина сверки (внешний аудит 2026-08-08). Одной подписи
+        # модели МАЛО: `tools/recompute_mqs.py` пересчитывает качество модели
+        # без переобучения — диагностика меняется, сама модель нет, подпись
+        # остаётся прежней. Замороженный вердикт в optimization.json при этом
+        # устаревает, и расхождение форматов, ради которого всё затевалось,
+        # выживает незамеченным. Поэтому сравниваем ещё и сами вердикты.
+        _diag_v = str((diag_src.get("model_reliability") or {}).get("verdict") or "").lower()
+        _opt_v = str((optimize_data.get("model_reliability") or {}).get("verdict") or "").lower()
+        _вердикты_разошлись = bool(_diag_v and _opt_v and _diag_v != _opt_v)
+        # Нет какой-то из величин — этой половины сверки просто не делаем:
+        # проекты, обученные до правки, обязаны молчать. Ложная тревога здесь
+        # дороже пропуска, она подрывает доверие ко всем предупреждениям сразу.
+        if _подписи_разошлись or _вердикты_разошлись:
             from utils.diagnostics import PROVENANCE_MISMATCH_NOTE
             diagnostics["provenance_mismatch"] = True
             diagnostics["provenance_note"] = PROVENANCE_MISMATCH_NOTE
