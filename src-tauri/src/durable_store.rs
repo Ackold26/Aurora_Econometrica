@@ -528,7 +528,7 @@ pub fn quarantine_copies_of(path: &Path) -> Vec<PathBuf> {
             p.is_file()
                 && p.file_name()
                     .and_then(|n| n.to_str())
-                    .map_or(false, |n| n.starts_with(&prefix) && n.ends_with(QUARANTINE_SUFFIX))
+                    .is_some_and(|n| n.starts_with(&prefix) && n.ends_with(QUARANTINE_SUFFIX))
         })
         .collect()
 }

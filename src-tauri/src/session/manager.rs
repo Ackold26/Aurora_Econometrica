@@ -617,7 +617,7 @@ fn route_targets_for(name_lower: &str, source_cabinet_id: &str, visible: &[Strin
         if name_lower.contains(pattern) {
             return targets
                 .iter()
-                .map(|t| *t)
+                .copied()
                 .filter(|t| *t != source_cabinet_id && visible.iter().any(|v| v.as_str() == *t))
                 .collect();
         }

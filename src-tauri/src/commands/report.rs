@@ -962,6 +962,7 @@ fn decomposition_timeline_columns(decompose: &Value) -> (Vec<String>, Vec<(Strin
     (dates, columns)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn build_xlsx(
     model: &Value,
     decompose: &Value,

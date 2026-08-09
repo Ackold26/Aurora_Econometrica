@@ -589,7 +589,11 @@ describe('ветка метки на НАСТОЯЩЕМ вызове git (мет
     // Метка АННОТИРОВАННАЯ — как все метки Core.
     git(repoDir, 'tag', '-a', 'annotated-tag', '-m', 'метка выпуска');
     commitSha = execFileSync('git', ['rev-parse', 'annotated-tag^{}'], { cwd: repoDir, encoding: 'utf8' }).trim();
-  });
+    // Таймаут увеличен (10с дефолт → 30с): семь подряд-идущих спавнов git.exe на
+    // Windows CI под нагрузкой конкурентных прогонов один раз превысили 10с
+    // (2026-08-09) — не сеть, локальный git, просто накладные расходы Windows
+    // на создание процесса; повторов не поймано ни разу.
+  }, 30000);
 
   afterAll(() => {
     rmSync(repoDir, { recursive: true, force: true });
