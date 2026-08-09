@@ -69,7 +69,12 @@ class TestValidateDataNumericGate:
         ), 'нет подсказки non_numeric_role'
 
     def test_money_string_control_kept(self, tmp_path):
-        """Money-строковая control-колонка парсится → роль control сохраняется."""
+        """Money-строковая control-колонка: численный гейт ролей (497) видит
+        число → роль control сохраняется. Но dtype колонки остаётся текстовым
+        (Excel не приводит «500 000 ₽» к числу сам) → отдельная critical-проверка
+        формата (validator.py:702-718, 2026-08-03) поднимает status='error':
+        без неё astype(float) в modeler.py тихо упал бы при обучении, пока
+        пользователь не переформатирует файл."""
         df = pd.DataFrame({
             'date': pd.date_range('2022-01-01', periods=12, freq='ME').strftime('%Y-%m-%d'),
             'sales': range(100, 112),
@@ -79,11 +84,22 @@ class TestValidateDataNumericGate:
         f = tmp_path / 'data.xlsx'
         df.to_excel(f, index=False)
         r = validate_data(str(f))
-        assert r['status'] != 'error'
         cat = next(c for c in r['columns'] if c['name'] == 'Продажи категории руб')
         # Имя: ТЕМА(категории)+ОБЪЁМ(продажи/руб) → control; значения money-строки
-        # парсятся → гейт НЕ снимает роль.
+        # парсятся → численный гейт ролей НЕ снимает роль.
         assert cat['role'] == 'control', f"money-строка control ошибочно снята: {cat['role']}"
+        # Но status обязан стать 'error' — critical-проверка формата видит, что
+        # колонка осталась текстовой, и предупреждает ДО обучения.
+        assert r['status'] == 'error', f"critical-проверка формата не сработала: status={r['status']}"
+        fmt_issues = [
+            i for i in r['issues']
+            if i['column'] == 'Продажи категории руб' and i['type'] == 'non_numeric_format'
+        ]
+        assert fmt_issues, 'нет critical issue non_numeric_format для money-строки'
+        assert fmt_issues[0]['severity'] == 'critical'
+        assert 'формат' in fmt_issues[0]['message'] or 'текст' in fmt_issues[0]['message'], (
+            f"сообщение не про формат/текст: {fmt_issues[0]['message']}"
+        )
 
     def test_numeric_media_unaffected(self, tmp_path):
         """Числовой media-столбец гейт не трогает."""
