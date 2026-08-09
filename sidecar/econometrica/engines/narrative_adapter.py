@@ -708,7 +708,13 @@ def _derive_narrative_facts(
     # unreliable → UI прячет переброску (OptimizeStep.svelte applyOptimal()
     # guard, тот же флаг). Директивные заголовки/ответы SCQAR должны следовать
     # тому же правилу — переброска не строится на несошедшейся модели.
-    model_refused = bool((optimize_data.get("model_reliability") or {}).get("refused", False))
+    # 🔴 Тип проверяется ЯВНО, а не через `or {}`: непустая строка truthy, поэтому
+    # `(x or {}).get(...)` на испорченном поле («model_reliability»: «unreliable»
+    # строкой) роняет AttributeError и уносит сборку ВСЕГО отчёта. Ровно этот
+    # дефект чинился в 3ab7b6f двадцатью строками ниже — и был написан заново
+    # здесь; поймал внешний аудит блока, не глаза.
+    _mr = optimize_data.get("model_reliability")
+    model_refused = bool(_mr.get("refused", False)) if isinstance(_mr, dict) else False
     optimize_min_pct = optimize_data.get("min_pct_used")
     optimize_max_pct = optimize_data.get("max_pct_used")
     # math-fix v1.0.14.1, A4 (audit-of-audit 2026-04-28): false convergence

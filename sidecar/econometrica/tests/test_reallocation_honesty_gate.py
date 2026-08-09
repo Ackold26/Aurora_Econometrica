@@ -42,6 +42,22 @@ def test_derive_narrative_facts_not_refused_by_default():
     assert facts["model_refused"] is False
 
 
+def test_derive_narrative_facts_survives_corrupted_model_reliability():
+    """Испорченное поле (строка вместо словаря в повреждённом optimization.json)
+    НЕ должно ронять сборку отчёта целиком.
+
+    Найдено внешним аудитом блока 09.08: первая версия читала поле через
+    `(x or {}).get(...)` — непустая строка truthy, поэтому `or {}` не
+    срабатывает и `.get` на строке даёт AttributeError. Тот же класс дефекта
+    чинился коммитом 3ab7b6f в этом же файле и был написан заново.
+    """
+    channels = _channels()
+    for corrupted in ("unreliable", [], 0, "", 42):
+        optimize_data = {"model_reliability": corrupted, "expected_lift_pct": 12.0}
+        facts = _derive_narrative_facts(channels, optimize_data, None, None)
+        assert facts["model_refused"] is False, f"на {corrupted!r} ожидался безопасный False"
+
+
 def test_action_headline_refused_replaces_directive_all_hints():
     """При refused=true ни один из четырёх слайдов не получает директиву
     (Нарастить/Сократить/Перераспределить/Консолидировать) — только честное
