@@ -1,0 +1,98 @@
+    Checking aurora-econometrica-gui v2.4.5 (D:\Docs\Aurora_Ai\Dev\Aurora_Econometrica_thinwt\src-tauri)
+error: this function has too many arguments (8/7)
+   --> src-tauri\src\commands\report.rs:965:1
+    |
+965 | / fn build_xlsx(
+966 | |     model: &Value,
+967 | |     decompose: &Value,
+968 | |     optimize: &Value,
+...   |
+975 | |     glossary: Option<&Value>,
+976 | | ) -> Result<(), String> {
+    | |_______________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.96.0/index.html#too_many_arguments
+    = note: `-D clippy::too-many-arguments` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::too_many_arguments)]`
+
+error: doc list item without indentation
+  --> src-tauri\src\crypto\auth_sig.rs:22:5
+   |
+22 | //! Пока `AUTH_SIG_ENFORCEMENT = Soft`, честная формулировка — «сокращает срок жизни подделки и
+   |     ^
+   |
+   = help: if this is supposed to be its own paragraph, add a blank line
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.96.0/index.html#doc_lazy_continuation
+   = note: `-D clippy::doc-lazy-continuation` implied by `-D warnings`
+   = help: to override `-D warnings` add `#[allow(clippy::doc_lazy_continuation)]`
+help: indent this line
+   |
+22 | //!     Пока `AUTH_SIG_ENFORCEMENT = Soft`, честная формулировка — «сокращает срок жизни подделки и
+   |     ++++
+
+error: doc list item without indentation
+  --> src-tauri\src\crypto\auth_sig.rs:23:5
+   |
+23 | //! отсекает подделку с неверной подписью», а не «подделка невозможна».
+   |     ^
+   |
+   = help: if this is supposed to be its own paragraph, add a blank line
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.96.0/index.html#doc_lazy_continuation
+help: indent this line
+   |
+23 | //!     отсекает подделку с неверной подписью», а не «подделка невозможна».
+   |     ++++
+
+error: this `map_or` can be simplified
+   --> src-tauri\src\durable_store.rs:529:20
+    |
+529 |                   && p.file_name()
+    |  ____________________^
+530 | |                     .and_then(|n| n.to_str())
+531 | |                     .map_or(false, |n| n.starts_with(&prefix) && n.ends_with(QUARANTINE_SUFFIX))
+    | |________________________________________________________________________________________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.96.0/index.html#unnecessary_map_or
+    = note: `-D clippy::unnecessary-map-or` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::unnecessary_map_or)]`
+help: use `is_some_and` instead
+    |
+531 -                     .map_or(false, |n| n.starts_with(&prefix) && n.ends_with(QUARANTINE_SUFFIX))
+531 +                     .is_some_and(|n| n.starts_with(&prefix) && n.ends_with(QUARANTINE_SUFFIX))
+    |
+
+error: this `map_or` can be simplified
+   --> src-tauri\src\session\history.rs:234:20
+    |
+234 |                   && p.file_name()
+    |  ____________________^
+235 | |                     .and_then(|n| n.to_str())
+236 | |                     .map_or(false, |n| n.starts_with(&prefix) && n.ends_with(".json"))
+    | |______________________________________________________________________________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.96.0/index.html#unnecessary_map_or
+help: use `is_some_and` instead
+    |
+236 -                     .map_or(false, |n| n.starts_with(&prefix) && n.ends_with(".json"))
+236 +                     .is_some_and(|n| n.starts_with(&prefix) && n.ends_with(".json"))
+    |
+
+error: you are using an explicit closure for copying elements
+   --> src-tauri\src\session\manager.rs:618:20
+    |
+618 |               return targets
+    |  ____________________^
+619 | |                 .iter()
+620 | |                 .map(|t| *t)
+    | |____________________________^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.96.0/index.html#map_clone
+    = note: `-D clippy::map-clone` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::map_clone)]`
+help: consider calling the dedicated `copied` method
+    |
+618 ~             return targets
+619 +                 .iter().copied()
+    |
+
+error: could not compile `aurora-econometrica-gui` (lib) due to 6 previous errors
