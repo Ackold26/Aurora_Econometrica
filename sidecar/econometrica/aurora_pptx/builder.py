@@ -2715,16 +2715,23 @@ class AuroraPPTXBuilder:
             # scale_destination from action_summary вместо leader/hero.
             cut_source = f.get("cut_source_channel")
             scale_dest = f.get("scale_destination_channel")
-            answer_parts = []
-            if cut_source and scale_dest and realloc >= 1:
-                answer_parts.append(f"Перераспределить {realloc:.0f} млн ₽ из {cut_source} в {scale_dest}")
-            elif scale_dest and realloc >= 1:
-                answer_parts.append(f"Нарастить {scale_dest} на ~{realloc:.0f} млн ₽")
-            elif cut_source and realloc >= 1:
-                answer_parts.append(f"Сократить {cut_source} ({realloc:.0f} млн ₽)")
-            if underperf:
-                answer_parts.append(f"остановить {underperf_str}")
-            answer_body = "; ".join(answer_parts) + "." if answer_parts else f"Сохранить текущую аллокацию по {leader} с контролем насыщения."
+            # Честность отчётов (09.08): та же причина, что гейтит action_title
+            # выше через derive_action_headline (model_refused) - здесь узел
+            # свой, отдельный от derive_action_headline, гейт дублируется
+            # намеренно (тот же флаг, оба узла независимо формируют директиву).
+            if f.get("model_refused"):
+                answer_body = "Модель не завершила расчёт корректно – рекомендации по переброске отключены."
+            else:
+                answer_parts = []
+                if cut_source and scale_dest and realloc >= 1:
+                    answer_parts.append(f"Перераспределить {realloc:.0f} млн ₽ из {cut_source} в {scale_dest}")
+                elif scale_dest and realloc >= 1:
+                    answer_parts.append(f"Нарастить {scale_dest} на ~{realloc:.0f} млн ₽")
+                elif cut_source and realloc >= 1:
+                    answer_parts.append(f"Сократить {cut_source} ({realloc:.0f} млн ₽)")
+                if underperf:
+                    answer_parts.append(f"остановить {underperf_str}")
+                answer_body = "; ".join(answer_parts) + "." if answer_parts else f"Сохранить текущую аллокацию по {leader} с контролем насыщения."
 
             # B1-fix R-13: вопрос согласован со сценарием — при hold-исходе
             # «как перераспределить» обещал то, чего ответ не даёт.

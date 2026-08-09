@@ -470,6 +470,18 @@ def derive_action_headline(
     hero = facts.get("hero_channel") or leader
     underperf = facts.get("underperformer_names") or []
 
+    # Честность отчётов (09.08): модель unreliable (refused) → директивный
+    # заголовок не строим ни на одном слайде. Тот же флаг, что UI читает в
+    # applyOptimal() guard (OptimizeStep.svelte) — переброска не применяется
+    # автоматически, потому что модель не завершила расчёт корректно.
+    # Проверяется ПЕРВЫМ, до honest_narrative: обе честностные ветки взаимно
+    # исключающие причины не давать директиву, но refused - более серьёзный
+    # сигнал (модель отказала целиком, не просто baseline-доминирована).
+    if bool(facts.get("model_refused")):
+        if slide_hint == "scqar":
+            return "Модель не завершила расчёт корректно – переброска бюджета отключена"
+        return "Модель не завершила расчёт корректно – рекомендации по переброске недоступны"
+
     # Honest narrative: baseline-dominated model (media < 10% of total sales).
     # Override slide-specific action headlines with diagnostic/disclosure
     # framing - recommending "grow channel X" makes no sense when total media
@@ -692,6 +704,11 @@ def _derive_narrative_facts(
     # места для манёвра".
     binding = bool(optimize_data.get("binding_constraints", False))
     converged = optimize_data.get("optimization_converged", True)
+    # Честность отчётов (ЖДЁТ РЕШЕНИЯ ВЛАДЕЛЬЦА, зафиксировано 09.08): модель
+    # unreliable → UI прячет переброску (OptimizeStep.svelte applyOptimal()
+    # guard, тот же флаг). Директивные заголовки/ответы SCQAR должны следовать
+    # тому же правилу — переброска не строится на несошедшейся модели.
+    model_refused = bool((optimize_data.get("model_reliability") or {}).get("refused", False))
     optimize_min_pct = optimize_data.get("min_pct_used")
     optimize_max_pct = optimize_data.get("max_pct_used")
     # math-fix v1.0.14.1, A4 (audit-of-audit 2026-04-28): false convergence
@@ -772,6 +789,8 @@ def _derive_narrative_facts(
         "baseline_pct": baseline_pct,
         "media_contribution_pct": media_contrib_pct,
         "honest_narrative": honest_narrative,
+        # Честность отчётов (09.08): переброска не строится на несошедшейся модели.
+        "model_refused": model_refused,
         # Optimizer state (Phase 0.1 fix-session + v1.0.14.1)
         "binding_constraints": binding,
         "optimization_converged": converged,

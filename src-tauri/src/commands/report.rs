@@ -704,7 +704,16 @@ fn build_markdown(model: &Value, decompose: &Value, optimize: &Value) -> String 
 
     // ── Recommendations ──────────────────────────────────────
     md.push_str("## РЕКОМЕНДАЦИИ\n\n");
-    if lift > 5.0 {
+    // Честность отчётов (09.08, ЖДЁТ РЕШЕНИЯ ВЛАДЕЛЬЦА закрыто): та же логика,
+    // что applyOptimal() guard в OptimizeStep.svelte — при unreliable модели
+    // (refused) переброска не применяется автоматически на живом экране;
+    // здесь эквивалент — директиву не печатаем. Таблица «Текущее vs
+    // Оптимальное» (выше) не трогаем: UI тоже продолжает ПОКАЗЫВАТЬ цифры,
+    // просто не подставляет их на слайдеры — гейтим действие, не данные.
+    let mr_refused = optimize["model_reliability"]["refused"].as_bool().unwrap_or(false);
+    if mr_refused {
+        md.push_str("- Модель не завершила расчёт корректно – рекомендации по переброске бюджета отключены (см. плашку надёжности выше)\n");
+    } else if lift > 5.0 {
         md.push_str(&format!("- [ВЫСОКАЯ] Перераспределить бюджет согласно оптимальному плану – ожидаемый прирост **{lift:+.1}%**\n"));
     } else if lift > 0.0 {
         md.push_str(&format!("- [СРЕДНЯЯ] Рассмотреть корректировку бюджетного распределения – ожидаемый прирост {lift:+.1}%\n"));
@@ -2479,6 +2488,38 @@ mod tests {
         assert!(
             !recs.contains(" - "),
             "в разделе рекомендаций остался дефис-минус вместо короткого тире:\n{recs}"
+        );
+    }
+
+    #[test]
+    fn markdown_refused_model_omits_reallocation_directive() {
+        // Честность отчётов (09.08, ЖДЁТ РЕШЕНИЯ ВЛАДЕЛЬЦА закрыто): при
+        // model_reliability.refused=true директива «Перераспределить» не
+        // должна печататься, а таблица «Текущее vs Оптимальное» должна
+        // остаться (гейтим действие, не данные — тот же принцип, что UI
+        // OptimizeStep.svelte applyOptimal() guard).
+        let model = json!({"diagnostics": {"mqs": {"score": 70.0}}});
+        let decompose = json!({"channels": [{"name": "TV", "roi": 2.0}]});
+        let optimize = json!({
+            "expected_lift_pct": 12.0,
+            "model_reliability": {"verdict": "unreliable", "refused": true,
+                "caveat_text": "Модель не завершила расчёт корректно"},
+            "channels": [
+                {"name": "TV", "current_spend_money": 100.0, "optimal_spend_money": 150.0}
+            ],
+        });
+        let md = build_markdown(&model, &decompose, &optimize);
+        assert!(
+            !md.contains("Перераспределить бюджет согласно оптимальному плану"),
+            "директива не должна печататься при refused=true:\n{md}"
+        );
+        assert!(
+            md.contains("Текущее vs Оптимальное распределение"),
+            "таблица данных обязана остаться — гейтим действие, не данные:\n{md}"
+        );
+        assert!(
+            md.contains("150"),
+            "цифры расчёта должны быть видны, даже если директива не даётся:\n{md}"
         );
     }
 
