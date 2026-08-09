@@ -1,779 +1,2558 @@
-diff --git a/src-tauri/src/commands/claude.rs b/src-tauri/src/commands/claude.rs
-index bdb64e4..407f8e8 100644
---- a/src-tauri/src/commands/claude.rs
-+++ b/src-tauri/src/commands/claude.rs
-@@ -30,6 +30,10 @@ pub struct ChatMessage {
- pub enum ClaudeError {
-     RateLimit,
-     Overloaded,
-+    /// 🔴 CPD-10: исчерпана подписочная квота. Отдельно от `RateLimit` намеренно: ограничение
-+    /// частоты проходит само через минуты, а квота — нет, до конца расчётного окна. Свести их
-+    /// в одно значило бы обещать клиенту автоматический повтор, который никогда не сработает.
-+    UsageLimit,
-     AuthError,
-     NetworkError,
-     Unknown(String),
-@@ -37,6 +41,9 @@ pub enum ClaudeError {
+diff --git a/Projects/RELIABILITY_SSOT_STATE.md b/Projects/RELIABILITY_SSOT_STATE.md
+new file mode 100644
+index 0000000..adda64f
+--- /dev/null
++++ b/Projects/RELIABILITY_SSOT_STATE.md
+@@ -0,0 +1,203 @@
++# Состояние блока: единый источник вердикта надёжности (2026-08-07)
++
++Durable-журнал текущего захода. Обновляется по ходу. Всё, что ниже, **проверено лично по коду**,
++а не принято со слов субагента.
++
++## 1. Уточнение постановки задачи 1
++
++Промт следующей сессии описывал дефект как «две функции на разных входах». По коду картина иная:
++
++**Функция одна** — `model_reliability_verdict(diagnostics)`, `sidecar/econometrica/utils/optimizer_honesty.py:63`.
++**Вход у всех один и тот же файл** — `results/model-diagnostics.json`.
++**Расходится момент вычисления.**
++
++### Кто вычисляет
++
++| № | Место | Когда | Что кладёт |
++|---|---|---|---|
++| 1 | `modeler.py:1435-1444` | при обучении (байес) | `diagnostics['honesty_verdict']` + `honesty_reasons` — **без** `caveat_text` и `refused` |
++| 2 | `ols_modeler.py:418-429` | при обучении (малые данные) | то же |
++| 3 | `optimizer.py:1635-1640` | на шаге оптимизации | полный дикт в `optimization.json` → `model_reliability` |
++| 4 | `narrative_adapter.py:986-1004` | при сборке отчёта | пересчёт → `honesty_verdict` / `honesty_reasons` / `honesty_caveat_text` |
++| 5 | `aurora_html/sections.py:434-444` | при отрисовке HTML | запасной пересчёт для старых проектов |
++
++### Кто читает
++
++| Читатель | Источник | Момент |
++|---|---|---|
++| Rust `report.rs:508, 565` (Markdown), `:1252, :1429` (XLSX) | `optimize["model_reliability"]` | заморожен на шаге оптимизации |
++| `src/lib/tier2-context.js:131` (контекст для языковой модели) | то же | заморожен |
++| `OptimizeStep.svelte:384` | то же | заморожен |
++| `OptimizeStep.svelte:387`, `DecomposeStep.svelte:250` | `modelData.diagnostics.honesty_verdict` | штамп момента обучения |
++| HTML и PPTX | через мост | пересчёт в момент сборки |
++
++## 2. 🔴 Проверенный дефект: штамп ставится до сборки диагностики
++
++`modeler.py:1438` штампует вердикт. `modeler.py:1851` кладёт в ту же диагностику признак
++`holidays_excluded`. **Штамп идёт на 413 строк раньше признака.** Между ними ещё калибровка
++(`:1881-1884`). Запись файла — `:1904`.
++
++Комментарий на `:1847-1850` прямо говорит «optimizer_honesty прочитает флаг и не назовёт модель
++надёжной» — то есть связь автору была известна, но штамп к этому моменту уже отработал.
++
++**Следствие.** В `model-diagnostics.json` уезжают оба поля: верный `holidays_excluded=True` и
++вердикт, посчитанный так, будто праздники не исключали.
++
++- Пересчитывающие от файла (оптимизатор, мост отчётов) получают честный `uncertain` с причиной
++  про смещение из-за исключённых праздников.
++- Читающие штамп (`DecomposeStep.svelte:250`, `OptimizeStep.svelte:387`) получают `reliable`.
++
++`DecomposeStep.svelte:534` — вся предупреждающая плашка висит на этом значении. При исключённых
++праздниках и в остальном чистой модели **экран молчит, а отчёт предупреждает**. Ошибка направлена
++в недопредупреждение — против чего честностный гейт INV-50 и существует.
++
++Дополнительно: `ols_modeler.py` не выставляет `holidays_excluded` **нигде** (поиск по всему
++движку даёт единственное присвоение — `modeler.py:1851`). Для режима малых данных ветка смещения
++мертва. Там вердикт и так не выше «ориентировочного», поэтому теряется причина, а не уровень.
++
++## 3. Предлагаемое решение (вариант A) — на проверке вторым мнением
++
++- Единственный источник — `results/model-diagnostics.json`. Пишущий диагностику кладёт туда
++  **полный** дикт (`verdict`, `refused`, `reasons`, `caveat_text`) **после** окончательной сборки
++  диагностики, а не в середине.
++- `optimizer.py` не вычисляет, а копирует — совместимость со старыми читателями сохраняется.
++- Rust читает из `model["diagnostics"]`, `optimize["model_reliability"]` остаётся запасным путём
++  для старых проектов. Проводка для этого уже есть: `model_data` доезжает до Rust полным, включая
++  `honesty_verdict` (проверено разведкой шва).
++- Мост читает готовое; пересчёт остаётся запасным путём.
++- Сторож паритета — расширением `sidecar/econometrica/tests/test_report_rs_wiring.py`, плюс
++  поведенческий тест на стороне Rust.
++
++## 4. Гейты на входе в заход (2026-08-07)
++
++Фронт **1438** ✅ · Rust **363** ✅ · тонкая облачная **391** ✅ · три линтера регламента зелёные.
++Движок: 1012 прошло, 1 пропущен по метке, **1 упал** —
++`test_extremely_compressed_ratio_blocked` (`test_persistence_safe.py:800`), `MemoryError` на
++зип-бомбе при 24 параллельных исполнителях. **Проверено лично: в одиночку (`-n 0`) проходит за
++1,65 с** — ограничение памяти машины, не логика.
++
++## 4а. Что сделано (2026-08-07, внедрено и зелено)
++
++**Решение владельца:** порядок штампа + происхождение + честное расхождение. Соседний дефект
++(устаревание всей оптимизации целиком) — в реестр, чинить отдельным заходом (заведён **CPD-52**).
++
++**Найденный корень оказался глубже задачи 1.** Вопрос «какой из двух источников выбрать» поставлен
++неверно: при совпадении моделей оба источника дают одно и то же, при расхождении неправ ЛЮБОЙ выбор,
++потому что документ уже собран из двух моделей. Поэтому чинилось происхождение, а не выбор.
++
++| Файл | Правка |
++|---|---|
++| `utils/optimizer_honesty.py` | `stamp_reliability` — полный дикт (вердикт, отказ, причины, оговорка) вместо двух полей |
++| `modeler.py` · `ols_modeler.py` | штамп переехал на границу записи; подпись модели (SHA-256, `persistence.py:788`) в диагностику |
++| `optimizer.py` | не вычисляет — копирует готовое, переносит подпись в `optimization.json` |
++| `recompute_mqs.py` | переставляет штамп после пересчёта |
++| `narrative_adapter.py` | читает готовое; сверяет подписи, поднимает признак расхождения |
++| `utils/diagnostics.py` | `PROVENANCE_MISMATCH_NOTE` — единый источник текста, зеркалится в Rust |
++| `aurora_html/sections.py` | предупреждение рисуется НЕЗАВИСИМО от вердикта |
++| `src-tauri/.../report.rs` | предикат сверки, предупреждение в Markdown и XLSX рядом с плашкой |
++
++**Предупреждают все четыре формата, и у каждого свой сторож, проверенный мутацией:**
++Markdown и XLSX — тест в `report.rs` · HTML — мой в наборе ниже · презентация —
++`tests/test_pptx_provenance_mismatch_disclosure.py` (условие показа НЕ заглядывает в вердикт;
++доказано случаем «расхождение при надёжной модели») · проводка моста — мой тест, проверяет, что
++признак доезжает от файлов до вывода, а не что код «умеет сравнивать».
++
++**Сторожа — 14, каждый проверен мутацией** (`tests/test_reliability_stamp_and_provenance.py`).
++Две собственные слепоты пойманы своей же мутацией: тест равенства брал только здоровую модель и
++пережил подмену вердикта постоянной «надёжна»; сторож шва нашёл имя поля в СОБСТВЕННОМ пояснении к
++функции и пережил переименование во всём коде. Оба усилены. Поиск писателей диагностики
++проверяет сам себя на подставном нарушителе во временной папке.
++
++**Штамп оказался не идемпотентен на пустой диагностике** (простановка полей делала словарь непустым,
++и повторный расчёт уходил в другую ветку). Пустую диагностику больше не штампуем.
++
++**Гейты:** движок **1024** пройдено, 0 упало · Rust **364** · фронт **1441**. Прежний «упавший» тест
++на зип-бомбе проходит при четырёх исполнителях — падение ресурсное.
++
++## 4б. Проверено лично по наводкам второго мнения
++
++- 🟢 **Доставка не под угрозой.** Собранная копия движка `sidecar/econometrica/_internal/`
++  (PyInstaller, 2 августа, расходится с исходниками) **не в учёте git**. Движок запускается как
++  исходник: `econ_sidecar.rs:318` — `python -B server.py`. Правки доедут обычным путём.
++  ⚠️ Побочно: `tauri.conf.json:35` кладёт в пакет `../sidecar/econometrica/**/*` целиком, поэтому
++  копия попадёт в установщик лишним весом, если лежит на машине сборки. Не преграда, гигиена.
++- 🟢 **Закрытый спор не переоткрыт.** `MERGE_STATE.md` действительно запрещал заводить чтение
++  `optimize_data["model_reliability"]` мостом — но СЛЕДУЮЩИМ АБЗАЦЕМ этот запрет снят самим автором
++  («моё предостережение оказалось неверным»). К тому же мост читает диагностику, а не оптимизацию.
++- 🟡 **Запасной путь HTML структурно мёртв** (до и после правки): `sections.py:441` пересчитывает
++  вердикт на УПЛОЩЁННОМ дикте моста, где нет `metrics`/`checks`/`mqs` — ветка всегда даёт
++  «неизвестно» и плашку не рисует никогда. После правки основной путь работает, поэтому вреда нет,
++  но страховкой это не является. Отдельный долг.
++
++## 4в. Вынесено владельцу, не сделано
++
++**«Отсутствие вердикта не равно надёжности».** `report.rs:43` схлопывает пустой вердикт в тот же
++результат, что и «надёжна», а шесть точек цепочки (`unwrap_or("")`, `except: pass`, ранние выходы)
++падают в тишину. Система по умолчанию НЕДОпредупреждает. Починка изменит то, что видят владельцы
++существующих проектов (появится «надёжность не подтверждена»), поэтому решение не моё.
++
++## 4г. 🔴 Внешний аудит блока (2026-08-08, два узких в чистом контексте)
++
++Аудит нашёл то, чего мы найти не могли: своих сторожей мы проверяли мутацией, но
++искал их слепоты тот же, кто их писал. **Переносимый вывод: сторож, проверенный
++автором починки, стережёт ровно то, о чём автор подумал.**
++
++**Дыра в ЗАМЫСЛЕ (моя ошибка, не исполнителя).** Сверка по одной подписи модели
++слепа к целому пути: `recompute_mqs.py` меняет диагностику, НЕ трогая модель —
++подпись прежняя, а замороженный вердикт устаревает. Исходный дефект в этом пути
++выживал. → предикат сверяет ДВЕ половины (подписи и сами вердикты), текст
++расширен: «получены в разных расчётах», потому что «на другой модели» для
++второго случая было бы неправдой.
++
++**Слепота сторожа, доказанная прогоном.** Снятие переноса подписи в
++`optimizer.py` оставляло ВЕСЬ набор зелёным — сторож искал имя поля подстрокой,
++а оно есть и в строке чтения, и в пояснении. → проверяется ПРИСВОЕНИЕ.
++Ещё две: поиск писателей не видел естественных форм записи (`open` с именем
++внутри, `write_text`); сторож порядка пропускал ВЛОЖЕННЫЕ ключи
++(`diagnostics['metrics'][...]`) — ровно то, что вердикт и читает.
++
++**Дефект в подключённом графике.** Полоса «среднее ± 2σ» опиралась на ВЕРХНЮЮ
++границу, слои с общим `stack` складываются → заливка рисовалась от среднего+2σ
++до среднего+6σ, над всеми точками. Замысел автора виден в соседнем комментарии
++(«область над нижней границей») — ошибка была в имени переменной. Был до нас,
++но видимым его сделали мы, подключив компонент. Сторож проверяет инвариант
++«опора + заливка = верхняя граница» через подмену дочернего компонента графика.
++
++**Проверено аудитом и дефектным НЕ признано:** ложной тревоги у существующих
++проектов нет (все четыре на машине не имеют ни подписи, ни вердикта — сверка
++молчит); постоянные текста совпадают побайтово, тире короткое.
++
++**Разобрано и признано незначимым:** `sanitize_nonfinite` применяется к копии
++при записи, поэтому у вырожденной модели с нечисловыми метриками текст ПРИЧИН
++в штампе и в пересчёте от файла может отличаться формулировкой. Сам вердикт при
++этом одинаков (ветки читают числа, а не текст), и такой случай уже отдельно
++покрыт признаком сбоя реконструкции прогноза. Не чинили осознанно.
++
++## 4д. 🔴 ГЛАВНОЕ, ЧТО НЕ СДЕЛАНО — решение владельца
++
++**Отчёты не прячут переброску бюджета при несошедшейся модели.** Проверено
++лично: `report.rs` не читает признак отказа **ни разу**. В одном документе
++стоит оговорка «рекомендации по переброске бюджета отключены» и тут же
++печатается «Перераспределить бюджет» с высоким приоритетом. Признак соблюдается
++только на экране (`OptimizeStep.svelte`). Документ противоречит сам себе — это
++хуже отсутствующего предупреждения. Дефект существовал до этого блока.
++
++Рекомендация: при отказе не печатать блок переброски ни в одном из четырёх
++выходов, на его месте — честная строка с причиной и что делать; текст в единый
++источник, сторож на обоих концах шва.
++
++**Сопутствующее, тоже не сделано:** «отсутствие вердикта равно надёжности»
++(`report.rs:43` схлопывает пустой вердикт в тот же результат, что «надёжна»;
++доказано на данных — у двух проектов из четырёх вердикта нет, и экраны молчат).
++
++## 5. Заготовка починки декоративного теста №1
++
++`report.rs:2488` `glossary_from_frontend_extraction` — сравнивает литерал `json!` сам с собой,
++ни одной функции продукта не зовёт. Продуктовая логика «определение, иначе краткое» живёт
++встроенной в `build_xlsx` на `report.rs:2085-2089`, отдельной функции нет.
++
++Соседний тест `:2511` уже покрывает проводку глоссария и проверен мутацией — но покрывает только
++путь с полем `definition`. **Путь с одним лишь `short` не покрыт никем.** Честная починка: собрать
++настоящий XLSX через `build_xlsx` с термином, у которого есть только `short`, и потребовать этот
++текст на листе. Мутация для проверки сторожа: убрать `.or_else(|| item["short"].as_str())` на
++`:2089` — тест обязан покраснеть.
+diff --git a/package.json b/package.json
+index 9d3430b..4ff0407 100644
+--- a/package.json
++++ b/package.json
+@@ -1,6 +1,6 @@
+ {
+   "name": "aurora-ai-agency",
+-  "version": "2.4.4",
++  "version": "2.4.5",
+   "description": "",
+   "type": "module",
+   "scripts": {
+diff --git a/sidecar/econometrica/aurora_html/sections.py b/sidecar/econometrica/aurora_html/sections.py
+index 54ff20b..326c031 100644
+--- a/sidecar/econometrica/aurora_html/sections.py
++++ b/sidecar/econometrica/aurora_html/sections.py
+@@ -432,6 +432,23 @@ def _reliability_disclaimer_html(ctx: dict) -> str:
+     Паттерн: аналогично PPTX narrative_adapter.honesty_verdict.
+     """
+     diag = ctx.get("diagnostics") or {}
++    # Расхождение происхождения (2026-08-07) рисуется НЕЗАВИСИМО от вердикта:
++    # модель может быть сколь угодно надёжной, но если числа переброски рядом
++    # посчитаны на другой модели, молчать нельзя. Поэтому блок собирается до
++    # раннего выхода «вердикт надёжен – показывать нечего».
++    provenance_html = ""
++    if diag.get("provenance_mismatch") and diag.get("provenance_note"):
++        provenance_html = (
++            '<div class="provenance-mismatch" role="alert" style="'
++            "margin:16px 0;padding:14px 18px;background:rgba(201,164,73,0.12);"
++            "border:1px solid rgba(201,164,73,0.4);border-radius:8px;"
++            "font-size:13px;line-height:1.5;color:#e2e8f0;"
++            '">'
++            '<strong style="color:#c9a449;">⚠ Разное происхождение данных.</strong> '
++            f'{escape(str(diag["provenance_note"]))}'
++            "</div>"
++        )
++
+     # Приоритет: если honesty_verdict уже вычислен в diagnostics (modeler.py), читаем его.
+     # Иначе — вычисляем здесь (legacy path: старые pickles без поля).
+     verdict_str = diag.get("honesty_verdict")
+@@ -443,7 +460,9 @@ def _reliability_disclaimer_html(ctx: dict) -> str:
+         except Exception:
+             verdict_str = "unknown"
+     if verdict_str not in ("unreliable", "uncertain"):
+-        return ""
++        # Даже у надёжной модели предупреждение о разном происхождении обязано
++        # доехать до клиента — иначе он примет старые числа за новые.
++        return provenance_html
+     # 2026-08-04: verbatim caveat_text из SSOT (model_reliability_verdict),
+     # когда доехал по мосту (diagnostics["honesty_caveat_text"] -
+     # narrative_adapter._map_pipeline_to_builder_data) - несёт настоящую
+@@ -455,7 +474,7 @@ def _reliability_disclaimer_html(ctx: dict) -> str:
+             note = "Модель имеет высокий R-hat или много расходящихся цепей – результаты ниже ориентировочные."
+         else:
+             note = "Узкий объём данных или слабый prior-coverage – результаты ниже трактуйте осторожно."
+-    return (
++    return provenance_html + (
+         '<div class="reliability-disclaimer" role="alert" style="'
+         "margin:16px 0;padding:14px 18px;background:rgba(201,164,73,0.12);"
+         "border:1px solid rgba(201,164,73,0.4);border-radius:8px;"
+diff --git a/sidecar/econometrica/aurora_pptx/builder.py b/sidecar/econometrica/aurora_pptx/builder.py
+index c791bce..e92a206 100644
+--- a/sidecar/econometrica/aurora_pptx/builder.py
++++ b/sidecar/econometrica/aurora_pptx/builder.py
+@@ -309,6 +309,15 @@ class AuroraPPTXBuilder:
+         self.honesty_verdict = diag.get("honesty_verdict")
+         self.honesty_reasons = diag.get("honesty_reasons") or []
+         self.preflight = diag.get("preflight") or {}
++        # 2026-08-07: расхождение происхождения — риск, что отчёт склеен из
++        # ДВУХ моделей (переобучение не чистит results/optimization.json, тот
++        # "воскресает" при открытии проекта: рядом оказывается диагностика
++        # новой модели и числа переброски старой). Текст — из diagnostics
++        # (SSOT diagnostics.PROVENANCE_MISMATCH_NOTE через narrative_adapter),
++        # не переписывается здесь. Синхронизировано с HTML
++        # _reliability_disclaimer_html (sections.py).
++        self.provenance_mismatch = bool(diag.get("provenance_mismatch"))
++        self.provenance_note = diag.get("provenance_note") or ""
+         # E2 (2026-07-03): калибровка lift-тестами — [CALIBRATED]-пометка у
+         # канала в таблице + строки честности (включая расхождение модель-vs-
+         # тест) на слайде «Данные и качество». Только live (из диагностики).
+@@ -3342,6 +3351,19 @@ class AuroraPPTXBuilder:
+             )
+             _hy += 0.45
  
- impl ClaudeError {
-     /// Whether this error type is worth retrying.
-+    ///
-+    /// 🔴 `UsageLimit` НЕ повторяется: квота не восстанавливается ожиданием в пределах запроса,
-+    /// и повтор лишь потратит время клиента, показав тот же отказ (эталон SA `ec6a89b`, OR `0d3f3fc`).
-     pub fn is_retryable(&self) -> bool {
-         matches!(self, ClaudeError::RateLimit | ClaudeError::Overloaded | ClaudeError::NetworkError)
-     }
-@@ -46,9 +53,30 @@ impl ClaudeError {
- pub fn classify_stderr(line: &str) -> Option<ClaudeError> {
-     let lower = line.to_lowercase();
++        # 2026-08-07: предупреждение о разном происхождении данных — рисуется
++        # НЕЗАВИСИМО от вердикта надёжности выше (условие не заглядывает в
++        # self.honesty_verdict): модель может быть сколь угодно надёжной, но
++        # если диагностика рядом посчитана на другой модели, чем числа
++        # переброски бюджета, молчать нельзя. Синхронизировано с HTML.
++        if self.provenance_mismatch and self.provenance_note:
++            self._text(
++                slide, right_x, _hy, right_w, 0.9,
++                f"Разное происхождение данных: {self.provenance_note}",
++                font=self.sans, size=10, italic=True, color=self.gold,
++            )
++            _hy += 0.45
++
+         # E2 (2026-07-03): калибровка lift-тестами — строка «откалиброван
+         # тестом от <дата>» + ЧЕСТНОЕ расхождение модель-vs-тест (within_ci
+         # false не замалчивается — §E2.4).
+diff --git a/sidecar/econometrica/engines/modeler.py b/sidecar/econometrica/engines/modeler.py
+index 0c64299..1fb721e 100644
+--- a/sidecar/econometrica/engines/modeler.py
++++ b/sidecar/econometrica/engines/modeler.py
+@@ -1428,20 +1428,14 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
+         diagnostics['unit_costs_snapshot'] = dict(unit_costs_snapshot)
+         diagnostics['engine'] = 'bayesian'
  
-+    // 🔴 CPD-10, порядок значим: квота проверяется ДО ограничения частоты. «Usage limit reached»
-+    // подстроку «rate limit» не содержит, но родственные формулировки поставщика меняются, и
-+    // ошибка отнесения здесь дороже обычного — клиенту пообещали бы автоматический повтор.
-+    if lower.contains("usage limit")
-+        || lower.contains("quota")
-+        || lower.contains("limit reached")
-+        || lower.contains("out of credits")
-+    {
-+        return Some(ClaudeError::UsageLimit);
+-        # F-A1-9 (2026-07-06): honesty_verdict прямо в diagnostics при обучении.
+-        # Раньше вычислялся только в narrative_adapter (при PPTX) и optimizer (при оптимизации),
+-        # поэтому DecomposeStep и OptimizeStep(до оптимизации) не видели вердикт.
+-        # Теперь: modelData.diagnostics.honesty_verdict доступен СРАЗУ после train.
+-        try:
+-            from utils.optimizer_honesty import model_reliability_verdict
+-            _r = model_reliability_verdict(diagnostics)
+-            diagnostics['honesty_verdict'] = _r.get('verdict', 'unknown')
+-            _hr = [str(x) for x in (_r.get('reasons') or [])]
+-            if _hr:
+-                diagnostics['honesty_reasons'] = _hr[:3]
+-        except Exception as _hv_err:
+-            logger.warning('honesty_verdict in diagnostics skipped: %s', _hv_err)
+-            diagnostics['honesty_verdict'] = 'unknown'
++        # F-A1-9 (2026-07-06): honesty_verdict прямо в diagnostics при обучении —
++        # чтобы DecomposeStep и OptimizeStep (до оптимизации) видели вердикт.
++        # 🔴 ШТАМП ПЕРЕЕХАЛ ОТСЮДА НА ГРАНИЦУ ЗАПИСИ (2026-08-07). Здесь диагностика
++        # ещё НЕ собрана: признак `holidays_excluded` ставится ниже, на строке ~1851,
++        # и вердикт, посчитанный тут, не знал про смещение из-за исключённых
++        # праздников — экраны продукта молчали там, где отчёт предупреждал.
++        # Штамп ставит `utils.optimizer_honesty.stamp_reliability` перед записью
++        # файлов (см. ниже, рядом с latest-params.json). Сюда не возвращать.
+ 
+         # Extract posterior means for channel contributions
+         media_beta_means = trace.posterior['media_betas'].mean(dim=['chain', 'draw']).values.tolist()
+@@ -1837,7 +1831,12 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
+         from utils.file_lock import project_lock
+         with project_lock(Path(project_dir), timeout=10.0):
+             save_model_safe(model_data, model_path)
+-            write_pkl_sha256_sidecar(model_path)
++            # Возвращает SHA-256 сохранённой модели. Берём его как опознаватель
++            # обучения: он ляжет в диагностику, а оттуда (через оптимизатор) — в
++            # результат оптимизации, чтобы отчёт мог заметить, что собран из двух
++            # РАЗНЫХ моделей. Подпись меняется тогда и только тогда, когда
++            # меняется сам файл модели, поэтому пересчёт MQS её не сдвигает.
++            model_fingerprint = write_pkl_sha256_sidecar(model_path)
+ 
+         # NaN-safe запись (2026-06-04 fresh-train аудит): вырожденная модель даёт
+         # r_hat_max/intercept/sigma=NaN. Голый json.dump писал литерал `NaN` (RFC 8259
+@@ -1884,6 +1883,14 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
+                 for c in calibrations_prepared
+             ]
+ 
++        # 🔴 Диагностика собрана целиком: последними легли holidays_excluded
++        # (выше) и калибровка. ТОЛЬКО ТЕПЕРЬ ставим опознаватель модели и вердикт
++        # надёжности — до этой точки вердикт не знал бы про исключённые праздники.
++        # Оба файла ниже (train-снимок и SSOT) получают уже проштампованную копию.
++        from utils.optimizer_honesty import stamp_reliability
++        diagnostics['model_fingerprint'] = model_fingerprint
++        stamp_reliability(diagnostics)
++
+         # latest-params.json: train-снимок (channel_params/config/mcmc + КОПИЯ
+         # diagnostics). SSOT диагностики для ЧТЕНИЯ = results/model-diagnostics.json
+         # (его читают server.py + optimizer_honesty/M2; recompute_mqs патчит ОБА —
+diff --git a/sidecar/econometrica/engines/narrative_adapter.py b/sidecar/econometrica/engines/narrative_adapter.py
+index 0d249af..d7f5abf 100644
+--- a/sidecar/econometrica/engines/narrative_adapter.py
++++ b/sidecar/econometrica/engines/narrative_adapter.py
+@@ -986,7 +986,11 @@ def _map_pipeline_to_builder_data(
+     if diag_src:
+         try:
+             from utils.optimizer_honesty import model_reliability_verdict
+-            _verdict = model_reliability_verdict(diag_src)
++            # Единый источник (2026-08-07): вердикт берём ГОТОВЫМ из диагностики —
++            # он проставлен на границе её записи (stamp_reliability) и по
++            # построению соответствует её содержимому. Пересчёт остаётся
++            # запасным путём: проекты, обученные до этой правки, поля не имеют.
++            _verdict = diag_src.get('model_reliability') or model_reliability_verdict(diag_src)
+             diagnostics["honesty_verdict"] = _verdict.get("verdict")
+             _reasons = [str(r) for r in (_verdict.get("reasons") or [])]
+             if _reasons:
+@@ -1002,6 +1006,32 @@ def _map_pipeline_to_builder_data(
+                 diagnostics["honesty_caveat_text"] = str(_caveat_text)
+         except Exception:  # noqa: BLE001 - honesty-доставка не роняет экспорт
+             pass
++        # Происхождение (2026-08-07): числа переброски могли быть посчитаны на
++        # ДРУГОЙ модели — переобучение не удаляет optimization.json, и он
++        # воскресает с диска при открытии проекта. Сверяем подписи и, если они
++        # разошлись, честно говорим об этом клиенту, вместо того чтобы молча
++        # ставить свежий вердикт надёжности рядом с мёртвыми числами. Обе
++        # подписи могут отсутствовать (старые проекты) — тогда сверки нет.
++        _diag_fp = diag_src.get("model_fingerprint")
++        _opt_fp = optimize_data.get("model_fingerprint")
++        _подписи_разошлись = bool(_diag_fp and _opt_fp and _diag_fp != _opt_fp)
++        # 🔴 Вторая половина сверки (внешний аудит 2026-08-08). Одной подписи
++        # модели МАЛО: `tools/recompute_mqs.py` пересчитывает качество модели
++        # без переобучения — диагностика меняется, сама модель нет, подпись
++        # остаётся прежней. Замороженный вердикт в optimization.json при этом
++        # устаревает, и расхождение форматов, ради которого всё затевалось,
++        # выживает незамеченным. Поэтому сравниваем ещё и сами вердикты.
++        _diag_v = str((diag_src.get("model_reliability") or {}).get("verdict") or "").lower()
++        _opt_v = str((optimize_data.get("model_reliability") or {}).get("verdict") or "").lower()
++        _вердикты_разошлись = bool(_diag_v and _opt_v and _diag_v != _opt_v)
++        # Нет какой-то из величин — этой половины сверки просто не делаем:
++        # проекты, обученные до правки, обязаны молчать. Ложная тревога здесь
++        # дороже пропуска, она подрывает доверие ко всем предупреждениям сразу.
++        if _подписи_разошлись or _вердикты_разошлись:
++            from utils.diagnostics import PROVENANCE_MISMATCH_NOTE
++            diagnostics["provenance_mismatch"] = True
++            diagnostics["provenance_note"] = PROVENANCE_MISMATCH_NOTE
++
+         _pf = diag_src.get("preflight") or {}
+         _pp = _pf.get("prior_predictive") or {}
+         _qp = _pf.get("quick_proxy") or {}
+diff --git a/sidecar/econometrica/engines/ols_modeler.py b/sidecar/econometrica/engines/ols_modeler.py
+index 794e1c3..03e9402 100644
+--- a/sidecar/econometrica/engines/ols_modeler.py
++++ b/sidecar/econometrica/engines/ols_modeler.py
+@@ -417,16 +417,11 @@ def train_ols(config: dict, project_dir: str, progress_callback=None) -> dict[st
+ 
+     # F-A1-9/OLS: вердикт надёжности сразу при обучении — одинаково с Bayesian-веткой.
+     # model_reliability_verdict умеет OLS (engine='ols' → uncertain максимум, без r_hat/MCMC).
+-    try:
+-        from utils.optimizer_honesty import model_reliability_verdict as _mrv
+-        _r = _mrv(diagnostics)
+-        diagnostics['honesty_verdict'] = _r.get('verdict', 'unknown')
+-        _hr = [str(x) for x in (_r.get('reasons') or [])]
+-        if _hr:
+-            diagnostics['honesty_reasons'] = _hr[:3]
+-    except Exception as _hv_err:
+-        logger.warning('honesty_verdict in ols diagnostics skipped: %s', _hv_err)
+-        diagnostics['honesty_verdict'] = 'unknown'
++    # 🔴 ШТАМП ПЕРЕЕХАЛ ОТСЮДА НА ГРАНИЦУ ЗАПИСИ (2026-08-07) — паритет с
++    # байесовской веткой, где ранний штамп не знал про исключённые праздники.
++    # Ставит `utils.optimizer_honesty.stamp_reliability` перед записью файлов.
++    # Сюда не возвращать: подпись модели, которая тоже кладётся штампом,
++    # существует только после сохранения самой модели.
+ 
+     report('saving', pct=90)
+ 
+@@ -497,7 +492,14 @@ def train_ols(config: dict, project_dir: str, progress_callback=None) -> dict[st
+     from utils.file_lock import project_lock
+     with project_lock(Path(project_dir), timeout=10.0):
+         save_model_safe(model_data, model_path)
+-        write_pkl_sha256_sidecar(model_path)
++        # SHA-256 сохранённой модели — её опознаватель (паритет с modeler.py).
++        model_fingerprint = write_pkl_sha256_sidecar(model_path)
++
++    # Диагностика собрана целиком — ставим опознаватель и вердикт надёжности
++    # последним действием перед записью обоих файлов.
++    from utils.optimizer_honesty import stamp_reliability
++    diagnostics['model_fingerprint'] = model_fingerprint
++    stamp_reliability(diagnostics)
+ 
+     params_path = models_dir / 'latest-params.json'
+     with open(params_path, 'w', encoding='utf-8') as f:
+diff --git a/sidecar/econometrica/engines/optimizer.py b/sidecar/econometrica/engines/optimizer.py
+index 13b5a9c..dfae471 100644
+--- a/sidecar/econometrica/engines/optimizer.py
++++ b/sidecar/econometrica/engines/optimizer.py
+@@ -1636,8 +1636,23 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
+         load_model_diagnostics,
+         model_reliability_verdict,
+     )
+-    result_data['model_reliability'] = model_reliability_verdict(
+-        load_model_diagnostics(project_path))
++    _diagnostics = load_model_diagnostics(project_path)
++    # Вердикт берём ГОТОВЫМ из диагностики: с 2026-08-07 он проставляется на
++    # границе её записи (stamp_reliability), то есть по построению соответствует
++    # содержимому файла. Пересчёт остаётся запасным путём для проектов,
++    # обученных до этой правки, — у них поля просто нет.
++    result_data['model_reliability'] = (
++        _diagnostics.get('model_reliability')
++        or model_reliability_verdict(_diagnostics)
++    )
++    # Опознаватель модели, на которой посчитана ЭТА оптимизация. Отчёт сверит его
++    # с опознавателем показанной диагностики и честно скажет, если они разошлись:
++    # переобучение не удаляет optimization.json (чистится только память,
++    # project-state.js:1394), и прошлые числа возвращаются с диска при открытии
++    # проекта (project.rs:631 → project-state.js:1260).
++    _model_fingerprint = _diagnostics.get('model_fingerprint')
++    if _model_fingerprint:
++        result_data['model_fingerprint'] = _model_fingerprint
+ 
+     # Save (NaN-safe 2026-06-04 аудит: NaN→null, иначе Rust serde_json роняет файл).
+     from utils.safe_io import sanitize_nonfinite
+diff --git a/sidecar/econometrica/tests/test_deliverable_thinness_disclosure.py b/sidecar/econometrica/tests/test_deliverable_thinness_disclosure.py
+index caf4f69..29ec9b7 100644
+--- a/sidecar/econometrica/tests/test_deliverable_thinness_disclosure.py
++++ b/sidecar/econometrica/tests/test_deliverable_thinness_disclosure.py
+@@ -210,8 +210,19 @@ def test_html_no_reliability_plaque_when_reliable():
+ 
+ 
+ def test_pptx_carries_reliability_plaque_when_uncertain():
++    """PPTX несёт ОТЛИЧИМЫЙ текст вердикта «uncertain», а не просто корень слова
++    «надёжност» — тот совпадает и со статическим ярлыком «Вердикт надёжности:
++    модель надёжна» при verdict == reliable. Прежняя версия теста гнала payload
++    через мёртвый шов optimize_data["model_reliability"] (см.
++    test_seam_drops_model_reliability_when_reliable выше в этом файле) — на
++    самом деле получавшийся honesty_verdict был "reliable" (диагностика бралась
++    из FAT), и тест был зелёным случайно, поймав слово «надёжности» из чужого
++    текста, а не признак uncertain. Переписан на настоящий источник честности —
++    model_data["diagnostics"] (THIN → honesty_verdict == "uncertain", тот же
++    путь, что в test_seam_carries_model_reliability_when_uncertain)."""
+     from aurora_pptx.builder import AuroraPPTXBuilder
+-    b = AuroraPPTXBuilder(_payload_opt({"model_reliability": MR_UNCERTAIN}))
++    b = AuroraPPTXBuilder(_payload(THIN))
++    assert b.honesty_verdict == "uncertain"
+     prs = b.build()
+     out = tempfile.gettempdir() + "/test_mr_uncertain.pptx"
+     prs.save(out)
+@@ -219,8 +230,10 @@ def test_pptx_carries_reliability_plaque_when_uncertain():
+     z = zipfile.ZipFile(out)
+     txt = " ".join(z.read(n).decode("utf-8", "ignore") for n in z.namelist() if n.endswith(".xml"))
+     stripped = re.sub(r"<[^>]+>", "", txt)
+-    assert re.search(r"надёжност|ориентировочн", stripped, re.I), \
+-        "PPTX обязан нести плашку надёжности при uncertain"
++    assert "Вердикт надёжности: требует осторожности" in stripped, \
++        "PPTX обязан нести плашку надёжности при uncertain (текст самого вердикта, не корень слова)"
++    assert "Вердикт надёжности: модель надёжна" not in stripped, \
++        "плашка не должна показывать текст reliable-вердикта, когда модель uncertain"
+ 
+ 
+ # ── Волна 1 пункт 3 (2026-06-20): синхрон вердиктов — honesty-потолок (2a) ─────
+diff --git a/sidecar/econometrica/tests/test_pptx_provenance_mismatch_disclosure.py b/sidecar/econometrica/tests/test_pptx_provenance_mismatch_disclosure.py
+new file mode 100644
+index 0000000..84f45fb
+--- /dev/null
++++ b/sidecar/econometrica/tests/test_pptx_provenance_mismatch_disclosure.py
+@@ -0,0 +1,64 @@
++"""2026-08-07: предупреждение о разном происхождении данных в PPTX-отчёте.
++
++Риск: переобучение не удаляет results/optimization.json — файл остаётся на
++диске и воскресает при открытии проекта (src-tauri/src/commands/project.rs).
++Тогда клиентский отчёт может тихо склеиться из ДВУХ моделей: живая
++диагностика новой модели рядом с числами переброски бюджета старой.
++Markdown/XLSX/HTML уже несут это предупреждение текстом
++diagnostics["provenance_note"] при diagnostics["provenance_mismatch"]
++(см. aurora_html.sections._reliability_disclaimer_html — тот же приём).
++Этот тест — сторож для PPTX (aurora_pptx.builder.AuroraPPTXBuilder.s11_sources),
++который прежде молчал.
++
++Гейт: показ управляется ТОЛЬКО provenance_mismatch/provenance_note, а НЕ
++honesty_verdict — модель может быть сколь угодно надёжной, но если
++диагностика рядом посчитана на другой модели, предупреждение обязано
++доехать всё равно.
++"""
++import json
++import os
++
++from aurora_pptx.builder import AuroraPPTXBuilder
++from utils.diagnostics import PROVENANCE_MISMATCH_NOTE
++
++_HERE = os.path.dirname(os.path.abspath(__file__))
++_FIXTURE = os.path.join(_HERE, "fixtures", "kagocel_builder_payload.json")
++
++
++def _pptx_text(prs) -> str:
++    parts = []
++    for slide in prs.slides:
++        for shape in slide.shapes:
++            if shape.has_text_frame:
++                parts.append(shape.text_frame.text)
++    return "\n".join(parts)
++
++
++def _payload(honesty_verdict, mismatch):
++    with open(_FIXTURE, encoding="utf-8") as f:
++        p = json.load(f)
++    p["diagnostics"]["honesty_verdict"] = honesty_verdict
++    if mismatch:
++        p["diagnostics"]["provenance_mismatch"] = True
++        p["diagnostics"]["provenance_note"] = PROVENANCE_MISMATCH_NOTE
++    return p
++
++
++def test_pptx_shows_provenance_note_when_mismatch_and_unreliable():
++    p = _payload("unreliable", mismatch=True)
++    txt = _pptx_text(AuroraPPTXBuilder(p).build())
++    assert PROVENANCE_MISMATCH_NOTE in txt
++
++
++def test_pptx_shows_provenance_note_when_mismatch_and_reliable():
++    """Показ НЕ зависит от вердикта надёжности — доезжает и у надёжной модели."""
++    p = _payload("reliable", mismatch=True)
++    txt = _pptx_text(AuroraPPTXBuilder(p).build())
++    assert PROVENANCE_MISMATCH_NOTE in txt
++
++
++def test_pptx_no_provenance_note_when_no_mismatch():
++    p = _payload("reliable", mismatch=False)
++    txt = _pptx_text(AuroraPPTXBuilder(p).build())
++    assert PROVENANCE_MISMATCH_NOTE not in txt
++    assert "Разное происхождение данных" not in txt
+diff --git a/sidecar/econometrica/tests/test_reliability_stamp_and_provenance.py b/sidecar/econometrica/tests/test_reliability_stamp_and_provenance.py
+new file mode 100644
+index 0000000..ee8e88b
+--- /dev/null
++++ b/sidecar/econometrica/tests/test_reliability_stamp_and_provenance.py
+@@ -0,0 +1,687 @@
++"""Сторожа единого источника вердикта надёжности и происхождения модели.
++
++Закрывают проверенный дефект 2026-08-07 и его класс.
++
++🔴 ЧТО БЫЛО. `modeler.py` штамповал вердикт надёжности в диагностику на 413 строк
++РАНЬШЕ, чем клал в ту же диагностику признак `holidays_excluded`. В файл уезжали
++оба поля сразу: верный признак и вердикт, посчитанный так, будто праздники не
++исключали. Кто пересчитывал от файла (оптимизатор, мост отчётов) — получал
++честный «ориентировочно» с причиной про смещение; кто читал штамп (экраны
++«Декомпозиция» и «Оптимизация» до запуска) — получал «надёжна», то есть плашку
++не рисовал вовсе. Ошибка была направлена в НЕДОпредупреждение — против чего
++честностный гейт INV-50 и существует. Второй путь того же класса:
++`tools/recompute_mqs.py` пересчитывал `mqs`/`checks`, а штамп не обновлял.
++
++🔴 ЧЕМУ ЭТО УЧИТ. Вердикт — не шаг обучения, а СВОЙСТВО ЗАПИСИ диагностики.
++Отсюда инвариант, который стерегут тесты ниже: штамп ставится последним
++действием над словарём, любой писатель диагностики через него проходит, а имя
++поля происхождения одинаково понимают обе стороны шва Python — Rust.
++
++Сторожа структурные там, где поведение стоило бы полного прогона обучения
++(десятки минут MCMC). Ограничения структурного разбора соблюдены по урокам этой
++линии: область — тело нужной функции, а не весь файл; строки берутся по строкам,
++не байтовым срезом (в файлах кириллица); строки-комментарии под шаблон не
++подпадают, потому что начинаются с решётки.
++"""
++
++from __future__ import annotations
++
++import re
++from pathlib import Path
++
++import pytest
++
++from utils.optimizer_honesty import model_reliability_verdict, stamp_reliability
++
++_ROOT = Path(__file__).resolve().parents[3]
++_ENGINES = _ROOT / "sidecar" / "econometrica" / "engines"
++_RUST_REPORT = _ROOT / "src-tauri" / "src" / "commands" / "report.rs"
++
++# Имя поля происхождения. Одно и то же на обоих концах шва — Python пишет,
++# Rust читает. Разъедется — разъедется и сверка, молча.
++_FINGERPRINT_KEY = "model_fingerprint"
++
++_DIAG_FILE = "model-diagnostics.json"
++
++# Писатели диагностики: файл → как в нём выглядит вызов штампа.
++_WRITERS = [
++    _ENGINES / "modeler.py",
++    _ENGINES / "ols_modeler.py",
++    _ROOT / "sidecar" / "econometrica" / "tools" / "recompute_mqs.py",
++]
++
++# Мутации словаря диагностики, которые обязаны предшествовать штампу.
++# Имя словаря у писателей разное (`diagnostics` у движков, `diag` у пересчёта
++# MQS) — берём его из самого вызова штампа, а не угадываем.
++_STAMP = re.compile(r"^\s*stamp_reliability\s*\(\s*(\w+)\s*\)")
++_DEF = re.compile(r"^def\s+\w+")
++
++
++def _mutation_re(var: str) -> re.Pattern[str]:
++    """Шаблон изменения словаря диагностики.
++
++    🔴 Скобочных групп может быть НЕСКОЛЬКО: внешний аудит показал, что первая
++    редакция ловила только `diagnostics['x'] = …` и пропускала вложенное
++    `diagnostics['metrics']['x'] = …`. А вложенные ключи — как раз то, что
++    вердикт и читает (`metrics`, `checks`, `mqs`), так что дыра была ровно в
++    самом чувствительном месте.
++    """
++    return re.compile(
++        rf"^\s*{re.escape(var)}\s*((\[[^\]]+\])+\s*=|\.setdefault\(|\.update\()"
++    )
++
++
++def _lines(path: Path) -> list[str]:
++    return path.read_text(encoding="utf-8").splitlines()
++
++
++# ── 1. Поведение самого штампа ────────────────────────────────────────────
++
++
++def test_stamp_matches_recomputation_on_same_dict() -> None:
++    """После штампа пересчёт по тому же словарю обязан дать тот же вердикт.
++
++    Это и есть «единый источник»: замороженная копия и живой пересчёт совпадают
++    по построению, а не по совпадению.
++
++    🔴 Примеры подобраны так, чтобы среди них были НЕ «надёжна». Первая редакция
++    этого теста брала только здоровую модель — и пережила мутацию, подменявшую
++    вердикт постоянной «надёжна»: подмена случайно совпала с ожидаемым. Сторож,
++    у которого ожидаемое значение совпадает с подменой, ничего не стережёт.
++    """
++    примеры = [
++        # здоровая → reliable
++        {
++            "engine": "bayesian",
++            "metrics": {"r_hat_max": 1.0, "divergences": 0, "ratio": 5.0},
++            "checks": {"ratio": True},
++            "mqs": {"tier": "good", "tier_label": "Хорошее", "score": 70},
++        },
++        # тонкие данные → uncertain
++        {
++            "engine": "bayesian",
++            "metrics": {"r_hat_max": 1.0, "divergences": 0, "ratio": 2.4},
++            "checks": {"ratio": False},
++            "mqs": {"tier": "good", "tier_label": "Хорошее", "score": 70},
++        },
++        # несошедшаяся → unreliable, с отказом от переброски
++        {
++            "engine": "bayesian",
++            "metrics": {"r_hat_max": 1.21, "divergences": 0, "ratio": 6.0},
++            "checks": {"ratio": True},
++            "mqs": {"tier": "good", "tier_label": "Хорошее", "score": 70},
++        },
++    ]
++    полученные = []
++    for diag in примеры:
++        stamp_reliability(diag)
++        assert diag["model_reliability"] == model_reliability_verdict(diag), (
++            "штамп разошёлся с пересчётом по тому же словарю — значит хранимое "
++            "значение и вычисляемое перестали быть одним и тем же"
++        )
++        assert diag["honesty_verdict"] == diag["model_reliability"]["verdict"], (
++            "поле совместимости honesty_verdict разошлось с полным диктом"
++        )
++        полученные.append(diag["honesty_verdict"])
++
++    assert полученные == ["reliable", "uncertain", "unreliable"], (
++        f"штамп перестал различать состояния модели: {полученные}. Если все "
++        f"значения одинаковы — вердикт подменён постоянной, и плашка надёжности "
++        f"клиенту либо всегда рисуется, либо никогда."
++    )
++    assert примеры[2]["model_reliability"]["refused"] is True, (
++        "у несошедшейся модели пропал отказ от переброски бюджета — интерфейс "
++        "перестанет прятать рекомендации, которые строить нельзя"
++    )
++
++
++def test_empty_diagnostics_is_left_unstamped() -> None:
++    """🔴 Пустую диагностику не штампуем — иначе ломается сам инвариант.
++
++    Простановка полей сделала бы словарь непустым, и повторное вычисление ушло
++    бы в другую ветку («диагностика неполна» вместо «диагностики нет»): хранимое
++    перестало бы совпадать с вычисляемым. Найдено этим же набором при первой
++    сборке — тест равенства покраснел на примере с пустым словарём.
++    """
++    diag: dict = {}
++    stamp_reliability(diag)
++    assert diag == {}, (
++        f"пустая диагностика проштампована ({sorted(diag)}) — хранимый вердикт "
++        f"разойдётся с вычисляемым при первом же пересчёте на стороне моста"
++    )
++
++
++def test_stamp_sees_holidays_flag_when_it_is_present() -> None:
++    """🔴 Ядро дефекта: при исключённых праздниках модель НЕ «надёжна».
++
++    Словарь здесь чистый по всем прочим признакам — единственная причина
++    оговорки — исключённые праздники. Ровно этот случай экраны продукта и
++    пропускали, когда штамп ставился до появления признака.
++    """
++    diag = {
++        "engine": "bayesian",
++        "metrics": {"r_hat_max": 1.0, "divergences": 0, "ratio": 6.0},
++        "checks": {"ratio": True},
++        "mqs": {"tier": "good", "tier_label": "Хорошее", "score": 70},
++        "holidays_excluded": True,
 +    }
-     if lower.contains("rate limit") || lower.contains("rate_limit") || lower.contains("429") {
-         return Some(ClaudeError::RateLimit);
-     }
-+    // 🔴 CPD-10: протухший вход. Формы СТРОГИЕ — голое слово «login» встречается в обычном
-+    // тексте (например, в разборе чужого кода), и широкий образец объявлял бы отказом входа
-+    // всё подряд. Негативный контроль на это есть в сторожах.
-+    if lower.contains("not logged in")
-+        || lower.contains("logged out")
-+        || lower.contains("claude login")
-+        || lower.contains("please log in")
-+        || lower.contains("/login")
-+    {
-+        return Some(ClaudeError::AuthError);
++    stamp_reliability(diag)
++    assert diag["honesty_verdict"] == "uncertain", (
++        "при исключённых праздниках вердикт обязан быть «ориентировочно»: "
++        "подтвердить отсутствие праздничного эффекта мы не можем, а «надёжна» "
++        "означает, что плашку клиенту не рисуют вовсе"
++    )
++    assert diag["model_reliability"]["caveat_text"], (
++        "оговорка пуста — клиенту нечего показать"
++    )
++
++
++def test_stamp_clears_reasons_of_previous_verdict() -> None:
++    """Повторный штамп не оставляет причин прошлого вердикта.
++
++    Штамп теперь ставится повторно (после пересчёта MQS), и уцелевший список
++    рассказывал бы клиенту о проблеме, которой уже нет.
++    """
++    diag = {
++        "engine": "bayesian",
++        "metrics": {"r_hat_max": 1.0, "divergences": 0, "ratio": 2.4},
++        "checks": {"ratio": False},
++        "mqs": {"tier": "good", "tier_label": "Хорошее", "score": 70},
 +    }
-     if lower.contains("overloaded") || lower.contains("529") || lower.contains("capacity") {
-         return Some(ClaudeError::Overloaded);
-     }
-@@ -73,6 +101,14 @@ pub fn classify_stderr(line: &str) -> Option<ClaudeError> {
- pub fn user_message(err: &ClaudeError) -> String {
-     match err {
-         ClaudeError::RateLimit => coded(ErrorCode::CL004, "Превышен лимит запросов. Повторная попытка..."),
-+        // 🔴 CPD-10: текст честный в обе стороны — называет причину и НЕ обещает повтора,
-+        // потому что его не будет (is_retryable = false). Обещание «повторная попытка…»
-+        // здесь было бы ложным утверждением продукта о себе.
-+        ClaudeError::UsageLimit => coded(
-+            ErrorCode::CL010,
-+            "Исчерпан лимит подписки Claude. Работа возобновится после обновления лимита – \
-+             автоматического повтора не будет.",
++    stamp_reliability(diag)
++    assert diag["honesty_reasons"], "тонкие данные обязаны дать причину"
++
++    diag["checks"] = {"ratio": True}
++    diag["metrics"]["ratio"] = 6.0
++    stamp_reliability(diag)
++    assert diag["honesty_verdict"] == "reliable"
++    assert diag["honesty_reasons"] == [], (
++        "причины прошлого вердикта пережили повторный штамп — клиент увидит "
++        "предупреждение о проблеме, которой больше нет"
++    )
++
++
++# ── 2. Штамп — последнее действие перед записью ───────────────────────────
++
++
++@pytest.mark.parametrize("path", _WRITERS, ids=[p.name for p in _WRITERS])
++def test_stamp_is_the_last_touch_before_write(path: Path) -> None:
++    """🔴 Инвариант порядка: сначала собрать диагностику целиком, потом штамп.
++
++    Область разбора — тело той функции, которая пишет файл диагностики. Так
++    сторож не спотыкается о соседние функции того же файла.
++    """
++    lines = _lines(path)
++
++    # Место записи ищем по делу, а не по упоминанию имени: имя файла встречается
++    # и в описании модуля, и в комментариях. Берём переменную, которой присвоен
++    # путь, и строку, где ЭТУ переменную открывают на запись.
++    path_var = next(
++        (m.group(1) for m in
++         (re.match(rf"\s*(\w+)\s*=\s*.*{re.escape(_DIAG_FILE)}", line) for line in lines)
++         if m),
++        None,
++    )
++    assert path_var, (
++        f"{path.name} больше не собирает путь к {_DIAG_FILE} в переменную — "
++        f"разметка файла переехала, сторож ослеп и его надо чинить, а не отключать"
++    )
++    write_re = re.compile(rf"open\s*\(\s*{re.escape(path_var)}\s*,\s*['\"]w")
++    write_idx = next((i for i, line in enumerate(lines) if write_re.search(line)), None)
++    assert write_idx is not None, (
++        f"{path.name}: путь к {_DIAG_FILE} собирается в «{path_var}», но эта "
++        f"переменная нигде не открывается на запись — сторож ослеп"
++    )
++
++    start = 0
++    for i in range(write_idx, -1, -1):
++        if _DEF.match(lines[i]):
++            start = i
++            break
++
++    stamp_idx, stamp_var = None, None
++    for i in range(start, len(lines)):
++        m = _STAMP.match(lines[i])
++        if m:
++            stamp_idx, stamp_var = i, m.group(1)
++            break
++    assert stamp_idx is not None, (
++        f"{path.name} не вызывает stamp_reliability(...) в функции, которая "
++        f"пишет {_DIAG_FILE}. Значит на диск уедет диагностика без вердикта "
++        f"надёжности либо с вердиктом, посчитанным где-то раньше по неполным данным."
++    )
++
++    mutation = _mutation_re(stamp_var)
++    late = [
++        (i + 1, lines[i].strip())
++        for i in range(stamp_idx + 1, write_idx)
++        if mutation.match(lines[i])
++    ]
++    assert not late, (
++        f"в {path.name} словарь диагностики меняется ПОСЛЕ штампа и до записи: "
++        f"{late}. Вердикт уедет на диск посчитанным по неполным данным — ровно "
++        f"дефект 2026-08-07 (штамп не знал про исключённые праздники, и экраны "
++        f"продукта молчали там, где отчёт предупреждал)."
++    )
++    assert stamp_idx < write_idx, (
++        f"в {path.name} штамп стоит ПОСЛЕ записи файла — на диск попадает "
++        f"непроштампованная диагностика"
++    )
++
++
++def test_every_writer_of_diagnostics_file_is_covered() -> None:
++    """Новый писатель диагностики не должен появиться в обход штампа.
++
++    Сторож ищет по всему движку файлы, которые пишут `model-diagnostics.json`,
++    и требует, чтобы каждый из них знал про штамп. Иначе завтра появится
++    четвёртый писатель, и класс дефекта вернётся с другой стороны.
++    """
++    missed = _unstamped_writers(_ROOT / "sidecar" / "econometrica")
++    assert not missed, (
++        f"файлы пишут {_DIAG_FILE}, но не проходят через stamp_reliability: {missed}. "
++        f"Либо проведите запись через штамп, либо внесите файл в список писателей "
++        f"этого сторожа осознанно."
++    )
++
++
++def test_writer_detector_actually_detects(tmp_path: Path) -> None:
++    """🔴 Сторож писателей проверяет сам себя.
++
++    Без этого он был бы декоративным: список нарушителей пуст и когда всё
++    хорошо, и когда поиск сломан. Здесь ему подсовывают заведомого нарушителя
++    во временной папке — он обязан его увидеть; и тот же файл со штампом —
++    обязан пропустить. Проверка постоянная, а не разовая мутация в репозитории.
++    """
++    нарушитель = tmp_path / "rogue_writer.py"
++    нарушитель.write_text(
++        "import json\n"
++        "def save(results_dir, diagnostics):\n"
++        "    p = results_dir / 'model-diagnostics.json'\n"
++        "    with open(p, 'w', encoding='utf-8') as f:\n"
++        "        json.dump(diagnostics, f)\n",
++        encoding="utf-8",
++    )
++    assert _unstamped_writers(tmp_path) == ["rogue_writer.py"], (
++        "поиск писателей диагностики не увидел заведомого нарушителя — значит "
++        "он не увидит и настоящего, а зелёный прогон будет ничего не значить"
++    )
++
++    нарушитель.write_text(
++        нарушитель.read_text(encoding="utf-8").replace(
++            "    with open(p", "    stamp_reliability(diagnostics)\n    with open(p"
 +        ),
-         ClaudeError::Overloaded => coded(ErrorCode::CL005, "Сервер перегружен. Повторная попытка..."),
-         ClaudeError::AuthError => coded(ErrorCode::CL006, "Ошибка авторизации. Проверьте API-ключ."),
-         ClaudeError::NetworkError => coded(ErrorCode::CL007, "Ошибка сети. Проверьте подключение к интернету."),
-@@ -583,6 +619,24 @@ pub(crate) fn auto_save_response(
-     if final_text.trim().is_empty() {
-         return;
-     }
-+    // 🔴 CPD-32: файл-результат не имеет права нести текст отказа. До правки единственным
-+    // условием была непустота, поэтому сообщение оборвавшегося канала сохранялось как отчёт —
-+    // с именем по шаблону команды, датой и признаками выполненной работы — и через неделю
-+    // становилось неотличимо от настоящего разбора, не открыв его. Отказ здесь ГРОМКИЙ:
-+    // молчаливый пропуск вернул бы нас к родственному дефекту «файла нет, и никто не знает
-+    // почему» (CPD-17).
-+    if let Some(reason) = failure_notice_reason(final_text) {
-+        warn!("Ответ не сохранён [{cabinet_id}]: {reason}");
-+        let _ = app_handle.emit(
-+            &format!("claude-stream-{cabinet_id}"),
-+            serde_json::json!({
-+                "type": "error",
-+                "message": "Ответ не дошёл целиком, файл не сохранён – повторите команду."
-+            })
-+            .to_string(),
-+        );
-+        return;
++        encoding="utf-8",
++    )
++    assert _unstamped_writers(tmp_path) == [], (
++        "поиск считает нарушителем файл, который штамп вызывает — сторож будет "
++        "красным всегда и его отключат"
++    )
++
++    # 🔴 Другие естественные формы записи — их первая редакция поиска не видела
++    # (нашёл внешний аудит). Каждая обязана быть замечена, иначе новый писатель
++    # обойдёт сторожа, просто написав код чуть иначе.
++    формы = {
++        "inline_open.py": (
++            "import json\n"
++            "def save(results_dir, diagnostics):\n"
++            "    with open(results_dir / 'model-diagnostics.json', 'w') as f:\n"
++            "        json.dump(diagnostics, f)\n"
++        ),
++        "write_text_var.py": (
++            "import json\n"
++            "def save(results_dir, diagnostics):\n"
++            "    p = results_dir / 'model-diagnostics.json'\n"
++            "    p.write_text(json.dumps(diagnostics), encoding='utf-8')\n"
++        ),
++        "write_text_inline.py": (
++            "import json\n"
++            "def save(results_dir, diagnostics):\n"
++            "    (results_dir / 'model-diagnostics.json').write_text(json.dumps(diagnostics))\n"
++        ),
 +    }
-     let slug = extract_command_slug(prompt);
-     let timestamp = chrono::Local::now().format("%Y%m%d-%H%M%S");
-     let suffix = if partial_suffix { "-partial" } else { "" };
-@@ -607,6 +661,49 @@ pub(crate) fn auto_save_response(
++    нарушитель.unlink()
++    for имя, текст in формы.items():
++        (tmp_path / имя).write_text(текст, encoding="utf-8")
++    assert sorted(_unstamped_writers(tmp_path)) == sorted(формы), (
++        f"поиск не увидел часть форм записи диагностики: ожидались {sorted(формы)}, "
++        f"найдено {sorted(_unstamped_writers(tmp_path))}. Новый писатель обойдёт "
++        f"сторожа, просто написав запись иначе."
++    )
++
++
++def _unstamped_writers(root: Path) -> list[str]:
++    """Файлы под `root`, которые пишут диагностику мимо штампа."""
++    known = {p.resolve() for p in _WRITERS}
++    missed: list[str] = []
++
++    for py in root.rglob("*.py"):
++        if "tests" in py.parts or py.name.startswith("test_"):
++            continue
++        # `_internal` — выход сборщика PyInstaller, лежащий в дереве. Это копия,
++        # а не второй исходник: правится он пересборкой, а не руками.
++        if "_internal" in py.parts:
++            continue
++        text = py.read_text(encoding="utf-8", errors="ignore")
++        if _DIAG_FILE not in text:
++            continue
++        # Пишет, а не читает: имя файла кладётся в переменную, и ЭТА переменная
++        # открывается на запись. Простое совпадение имени в файле ничего не значит —
++        # диагностику многие только читают.
++        # 🔴 Формы записи, которые надо видеть. Первая редакция знала только
++        # «путь в переменную, потом open(переменная, 'w')» — внешний аудит
++        # показал, что ни встроенный open с самим именем файла, ни write_text
++        # она не замечает, то есть новый писатель прошёл бы мимо неё спокойно.
++        writes = False
++        # (1) имя файла прямо в open(..., 'w')
++        if re.search(rf"open\s*\([^)]*{re.escape(_DIAG_FILE)}[^)]*['\"]w", text):
++            writes = True
++        for var in re.findall(rf"(\w+)\s*=\s*[^\n]*{re.escape(_DIAG_FILE)}", text):
++            v = re.escape(var)
++            # (2) путь в переменную, потом open(переменная, 'w')
++            if re.search(rf"open\s*\(\s*{v}\s*,\s*['\"]w", text):
++                writes = True
++            # (3) путь в переменную, потом переменная.write_text(...)
++            if re.search(rf"{v}\s*\.\s*write_text\s*\(", text):
++                writes = True
++        # (4) write_text прямо на выражении с именем файла
++        if re.search(rf"{re.escape(_DIAG_FILE)}['\"]?\s*\)?\s*\.\s*write_text\s*\(", text):
++            writes = True
++        if not writes:
++            continue
++        if py.resolve() in known:
++            continue
++        if "stamp_reliability" in text:
++            continue
++        missed.append(str(py.relative_to(root)))
++
++    return missed
++
++
++# ── 2а. Проводка признака расхождения: мост и HTML ────────────────────────
++#
++# Класс Ф-04 этой линии: функция покрыта, а её ВЫЗОВ — нет. Тесты ниже
++# проверяют не «умеет ли код сравнивать подписи», а доезжает ли признак от
++# файлов до клиентского вывода.
++
++
++def _builder_data(
++    diag_fp: str | None,
++    opt_fp: str | None,
++    diag_verdict: str | None = None,
++    opt_verdict: str | None = None,
++) -> dict:
++    from engines.narrative_adapter import _map_pipeline_to_builder_data
++
++    diagnostics = {
++        "engine": "bayesian",
++        "metrics": {"r_hat_max": 1.0, "divergences": 0, "ratio": 6.0, "r_squared": 0.9},
++        "checks": {"ratio": True},
++        "mqs": {"tier": "good", "tier_label": "Хорошее", "score": 70},
++    }
++    if diag_fp:
++        diagnostics["model_fingerprint"] = diag_fp
++    if diag_verdict:
++        diagnostics["model_reliability"] = {
++            "verdict": diag_verdict, "refused": False,
++            "reasons": [], "caveat_text": "оговорка",
++        }
++    optimize: dict = {}
++    if opt_fp:
++        optimize["model_fingerprint"] = opt_fp
++    if opt_verdict:
++        optimize["model_reliability"] = {
++            "verdict": opt_verdict, "refused": False,
++            "reasons": [], "caveat_text": "оговорка",
++        }
++    return _map_pipeline_to_builder_data(
++        model_data={"diagnostics": diagnostics},
++        decompose_data={},
++        optimize_data=optimize,
++        scenarios=[],
++        project_id="проверка",
++    )
++
++
++def test_bridge_raises_provenance_flag_only_on_real_mismatch() -> None:
++    """Мост обязан поднять признак при разных подписях и молчать в остальных случаях.
++
++    Молчание на отсутствующих подписях — не мелочь: проекты, обученные до этой
++    правки, подписей не имеют, и ложная тревога накрыла бы их все разом.
++    """
++    from utils.diagnostics import PROVENANCE_MISMATCH_NOTE
++
++    разошлись = _builder_data("a" * 64, "b" * 64)["diagnostics"]
++    assert разошлись.get("provenance_mismatch") is True, (
++        "мост не заметил, что диагностика и оптимизация от разных моделей — "
++        "предупреждение не доедет ни в HTML, ни в презентацию"
++    )
++    assert разошлись.get("provenance_note") == PROVENANCE_MISMATCH_NOTE, (
++        "текст предупреждения на мосту разошёлся с единым источником"
++    )
++
++    совпали = _builder_data("c" * 64, "c" * 64)["diagnostics"]
++    assert not совпали.get("provenance_mismatch"), (
++        "мост поднял тревогу на одной и той же модели — клиент получит "
++        "предупреждение там, где всё в порядке"
++    )
++
++    for случай, (d, o) in {
++        "нет обеих подписей": (None, None),
++        "нет подписи оптимизации": ("d" * 64, None),
++        "нет подписи модели": (None, "e" * 64),
++    }.items():
++        assert not _builder_data(d, o)["diagnostics"].get("provenance_mismatch"), (
++            f"мост поднял тревогу в случае «{случай}» — все проекты, обученные до "
++            f"этой правки, покроются ложным предупреждением"
++        )
++
++
++def test_bridge_catches_stale_verdict_when_model_did_not_change() -> None:
++    """🔴 Одной подписи модели мало: пересчёт качества модель не трогает.
++
++    `tools/recompute_mqs.py` пересчитывает качество без переобучения. Диагностика
++    меняется, модель — нет, подпись остаётся ПРЕЖНЕЙ. Замороженный вердикт в
++    результатах оптимизации при этом устаревает, и расхождение форматов —
++    HTML и презентация от свежей диагностики, Markdown и XLSX от старой копии —
++    выживает незамеченным. Дыру нашёл внешний аудит, сверка по одной подписи её
++    не видела.
++    """
++    одна_подпись = "f" * 64
++    расхождение = _builder_data(
++        одна_подпись, одна_подпись, diag_verdict="uncertain", opt_verdict="reliable"
++    )["diagnostics"]
++    assert расхождение.get("provenance_mismatch") is True, (
++        "подписи совпадают, а вердикты разные — сверка обязана сработать: иначе "
++        "клиент получит в XLSX «модель надёжна», а в HTML «ориентировочно» по "
++        "одной и той же модели"
++    )
++
++    совпали = _builder_data(
++        одна_подпись, одна_подпись, diag_verdict="uncertain", opt_verdict="uncertain"
++    )["diagnostics"]
++    assert not совпали.get("provenance_mismatch"), (
++        "тревога поднята там, где оба вердикта одинаковы"
++    )
++
++    только_в_оптимизации = _builder_data(
++        одна_подпись, одна_подпись, opt_verdict="reliable"
++    )["diagnostics"]
++    assert not только_в_оптимизации.get("provenance_mismatch"), (
++        "у проектов, обученных до правки, вердикта в диагностике нет — сравнивать "
++        "не с чем, и молчание тут единственно честное поведение"
++    )
++
++
++def test_html_shows_provenance_note_even_when_model_is_reliable() -> None:
++    """🔴 В HTML предупреждение обязано пережить ранний выход «модель надёжна».
++
++    Именно здесь его легче всего потерять: функция дисклеймера возвращает пустую
++    строку, как только вердикт оказывается надёжным, и предупреждение о разном
++    происхождении молча исчезло бы вместе с ней.
++    """
++    from aurora_html.sections import _reliability_disclaimer_html
++    from utils.diagnostics import PROVENANCE_MISMATCH_NOTE
++
++    надёжна_и_расхождение = _reliability_disclaimer_html({
++        "diagnostics": {
++            "honesty_verdict": "reliable",
++            "provenance_mismatch": True,
++            "provenance_note": PROVENANCE_MISMATCH_NOTE,
++        }
++    })
++    assert PROVENANCE_MISMATCH_NOTE in надёжна_и_расхождение, (
++        "у надёжной модели предупреждение о разном происхождении пропало — "
++        "клиент примет числа прошлой модели за нынешние"
++    )
++
++    ненадёжна_и_расхождение = _reliability_disclaimer_html({
++        "diagnostics": {
++            "honesty_verdict": "uncertain",
++            "honesty_caveat_text": "оговорка про данные",
++            "provenance_mismatch": True,
++            "provenance_note": PROVENANCE_MISMATCH_NOTE,
++        }
++    })
++    assert PROVENANCE_MISMATCH_NOTE in ненадёжна_и_расхождение, (
++        "предупреждение о происхождении пропало рядом с плашкой надёжности"
++    )
++    assert "оговорка про данные" in ненадёжна_и_расхождение, (
++        "плашка надёжности вытеснена предупреждением о происхождении — они "
++        "про разное и обязаны показываться вместе"
++    )
++
++    без_расхождения = _reliability_disclaimer_html({
++        "diagnostics": {"honesty_verdict": "reliable"}
++    })
++    assert без_расхождения == "", (
++        "у надёжной модели без расхождения происхождения выводить нечего"
++    )
++
++
++def test_reliability_disclaimer_gate_blocks_plaque_when_reliable() -> None:
++    """🔴 Гейт «при reliable плашку не рисуем» (ранний выход в
++    `_reliability_disclaimer_html`, sections.py) не стерегли ни один тест:
++    сняв его probe'ом, зелёными остались все три смежных теста разом. Ловим
++    именно класс `reliability-disclaimer` — не пустоту вывода целиком, блок
++    `provenance-mismatch` рисуется независимо от вердикта (см. тест выше) и
++    трогать его нельзя."""
++    from aurora_html.sections import _reliability_disclaimer_html
++    from utils.diagnostics import PROVENANCE_MISMATCH_NOTE
++
++    надёжна_без_расхождения = _reliability_disclaimer_html({
++        "diagnostics": {"honesty_verdict": "reliable"}
++    })
++    assert "reliability-disclaimer" not in надёжна_без_расхождения, (
++        "у надёжной модели плашка надёжности не должна рисоваться — гейт "
++        "снят или обойдён"
++    )
++
++    надёжна_с_расхождением = _reliability_disclaimer_html({
++        "diagnostics": {
++            "honesty_verdict": "reliable",
++            "provenance_mismatch": True,
++            "provenance_note": PROVENANCE_MISMATCH_NOTE,
++        }
++    })
++    assert "reliability-disclaimer" not in надёжна_с_расхождением, (
++        "плашка надёжности не должна появиться у надёжной модели, даже когда "
++        "рядом рисуется предупреждение о разном происхождении"
++    )
++    assert "provenance-mismatch" in надёжна_с_расхождением, (
++        "предупреждение о происхождении обязано остаться — гейт reliability "
++        "не должен задевать этот независимый блок"
++    )
++
++
++# ── 3. Шов Python — Rust: имя поля происхождения ──────────────────────────
++
++
++def test_fingerprint_key_is_written_by_python() -> None:
++    """Python обязан писать опознаватель модели в оба файла-результата."""
++    modeler = (_ENGINES / "modeler.py").read_text(encoding="utf-8")
++    ols = (_ENGINES / "ols_modeler.py").read_text(encoding="utf-8")
++    optimizer = (_ENGINES / "optimizer.py").read_text(encoding="utf-8")
++
++    # 🔴 Проверяем ПРИСВОЕНИЕ, а не упоминание. Первая редакция этого сторожа
++    # искала имя поля как подстроку — и внешний аудит показал, что снятие
++    # переноса подписи в optimizer.py оставляет ВЕСЬ набор зелёным: имя всё ещё
++    # встречается в соседней строке ЧТЕНИЯ (`_diagnostics.get('model_fingerprint')`)
++    # и в пояснении. Вся сверка происхождения умирала молча. Тот же класс, что
++    # «наличие вызова не означает, что результат используется».
++    for name, text in (("modeler.py", modeler), ("ols_modeler.py", ols)):
++        assert re.search(rf"diagnostics\[['\"]{_FINGERPRINT_KEY}['\"]\]\s*=", text), (
++            f"{name} не ПРИСВАИВАЕТ {_FINGERPRINT_KEY} в диагностику — отчёт не "
++            f"сможет понять, на какой модели посчитаны показанные числа"
++        )
++    assert re.search(rf"result_data\[['\"]{_FINGERPRINT_KEY}['\"]\]\s*=", optimizer), (
++        "optimizer.py не ПЕРЕНОСИТ опознаватель модели в результат оптимизации — "
++        "сверка происхождения на стороне отчёта становится невозможной, и при этом "
++        "ничего не падает: именно так эта дыра и пряталась от первой редакции сторожа"
++    )
++    assert re.search(r"result_data\[['\"]model_reliability['\"]\]\s*=", optimizer), (
++        "optimizer.py не кладёт вердикт надёжности в результат оптимизации — "
++        "Markdown и XLSX останутся без плашки надёжности вовсе"
++    )
++
++
++def test_provenance_note_is_mirrored_word_for_word_in_rust() -> None:
++    """🔴 Зеркало текста предупреждения: Python пишет — Rust повторяет дословно.
++
++    Rust не импортирует Python и собирает Markdown и XLSX сам, поэтому текст
++    физически существует дважды. Пока сверки не было, такие пары в этой линии
++    расходились молча: два комментария обещали «тест сверяет», а теста не
++    существовало. Сравнение побайтовое и намеренно строгое — расхождение в
++    тире или пробеле означает, что клиент получит в разных файлах разные
++    формулировки об одном и том же.
++    """
++    from utils.diagnostics import PROVENANCE_MISMATCH_NOTE
++
++    m = re.search(
++        r'FINGERPRINT_MISMATCH_TEXT\s*:\s*&str\s*=\s*"([^"]*)"', _rust_product_code()
++    )
++    assert m, (
++        "в продакшн-коде report.rs не найдена строковая постоянная "
++        "FINGERPRINT_MISMATCH_TEXT — Rust либо перестал предупреждать о разном "
++        "происхождении, либо собирает текст иначе и зеркало больше не проверяется"
++    )
++    assert m.group(1) == PROVENANCE_MISMATCH_NOTE, (
++        "текст предупреждения о разном происхождении разошёлся между Python и Rust.\n"
++        f"Python: {PROVENANCE_MISMATCH_NOTE!r}\n"
++        f"Rust:   {m.group(1)!r}\n"
++        "Клиент получит в HTML и PPTX одну формулировку, а в Markdown и XLSX другую."
++    )
++    assert "—" not in PROVENANCE_MISMATCH_NOTE, (
++        "в клиентском тексте длинное тире — в этом продукте принято короткое «–»"
++    )
++
++
++def test_fingerprint_key_is_read_by_rust() -> None:
++    """🔴 Сторож на ВТОРОМ конце шва: Rust обязан читать то же имя поля.
++
++    Односторонний сторож не только пропускает дефект на неохраняемой стороне —
++    он превращает добросовестное зеркалирование в занос нарушения на охраняемую.
++    Поэтому имя поля стережётся с обеих сторон.
++    """
++    assert f'"{_FINGERPRINT_KEY}"' in _rust_product_code(), (
++        f"продакшн-код report.rs не читает поле {_FINGERPRINT_KEY}: сверка "
++        f"происхождения не выполняется, и отчёт молча смешает диагностику одной "
++        f"модели с числами оптимизации другой"
++    )
++
++
++def _rust_product_code() -> str:
++    """Код продукта из report.rs: без тестового модуля и БЕЗ КОММЕНТАРИЕВ.
++
++    🔴 Обе отрезки обязательны, и обе выучены на ошибках этой линии. Тестовый
++    модуль отрезается, иначе сторож находит образцы в тексте собственных тестов
++    и остаётся зелёным при вырезанной проводке. Комментарии отрезаются, иначе
++    сторож находит СОБСТВЕННОЕ ОБЪЯСНЕНИЕ: первая редакция этого теста искала
++    имя поля во всём файле, а оно упоминается в пояснении к функции сверки —
++    мутация, переименовавшая поле во всём коде, теста не уронила.
++    """
++    src = _RUST_REPORT.read_text(encoding="utf-8")
++    marker = src.find("#[cfg(test)]")
++    product = src if marker == -1 else src[:marker]
++    return "\n".join(
++        line for line in product.splitlines() if not line.lstrip().startswith("//")
++    )
+diff --git a/sidecar/econometrica/tools/recompute_mqs.py b/sidecar/econometrica/tools/recompute_mqs.py
+index ebdef23..c7dae43 100644
+--- a/sidecar/econometrica/tools/recompute_mqs.py
++++ b/sidecar/econometrica/tools/recompute_mqs.py
+@@ -24,6 +24,7 @@ from utils.diagnostics import (
+     per_control_contraction,
+ )
+ from utils.safe_io import sanitize_nonfinite
++from utils.optimizer_honesty import stamp_reliability
+ 
+ PROJECTS_ROOT = os.path.join(os.environ.get('APPDATA', ''), 'aurora-econometrica-gui', 'projects')
+ 
+@@ -103,6 +104,13 @@ def recompute_project(proj_dir: str, dry_run: bool = False) -> dict:
+     if pcc:
+         diag['per_control_contraction'] = pcc
+ 
++    # 🔴 Пересчёт трогает `mqs` и `checks` — ровно то, из чего выводится вердикт
++    # надёжности. До 2026-08-07 штамп `honesty_verdict` здесь не обновлялся, и
++    # файл оставался внутренне противоречивым: метрики новые, вердикт старый,
++    # посчитанный по прежним `mqs`/`checks`. Переставляем штамп последним
++    # действием над `diag`, до записи.
++    stamp_reliability(diag)
++
+     result = {
+         'project': os.path.basename(proj_dir), 'status': 'ok',
+         'effective_params': round(eff, 2), 'nominal_params': n_params,
+diff --git a/sidecar/econometrica/utils/diagnostics.py b/sidecar/econometrica/utils/diagnostics.py
+index 8c0ebe2..c2bfb72 100644
+--- a/sidecar/econometrica/utils/diagnostics.py
++++ b/sidecar/econometrica/utils/diagnostics.py
+@@ -220,6 +220,27 @@ def model_quality_score(r_squared: float, mape: float, r_hat_max: float,
+     }
+ 
+ 
++# Отчёт может собраться из ДВУХ РАЗНЫХ моделей и промолчать: переобучение
++# чистит только состояние в памяти (src/lib/project-state.js:1394), а
++# results/optimization.json остаётся на диске и воскресает при открытии проекта
++# (src-tauri/src/commands/project.rs:631 → project-state.js:1260). Тогда рядом
++# оказываются живая диагностика новой модели и числа переброски от старой.
++#
++# 🔴 ЗЕРКАЛО: тот же текст ДОСЛОВНО живёт в src-tauri/src/commands/report.rs —
++# Rust не импортирует Python и собирает Markdown и XLSX сам. Сверяет их сторож
++# tests/test_reliability_stamp_and_provenance.py. Правя здесь, правь и там.
++# Клиентский текст: короткое тире «–», без англицизмов.
++# 🔴 Формулировка расширена 2026-08-08 по внешнему аудиту: расхождение бывает не
++# только «другая модель». Пересчёт качества модели (tools/recompute_mqs.py) меняет
++# диагностику, НЕ трогая саму модель: подпись остаётся прежней, а вердикт в
++# результатах оптимизации — старым. Прежний текст про «другую модель» в этом
++# случае был бы неправдой, поэтому говорим о разных расчётах.
++PROVENANCE_MISMATCH_NOTE = (
++    'Диагностика модели и результаты оптимизации получены в разных расчётах – '
++    'пересчитайте оптимизацию, прежде чем опираться на переброску бюджета.'
++)
++
++
+ def format_thinness_caveat(ratio: float | None, thinness_cap: int | None,
+                            *, leading_space: bool = True) -> str:
+     """SSOT-формулировка оговорки о тонких данных / переобучении.
+diff --git a/sidecar/econometrica/utils/optimizer_honesty.py b/sidecar/econometrica/utils/optimizer_honesty.py
+index 3b1fa41..cf50574 100644
+--- a/sidecar/econometrica/utils/optimizer_honesty.py
++++ b/sidecar/econometrica/utils/optimizer_honesty.py
+@@ -26,9 +26,12 @@ UI потребляет результат verbatim (INV-50, единый ист
+ from __future__ import annotations
+ 
+ import json
++import logging
+ from pathlib import Path
+ from typing import Any
+ 
++logger = logging.getLogger('econometrica')
++
+ # Дивергенции считаются «несошедшейся» при превышении max(абс.пол, 1% черновиков).
+ # Абс. пол защищает от ложного refuse при малом числе черновиков (пара дивергенций
+ # на 30 наблюдениях — норма для NUTS, не катастрофа).
+@@ -266,3 +269,73 @@ def model_reliability_verdict(diagnostics: dict[str, Any]) -> dict[str, Any]:
+         'reasons': [],
+         'caveat_text': '',
+     }
++
++
++def stamp_reliability(diagnostics: dict[str, Any]) -> dict[str, Any]:
++    """Проставить вердикт надёжности в диагностику — ПОСЛЕДНИМ действием перед записью.
++
++    🔴 Вызывать ТОЛЬКО на границе записи `results/model-diagnostics.json`, когда
++    словарь диагностики собран целиком. Причина — проверенный дефект 2026-08-07:
++    `modeler.py` штамповал вердикт на 413 строк РАНЬШЕ, чем клал в ту же
++    диагностику признак `holidays_excluded` (modeler.py:1851). В файл уезжали оба
++    поля сразу: верный признак и вердикт, посчитанный так, будто праздники не
++    исключали. Кто пересчитывал от файла (оптимизатор, мост отчётов) — получал
++    честный 'uncertain' с причиной про смещение; кто читал штамп (экраны
++    «Декомпозиция» и «Оптимизация» до запуска) — получал 'reliable', то есть
++    плашку не рисовал вовсе. Ошибка была направлена в НЕДОпредупреждение, против
++    чего честностный гейт INV-50 и существует.
++
++    Второй путь устаревания того же штампа: `tools/recompute_mqs.py` пересчитывал
++    `mqs`/`checks`, но `honesty_verdict` не трогал — файл становился внутренне
++    противоречивым.
++
++    Отсюда правило: штамп — не шаг обучения, а свойство записи. Любой писатель
++    диагностики обязан пройти через эту функцию последним действием.
++
++    Идемпотентна на непустом словаре: `model_reliability_verdict` читает только
++    `metrics`, `checks`, `mqs`, `engine`, `preflight`, `holidays_excluded`,
++    `y_pred_reconstruction_failed`, `n_obs`/`n_params` — собственные поля штампа
++    на её ветки не влияют, повторный вызов даёт тот же результат.
++
++    🔴 ПУСТОЙ словарь не штампуем вовсе, и это не мелочь: сам факт простановки
++    полей сделал бы его непустым, и повторный вызов ушёл бы в другую ветку —
++    «диагностика неполна» вместо «диагностики нет». Хранимое значение перестало
++    бы совпадать с вычисляемым, то есть ровно то, ради чего единый источник и
++    заводится. Описывать нечего — пусть читатели вычислят «неизвестно» сами
++    (мост это умеет, `narrative_adapter` и `sections.py`). У писателей движка
++    диагностика пустой не бывает, так что в бою это ничего не меняет.
++
++    Args:
++        diagnostics: полностью собранный словарь диагностики. Изменяется на месте.
++
++    Returns:
++        Тот же словарь (для сцепления вызовов).
++    """
++    if not diagnostics:
++        return diagnostics
++    try:
++        verdict = model_reliability_verdict(diagnostics)
++    except Exception as err:  # noqa: BLE001
++        # Сохраняем прежнее поведение обоих движков: сбой честностного контура НЕ
++        # роняет обучение — модель уже сохранена на диск. Вердикт при этом честно
++        # объявляется непроверенным, а не выдуманным.
++        logger.warning('stamp_reliability: вердикт не посчитан (%s)', err)
++        verdict = {
++            'verdict': 'unknown',
++            'refused': False,
++            'reasons': ['Сбой при вычислении вердикта надёжности — надёжность не проверена.'],
++            'caveat_text': ('Не удалось проверить надёжность модели. '
++                            'Трактуйте рекомендации осторожно.'),
++        }
++    # Полный дикт — то, что читают Rust-отчёты и мост: вердикт, отказ, причины,
++    # текст оговорки. Раньше на диск попадали только два поля из четырёх, и
++    # `caveat_text` приходилось пере-выводить на каждой стороне заново.
++    diagnostics['model_reliability'] = verdict
++    # Совместимость: эти два поля читают экраны продукта и запасной путь HTML —
++    # `DecomposeStep.svelte:250`, `OptimizeStep.svelte:387`, `sections.py:437`.
++    diagnostics['honesty_verdict'] = verdict.get('verdict', 'unknown')
++    # Присваиваем ВСЕГДА, в том числе пустым списком: штамп теперь ставится
++    # повторно (после пересчёта MQS), и уцелевшие причины прошлого вердикта
++    # рассказывали бы клиенту о проблеме, которой уже нет.
++    diagnostics['honesty_reasons'] = [str(r) for r in (verdict.get('reasons') or [])][:3]
++    return diagnostics
+diff --git a/src-tauri/Cargo.cloud.fragment.toml b/src-tauri/Cargo.cloud.fragment.toml
+index be7784e..d121e30 100644
+--- a/src-tauri/Cargo.cloud.fragment.toml
++++ b/src-tauri/Cargo.cloud.fragment.toml
+@@ -45,4 +45,4 @@ thin = ["dep:aurora_gateway"]
+ #
+ # Проверяется запросом к удалённому репозиторию (`git ls-remote --tags`), а не
+ # наличием каталога: каталог мог оказаться чужим деревом.
+-aurora_gateway = { git = "https://github.com/Ackold26/aurora-platform-core.git", tag = "aurora_gateway-v0.6.3", features = ["cloud-http"], optional = true }
++aurora_gateway = { git = "https://github.com/Ackold26/aurora-platform-core.git", tag = "aurora_gateway-v0.6.4", features = ["cloud-http"], optional = true }
+diff --git a/src-tauri/Cargo.toml b/src-tauri/Cargo.toml
+index 3119396..1d04141 100644
+--- a/src-tauri/Cargo.toml
++++ b/src-tauri/Cargo.toml
+@@ -1,6 +1,6 @@
+ [package]
+ name = "aurora-econometrica-gui"
+-version = "2.4.4"
++version = "2.4.5"
+ description = "Aurora AI Econometrica - Marketing Mix Modeling with Claude AI"
+ authors = ["Ackold"]
+ edition = "2021"
+diff --git a/src-tauri/src/commands/report.rs b/src-tauri/src/commands/report.rs
+index 08cb647..90e2dbe 100644
+--- a/src-tauri/src/commands/report.rs
++++ b/src-tauri/src/commands/report.rs
+@@ -45,6 +45,47 @@ fn reliability_label(verdict: &str) -> &'static str {
      }
  }
  
-+/// Порог, ниже которого текст не может быть содержательным ответом кабинета вместе с маркером
-+/// отказа. Ответы советника — развёрнутые разборы; сообщение об обрыве канала укладывается в
-+/// одну-две строки. Величина продуктовая, не научная, и намеренно щедрая.
-+const FAILURE_NOTICE_MAX_CHARS: usize = 400;
-+
-+/// Маркеры отказа КАНАЛА (не содержания). Сверяются с началом текста, регистр не важен.
-+const FAILURE_NOTICE_MARKERS: &[&str] = &[
-+    "api error",
-+    "error:",
-+    "request timed out",
-+    "connection closed",
-+    "connection error",
-+    "stream closed",
-+    "fetch failed",
-+];
-+
-+/// Является ли текст сообщением об отказе, а не ответом кабинета (CPD-32).
-+///
-+/// 🔴 Почему маркер И длина, а не «либо-либо». Предложение записи реестра допускало отказ по
-+/// одной лишь краткости, но короткий ответ бывает настоящим («Да, риск есть: пункт 4.2»), и
-+/// выбрасывать его — терять работу клиента. Маркер сам по себе тоже не доказательство: разбор
-+/// вопроса «что означает API Error 500» законно начинается этими словами, но он длинный.
-+/// Совпадение обоих признаков — короткий текст, начинающийся с маркера отказа канала, — не
-+/// оставляет места содержательному ответу.
-+///
-+/// Возвращает причину для журнала, чтобы отказ можно было разобрать по следам, а не гадать.
-+fn failure_notice_reason(text: &str) -> Option<&'static str> {
-+    let trimmed = text.trim();
-+    if trimmed.is_empty() {
-+        return Some("пустой ответ");
-+    }
-+    // Считаем символы, а не байты: у кириллицы их по два на символ, и порог в байтах
-+    // отрезал бы русские ответы вдвое раньше английских.
-+    if trimmed.chars().count() > FAILURE_NOTICE_MAX_CHARS {
-+        return None;
-+    }
-+    let head: String = trimmed.chars().take(80).collect::<String>().to_lowercase();
-+    FAILURE_NOTICE_MARKERS
-+        .iter()
-+        .any(|m| head.starts_with(m))
-+        .then_some("текст начинается маркером отказа канала и короче порога содержательности")
++/// 2026-08-07: optimization.json переживает переобучение (project.rs:631
++/// безусловно читает файл с диска, project-state.js:1394 чистит только память,
++/// project-state.js:1260 кладёт обратно) — отчёт может собрать диагностику от
++/// НОВОЙ модели и результаты оптимизации от СТАРОЙ, и ничто на это не укажет
++/// клиенту. Две независимые половины сверки (доработка 2026-08-08 — аудит
++/// вскрыл слепоту первой половины к tools/recompute_mqs.py: он пересчитывает
++/// диагностику БЕЗ переобучения, подпись модели остаётся той же, а вердикт
++/// надёжности в диагностике уже новый, в замороженной оптимизации — старый):
++/// (а) подписи модели — top-level "model_fingerprint" (64 hex) в
++///     model-diagnostics.json (тут: model["diagnostics"]["model_fingerprint"])
++///     и в optimization.json (optimize["model_fingerprint"]);
++/// (б) живой вердикт model["diagnostics"]["model_reliability"]["verdict"]
++///     против замороженного optimize["model_reliability"]["verdict"]
++///     (регистронезависимо).
++/// Рассинхрон = истина хотя бы по одной половине. Для каждой половины: обе
++/// величины должны присутствовать и быть непустыми, иначе эта половина сверки
++/// не делается (отсутствие поля — старый проект, законно, молчим; ложная
++/// тревога дороже пропуска).
++fn diagnostics_optimization_diverged(model: &Value, optimize: &Value) -> bool {
++    let fingerprints_diverge = {
++        let mf = model["diagnostics"]["model_fingerprint"].as_str().filter(|s| !s.is_empty());
++        let of = optimize["model_fingerprint"].as_str().filter(|s| !s.is_empty());
++        matches!((mf, of), (Some(a), Some(b)) if a != b)
++    };
++    let verdicts_diverge = {
++        let mv = model["diagnostics"]["model_reliability"]["verdict"].as_str()
++            .filter(|s| !s.is_empty()).map(|s| s.to_lowercase());
++        let ov = optimize["model_reliability"]["verdict"].as_str()
++            .filter(|s| !s.is_empty()).map(|s| s.to_lowercase());
++        matches!((mv, ov), (Some(a), Some(b)) if a != b)
++    };
++    fingerprints_diverge || verdicts_diverge
 +}
 +
- /// Extract a short slug from the user prompt for use in the filename.
- /// "/ad-variants some extra text" → "ad-variants"
- /// "some free text" → "response"
-@@ -855,6 +952,172 @@ fn convert_to_pdf(md_path: &std::path::Path) {
- mod tests {
-     use super::*;
++/// Текст предупреждения VERBATIM — синхрон со стороной Python (сторож на шве).
++/// Короткое тире «–» (U+2013), не длинное — линтер продукта валит длинное тире
++/// в клиентском тексте. Доработка 2026-08-08: прежний текст («на другой
++/// модели») стал неправдой для случая (б) — там модель ТА ЖЕ, разошлись
++/// только вердикты диагностики и оптимизации по времени расчёта.
++const FINGERPRINT_MISMATCH_TEXT: &str = "Диагностика модели и результаты оптимизации получены в разных расчётах – пересчитайте оптимизацию, прежде чем опираться на переброску бюджета.";
++
+ /// Волна 1 пункт 3 (2026-06-20): отображаемый вердикт-действие (рус) + honesty-
+ /// смягчение (решение 2a). Зеркалит engines.channel_action.soften_verdict_display
+ /// (Python) — Rust XLSX/MD читают results JSON напрямую, мимо Python-моста, поэтому
+@@ -83,6 +124,25 @@ fn clean_label(s: &str) -> String {
+     s.split_whitespace().collect::<Vec<_>>().join(" ")
+ }
  
-+    /// 🔴 Сторож CPD-10 (блокирующий). До правки отказ по исчерпанной подписке и по протухшему
-+    /// входу не попадал ни в одну категорию, и наружу уходила СЫРАЯ английская строка CLI —
-+    /// отказ был подан не как отказ. Эталон линейки: SA `ec6a89b`, OR `0d3f3fc`.
-+    #[test]
-+    fn usage_limit_is_classified_and_never_retried() {
-+        for line in [
-+            "Claude usage limit reached. Try again after 3pm",
-+            "You have reached your quota for this billing period",
-+            "Error: out of credits",
-+        ] {
-+            let err = classify_stderr(line)
-+                .unwrap_or_else(|| panic!("отказ по квоте обязан классифицироваться: {line}"));
-+            assert_eq!(err, ClaudeError::UsageLimit, "строка: {line}");
-+            assert!(
-+                !err.is_retryable(),
-+                "квота не восстанавливается ожиданием — повтор лишь потратит время клиента"
-+            );
-+        }
++/// Excel ограничивает содержимое ячейки 32 767 символами (rust_xlsxwriter
++/// MAX_STRING_LEN) — запись строки длиннее лимита возвращает Err и роняет
++/// весь build_xlsx через `?` (разведка 2026-08-07, scratchpad/pulse_xlsx_reach.md).
++/// На сейчас (2026-08-07) определения глоссария приходят из фронта
++/// (getAllTerms()) и максимум ≈ 400-800 символов, но источник — Value с фронта,
++/// не статически проверяемый Rust-типом, поэтому страховка на будущее (заметки
++/// аналитика, склейка полей и т.п.). Обрезка по границе символа (`.chars()`,
++/// не байтов) - иначе кириллица/эмодзи ломаются на полуграфеме.
++fn truncate_to_excel_cell_limit(s: &str) -> std::borrow::Cow<'_, str> {
++    const XLSX_CELL_CHAR_LIMIT: usize = 32_767;
++    if s.chars().count() <= XLSX_CELL_CHAR_LIMIT {
++        std::borrow::Cow::Borrowed(s)
++    } else {
++        let mut truncated: String = s.chars().take(XLSX_CELL_CHAR_LIMIT - 1).collect();
++        truncated.push('…');
++        std::borrow::Cow::Owned(truncated)
 +    }
++}
 +
-+    /// 🔴 Порядок отнесения: квота идёт ДО ограничения частоты. Иначе клиенту пообещали бы
-+    /// автоматический повтор, которого не будет.
-+    #[test]
-+    fn usage_limit_wins_over_rate_limit() {
-+        assert_eq!(
-+            classify_stderr("Claude usage limit reached (429)"),
-+            Some(ClaudeError::UsageLimit),
-+            "исчерпанная подписка не имеет права быть принята за ограничение частоты"
-+        );
-+        assert_eq!(
-+            classify_stderr("rate limit exceeded, slow down"),
-+            Some(ClaudeError::RateLimit),
-+            "обычное ограничение частоты обязано остаться повторяемым"
-+        );
+ /// Волна 3 (2026-06-20): метка режима анализа + типа KPI (контекст метрик для
+ /// клиента). Зеркало Python (narrative_adapter). Rust XLSX/MD читают decompose
+ /// JSON напрямую. Пустая строка ⇒ метку не показываем.
+@@ -512,6 +572,13 @@ fn build_markdown(model: &Value, decompose: &Value, optimize: &Value) -> String
+             md.push_str(&format!("\n> ⚠ **{mr_label}.** {mr_caveat}\n"));
+         }
+     }
++    // 2026-08-07/08: рассинхрон диагностики и оптимизации
++    // (diagnostics_optimization_diverged: подпись модели ИЛИ вердикт надёжности) —
++    // РЯДОМ с плашкой надёжности выше, не заменяет её (та про качество ЭТИХ
++    // чисел, эта про то, что диагностика и оптимизация — из разных расчётов).
++    if diagnostics_optimization_diverged(model, optimize) {
++        md.push_str(&format!("\n> ⚠ {FINGERPRINT_MISMATCH_TEXT}\n"));
 +    }
-+
-+    /// 🔴 Протухший вход — строгими формами. Негативный контроль обязателен: голое слово
-+    /// «login» встречается в обычном тексте, и широкий образец объявлял бы отказом входа всё
-+    /// подряд (требование самой записи реестра).
-+    #[test]
-+    fn stale_login_is_classified_by_strict_forms_only() {
-+        for line in [
-+            "You are not logged in. Run `claude login`",
-+            "Session logged out",
-+            "Please log in to continue",
-+        ] {
-+            assert_eq!(
-+                classify_stderr(line),
-+                Some(ClaudeError::AuthError),
-+                "протухший вход обязан классифицироваться: {line}"
-+            );
-+        }
-+        assert_ne!(
-+            classify_stderr("Описан порядок login в разделе README"),
-+            Some(ClaudeError::AuthError),
-+            "обычное упоминание слова «login» не имеет права считаться отказом входа"
-+        );
-+    }
-+
-+    /// Клиентский текст отказа по квоте не имеет права обещать повтор, которого не будет.
-+    #[test]
-+    fn usage_limit_message_promises_no_retry() {
-+        let text = user_message(&ClaudeError::UsageLimit);
-+        assert!(text.contains("CL-010"), "код отказа обязан быть назван: {text}");
-+        assert!(
-+            !text.contains("Повторная попытка"),
-+            "текст обещает автоматический повтор, которого не будет — ложное утверждение о себе: {text}"
-+        );
-+    }
-+
-+    /// 🔴 Сторож CPD-32 (блокирующий, ложное утверждение продукта о себе). Эталонный случай —
-+    /// дословный текст из находки Legal Center 0.12.1: ответ оборвался, а продукт сохранил
-+    /// сообщение об обрыве как отчёт с именем по шаблону команды и датой.
-+    #[test]
-+    fn broken_channel_notice_is_not_a_result() {
-+        assert!(
-+            failure_notice_reason("API Error: Connection closed mid-response").is_some(),
-+            "сообщение об обрыве канала обязано быть распознано: иначе оно ляжет в папку клиента \
-+             файлом со всеми признаками выполненной работы"
-+        );
-+        assert!(failure_notice_reason("Error: request failed").is_some());
-+        assert!(failure_notice_reason("Request timed out after 600s").is_some());
-+        assert!(failure_notice_reason("   ").is_some(), "пустой ответ — тоже не результат");
-+    }
-+
-+    /// 🔴 Негативный контроль: короткий ответ бывает НАСТОЯЩИМ, и выбрасывать его — терять
-+    /// работу клиента. Без этого случая правило удовлетворялось бы отказом по одной краткости.
-+    #[test]
-+    fn short_but_real_answer_is_kept() {
-+        assert!(
-+            failure_notice_reason("Да, риск есть: пункт 4.2 договора.").is_none(),
-+            "короткий содержательный ответ обязан сохраняться"
-+        );
-+        assert!(
-+            failure_notice_reason("Вклад телевидения — 32 %, это верхняя граница правдоподобного \
-+                                   диапазона.")
-+                .is_none()
-+        );
-+    }
-+
-+    /// 🔴 Второй негативный контроль: маркер сам по себе не доказательство. Разбор вопроса
-+    /// «что означает API Error 500» законно начинается этими словами — но он длинный.
-+    #[test]
-+    fn long_explanation_starting_with_a_marker_is_kept() {
-+        let long_answer = format!(
-+            "API Error 500 — это ответ сервера, а не отказ вашего канала. {}",
-+            "Ниже разбор причин и порядок действий. ".repeat(12)
-+        );
-+        assert!(
-+            long_answer.chars().count() > FAILURE_NOTICE_MAX_CHARS,
-+            "фикстура обязана быть длиннее порога, иначе случай проверяет не то"
-+        );
-+        assert!(
-+            failure_notice_reason(&long_answer).is_none(),
-+            "развёрнутый разбор не имеет права быть принят за отказ канала"
-+        );
-+    }
-+
-+    /// 🔴 Порог считается в СИМВОЛАХ, не байтах: у кириллицы два байта на символ, и байтовый
-+    /// счёт отрезал бы русские ответы вдвое раньше английских — при этом на английских
-+    /// фикстурах разница не видна вовсе.
-+    #[test]
-+    fn threshold_counts_characters_not_bytes() {
-+        let russian = "Разбор ".repeat(40); // ~280 символов, но ~520 байт
-+        assert!(russian.chars().count() < FAILURE_NOTICE_MAX_CHARS);
-+        assert!(russian.len() > FAILURE_NOTICE_MAX_CHARS, "фикстура обязана быть длиннее в БАЙТАХ");
-+        assert!(
-+            failure_notice_reason(&format!("API Error: {russian}")).is_some(),
-+            "русский текст в пределах порога по символам обязан проверяться маркером так же, \
-+             как английский"
-+        );
-+    }
-+
-+    /// 🔴 Сторож СВЯЗИ, а не только логики (урок Ф-04 внешнего аудита: вынесенная функция была
-+    /// покрыта, а её вызов — нет, и дефект жил дальше). Проверка обязана стоять МЕЖДУ входом в
-+    /// автосохранение и записью файла: если её вынести за пределы этого промежутка, распознавание
-+    /// останется рабочим, а отказ снова ляжет на диск отчётом.
-+    ///
-+    /// Тест разбирает собственный исходник — тот же приём, что у сторожа паритета ярусов
-+    /// качества (`test_mqs_tier_rust_single_source.py`), потому что вызов `auto_save_response`
-+    /// требует живого `AppHandle` и юнит-тестом не строится.
-+    #[test]
-+    fn auto_save_checks_whether_the_answer_happened_before_writing() {
-+        let src = include_str!("claude.rs");
-+        let start = src
-+            .find("pub(crate) fn auto_save_response")
-+            .expect("функция auto_save_response не найдена — разметка переехала");
-+        let tail = &src[start..];
-+        let write_at = tail
-+            .find("std::fs::write(&export_path")
-+            .expect("запись файла в auto_save_response не найдена — разметка переехала");
-+        let window = &tail[..write_at];
-+
-+        assert!(
-+            window.contains("failure_notice_reason"),
-+            "между входом в автосохранение и записью файла нет проверки «состоялся ли ответ» — \
-+             сообщение об обрыве канала снова ляжет в папку клиента файлом с признаками \
-+             выполненной работы (CPD-32)"
-+        );
-+        assert!(
-+            window.contains("claude-stream-"),
-+            "отказ обязан быть ГРОМКИМ: молчаливый пропуск возвращает к родственному дефекту \
-+             «файла нет, и никто не знает почему» (CPD-17)"
-+        );
-+    }
-+
-     #[test]
-     fn slug_from_slash_command() {
-         assert_eq!(extract_command_slug("/ad-variants"), "ad-variants");
-diff --git a/src-tauri/src/errors.rs b/src-tauri/src/errors.rs
-index 1529d61..7c3ca36 100644
---- a/src-tauri/src/errors.rs
-+++ b/src-tauri/src/errors.rs
-@@ -36,6 +36,11 @@ pub enum ErrorCode {
-     CL006, // Auth error
-     CL007, // Network error
-     CL008, // Execution timeout
-+    // 🔴 CPD-10: номер взят НЕ следующим по порядку (CL-009 пропущен намеренно). Код ошибки —
-+    // кросс-продуктная величина: у Smart Analytica и Oracle исчерпание подписочной квоты уже
-+    // выпущено клиентам под CL-010, и тот же отказ обязан называться так же во всей линейке.
-+    // Согласованность с выпущенным важнее плотности нумерации.
-+    CL010, // Исчерпана подписочная квота Claude (НЕ повторяется автоматически)
+     md.push_str("\n---\n\n");
  
-     // ── Fingerprint ──
-     FP001, // WMI / hardware ID collection failed
-@@ -98,6 +103,7 @@ impl ErrorCode {
-             Self::CL006 => "CL-006",
-             Self::CL007 => "CL-007",
-             Self::CL008 => "CL-008",
-+            Self::CL010 => "CL-010",
- 
-             Self::FP001 => "FP-001",
-             Self::FP002 => "FP-002",
-@@ -161,6 +167,7 @@ mod tests {
-             ErrorCode::VT001, ErrorCode::VT002, ErrorCode::VT003, ErrorCode::VT004, ErrorCode::VT005,
-             ErrorCode::CL001, ErrorCode::CL002, ErrorCode::CL003, ErrorCode::CL004,
-             ErrorCode::CL005, ErrorCode::CL006, ErrorCode::CL007, ErrorCode::CL008,
-+            ErrorCode::CL010,
-             ErrorCode::FP001, ErrorCode::FP002, ErrorCode::FP003,
-             ErrorCode::SY001, ErrorCode::SY002, ErrorCode::SY003,
-             ErrorCode::UP001, ErrorCode::UP002, ErrorCode::UP003, ErrorCode::UP004, ErrorCode::UP005,
-diff --git a/src-tauri/src/session/manager.rs b/src-tauri/src/session/manager.rs
-index f82f2ec..45d4834 100644
---- a/src-tauri/src/session/manager.rs
-+++ b/src-tauri/src/session/manager.rs
-@@ -298,12 +298,14 @@ impl SessionManager {
-             let dst = session.user_workspace.join("exports");
-             drop(sessions);
- 
--            // Sync from exports/ and all vault-specific output directories
--            sync_dir_to(&work_dir.join("exports"), &dst)?;
-+            // Sync from exports/ and all vault-specific output directories.
-+            // 🔴 CPD-39: копирование БЕЗ зеркального удаления — выгрузки клиента только
-+            // накапливаются. Зеркало здесь сносило ранее выданные файлы с Рабочего стола.
-+            copy_dir_into(&work_dir.join("exports"), &dst)?;
-             for dir_name in &["pretensions", "nda", "contracts", "reports"] {
-                 let src = work_dir.join(dir_name);
-                 if src.exists() {
--                    sync_dir_to(&src, &dst)?;
-+                    copy_dir_into(&src, &dst)?;
-                 }
+     // ── Model Quality ────────────────────────────────────────
+@@ -1260,6 +1327,14 @@ fn build_xlsx(
              }
          }
-@@ -540,8 +542,38 @@ fn clear_inbox(workspace: &Path) {
-     }
- }
  
-+/// Копирование файлов src → dst (один уровень, без рекурсии) **без удаления** лишнего в приёмнике.
-+///
-+/// 🔴 CPD-39: направление «выдать наружу» не имеет права стирать чужое. `sync_dir_to` ниже —
-+/// ЗЕРКАЛО, и для входящих (Рабочий стол → рабочий каталог) это верно: пользователь убрал файл из
-+/// `inbox`, значит кабинет не должен его видеть. Для выгрузок направление обратное, и зеркало
-+/// уничтожало результаты клиента: рабочий каталог сессии временный и при открытии создаётся ПУСТЫМ
-+/// (`open_session`), а `exports` на Рабочем столе — постоянное хранилище. Первое же сообщение новой
-+/// сессии зеркалило пустоту наружу и сносило всё, что продукт выдал клиенту раньше.
-+///
-+/// Второе следствие того же корня: `sync_exports` зовёт синхронизацию до пяти раз в ОДИН приёмник
-+/// (`exports`, `pretensions`, `nda`, `contracts`, `reports`) — при зеркальном удалении каждый
-+/// следующий вызов сносил то, что положил предыдущий. Копирование без удаления снимает и это.
-+fn copy_dir_into(src: &Path, dst: &Path) -> Result<()> {
-+    if !src.exists() {
-+        return Ok(());
-+    }
-+    std::fs::create_dir_all(dst)?;
-+    for entry in std::fs::read_dir(src)? {
-+        let entry = entry?;
-+        if entry.file_type()?.is_file() {
-+            let dst_file = dst.join(entry.file_name());
-+            std::fs::copy(entry.path(), &dst_file)?;
-+        }
-+    }
-+    Ok(())
-+}
-+
- /// Mirror-sync files from src to dst (one level, no recursion).
- /// Copies new/updated files AND removes files in dst not present in src.
-+///
-+/// 🔴 Применять ТОЛЬКО к входящим (Рабочий стол → рабочий каталог сессии). Для выгрузок —
-+/// `copy_dir_into`: см. CPD-39 в докстринге выше.
- fn sync_dir_to(src: &Path, dst: &Path) -> Result<()> {
-     if !src.exists() {
-         return Ok(());
-@@ -820,3 +852,122 @@ mod wipe_tests {
-         assert!(!dir.exists(), "каталог сессии обязан быть снесён целиком");
-     }
- }
-+
-+#[cfg(test)]
-+mod export_sync_tests {
-+    use super::*;
-+
-+    /// Собрать управляющего сессиями с ОДНОЙ готовой сессией, не трогая реальный профиль
-+    /// пользователя. `SessionManager::new()` резолвит настоящий per-app каталог, поэтому в тесте
-+    /// он запрещён — образец взят у `durable_store::migrate_into` и `history::save_message_at`:
-+    /// логика отделена от резолва пути, чтобы проверка не могла задеть живые данные.
-+    fn manager_with_session(work_dir: &Path, user_workspace: &Path, root: &Path) -> SessionManager {
-+        let manager = SessionManager {
-+            sessions: Mutex::new(HashMap::new()),
-+            sessions_root: root.to_path_buf(),
-+        };
-+        manager.sessions.lock().unwrap().insert(
-+            "econometrist".to_string(),
-+            Session {
-+                cabinet_id: "econometrist".to_string(),
-+                work_dir: work_dir.to_path_buf(),
-+                temp_dir: root.join("temp"),
-+                user_workspace: user_workspace.to_path_buf(),
-+                first_message_sent: false,
-+                claude_session_id: None,
-+                lock: None,
-+            },
-+        );
-+        manager
-+    }
-+
-+    /// 🔴 Сторож CPD-39 (блокирующий, потеря данных клиента). Воспроизводит рутинный сценарий
-+    /// целиком: советник выдал файл в прошлый раз → продукт перезапущен → рабочий каталог сессии
-+    /// создан ПУСТЫМ → пришло первое сообщение → вызывается `sync_exports`.
-+    ///
-+    /// До правки зеркальная синхронизация сносила из `exports` на Рабочем столе всё, чего нет в
-+    /// пустом рабочем каталоге, — то есть все ранее выданные клиенту результаты, молча и без следа
-+    /// в интерфейсе. Проверяется через ВЫЗОВ `sync_exports`, а не саму функцию копирования: иначе
-+    /// сторож остался бы зелёным при возврате зеркала в вызывающем месте (урок Ф-04 — вынесенная
-+    /// функция покрыта, а её вызов нет).
-+    #[test]
-+    fn previous_exports_survive_first_message_of_a_new_session() {
-+        let tmp = tempfile::tempdir().unwrap();
-+        let work_dir = tmp.path().join("session-work");
-+        let desktop = tmp.path().join("Рабочий стол/Aurora/econometrist");
-+
-+        // Рабочий каталог новой сессии: exports существует и ПУСТ — так его создаёт open_session.
-+        std::fs::create_dir_all(work_dir.join("exports")).unwrap();
-+
-+        // На Рабочем столе клиента лежат результаты прошлых сессий.
-+        let previous = desktop.join("exports");
-+        std::fs::create_dir_all(&previous).unwrap();
-+        let earlier = [
-+            previous.join("разбор-модели-20260715-101500.md"),
-+            previous.join("разбор-модели-20260715-101500.docx"),
-+        ];
-+        for f in &earlier {
-+            std::fs::write(f, "результат, выданный клиенту ранее").unwrap();
++        // 2026-08-07/08: рассинхрон диагностики и оптимизации
++        // (diagnostics_optimization_diverged: подпись модели ИЛИ вердикт надёжности) —
++        // РЯДОМ с плашкой надёжности (строка 12), не поверх неё; строка 13 свободна.
++        if diagnostics_optimization_diverged(model, optimize) {
++            ws.write(13, 0, format!("⚠ {FINGERPRINT_MISMATCH_TEXT}"))
++                .map_err(|e| format!("{e}"))?;
 +        }
 +
-+        let manager = manager_with_session(&work_dir, &desktop, tmp.path());
-+        manager.sync_exports("econometrist").expect("синхронизация выгрузок обязана пройти");
-+
-+        for f in &earlier {
-+            assert!(
-+                f.exists(),
-+                "ранее выданный клиенту результат обязан пережить новую сессию: {} исчез — это \
-+                 молчаливая потеря данных клиента (CPD-39)",
-+                f.display()
-+            );
-+        }
-+    }
-+
-+    /// Позитивный контроль к сторожу выше: без него правило «ничего не удалять» удовлетворялось бы
-+    /// и функцией, которая вообще ничего не делает. Новый результат обязан доехать до клиента.
-+    #[test]
-+    fn fresh_export_reaches_the_user_workspace() {
-+        let tmp = tempfile::tempdir().unwrap();
-+        let work_dir = tmp.path().join("session-work");
-+        let desktop = tmp.path().join("Рабочий стол/Aurora/econometrist");
-+        std::fs::create_dir_all(work_dir.join("exports")).unwrap();
-+        std::fs::write(work_dir.join("exports/новый-отчёт.md"), "свежий результат").unwrap();
-+
-+        let manager = manager_with_session(&work_dir, &desktop, tmp.path());
-+        manager.sync_exports("econometrist").expect("синхронизация выгрузок обязана пройти");
-+
-+        let delivered = desktop.join("exports/новый-отчёт.md");
-+        assert!(delivered.exists(), "новый результат обязан доехать до Рабочего стола клиента");
-+        assert_eq!(
-+            std::fs::read_to_string(&delivered).unwrap(),
-+            "свежий результат",
-+            "содержимое обязано совпадать с выданным"
-+        );
-+    }
-+
-+    /// 🔴 Второе следствие того же корня (CPD-39): `sync_exports` кладёт в ОДИН приёмник до пяти
-+    /// источников подряд. При зеркальном удалении каждый следующий вызов сносил результат
-+    /// предыдущего, и до клиента доезжал только последний каталог.
-+    #[test]
-+    fn several_source_dirs_do_not_erase_each_other_in_one_destination() {
-+        let tmp = tempfile::tempdir().unwrap();
-+        let work_dir = tmp.path().join("session-work");
-+        let desktop = tmp.path().join("Рабочий стол/Aurora/econometrist");
-+        std::fs::create_dir_all(work_dir.join("exports")).unwrap();
-+        std::fs::create_dir_all(work_dir.join("reports")).unwrap();
-+        std::fs::write(work_dir.join("exports/из-выгрузок.md"), "первый источник").unwrap();
-+        std::fs::write(work_dir.join("reports/из-отчётов.md"), "второй источник").unwrap();
-+
-+        let manager = manager_with_session(&work_dir, &desktop, tmp.path());
-+        manager.sync_exports("econometrist").expect("синхронизация выгрузок обязана пройти");
-+
-+        assert!(
-+            desktop.join("exports/из-выгрузок.md").exists(),
-+            "результат из exports обязан уцелеть: следующий источник не имеет права его сносить"
-+        );
-+        assert!(
-+            desktop.join("exports/из-отчётов.md").exists(),
-+            "результат из reports обязан доехать вместе с первым, а не вместо него"
-+        );
-+    }
-+}
-diff --git a/src/lib/__tests__/chat-message-field-parity.coverage.test.js b/src/lib/__tests__/chat-message-field-parity.coverage.test.js
-index 616448e..53a4b13 100644
---- a/src/lib/__tests__/chat-message-field-parity.coverage.test.js
-+++ b/src/lib/__tests__/chat-message-field-parity.coverage.test.js
-@@ -43,7 +43,13 @@ const CHAT_PANEL = path.join(process.cwd(), 'src/lib/components/ChatPanel.svelte
-  * реестр пуст, но остаётся на случай появления такого поля в будущем.
-  * @type {Record<string, string>}
-  */
--const EPHEMERAL_FIELDS = {};
-+const EPHEMERAL_FIELDS = {
-+  unsaved:
-+    'CPD-41: признак ОТКАЗА сохранения. Персистентным быть не может по определению — поле ' +
-+    'означает, что сообщение на диск не легло, поэтому его пара в файле истории существовать ' +
-+    'не способна. Живёт до перезагрузки ленты, и это верно: после перезапуска сообщения нет ' +
-+    'вовсе, а не «есть с пометкой».',
-+};
+         // Widths from XLSX_reference.xlsx - A:C = 26.43
+         ws.set_column_width(0, 26.43).map_err(|e| format!("{e}"))?;
+         ws.set_column_width(1, 26.43).map_err(|e| format!("{e}"))?;
+@@ -1468,28 +1543,37 @@ fn build_xlsx(
+                 .map_err(|e| format!("{e}"))?;
+         }
  
- /** @param {string} camel @returns {string} */
- function toSnakeCase(camel) {
-diff --git a/src/lib/__tests__/chat-save-failure.guard.test.js b/src/lib/__tests__/chat-save-failure.guard.test.js
+-        // Conditional formatting: ROI > 2 = green, ROI < 1 = red (data rows 3..3+len)
+-        let first_row = 3u32;
+-        let last_row = chs.len() as u32 + 2;
+-        let green_cond = ConditionalFormatCell::new()
+-            .set_rule(ConditionalFormatCellRule::GreaterThanOrEqualTo(2.0))
+-            .set_format(Format::new().set_font_color(Color::RGB(GO)));
+-        let red_cond = ConditionalFormatCell::new()
+-            .set_rule(ConditionalFormatCellRule::LessThan(1.0))
+-            .set_format(Format::new().set_font_color(Color::RGB(STOP)));
+-        ws.add_conditional_format(first_row, 3, last_row, 3, &green_cond).map_err(|e| format!("{e}"))?;
+-        ws.add_conditional_format(first_row, 3, last_row, 3, &red_cond).map_err(|e| format!("{e}"))?;
+-
+-        // ROI bar chart
+-        let mut chart = Chart::new(ChartType::Bar);
+-        chart.add_series()
+-            .set_categories(("ROI каналов", first_row, 0, last_row, 0))
+-            .set_values(("ROI каналов", first_row, 3, last_row, 3))
+-            .set_name("ROI");
+-        chart.set_style(12);
+-        chart.set_width(567).set_height(283); // matches XLSX_reference (15×7.5 cm)
+-        chart.title().set_name("ROI по каналам");
+-        ws.insert_chart(last_row + 2, 0, &chart).map_err(|e| format!("{e}"))?;
++        // Conditional formatting + chart: только при непустых каналах — при
++        // chs.is_empty() last_row (= chs.len()+2 = 2) оказывается МЕНЬШЕ
++        // first_row (= 3 хардкод) и add_conditional_format/insert_chart вернут
++        // Err(RowColumnOrderError), что через `?` уронит build_xlsx целиком
++        // (весь экспорт, а не только этот лист) — разведка 2026-08-07,
++        // scratchpad/pulse_xlsx_reach.md. При нуле каналов лист собирается без
++        // украшений (заголовки уже написаны выше), но книга сохраняется.
++        if !chs.is_empty() {
++            // Conditional formatting: ROI > 2 = green, ROI < 1 = red (data rows 3..3+len)
++            let first_row = 3u32;
++            let last_row = chs.len() as u32 + 2;
++            let green_cond = ConditionalFormatCell::new()
++                .set_rule(ConditionalFormatCellRule::GreaterThanOrEqualTo(2.0))
++                .set_format(Format::new().set_font_color(Color::RGB(GO)));
++            let red_cond = ConditionalFormatCell::new()
++                .set_rule(ConditionalFormatCellRule::LessThan(1.0))
++                .set_format(Format::new().set_font_color(Color::RGB(STOP)));
++            ws.add_conditional_format(first_row, 3, last_row, 3, &green_cond).map_err(|e| format!("{e}"))?;
++            ws.add_conditional_format(first_row, 3, last_row, 3, &red_cond).map_err(|e| format!("{e}"))?;
++
++            // ROI bar chart
++            let mut chart = Chart::new(ChartType::Bar);
++            chart.add_series()
++                .set_categories(("ROI каналов", first_row, 0, last_row, 0))
++                .set_values(("ROI каналов", first_row, 3, last_row, 3))
++                .set_name("ROI");
++            chart.set_style(12);
++            chart.set_width(567).set_height(283); // matches XLSX_reference (15×7.5 cm)
++            chart.title().set_name("ROI по каналам");
++            ws.insert_chart(last_row + 2, 0, &chart).map_err(|e| format!("{e}"))?;
++        }
+ 
+         // Widths - ROI каналов (A = 4.4 cm ≈ 23.76; C = 3.91 cm; D = 2.2 cm, per Антон)
+         ws.set_column_width(0, 23.76).map_err(|e| format!("{e}"))?;
+@@ -1539,22 +1623,31 @@ fn build_xlsx(
+             ws.write_with_format(row, 5, efficiency, &roi_fmt).map_err(|e| format!("{e}"))?;
+         }
+ 
+-        // Clustered bar chart: spend% vs effect% (data rows 3..3+len-1)
+-        let first_row = 3u32;
+-        let last_row = chs.len() as u32 + 2;
+-        let mut chart = Chart::new(ChartType::Column);
+-        chart.add_series()
+-            .set_categories(("Spend vs Effect", first_row, 0, last_row, 0))
+-            .set_values(("Spend vs Effect", first_row, 2, last_row, 2))
+-            .set_name("% бюджета");
+-        chart.add_series()
+-            .set_categories(("Spend vs Effect", first_row, 0, last_row, 0))
+-            .set_values(("Spend vs Effect", first_row, 4, last_row, 4))
+-            .set_name("% эффекта");
+-        chart.set_style(12);
+-        chart.set_width(567).set_height(283); // matches XLSX_reference (15×7.5 cm)
+-        chart.title().set_name("Доля бюджета vs Доля эффекта");
+-        ws.insert_chart(last_row + 2, 0, &chart).map_err(|e| format!("{e}"))?;
++        // Тот же класс отказа, что на «ROI каналов»/«Оптимизация» (разведка
++        // 2026-08-07, scratchpad/pulse_xlsx_reach.md): при chs.is_empty() эта
++        // ветка выполняется (Some(пустой vec)), last_row=2 < first_row=3,
++        // insert_chart вернул бы Err(диапазон перевёрнут) и уронил бы
++        // build_xlsx целиком. Обнаружено ЖИВЬЁМ прогоном сторожа
++        // build_xlsx_survives_empty_optimize_and_decompose_channels: гейт на
++        // «ROI каналов» открыл путь сюда (раньше падало ещё ДО этого листа).
++        if !chs.is_empty() {
++            // Clustered bar chart: spend% vs effect% (data rows 3..3+len-1)
++            let first_row = 3u32;
++            let last_row = chs.len() as u32 + 2;
++            let mut chart = Chart::new(ChartType::Column);
++            chart.add_series()
++                .set_categories(("Spend vs Effect", first_row, 0, last_row, 0))
++                .set_values(("Spend vs Effect", first_row, 2, last_row, 2))
++                .set_name("% бюджета");
++            chart.add_series()
++                .set_categories(("Spend vs Effect", first_row, 0, last_row, 0))
++                .set_values(("Spend vs Effect", first_row, 4, last_row, 4))
++                .set_name("% эффекта");
++            chart.set_style(12);
++            chart.set_width(567).set_height(283); // matches XLSX_reference (15×7.5 cm)
++            chart.title().set_name("Доля бюджета vs Доля эффекта");
++            ws.insert_chart(last_row + 2, 0, &chart).map_err(|e| format!("{e}"))?;
++        }
+ 
+         // Widths - Spend vs Effect (A:C = 3.50 cm ≈ 18.90 char, per Антон)
+         ws.set_column_width(0, 18.90).map_err(|e| format!("{e}"))?;
+@@ -1690,34 +1783,43 @@ fn build_xlsx(
+             ws.write_with_format(row, 5, curr_roi, &roi_fmt).map_err(|e| format!("{e}"))?;
+         }
+ 
+-        // Conditional formatting on delta columns (data rows 3..3+len-1)
++        // Conditional formatting + chart: только при непустых каналах — при
++        // opt_chs.is_empty() last_row (= opt_chs.len()+2 = 2) оказывается МЕНЬШЕ
++        // first_row (= 3 хардкод) и add_conditional_format/insert_chart вернут
++        // Err(RowColumnOrderError), что через `?` уронит build_xlsx целиком
++        // (весь экспорт, а не только этот лист) — разведка 2026-08-07,
++        // scratchpad/pulse_xlsx_reach.md. При нуле каналов лист собирается без
++        // украшений (заголовки уже написаны выше), но книга сохраняется.
+         let first_row = 3u32;
+         let last_row = opt_chs.len() as u32 + 2;
+-        let green_d = ConditionalFormatCell::new()
+-            .set_rule(ConditionalFormatCellRule::GreaterThan(0.0))
+-            .set_format(Format::new().set_font_color(Color::RGB(GO)));
+-        let red_d = ConditionalFormatCell::new()
+-            .set_rule(ConditionalFormatCellRule::LessThan(0.0))
+-            .set_format(Format::new().set_font_color(Color::RGB(BERRY)));
+-        ws.add_conditional_format(first_row, 3, last_row, 3, &green_d).map_err(|e| format!("{e}"))?;
+-        ws.add_conditional_format(first_row, 3, last_row, 3, &red_d).map_err(|e| format!("{e}"))?;
+-        ws.add_conditional_format(first_row, 4, last_row, 4, &green_d).map_err(|e| format!("{e}"))?;
+-        ws.add_conditional_format(first_row, 4, last_row, 4, &red_d).map_err(|e| format!("{e}"))?;
+-
+-        // Clustered bar: current vs optimal
+-        let mut chart = Chart::new(ChartType::Column);
+-        chart.add_series()
+-            .set_categories(("Оптимизация", first_row, 0, last_row, 0))
+-            .set_values(("Оптимизация", first_row, 1, last_row, 1))
+-            .set_name("Текущий");
+-        chart.add_series()
+-            .set_categories(("Оптимизация", first_row, 0, last_row, 0))
+-            .set_values(("Оптимизация", first_row, 2, last_row, 2))
+-            .set_name("Оптимальный");
+-        chart.set_style(12);
+-        chart.set_width(567).set_height(283); // matches XLSX_reference (15×7.5 cm)
+-        chart.title().set_name("Текущий vs Оптимальный бюджет");
+-        ws.insert_chart(last_row + 2, 0, &chart).map_err(|e| format!("{e}"))?;
++        if !opt_chs.is_empty() {
++            // Conditional formatting on delta columns (data rows 3..3+len-1)
++            let green_d = ConditionalFormatCell::new()
++                .set_rule(ConditionalFormatCellRule::GreaterThan(0.0))
++                .set_format(Format::new().set_font_color(Color::RGB(GO)));
++            let red_d = ConditionalFormatCell::new()
++                .set_rule(ConditionalFormatCellRule::LessThan(0.0))
++                .set_format(Format::new().set_font_color(Color::RGB(BERRY)));
++            ws.add_conditional_format(first_row, 3, last_row, 3, &green_d).map_err(|e| format!("{e}"))?;
++            ws.add_conditional_format(first_row, 3, last_row, 3, &red_d).map_err(|e| format!("{e}"))?;
++            ws.add_conditional_format(first_row, 4, last_row, 4, &green_d).map_err(|e| format!("{e}"))?;
++            ws.add_conditional_format(first_row, 4, last_row, 4, &red_d).map_err(|e| format!("{e}"))?;
++
++            // Clustered bar: current vs optimal
++            let mut chart = Chart::new(ChartType::Column);
++            chart.add_series()
++                .set_categories(("Оптимизация", first_row, 0, last_row, 0))
++                .set_values(("Оптимизация", first_row, 1, last_row, 1))
++                .set_name("Текущий");
++            chart.add_series()
++                .set_categories(("Оптимизация", first_row, 0, last_row, 0))
++                .set_values(("Оптимизация", first_row, 2, last_row, 2))
++                .set_name("Оптимальный");
++            chart.set_style(12);
++            chart.set_width(567).set_height(283); // matches XLSX_reference (15×7.5 cm)
++            chart.title().set_name("Текущий vs Оптимальный бюджет");
++            ws.insert_chart(last_row + 2, 0, &chart).map_err(|e| format!("{e}"))?;
++        }
+ 
+         // 5c (2026-05-04) FIX: same formula-result issue - рrust_xlsxwriter writes
+         // formulas with default cached result=0, Excel showed 0+0 для ИТОГО.
+@@ -2089,7 +2191,9 @@ fn build_xlsx(
+                     .or_else(|| item["short"].as_str())
+                     .unwrap_or("");
+                 ws.write_with_format(row, 0, term, &bold).map_err(|e| format!("{e}"))?;
+-                ws.write(row, 1, def).map_err(|e| format!("{e}"))?;
++                // Определение приходит с фронта (getAllTerms(), не статически
++                // проверяемый тип) - страховка от превышения лимита ячейки Excel.
++                ws.write(row, 1, truncate_to_excel_cell_limit(def).as_ref()).map_err(|e| format!("{e}"))?;
+                 row += 1;
+             }
+         } else {
+@@ -2482,23 +2586,52 @@ mod tests {
+         assert!(!roi_unreliable(&json!({"verdict": "Hold"})));
+     }
+ 
+-    /// Волна 3: глоссарий из фронта (SSOT glossary.js) — извлечение term/definition.
+-    /// definition с fallback на short; пустой/None → ветка fallback (11 встроенных).
++    /// Волна 3: глоссарий из фронта (SSOT glossary.js) — путь «у термина есть
++    /// ТОЛЬКО short, definition нет» обязан реально попасть на лист «Глоссарий»
++    /// через `.or_else(|| item["short"].as_str())` (report.rs, лист Глоссарий).
++    /// Соседний тест glossary_xlsx_uses_frontend_terms_when_provided (:2548)
++    /// покрывает только путь с полем definition — путь «только short» не был
++    /// покрыт никем. Прежняя версия этого теста сравнивала литерал json! сам
++    /// с собой, не вызывая build_xlsx вовсе — переписана на настоящую сборку
++    /// XLSX и чтение листа «Глоссарий» из zip (приём — как в соседнем тесте).
+     #[test]
+     fn glossary_from_frontend_extraction() {
+-        let g = json!([
+-            {"term": "ROAS", "definition": "возврат на рекламные расходы"},
+-            {"term": "Adstock", "short": "остаточный эффект"},
++        fn xlsx_contains(path: &Path, needle: &str) -> bool {
++            let bytes = std::fs::read(path).expect("read xlsx");
++            let mut archive = zip::read::ZipArchive::new(Cursor::new(bytes)).expect("open xlsx zip");
++            for i in 0..archive.len() {
++                let mut entry = archive.by_index(i).expect("zip entry");
++                let mut content = String::new();
++                if entry.read_to_string(&mut content).is_err() {
++                    continue;
++                }
++                if content.contains(needle) {
++                    return true;
++                }
++            }
++            false
++        }
++
++        let model = json!({"diagnostics": {"mqs": {"score": 70.0, "tier_label": "Хорошее"}}});
++        let decompose = json!({"channels": [
++            {"name": "TV", "spend": 100.0, "contribution": 150.0, "roi": 1.5}
++        ]});
++        let optimize = json!({"channels": [
++            {"name": "TV", "current_spend_money": 100.0, "optimal_spend_money": 120.0}
++        ]});
++        // Термин фронта БЕЗ definition - только short.
++        let glossary = json!([
++            {"term": "Adstock", "short": "УникальныйКраткийТермин42"},
+         ]);
+-        let arr = g.as_array().unwrap();
+-        assert_eq!(arr[0]["term"].as_str().unwrap(), "ROAS");
+-        assert_eq!(arr[0]["definition"].as_str().unwrap(), "возврат на рекламные расходы");
+-        let def = arr[1]["definition"].as_str().or_else(|| arr[1]["short"].as_str());
+-        assert_eq!(def, Some("остаточный эффект"));
+-        let empty: Option<Value> = Some(json!([]));
+-        assert!(empty.as_ref().and_then(|x| x.as_array()).filter(|a| !a.is_empty()).is_none());
+-        let none: Option<Value> = None;
+-        assert!(none.as_ref().and_then(|x| x.as_array()).filter(|a| !a.is_empty()).is_none());
++
++        let path = std::env::temp_dir().join("aurora_glossary_short_only_test.xlsx");
++        build_xlsx(&model, &decompose, &optimize, &[], None, "test", &path, Some(&glossary))
++            .expect("build_xlsx с glossary (только short)");
++        assert!(
++            xlsx_contains(&path, "УникальныйКраткийТермин42"),
++            "термин с ТОЛЬКО полем short обязан попасть в XLSX через .or_else(short)"
++        );
++        let _ = std::fs::remove_file(&path);
+     }
+ 
+     /// Мутационно проверено (2026-08-04, при переносе glossary из
+@@ -2567,4 +2700,300 @@ mod tests {
+         );
+         let _ = std::fs::remove_file(&path_some);
+     }
++
++    /// Разведка 2026-08-07 (scratchpad/pulse_xlsx_reach.md, задача team-lead
++    /// "зонд достижимости отказов XLSX") нашла: пустой decompose.channels/
++    /// optimize.channels даёт last_row = chs.len() as u32 + 2 = 2, а first_row
++    /// хардкожен 3u32 (report.rs, листы «ROI каналов»/«Оптимизация») →
++    /// add_conditional_format/insert_chart возвращают Err(RowColumnOrderError),
++    /// который через `?` рушит build_xlsx ЦЕЛИКОМ - книга вообще не сохраняется,
++    /// клиент не получает файл (ни один из остальных 9+ листов). Достижимость
++    /// с обычного UI-пути не доказана (ConfigPanel.svelte блокирует обучение
++    /// с 0 каналов), но единственная защита - на фронте, не в бэкенде. Фикс:
++    /// гейт `if !chs.is_empty()` вокруг блоков conditional-format/chart на этих
++    /// двух листах - на нуле каналов лист собирается без украшений, но книга
++    /// сохраняется целиком.
++    /// Мутационно проверено (2026-08-07): временно убрав гейт `if
++    /// !chs.is_empty()` на обоих листах (условие всегда true) - тест падал на
++    /// `result.is_ok()` с текстом "First row or column in range is greater than
++    /// last row or column" внутри Err; вернув гейт - тест снова зелёный.
++    #[test]
++    fn build_xlsx_survives_empty_optimize_and_decompose_channels() {
++        let model = json!({"diagnostics": {"mqs": {"score": 70.0, "tier_label": "Хорошее"}}});
++        let decompose = json!({"channels": []});
++        let optimize = json!({"channels": []});
++
++        let path = std::env::temp_dir().join("aurora_empty_channels_test.xlsx");
++        let result = build_xlsx(&model, &decompose, &optimize, &[], None, "test", &path, None);
++        assert!(
++            result.is_ok(),
++            "build_xlsx обязан пережить пустые decompose.channels/optimize.channels и \
++             сохранить книгу целиком, а не вернуть Err: {:?}",
++            result.err()
++        );
++        assert!(path.exists(), "книга обязана быть сохранена на диск даже при нуле каналов");
++        let meta = std::fs::metadata(&path).expect("read metadata");
++        assert!(meta.len() > 0, "сохранённый XLSX не должен быть пустым файлом");
++        let _ = std::fs::remove_file(&path);
++    }
++
++    /// Та же разведка 2026-08-07: определение термина глоссария приходит с
++    /// фронта (getAllTerms(), Value без статической проверки длины) и пишется
++    /// в ячейку «Определение» листа «Глоссарий». Excel ограничивает ячейку
++    /// 32 767 символами (rust_xlsxwriter MAX_STRING_LEN) - запись более длинной
++    /// строки возвращает Err и роняет build_xlsx целиком тем же путём, что и
++    /// пустые channels выше. На сейчас (2026-08-07) реальные определения не
++    /// длиннее ≈800 символов - но источник не типобезопасен, страховка на
++    /// будущее. Фикс: truncate_to_excel_cell_limit() обрезает по границе
++    /// символа и дописывает «…», чтобы обрыв был виден клиенту.
++    /// Мутационно проверено (2026-08-07): временно заменив вызов
++    /// `truncate_to_excel_cell_limit(def).as_ref()` на голый `def` - тест падал
++    /// на `result.is_ok()` с текстом "String exceeds Excel's limit of 32,767
++    /// characters" внутри Err; вернув обрезку - тест снова зелёный.
++    #[test]
++    fn glossary_definition_truncated_to_excel_cell_limit() {
++        fn xlsx_contains(path: &Path, needle: &str) -> bool {
++            let bytes = std::fs::read(path).expect("read xlsx");
++            let mut archive = zip::read::ZipArchive::new(Cursor::new(bytes)).expect("open xlsx zip");
++            for i in 0..archive.len() {
++                let mut entry = archive.by_index(i).expect("zip entry");
++                let mut content = String::new();
++                if entry.read_to_string(&mut content).is_err() {
++                    continue;
++                }
++                if content.contains(needle) {
++                    return true;
++                }
++            }
++            false
++        }
++
++        let model = json!({"diagnostics": {"mqs": {"score": 70.0, "tier_label": "Хорошее"}}});
++        let decompose = json!({"channels": [
++            {"name": "TV", "spend": 100.0, "contribution": 150.0, "roi": 1.5}
++        ]});
++        let optimize = json!({"channels": [
++            {"name": "TV", "current_spend_money": 100.0, "optimal_spend_money": 120.0}
++        ]});
++
++        // > предела ячейки Excel (32 767 симв.) - кириллица, чтобы проверить
++        // обрезку именно по границе символа (chars()), не байтов.
++        let too_long_def = "д".repeat(40_000);
++        let glossary = json!([
++            {"term": "СлишкомДлинныйТермин", "definition": too_long_def},
++        ]);
++        let path = std::env::temp_dir().join("aurora_glossary_overflow_test.xlsx");
++        let result = build_xlsx(&model, &decompose, &optimize, &[], None, "test", &path, Some(&glossary));
++        assert!(
++            result.is_ok(),
++            "build_xlsx обязан пережить определение глоссария длиннее лимита ячейки Excel: {:?}",
++            result.err()
++        );
++
++        let expected_truncated = format!("{}…", "д".repeat(32_766));
++        assert!(
++            xlsx_contains(&path, &expected_truncated),
++            "определение обязано быть обрезано ровно до лимита ячейки Excel (32767 симв. \
++             включая завершающее многоточие)"
++        );
++        assert!(
++            !xlsx_contains(&path, &too_long_def),
++            "исходное необрезанное определение (40000 симв.) не должно попасть в ячейку - \
++             иначе запись вернула бы Err и книга не сохранилась бы"
++        );
++        let _ = std::fs::remove_file(&path);
++    }
++
++    /// 2026-08-07/08: рассинхрон диагностики и оптимизации
++    /// (diagnostics_optimization_diverged) — предупреждение обязано появиться в
++    /// Markdown И в XLSX по любой из двух половин: (а) разные model_fingerprint,
++    /// (б) те же подписи, но разошлись вердикты model_reliability (случай
++    /// tools/recompute_mqs.py — диагностика пересчиталась без переобучения).
++    /// Молчим, если обе стороны совпадают, и если сверяемого поля нет вовсе
++    /// (старый проект). Мутационно проверено (обязательный шаг для этого
++    /// проекта): временно заставив diagnostics_optimization_diverged всегда
++    /// возвращать false - все ветки "должны предупредить" (и по подписи, и по
++    /// вердикту) падали ровно на отсутствии текста предупреждения; вернув
++    /// логику - тест снова зелёный.
++    #[test]
++    fn model_optimization_fingerprint_mismatch_warns_in_both_formats() {
++        fn xlsx_contains(path: &Path, needle: &str) -> bool {
++            let bytes = std::fs::read(path).expect("read xlsx");
++            let mut archive = zip::read::ZipArchive::new(Cursor::new(bytes)).expect("open xlsx zip");
++            for i in 0..archive.len() {
++                let mut entry = archive.by_index(i).expect("zip entry");
++                let mut content = String::new();
++                if entry.read_to_string(&mut content).is_err() {
++                    continue;
++                }
++                if content.contains(needle) {
++                    return true;
++                }
++            }
++            false
++        }
++
++        let decompose = json!({"channels": [
++            {"name": "TV", "spend": 100.0, "contribution": 150.0, "roi": 1.5}
++        ]});
++        let optimize_channels = json!([
++            {"name": "TV", "current_spend_money": 100.0, "optimal_spend_money": 120.0}
++        ]);
++
++        // Расходятся: диагностика и оптимизация - от разных моделей.
++        let model_a = json!({"diagnostics": {"model_fingerprint": "aa".repeat(32)}});
++        let optimize_b = json!({"model_fingerprint": "bb".repeat(32), "channels": optimize_channels});
++        let md_diverge = build_markdown(&model_a, &decompose, &optimize_b);
++        assert!(
++            md_diverge.contains(FINGERPRINT_MISMATCH_TEXT),
++            "Markdown обязан предупредить при разных model_fingerprint"
++        );
++        let path_diverge = std::env::temp_dir().join("aurora_fingerprint_diverge_test.xlsx");
++        build_xlsx(&model_a, &decompose, &optimize_b, &[], None, "test", &path_diverge, None)
++            .expect("build_xlsx diverge");
++        assert!(
++            xlsx_contains(&path_diverge, FINGERPRINT_MISMATCH_TEXT),
++            "XLSX обязан предупредить при разных model_fingerprint"
++        );
++        let _ = std::fs::remove_file(&path_diverge);
++
++        // Совпадают: молчим.
++        let model_same = json!({"diagnostics": {"model_fingerprint": "cc".repeat(32)}});
++        let optimize_same = json!({"model_fingerprint": "cc".repeat(32), "channels": optimize_channels});
++        let md_same = build_markdown(&model_same, &decompose, &optimize_same);
++        assert!(
++            !md_same.contains(FINGERPRINT_MISMATCH_TEXT),
++            "Markdown не должен предупреждать при одинаковых model_fingerprint"
++        );
++        let path_same = std::env::temp_dir().join("aurora_fingerprint_same_test.xlsx");
++        build_xlsx(&model_same, &decompose, &optimize_same, &[], None, "test", &path_same, None)
++            .expect("build_xlsx same");
++        assert!(
++            !xlsx_contains(&path_same, FINGERPRINT_MISMATCH_TEXT),
++            "XLSX не должен предупреждать при одинаковых model_fingerprint"
++        );
++        let _ = std::fs::remove_file(&path_same);
++
++        // Поля нет вовсе (старый проект): молчим.
++        let model_absent = json!({"diagnostics": {}});
++        let optimize_absent = json!({"channels": optimize_channels});
++        let md_absent = build_markdown(&model_absent, &decompose, &optimize_absent);
++        assert!(
++            !md_absent.contains(FINGERPRINT_MISMATCH_TEXT),
++            "Markdown не должен предупреждать когда поле отсутствует (старый проект)"
++        );
++        let path_absent = std::env::temp_dir().join("aurora_fingerprint_absent_test.xlsx");
++        build_xlsx(&model_absent, &decompose, &optimize_absent, &[], None, "test", &path_absent, None)
++            .expect("build_xlsx absent");
++        assert!(
++            !xlsx_contains(&path_absent, FINGERPRINT_MISMATCH_TEXT),
++            "XLSX не должен предупреждать когда поле отсутствует (старый проект)"
++        );
++        let _ = std::fs::remove_file(&path_absent);
++
++        // Подписи совпадают, но вердикты надёжности разошлись (случай
++        // tools/recompute_mqs.py: диагностика пересчиталась без переобучения
++        // модели) - предупреждение обязано появиться.
++        let model_verdict_diverge = json!({"diagnostics": {
++            "model_fingerprint": "dd".repeat(32),
++            "model_reliability": {"verdict": "uncertain"}
++        }});
++        let optimize_verdict_diverge = json!({
++            "model_fingerprint": "dd".repeat(32),
++            "model_reliability": {"verdict": "reliable"},
++            "channels": optimize_channels
++        });
++        let md_verdict_diverge = build_markdown(&model_verdict_diverge, &decompose, &optimize_verdict_diverge);
++        assert!(
++            md_verdict_diverge.contains(FINGERPRINT_MISMATCH_TEXT),
++            "Markdown обязан предупредить при разных вердиктах model_reliability \
++             (подписи модели те же)"
++        );
++        let path_verdict_diverge = std::env::temp_dir().join("aurora_verdict_diverge_test.xlsx");
++        build_xlsx(&model_verdict_diverge, &decompose, &optimize_verdict_diverge, &[], None, "test", &path_verdict_diverge, None)
++            .expect("build_xlsx verdict diverge");
++        assert!(
++            xlsx_contains(&path_verdict_diverge, FINGERPRINT_MISMATCH_TEXT),
++            "XLSX обязан предупредить при разных вердиктах model_reliability \
++             (подписи модели те же)"
++        );
++        let _ = std::fs::remove_file(&path_verdict_diverge);
++
++        // Подписи и вердикты совпадают: молчим.
++        let model_verdict_same = json!({"diagnostics": {
++            "model_fingerprint": "ee".repeat(32),
++            "model_reliability": {"verdict": "reliable"}
++        }});
++        let optimize_verdict_same = json!({
++            "model_fingerprint": "ee".repeat(32),
++            "model_reliability": {"verdict": "reliable"},
++            "channels": optimize_channels
++        });
++        let md_verdict_same = build_markdown(&model_verdict_same, &decompose, &optimize_verdict_same);
++        assert!(
++            !md_verdict_same.contains(FINGERPRINT_MISMATCH_TEXT),
++            "Markdown не должен предупреждать при одинаковых вердиктах model_reliability"
++        );
++        let path_verdict_same = std::env::temp_dir().join("aurora_verdict_same_test.xlsx");
++        build_xlsx(&model_verdict_same, &decompose, &optimize_verdict_same, &[], None, "test", &path_verdict_same, None)
++            .expect("build_xlsx verdict same");
++        assert!(
++            !xlsx_contains(&path_verdict_same, FINGERPRINT_MISMATCH_TEXT),
++            "XLSX не должен предупреждать при одинаковых вердиктах model_reliability"
++        );
++        let _ = std::fs::remove_file(&path_verdict_same);
++
++        // Вердикта нет в диагностике (старый проект), в оптимизации есть:
++        // молчим - ложная тревога у существующих клиентов дороже пропуска.
++        let model_verdict_absent = json!({"diagnostics": {
++            "model_fingerprint": "ff".repeat(32)
++        }});
++        let optimize_verdict_absent = json!({
++            "model_fingerprint": "ff".repeat(32),
++            "model_reliability": {"verdict": "reliable"},
++            "channels": optimize_channels
++        });
++        let md_verdict_absent = build_markdown(&model_verdict_absent, &decompose, &optimize_verdict_absent);
++        assert!(
++            !md_verdict_absent.contains(FINGERPRINT_MISMATCH_TEXT),
++            "Markdown не должен предупреждать когда вердикта нет в диагностике \
++             (старый проект)"
++        );
++        let path_verdict_absent = std::env::temp_dir().join("aurora_verdict_absent_test.xlsx");
++        build_xlsx(&model_verdict_absent, &decompose, &optimize_verdict_absent, &[], None, "test", &path_verdict_absent, None)
++            .expect("build_xlsx verdict absent");
++        assert!(
++            !xlsx_contains(&path_verdict_absent, FINGERPRINT_MISMATCH_TEXT),
++            "XLSX не должен предупреждать когда вердикта нет в диагностике \
++             (старый проект)"
++        );
++        let _ = std::fs::remove_file(&path_verdict_absent);
++
++        // Регистр вердиктов различается ("Uncertain" vs "uncertain") - это
++        // один и тот же вердикт, сверка регистронезависима: молчим.
++        let model_verdict_case = json!({"diagnostics": {
++            "model_fingerprint": "gg".repeat(32),
++            "model_reliability": {"verdict": "Uncertain"}
++        }});
++        let optimize_verdict_case = json!({
++            "model_fingerprint": "gg".repeat(32),
++            "model_reliability": {"verdict": "uncertain"},
++            "channels": optimize_channels
++        });
++        let md_verdict_case = build_markdown(&model_verdict_case, &decompose, &optimize_verdict_case);
++        assert!(
++            !md_verdict_case.contains(FINGERPRINT_MISMATCH_TEXT),
++            "Markdown не должен предупреждать при различии только в регистре \
++             вердикта ('Uncertain' vs 'uncertain')"
++        );
++        let path_verdict_case = std::env::temp_dir().join("aurora_verdict_case_test.xlsx");
++        build_xlsx(&model_verdict_case, &decompose, &optimize_verdict_case, &[], None, "test", &path_verdict_case, None)
++            .expect("build_xlsx verdict case-insensitive");
++        assert!(
++            !xlsx_contains(&path_verdict_case, FINGERPRINT_MISMATCH_TEXT),
++            "XLSX не должен предупреждать при различии только в регистре \
++             вердикта ('Uncertain' vs 'uncertain')"
++        );
++        let _ = std::fs::remove_file(&path_verdict_case);
++    }
+ }
+diff --git a/src-tauri/tauri.conf.json b/src-tauri/tauri.conf.json
+index f8e689e..2534076 100644
+--- a/src-tauri/tauri.conf.json
++++ b/src-tauri/tauri.conf.json
+@@ -1,7 +1,7 @@
+ {
+     "$schema": "https://schema.tauri.app/config/2",
+     "productName": "Optimizer MMM",
+-    "version": "2.4.4",
++    "version": "2.4.5",
+     "identifier": "com.aurora.econometrica",
+     "build": {
+         "beforeDevCommand": "npm run dev",
+diff --git a/src/lib/components/pipeline/ConvergenceDashboard.svelte b/src/lib/components/pipeline/ConvergenceDashboard.svelte
+index bcd94e9..e25fcfa 100644
+--- a/src/lib/components/pipeline/ConvergenceDashboard.svelte
++++ b/src/lib/components/pipeline/ConvergenceDashboard.svelte
+@@ -10,6 +10,7 @@
+    */
+   import EChartBase from '$lib/components/charts/EChartBase.svelte';
+   import ExpandableCard from '$lib/components/ExpandableCard.svelte';
++  import PPCScatter from '$lib/components/pipeline/PPCScatter.svelte';
+   import { chartTooltipDark, escapeHtml } from '$lib/echarts-setup.js';
+   import { TriangleAlert, Check } from 'lucide-svelte';
+   import Tooltip from '$lib/components/Tooltip.svelte';
+@@ -168,6 +169,21 @@
+     };
+   });
+ 
++  /** Panel C: PPC-данные (адаптация имён полей actual_vs_predicted под проп ppcData
++   *  PPCScatter). residuals не передаём - компонент сам вычитает факт-прогноз (в OLS-ветке
++   *  поле называется 'residual' в ед.ч. и с пропом не совпадает - пропуск осознанный).
++   *  r2 - metrics.r_squared под другим именем. durbin_watson в движке нигде не считается -
++   *  не передаём, компонент сам скрывает подпись DW при отсутствии значения. */
++  const ppcData = $derived.by(() => {
++    const avp = diagnostics?.actual_vs_predicted;
++    if (!avp) return null;
++    return {
++      actual: avp.actual,
++      predicted: avp.predicted,
++      r2: diagnostics?.metrics?.r_squared,
++    };
++  });
++
+   /** Check counts for warnings */
+   const convergenceOk = $derived(diagnostics?.checks?.convergence !== false);
+   const divergences = $derived(diagnostics?.metrics?.divergences || 0);
+@@ -191,6 +207,7 @@
+   const HELP = {
+     rhatChart: 'R-hat по параметрам - проверка сходимости MCMC для каждого параметра модели отдельно.\n\nЧто это: горизонтальные бары для sigma (шум), intercept (базовая линия) и media_betas[N] (коэффициенты каналов). Красная зона - R-hat ≥ 1.05.\n\nКак читать: все бары в зелёной зоне → модель сошлась; один канал в красной → его ROI ненадёжен; sigma или intercept красные → нужно увеличить warmup/samples.',
+     avpChart:  'Факт vs Прогноз - визуальная проверка качества модели.\n\nЧто это: синяя линия - реальные продажи, зелёная пунктирная - предсказание модели. В правом верхнем углу - R² и MAPE.\n\nКак читать: линии почти совпадают → модель хорошая; зелёная систематически выше/ниже синей → bias; большие выбросы в отдельных точках → пропущенный событие (промо, launch, кризис).',
++    ppcChart:  'Разброс прогноза и остатки - ещё одна проверка качества модели.\n\nЧто это: слева - точки «факт против прогноза» относительно диагонали идеальной подгонки; справа - остатки (факт минус прогноз) во времени с полосой среднее ± 2 стандартных отклонения.\n\nКак читать: точки плотно у диагонали → модель точна; остатки без явного тренда и в пределах полосы → ошибка случайна, не систематична.',
+   };
+ </script>
+ 
+@@ -342,6 +359,18 @@
+       </div>
+     </ExpandableCard>
+   {/if}
++
++  <!-- Panel C: разброс прогноза (диагональ 45°) + остатки во времени (mean±2σ).
++       Осиротевший компонент PPCScatter подключён 2026-08-07 - те же данные,
++       что и Panel B, гейт идентичный. -->
++  {#if diagnostics.actual_vs_predicted}
++    <ExpandableCard title="Разброс прогноза и остатки">
++      <div class="chart-panel-body">
++        <span class="chart-title-help" title={HELP.ppcChart}>?</span>
++        <PPCScatter {ppcData} />
++      </div>
++    </ExpandableCard>
++  {/if}
+ {/if}
+ 
+ <style>
+diff --git a/src/lib/components/pipeline/PPCScatter.svelte b/src/lib/components/pipeline/PPCScatter.svelte
+index 88064d6..8e0b583 100644
+--- a/src/lib/components/pipeline/PPCScatter.svelte
++++ b/src/lib/components/pipeline/PPCScatter.svelte
+@@ -199,11 +199,19 @@
+       },
+       tooltip: chartTooltipDark({ trigger: 'axis' }),
+       series: /** @type {any[]} */ ([
+-        // Mean ± 2σ band - high bound (invisible anchor)
++        // Полоса «среднее ± 2σ»: НИЖНЯЯ граница как невидимая опора.
++        // 🔴 Здесь была опора на ВЕРХНЮЮ границу (2026-08-08, внешний аудит).
++        // Слои с общим `stack` складываются, поэтому заливка высотой 4σ ложилась
++        // не на нижнюю границу, а на верхнюю: полоса рисовалась в диапазоне от
++        // среднего+2σ до среднего+6σ — над всеми остатками, вместо того чтобы
++        // их охватывать. Дефект пережил написание, потому что компонент был
++        // ничей и его никто не видел; подключён он только что.
++        // Замысел автора виден в комментарии к следующему слою — «область над
++        // нижней границей»: имя переменной и было ошибкой.
+         {
+-          name: 'mean+2σ',
++          name: 'mean-2σ',
+           type: 'line',
+-          data: bandHigh,
++          data: bandLow,
+           lineStyle: { color: 'transparent' },
+           itemStyle: { opacity: 0 },
+           symbol: 'none',
+diff --git a/src/lib/components/pipeline/wizard/StepSummary.svelte b/src/lib/components/pipeline/wizard/StepSummary.svelte
+index 89ffb66..27fb58f 100644
+--- a/src/lib/components/pipeline/wizard/StepSummary.svelte
++++ b/src/lib/components/pipeline/wizard/StepSummary.svelte
+@@ -150,13 +150,6 @@
+     return 'green';
+   }
+ 
+-  /** @param {'green'|'yellow'|'red'} status */
+-  function trafficDot(status) {
+-    if (status === 'green')  return '🟢';
+-    if (status === 'yellow') return '🟡';
+-    return '🔴';
+-  }
+-
+   /** @param {'green'|'yellow'|'red'} status @returns {string} */
+   function trafficLabel(status) {
+     if (status === 'green')  return 'ok';
+@@ -278,9 +271,8 @@
+ 
+       <!-- MCMC convergence -->
+       <div class="diag-row diag-{mcmcSt}">
+-        <span class="traffic-dot" aria-label={`MCMC: ${trafficLabel(mcmcSt)}`}>
+-          {trafficDot(mcmcSt)}
+-        </span>
++        <span class="traffic-dot dot-{mcmcSt}" aria-hidden="true"></span>
++        <span class="sr-only">MCMC: {trafficLabel(mcmcSt)}</span>
+         <div class="diag-body">
+           <span class="diag-name">Сходимость (MCMC)</span>
+           <span class="diag-vals">
+@@ -300,9 +292,8 @@
+       <!-- Backtest (F-E1-2: только при живых данных - wireframe-строки нет) -->
+       {#if hasBacktestDiag}
+       <div class="diag-row diag-{backtestSt}">
+-        <span class="traffic-dot" aria-label={`Проверка на истории: ${trafficLabel(backtestSt)}`}>
+-          {trafficDot(backtestSt)}
+-        </span>
++        <span class="traffic-dot dot-{backtestSt}" aria-hidden="true"></span>
++        <span class="sr-only">Проверка на истории: {trafficLabel(backtestSt)}</span>
+         <div class="diag-body">
+           <span class="diag-name">Проверка на истории</span>
+           <span class="diag-vals">
+@@ -326,9 +317,8 @@
+       <!-- PPC -->
+       {#if hasPpcDiag}
+       <div class="diag-row diag-{ppcSt}">
+-        <span class="traffic-dot" aria-label={`PPC: ${trafficLabel(ppcSt)}`}>
+-          {trafficDot(ppcSt)}
+-        </span>
++        <span class="traffic-dot dot-{ppcSt}" aria-hidden="true"></span>
++        <span class="sr-only">PPC: {trafficLabel(ppcSt)}</span>
+         <div class="diag-body">
+           <span class="diag-name">Posterior predictive</span>
+           <span class="diag-vals">
+@@ -346,7 +336,8 @@
+       <!-- Sensitivity (always yellow, informational) -->
+       {#if sensTopEntry !== null}
+         <div class="diag-row diag-yellow">
+-          <span class="traffic-dot" aria-label="Sensitivity: информационно">🟡</span>
++          <span class="traffic-dot dot-yellow" aria-hidden="true"></span>
++          <span class="sr-only">Sensitivity: информационно</span>
+           <div class="diag-body">
+             <span class="diag-name">Чувствительность</span>
+             <span class="diag-vals">
+@@ -566,9 +557,29 @@
+ 
+   .traffic-dot {
+     flex-shrink: 0;
+-    font-size: 14px;
+-    line-height: 1.6;
+-    user-select: none;
++    width: 8px;
++    height: 8px;
++    margin-top: 4px;
++    border-radius: 50%;
++    display: inline-block;
++  }
++  .dot-green  { background: var(--success, #22c55e); }
++  .dot-yellow { background: var(--warning, #F59E0B); }
++  .dot-red    { background: var(--danger, #ef4444); }
++
++  /* Visually hidden but screen-reader readable status text для traffic-dot
++     (сама точка декоративна, aria-hidden). Паттерн — как в соседних
++     StepTargetConfirm.svelte / StepMediaConfirm.svelte. */
++  .sr-only {
++    position: absolute;
++    width: 1px;
++    height: 1px;
++    padding: 0;
++    margin: -1px;
++    overflow: hidden;
++    clip: rect(0,0,0,0);
++    white-space: nowrap;
++    border: 0;
+   }
+ 
+   .diag-body {
+diff --git a/src/tests/convergence-dashboard-ppc-panel.test.js b/src/tests/convergence-dashboard-ppc-panel.test.js
 new file mode 100644
-index 0000000..91e0bef
+index 0000000..7e86d53
 --- /dev/null
-+++ b/src/lib/__tests__/chat-save-failure.guard.test.js
-@@ -0,0 +1,105 @@
-+// @ts-nocheck — node-side часть теста (fs/path/process), тот же паттерн, что в остальных
-+// *.guard.test.js этого продукта.
++++ b/src/tests/convergence-dashboard-ppc-panel.test.js
+@@ -0,0 +1,48 @@
 +/**
-+ * Сторож CPD-41 (блокирующий, тихая потеря данных клиента).
++ * ConvergenceDashboard — Panel C (PPCScatter подключение, 2026-08-07).
 + *
-+ * Дефект: сохранение реплики вызывалось как
-+ *   `try { await invoke('save_chat_message', …) } catch { /* non-critical *\/ }`
-+ * — бэкенд отказ возвращал исправно, а интерфейс его отбрасывал. Пользователь видел успешный
-+ * экран, а сообщение на диск не легло; узнать о пропаже можно было только перезапустив продукт.
-+ *
-+ * 🔴 Отдельная тяжесть: на предпосылке «клиент видит отказ и повторит отправку» построено
-+ * проектное решение ядра (батч C, пункт C4) — при занятом замке реплика пользователя сознательно
-+ * отклоняется. Интерфейс эту предпосылку отменял, то есть решение ядра держалось на условии,
-+ * которое не наступало.
-+ *
-+ * Гейт проверяет ОБА слоя, потому что каждый по отдельности обходится:
-+ *  1. поведение — чистая функция пометки (её можно позвать и проверить);
-+ *  2. связь — что `catch` у вызова сохранения действительно эту функцию зовёт. Без второго
-+ *     возврат к `catch {}` оставил бы функцию покрытой, а продукт — молчащим (урок Ф-04:
-+ *     вынесенная функция покрыта, её вызов — нет).
++ * Осиротевший компонент PPCScatter (рассеяние факт/прогноз + остатки во времени)
++ * подключён третьей панелью рядом с «R-hat по параметрам» и «Факт vs Прогноз».
++ * Контракт: показывается ТОЛЬКО когда diagnostics.actual_vs_predicted есть (тот же
++ * гейт, что у Panel B); честно отсутствует для старых проектов без этого поля и
++ * при diagnostics=null - без падения компонента.
 + */
 +import { describe, it, expect } from 'vitest';
-+import fs from 'node:fs';
-+import path from 'node:path';
-+import { markMessageUnsaved } from '../chat-save-status.js';
++import { render } from '@testing-library/svelte';
++import ConvergenceDashboard from '$lib/components/pipeline/ConvergenceDashboard.svelte';
 +
-+const CHAT_PANEL = path.join(process.cwd(), 'src/lib/components/ChatPanel.svelte');
++/** Диагностика в форме results/model-diagnostics.json (усечённая, но валидная). */
++function diagnosticsFixture(overrides = {}) {
++  return {
++    metrics: { r_squared: 0.9763, mape_pct: 6.44 },
++    checks: {},
++    actual_vs_predicted: {
++      actual: [100, 110, 95, 120, 105],
++      predicted: [98, 112, 97, 118, 108],
++      dates: ['2025-01', '2025-02', '2025-03', '2025-04', '2025-05'],
++    },
++    per_param_rhat: {},
++    engine: 'bayesian',
++    ...overrides,
++  };
++}
 +
-+describe('сторож CPD-41: отказ сохранения переписки виден пользователю', () => {
-+  it('помечает ровно то сообщение, сохранение которого не удалось', () => {
-+    const lenta = [
-+      { role: 'user', content: 'первый вопрос', ts: 100 },
-+      { role: 'assistant', content: 'ответ', ts: 200 },
-+      { role: 'user', content: 'второй вопрос', ts: 300 },
-+    ];
-+
-+    const after = markMessageUnsaved(lenta, 'user', 300);
-+
-+    expect(after[2].unsaved, 'несохранённое сообщение обязано быть помечено').toBe(true);
-+    expect(after[0].unsaved, 'чужая реплика не имеет права получить пометку').toBeUndefined();
-+    expect(after[1].unsaved, 'ответ модели не имеет права получить пометку').toBeUndefined();
++describe('ConvergenceDashboard — Panel C «Разброс прогноза и остатки»', () => {
++  it('actual_vs_predicted есть → панель C показана', () => {
++    const { getByText } = render(ConvergenceDashboard, { props: { diagnostics: diagnosticsFixture() } });
++    expect(getByText('Разброс прогноза и остатки')).toBeInTheDocument();
 +  });
 +
-+  it('различает сообщения с совпадающей отметкой времени по роли', () => {
-+    // Реплика пользователя и быстрый ответ могут лечь в одну миллисекунду. Пометить чужой
-+    // пузырь — соврать пользователю о противоположном: он бы решил, что потерян ответ.
-+    const lenta = [
-+      { role: 'user', content: 'спасибо', ts: 500 },
-+      { role: 'assistant', content: 'Пожалуйста!', ts: 500, isQuickReply: true },
-+    ];
-+
-+    const after = markMessageUnsaved(lenta, 'assistant', 500);
-+
-+    expect(after[1].unsaved).toBe(true);
-+    expect(after[0].unsaved, 'совпадение отметки времени не должно задевать другую роль').toBeUndefined();
++  it('actual_vs_predicted отсутствует (старый проект) → панель C честно скрыта, без падения', () => {
++    const { queryByText } = render(ConvergenceDashboard, {
++      props: { diagnostics: diagnosticsFixture({ actual_vs_predicted: undefined }) },
++    });
++    expect(queryByText('Разброс прогноза и остатки')).not.toBeInTheDocument();
 +  });
 +
-+  it('не изменяет исходную ленту', () => {
-+    const lenta = [{ role: 'user', content: 'вопрос', ts: 100 }];
-+    markMessageUnsaved(lenta, 'user', 100);
-+    expect(lenta[0].unsaved, 'исходный массив обязан остаться нетронутым').toBeUndefined();
-+  });
-+
-+  it('связь: отказ сохранения в ChatPanel не глотается, а помечает сообщение и говорит пользователю', () => {
-+    const src = fs.readFileSync(CHAT_PANEL, 'utf8');
-+
-+    // Окно — от объявления saveMsg до следующей функции. Границу НЕ ставим по «\n}» :
-+    // файлы хранятся с переводом строки Windows, и выражение не срабатывает вовсе, оставляя
-+    // сторож ложно-красным (та же грабля, что поймана в chat-message-field-parity 2026-07-29).
-+    const saveBlock = src.match(/async function saveMsg[\s\S]*?async function clearHistory/);
-+    expect(saveBlock, 'функция saveMsg не найдена в ChatPanel.svelte — разметка переехала').toBeTruthy();
-+    const window = saveBlock[0];
-+    expect(
-+      /invoke\(\s*['"]save_chat_message['"]/.test(window),
-+      'в saveMsg нет вызова save_chat_message — окно поймало не ту функцию',
-+    ).toBe(true);
-+
-+    // Комментарии вырезаем: внутри обработки отказа прежняя форма процитирована намеренно —
-+    // она объясняет, что именно было дефектом. Без вырезания сторож ловил бы объяснение вместо
-+    // кода и краснел на верной правке (поймано первым же прогоном).
-+    const code = window.split('\n').map((line) => line.replace(/\/\/.*/, '')).join('\n');
-+    expect(
-+      /catch\s*(\([^)]*\))?\s*\{\s*(\/\*[\s\S]*?\*\/)?\s*\}/.test(code),
-+      'отказ сохранения снова глотается пустым catch — это тихая потеря переписки клиента (CPD-41)',
-+    ).toBe(false);
-+
-+    expect(
-+      /markMessageUnsaved\s*\(/.test(window),
-+      'в обработке отказа нет пометки сообщения: пользователь не узнает, ЧТО именно не сохранилось',
-+    ).toBe(true);
-+
-+    expect(
-+      /toast\s*\(/.test(window),
-+      'в обработке отказа нет уведомления пользователю: молчать при потере данных нельзя (INV-50)',
-+    ).toBe(true);
-+  });
-+
-+  it('связь: лента показывает признак несохранённого сообщения', () => {
-+    const src = fs.readFileSync(CHAT_PANEL, 'utf8');
-+    expect(
-+      /\{#if\s+msg\.unsaved\}/.test(src),
-+      'в разметке ленты нет ветки msg.unsaved — пометка ставится, но пользователю не видна',
-+    ).toBe(true);
++  it('diagnostics=null → без падения, панель C отсутствует', () => {
++    expect(() =>
++      render(ConvergenceDashboard, { props: { diagnostics: null } })
++    ).not.toThrow();
 +  });
 +});
-diff --git a/src/lib/chat-save-status.js b/src/lib/chat-save-status.js
+diff --git a/src/tests/ppc-scatter-sigma-band.test.js b/src/tests/ppc-scatter-sigma-band.test.js
 new file mode 100644
-index 0000000..b281e3d
+index 0000000..c2af4be
 --- /dev/null
-+++ b/src/lib/chat-save-status.js
-@@ -0,0 +1,31 @@
++++ b/src/tests/ppc-scatter-sigma-band.test.js
+@@ -0,0 +1,84 @@
 +/**
-+ * Признак несохранённого сообщения переписки (CPD-41).
++ * PPCScatter — полоса «среднее ± 2σ» на графике остатков (сторож на класс дефекта,
++ * найденный внешним аудитом 2026-08-08).
 + *
-+ * 🔴 Зачем вынесено отдельной функцией, а не написано внутри `catch` в ChatPanel.
-+ * До правки отказ сохранения глотался целиком: `catch { /* non-critical *\/ }`. Комментарий
-+ * противоречил существу — теряется переписка клиента, и узнать об этом можно было только
-+ * перезапустив продукт. Хуже того, на предпосылке «клиент видит отказ и повторит отправку»
-+ * построено проектное решение ядра (батч C, пункт C4): при занятом замке реплика пользователя
-+ * сознательно отклоняется. Интерфейс эту предпосылку отменял — клиент не видел ничего.
++ * Слои с общим `stack: 'sigma_band'` складываются: невидимая опора + заливка.
++ * Инвариант: опора = нижняя граница (mean − 2σ), опора + заливка = верхняя граница
++ * (mean + 2σ) — то есть полоса ОХВАТЫВАЕТ остатки. Дефект был в том, что опорой стояла
++ * ВЕРХНЯЯ граница (bandHigh) — тогда полоса рисовалась от mean+2σ до mean+6σ, целиком
++ * над точками остатков, а не вокруг них.
 + *
-+ * Логика вынесена сюда, чтобы её можно было проверить сторожем: внутри разметки Svelte она
-+ * осталась бы непокрытой, а структурная проверка «есть ли что-то в catch» удовлетворяется
-+ * любой строкой.
++ * ECharts option собирается внутри компонента и наружу не отдаётся — перехватываем его
++ * через мок EChartBase (приём как в channel-timeline-click.test.js: копим каждый
++ * применённый option, дальше сверяем ряды).
 + */
++import { describe, it, expect, beforeEach, vi } from 'vitest';
++import { render } from '@testing-library/svelte';
++import { flushSync } from 'svelte';
++
++vi.mock('$lib/components/charts/EChartBase.svelte', async () => {
++  const { default: MockEChartBase } = await import('./__mocks__/MockEChartBase.svelte');
++  return { default: MockEChartBase };
++});
++
++import PPCScatter from '$lib/components/pipeline/PPCScatter.svelte';
++import { __getAppliedOptions, __resetAppliedOptions } from './__mocks__/MockEChartBase.svelte';
 +
 +/**
-+ * Пометить сообщение как несохранённое — по паре (роль, отметка времени).
-+ *
-+ * Пара, а не одна отметка: у быстрого ответа и реплики пользователя отметки времени
-+ * различаются, но совпадение двух значений в пределах одной ленты возможно (два вызова в
-+ * одну миллисекунду), и пометить чужой пузырь — соврать пользователю о противоположном.
-+ *
-+ * @param {import('./store.js').ChatMsg[]} list лента сообщений
-+ * @param {string} role роль сообщения, сохранение которого не удалось
-+ * @param {number} ts отметка времени этого сообщения
-+ * @returns {import('./store.js').ChatMsg[]} новая лента; исходная не изменяется
++ * Остатки [-2,-1,0,1,2] - среднее и σ считаются в уме: mean=0,
++ * variance = (4+1+0+1+4)/5 = 2, σ = √2. actual/predicted подобраны так,
++ * чтобы actual-predicted дал ровно эти остатки.
 + */
-+export function markMessageUnsaved(list, role, ts) {
-+  if (!Array.isArray(list)) return list;
-+  return list.map((m) => (m.role === role && m.ts === ts ? { ...m, unsaved: true } : m));
++function ppcDataFixture() {
++  return {
++    actual: [-2, -1, 0, 1, 2],
++    predicted: [0, 0, 0, 0, 0],
++    r2: 0.9,
++  };
 +}
-diff --git a/src/lib/components/ChatPanel.svelte b/src/lib/components/ChatPanel.svelte
-index f20753e..6534f8e 100644
---- a/src/lib/components/ChatPanel.svelte
-+++ b/src/lib/components/ChatPanel.svelte
-@@ -7,6 +7,7 @@
-   import { attachmentsSkippedText } from '$lib/cloud-warning-text.js';
-   import { getNextSteps, getRandomInsight, getCurrentPhase, trackRequest, getEmpathyError, getTimeGreeting, getUsageHint, startSession, incrementSessionMessages, endSession, pluralRu, getResponseActions, getSafetyTimeout, getEndowedProgressMessage, getContextInsight } from '$lib/psy.js';
-   import { classifyMessage } from '$lib/chat-classifier.js';
-+  import { markMessageUnsaved } from '$lib/chat-save-status.js';
-   import { isEconometrica } from '$lib/creative-store.js';
-   import { activeProject, modelData, decomposeData, optimizeData, validateData, unitCosts } from '$lib/project-state.js';
-   import { ECON_DATA_COMMANDS, buildProjectDataBlock } from '$lib/econ-project-context.js';
-@@ -372,7 +373,16 @@
-     if (!cabinetId) return;
-     try {
-       await invoke('save_chat_message', { cabinetId, role, content, ts, isAutoContinue: flags.isAutoContinue, isQuickReply: flags.isQuickReply });
--    } catch { /* non-critical */ }
-+    } catch (err) {
-+      // 🔴 CPD-41: молчать здесь нельзя. Прежний `catch { /* non-critical */ }` превращал потерю
-+      // переписки клиента в успешный экран — узнать о пропаже можно было только после перезапуска.
-+      // На предпосылке «клиент видит отказ и повторит» построено решение ядра (батч C, C4): при
-+      // занятом замке реплика пользователя сознательно отклоняется. Интерфейс эту предпосылку
-+      // отменял. Признак честности успеха — тот же INV-50, что и для чисел.
-+      console.error('Сообщение не сохранено:', err);
-+      messages.update(list => markMessageUnsaved(list, role, ts));
-+      toast('Сообщение не сохранено – после перезапуска оно исчезнет из переписки', 'error', 6000);
-+    }
-   }
- 
-   async function clearHistory() {
-@@ -1170,6 +1180,14 @@
-               </div>
-             {/if}
-           {/if}
-+          <!-- 🔴 CPD-41: отказ сохранения обязан быть виден. Признак живёт у самого сообщения,
-+               а не только во всплывающем уведомлении: уведомление гаснет, а вопрос «что именно
-+               не сохранилось» остаётся. -->
-+          {#if msg.unsaved}
-+            <div class="message-unsaved" role="status">
-+              Не сохранено – после перезапуска это сообщение исчезнет. Отправьте заново.
-+            </div>
-+          {/if}
-         </div>
-       {/each}
-       {#if $isLoading && !statusText && !progressPhase}
-@@ -2345,6 +2363,15 @@
-     background: var(--text-muted, #7A7A90) !important;
-   }
- 
-+  /* CPD-41: признак несохранённого сообщения. Приглушённый, но читаемый — это предупреждение
-+     о потере данных, а не украшение, поэтому цвет отказа и без прозрачности. */
-+  .message-unsaved {
-+    margin-top: 4px;
-+    font-size: 12px;
-+    line-height: 1.35;
-+    color: var(--danger, #C03030);
-+  }
 +
-   .auto-continue-icon {
-     font-size: 12px;
-   }
-diff --git a/src/lib/store.js b/src/lib/store.js
-index 0c902b2..c841c39 100644
---- a/src/lib/store.js
-+++ b/src/lib/store.js
-@@ -4,7 +4,10 @@ import { writable, get } from 'svelte/store';
- export const activeCabinet = writable(null);
- 
- /**
-- * @typedef {{role: string, content: string, ts: number, isQuickReply?: boolean, isAutoContinue?: boolean}} ChatMsg
-+ * `unsaved` — признак ОТКАЗА сохранения (CPD-41): сообщение показано в ленте, но на диск не
-+ * легло. Поле сознательно эфемерное — в файле истории его быть не может по определению, см.
-+ * реестр EPHEMERAL_FIELDS в `__tests__/chat-message-field-parity.coverage.test.js`.
-+ * @typedef {{role: string, content: string, ts: number, isQuickReply?: boolean, isAutoContinue?: boolean, unsaved?: boolean}} ChatMsg
-  */
- 
- /**
++/** Находит option графика остатков среди всех применённых моку EChartBase - по
++ *  уникальному для этого графика имени опорного слоя, а не по порядку монтирования. */
++function findResidualsOption() {
++  const opts = __getAppliedOptions();
++  return opts.find((o) => (o.series ?? []).some((s) => s.name === 'mean-2σ'));
++}
++
++describe('PPCScatter — полоса mean±2σ охватывает остатки, не висит над ними', () => {
++  beforeEach(() => {
++    __resetAppliedOptions();
++  });
++
++  it('опора = mean-2σ, опора+заливка = mean+2σ (полоса охватывает диапазон остатков)', () => {
++    render(PPCScatter, { props: { ppcData: ppcDataFixture() } });
++    flushSync();
++
++    const residualsOption = findResidualsOption();
++    expect(residualsOption, 'график остатков не найден среди применённых option').toBeTruthy();
++
++    const support = residualsOption.series.find((s) => s.name === 'mean-2σ');
++    const fill = residualsOption.series.find((s) => s.name === 'mean±2σ');
++    expect(support, 'опорный слой mean-2σ отсутствует').toBeTruthy();
++    expect(fill, 'слой заливки mean±2σ отсутствует').toBeTruthy();
++
++    const mean = 0;
++    const std = Math.SQRT2; // √2
++    const expectedLow = mean - 2 * std;
++    const expectedHigh = mean + 2 * std;
++
++    // Опора обязана стоять на НИЖНЕЙ границе.
++    for (const v of support.data) {
++      expect(v).toBeCloseTo(expectedLow, 6);
++    }
++    // Опора + заливка (ECharts stack складывает слои) обязаны давать ВЕРХНЮЮ границу.
++    support.data.forEach((v, i) => {
++      expect(v + fill.data[i]).toBeCloseTo(expectedHigh, 6);
++    });
++
++    // Полоса охватывает сами остатки [-2..2], не висит над ними.
++    for (const residual of [-2, -1, 0, 1, 2]) {
++      expect(residual).toBeGreaterThanOrEqual(expectedLow);
++      expect(residual).toBeLessThanOrEqual(expectedHigh);
++    }
++  });
++});
+diff --git a/src/tests/step-summary-traffic-dot.guard.test.js b/src/tests/step-summary-traffic-dot.guard.test.js
+new file mode 100644
+index 0000000..6e7a584
+--- /dev/null
++++ b/src/tests/step-summary-traffic-dot.guard.test.js
+@@ -0,0 +1,81 @@
++/**
++ * StepSummary traffic-dot guard test.
++ *
++ * Майский аудит доступности M2: "no emoji for status" — светофор диагностики
++ * (MCMC / Backtest / PPC / Sensitivity) обязан рисоваться CSS-точкой, не
++ * эмодзи 🟢🟡🔴. Статус остаётся читаемым без цвета (screen-reader текст),
++ * сама точка декоративная (aria-hidden).
++ *
++ * Сторож: краснеет, если эмодзи-светофор вернётся в trafficDot() или в
++ * разметку. Проверено мутацией (см. отчёт задачи "эмодзи").
++ */
++import { describe, it, expect, vi } from 'vitest';
++import { render } from '@testing-library/svelte';
++import StepSummary from '$lib/components/pipeline/wizard/StepSummary.svelte';
++
++/** Диагностика со всеми тремя статусами green + sensitivity (все 4 точки рендерятся). */
++function makeDiagnostics() {
++  return {
++    mcmcConvergence: { rHatMax: 1.02, essMin: 500 },      // green
++    backtest: { mape: 8, r2: 0.9, rmse: null },           // green
++    ppc: { r2: 0.9, hasBias: false },                     // green
++    sensitivity: [{ param: 'TV-adstock', deltaPct: 15 }], // always yellow
++  };
++}
++
++function makeSummary() {
++  return {
++    scenarioLabel: 'Оптимизация медиа-бюджета',
++    goalDescription: 'Распределить плановый бюджет 50 млн ₽ на 12 месяцев',
++    channels: ['TV', 'Digital'],
++    modeLabel: 'ROI режим (все каналы в ₽)',
++    kpiLabel: 'продажи в упаковках',
++    valuePerUnit: null,
++    taskTypeLabel: 'Оптимизация бюджета',
++    externalFactors: [],
++    softRecommendations: [],
++  };
++}
++
++function renderStepSummary() {
++  return render(StepSummary, {
++    props: {
++      summary: makeSummary(),
++      diagnostics: makeDiagnostics(),
++      onRun: vi.fn(),
++      onEditExpert: vi.fn(),
++    },
++  });
++}
++
++describe('StepSummary - traffic-dot (M2: no emoji for status)', () => {
++  it('не содержит эмодзи-светофор 🟢🟡🔴 в отрисованной разметке', () => {
++    const { container } = renderStepSummary();
++    expect(container.innerHTML).not.toMatch(/[🟢🟡🔴]/u);
++  });
++
++  it('точка статуса присутствует как CSS-элемент .traffic-dot с классом статуса, а не текстовым эмодзи', () => {
++    const { container } = renderStepSummary();
++    const dots = container.querySelectorAll('.traffic-dot');
++    // MCMC + Backtest + PPC + Sensitivity = 4 точки при полной диагностике.
++    expect(dots.length).toBe(4);
++    for (const dot of dots) {
++      // Сама точка декоративна - пустая, без текстового содержимого (не эмодзи-глиф).
++      expect(dot.textContent?.trim()).toBe('');
++      // Цвет статуса задаётся модификатором класса, не inline-эмодзи.
++      expect(dot.className).toMatch(/dot-(green|yellow|red)/);
++    }
++  });
++
++  it('точка декоративна (aria-hidden), статус остаётся читаемым для скринридера рядом с ней', () => {
++    const { container } = renderStepSummary();
++    const dots = container.querySelectorAll('.traffic-dot');
++    for (const dot of dots) {
++      expect(dot.getAttribute('aria-hidden')).toBe('true');
++    }
++    // MCMC-точка зелёная (rHat/ESS хорошие) - рядом должен быть читаемый статус 'ok'.
++    const mcmcDot = container.querySelector('.traffic-dot.dot-green');
++    expect(mcmcDot).toBeInTheDocument();
++    expect(container.textContent).toContain('MCMC: ok');
++  });
++});

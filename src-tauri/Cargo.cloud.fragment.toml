@@ -45,4 +45,4 @@ thin = ["dep:aurora_gateway"]
 #
 # Проверяется запросом к удалённому репозиторию (`git ls-remote --tags`), а не
 # наличием каталога: каталог мог оказаться чужим деревом.
-aurora_gateway = { git = "https://github.com/Ackold26/aurora-platform-core.git", tag = "aurora_gateway-v0.6.3", features = ["cloud-http"], optional = true }
+aurora_gateway = { git = "https://github.com/Ackold26/aurora-platform-core.git", tag = "aurora_gateway-v0.6.5", features = ["cloud-http"], optional = true }

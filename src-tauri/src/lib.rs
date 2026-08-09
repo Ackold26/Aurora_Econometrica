@@ -91,8 +91,12 @@ async fn get_cabinets(_state: tauri::State<'_, Arc<AppState>>, app_handle: tauri
 
             if !missing.is_empty() {
                 info!("Downloading {} missing vault(s) from server...", missing.len());
-                let checksums = serde_json::json!({});
-                match content_updater::download_updates(&config_dir, &data_dir, product, cv, &missing, &checksums, online.vault_versions.as_ref(), Some(&app_handle)).await {
+                // Реальные суммы от сервера, если он их прислал; иначе пустой объект —
+                // как и раньше, чтобы старый сервер без vault_checksums не менял поведение
+                // (download_updates журналирует пропуск сверки сам).
+                let empty_checksums = serde_json::json!({});
+                let checksums = online.vault_checksums.as_ref().unwrap_or(&empty_checksums);
+                match content_updater::download_updates(&config_dir, &data_dir, product, cv, &missing, checksums, online.vault_versions.as_ref(), Some(&app_handle)).await {
                     Ok(updated) => info!("Downloaded {}/{} vault files", updated.len(), missing.len()),
                     Err(e) => warn!("Failed to download vaults: {e}"),
                 }
@@ -112,8 +116,12 @@ async fn get_cabinets(_state: tauri::State<'_, Arc<AppState>>, app_handle: tauri
 
                 if !stale.is_empty() {
                     info!("Downloading {} vault(s) with newer prompt content...", stale.len());
-                    let checksums = serde_json::json!({});
-                    match content_updater::download_updates(&config_dir, &data_dir, product, cv, &stale, &checksums, Some(server_versions), Some(&app_handle)).await {
+                    // Реальные суммы от сервера, если он их прислал; иначе пустой объект —
+                    // как и раньше, чтобы старый сервер без vault_checksums не менял поведение
+                    // (download_updates журналирует пропуск сверки сам).
+                    let empty_checksums = serde_json::json!({});
+                    let checksums = online.vault_checksums.as_ref().unwrap_or(&empty_checksums);
+                    match content_updater::download_updates(&config_dir, &data_dir, product, cv, &stale, checksums, Some(server_versions), Some(&app_handle)).await {
                         Ok(updated) => info!("Downloaded {}/{} updated vault files", updated.len(), stale.len()),
                         Err(e) => warn!("Failed to download versioned vault updates: {e}"),
                     }
@@ -630,8 +638,12 @@ async fn open_cabinet(
         if let (Some(cv), true) = (&online.content_version, online.status == "ok" || online.status == "cached") {
             let product = online_auth::detect_product();
             let files = vec![vault_filename.clone()];
-            let checksums = serde_json::json!({});
-            match content_updater::download_updates(&config_dir, &data_dir, product, cv, &files, &checksums, online.vault_versions.as_ref(), Some(&app_handle)).await {
+            // Реальные суммы от сервера, если он их прислал; иначе пустой объект —
+            // как и раньше, чтобы старый сервер без vault_checksums не менял поведение
+            // (download_updates журналирует пропуск сверки сам).
+            let empty_checksums = serde_json::json!({});
+            let checksums = online.vault_checksums.as_ref().unwrap_or(&empty_checksums);
+            match content_updater::download_updates(&config_dir, &data_dir, product, cv, &files, checksums, online.vault_versions.as_ref(), Some(&app_handle)).await {
                 Ok(updated) if !updated.is_empty() => info!("Downloaded {} vault files from server", updated.len()),
                 Ok(_) => {
                     warn!("Vault download returned no files for {cabinet_id}");

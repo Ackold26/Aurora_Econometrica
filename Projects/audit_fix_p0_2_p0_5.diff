@@ -1,0 +1,1202 @@
+﻿diff --git a/Projects/audit_findings_live.md b/Projects/audit_findings_live.md
+index 74da953..f920fc4 100644
+--- a/Projects/audit_findings_live.md
++++ b/Projects/audit_findings_live.md
+@@ -126,3 +126,30 @@ Medium | src/lib/kpi-aware-formatting.js:597-598 (ветка default `roiBaseNot
+ 
+ ИТОГ блока P0.1: High 2, Medium 4. Вердикт — требует исправлений (блокирующие: обе High).
+ 
++---
++
++# Аудит блока P0.2–P0.5 (2026-08-03)
++
++Внешний аудитор, чистый контекст. Просмотрено: audit.diff целиком (2293 стр.), handoff.md, CLAUDE.md.
++Доп. зонды: server.py (сборка конфига обучения), ValidateStepV13.svelte:812-848, insights-rules.js:250-270,
++sensitivity.py (форма возврата), потребители result.issues, остатки NRMSE по дереву.
++Формат: severity | file:line | суть | сценарий
++
++Critical | src/lib/components/pipeline/ValidateStepV13.svelte:810 + 835-848 | Жёсткая блокировка кнопки «Подтвердить роли» переехала на эффективный знаменатель: `ratioCardData.ratio` теперь `effectiveRatio(...)`, а `ratioBlockedReason` проверяет это же поле. Handoff §4.1 утверждает обратное — «порог остался на сыром, рассинхрон осознанный» | 40 наблюдений, 10 назначенных столбцов, байес: было 40/10=4.0 → кнопка активна; стало 40/23=1.7 → disabled. Действующий пилот перестаёт проходить валидацию. Лекарство тоже не работает: `afterExcludeRatio` считается тем же знаменателем, 13 авто-параметров не убираются ничем
++
++High | src/lib/ratio-classifier.js:2070-2095 (diff) ↔ TrainRequest.use_holidays | `effectiveParamCount` знает про семантический дедуп, но не про мастер-переключатель «Учитывать праздники РФ» на том же экране; встроенная справка (pipeline.html) советует его выключать именно при нехватке данных | 40 obs / 10 столбцов, праздники ВЫКЛ: модель заведёт 11 параметров (3.6), экран показывает 1.7 и держит блокировку. Пользователь делает ровно то, что советует справка, и не видит реакции
++
++High | src/lib/project-state.js:1992-1999 (diff) | `validationHeaderMetrics` зовёт `effectiveParamCount(result.detected, $engine)` БЕЗ живого числа ролей, тогда как ValidateStepV13 и validateInsights его передают; в том же объекте `ratioRaw` живой. Нарушен инвариант handoff §2.8 | 52 obs, 8 медиа + 2 контроля; снять роль с 3 каналов без повторной валидации: карточка → 2.6, липкая шапка → 2.3 (устаревшее), вторая строка подписи → 7.4. Три числа одной величины на одном экране
++
++High | src/lib/insights-rules.js:267-269 (validateRolesInsights) | Делегирует в `validateInsights(result, objective)` без третьего аргумента → всегда 'bayesian'. Обновлены только ValidateStepV13:917 и InsightsPanel:307 | Проект в OLS (штатный путь для коротких рядов): шапка 4.7 «рекомендуемый уровень», подсказки под-шага «Роли колонок» в той же панели 2.3 «критически мало». Сторож ratio-single-source.guard.test.js зовёт validateInsights напрямую с явным режимом и путь не покрывает
++
++High | sidecar/econometrica/engines/validator.py:399-421 (diff) | На `ratio_gate` (OLS) переведены не только пороги, но и ПОДСТАВЛЯЕМОЕ В СООБЩЕНИЕ число; сообщения доезжают до пользователя (ValidateStep.svelte:361 `issues={result.issues ?? []}`, ColumnMapperConfirm.svelte:144) | 30 obs / 10 столбцов, байес: движок «Ratio 2.7:1 – ниже минимума», карточка рядом «1.3 – критически мало» + блокировка кнопки. Ровно тот дефект, ради устранения которого написан P0.3. Handoff §3.1 признаёт расхождение полей, но не печать мягкого числа пользователю
++
++Medium | sidecar/econometrica/engines/validator.py:288-306 (diff) | `missing_pct` и оба новых предупреждения лежат внутри ветки `is_numeric_dtype` | Медиа-колонка с текстовой ячейкой «н/д» → dtype object → `stats` не создаётся → пять экранов через `?? 0` показывают «0% пропусков» именно на самой битой колонке. Корень закрыт для здоровых колонок и открыт для больных
++
++Medium | docs/USER_GUIDE_v2_1_0.md:250,257,358 + tools/build_glossary.py:66 | Якорь `#nrmse-нормализованная-ошибка` удалён из глоссария, но руководство пользователя ссылается на него из таблицы порогов и держит раздел «NRMSE > 15% (красный)»; таблица генератора всё ещё сопоставляет удалённый термин | Клиент открывает руководство → строка таблицы качества с метрикой, которой в продукте нет, и ссылка в никуда. Handoff §5 перечисляет затронутую документацию и USER_GUIDE не называет
++
++— Проверено и НЕ находка: `config = req.model_dump()` (server.py:882, :1223) — зерно из запроса реально доезжает до train_model, поле не теряется; `compute_sensitivity_tornado` возвращает ключ `parameters` (sensitivity.py:100, :173) — условие показа в ReportStep совпадает с формой данных, немого скрытия карточки нет; `seed_from_model` для моделей до P0.2 честно отдаёт значение по умолчанию (совпадения с исходным обучением ни код, ни комментарий не обещают); AST-сторожа проверяют инварианты, защита от тихого нуля выдержана на каждом; раскладка цепей через `nuts_sampler_kwargs` — исправление настоящее, прямой аргумент действительно проглатывался PyMC; перенос `modelEngine` выше по файлу (зона §4.5) корректен — writable объявлен до подписанного на него derived; снятие PPTX — мёртвых веток не осталось, тест перевёрнут на отсутствие обещания.
++
++ИТОГ блока P0.2–P0.5: Critical 1, High 4, Medium 2. Вердикт — требует исправлений (блокирующие: блокировка «Подтвердить роли» на эффективном ratio; инертный переключатель праздников; устаревший знаменатель в шапке; режим не прокинут в validateRolesInsights; два разных числа запаса от движка и фронта на одном экране).
++
+diff --git a/docs/USER_GUIDE_v2_1_0.md b/docs/USER_GUIDE_v2_1_0.md
+index eaf9b3e..6ecc0f5 100644
+--- a/docs/USER_GUIDE_v2_1_0.md
++++ b/docs/USER_GUIDE_v2_1_0.md
+@@ -247,14 +247,13 @@ Aurora автоматически распознал ваши рекламные
+ 
+ ### Вкладка «Диагностика»
+ 
+-[SCREENSHOT: Вкладка диагностики — R-hat, ESS, NRMSE, R²]
++[SCREENSHOT: Вкладка диагностики — R-hat, ESS, R²]
+ 
+ Это техническая проверка качества модели. Вам не нужно понимать каждое число — просто смотрите на цвета.
+ 
+ | Показатель | Зелёный | Жёлтый | Красный |
+ |---|---|---|---|
+ | [R-hat](GLOSSARY_v2_1_0.md#r-hat-сходимость-mcmc) | < 1,05 | 1,05–1,1 | > 1,1 |
+-| [NRMSE](GLOSSARY_v2_1_0.md#nrmse-нормализованная-ошибка) | < 10% | 10–15% | > 15% |
+ | [R²](GLOSSARY_v2_1_0.md#r²-коэффициент-детерминации) | > 0,75 | 0,5–0,75 | < 0,5 |
+ 
+ Если все зелёные — результатам можно доверять. Если хотя бы один красный — читайте раздел «[Когда обратиться за помощью](#6-когда-обратиться-за-помощью)».
+@@ -355,7 +354,7 @@ Aurora автоматически распознал ваши рекламные
+ 
+ ---
+ 
+-**NRMSE > 15% (красный)**
++**Средняя ошибка прогноза (MAPE) выше 15%**
+ 
+ Причина: модель плохо объясняет ваши данные. Возможно, упущен важный фактор.
+ 
+diff --git a/sidecar/econometrica/engines/validator.py b/sidecar/econometrica/engines/validator.py
+index a3d2266..2715f1c 100644
+--- a/sidecar/econometrica/engines/validator.py
++++ b/sidecar/econometrica/engines/validator.py
+@@ -637,6 +637,49 @@ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, A
+                     'severity': 'warning',
+                     'action': 'exclude',
+                 })
++        elif role in ('kpi', 'media', 'control'):
++            # 🔴 Внешний аудит (Medium, 2026-08-03) + зонд поведения обучения.
++            # Раньше нечисловая колонка не получала блока `stats` вовсе, и пять
++            # экранов через `?? 0` показывали «0% пропусков» именно на самой
++            # битой колонке — корень был закрыт для здоровых и открыт для больных.
++            #
++            # Зонд уточнил находку в худшую сторону: текстовая ячейка («н/д»,
++            # «-», «нет данных») пропуском НЕ считается — `isna()` даёт ноль,
++            # dtype становится object, — а обучение на такой колонке падает:
++            # `modeler.py` делает `df[col].fillna(0).values.astype(float)`
++            # (строки 569, 578, 742, 1738), и `astype(float)` бросает ValueError
++            # на первой же нечисловой ячейке. То есть пользователь спокойно
++            # проходил валидацию и получал отказ на обучении, без объяснения.
++            #
++            # Считаем непригодные значения приведением с `errors='coerce'`: всё,
++            # что не читается как число, становится NaN — это ровно та доля,
++            # которую модель прочитать не сможет. Кладём её в то же поле
++            # `missing_pct`, чтобы пять экранов показали правду без своей правки.
++            _numeric = pd.to_numeric(df[col], errors='coerce')
++            _bad = int(_numeric.isna().sum())
++            _n_rows_total = len(df)
++            _bad_pct = round(_bad / _n_rows_total * 100, 1) if _n_rows_total else 0.0
++            col_info['stats'] = {
++                'nulls': _bad,
++                'missing_pct': _bad_pct,
++                'non_numeric': True,
++            }
++            if _bad > 0:
++                _examples = sorted({
++                    str(v).strip() for v, is_bad in zip(df[col], _numeric.isna())
++                    if is_bad and str(v).strip() and str(v).strip().lower() != 'nan'
++                })[:3]
++                _hint = f' Например: {", ".join(_examples)}.' if _examples else ''
++                issues.append({
++                    'column': col,
++                    'type': 'non_numeric_values',
++                    'message': (
++                        f'{col} - {_bad_pct}% значений не читаются как числа '
++                        f'({_bad} из {_n_rows_total}).{_hint} Обучение на такой колонке '
++                        f'не запустится. Замените текст числами или оставьте ячейки пустыми.'
++                    ),
++                    'severity': 'critical',
++                })
+ 
+         columns.append(col_info)
+ 
+@@ -753,22 +796,32 @@ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, A
+     # пересчитает под фактический режим.
+     ratio = n_rows / max(n_params_effective_bayesian, 1)
+     ratio_raw = n_rows / max(n_predictors, 1)
++    # 🔴 Число в тексте НЕ печатается (внешний аудит, High, 2026-08-03).
++    # Пороги считаются по самому мягкому знаменателю (OLS) сознательно — см.
++    # объяснение выше. Но подстановка того же мягкого числа в сообщение давала
++    # на одном экране два разных значения одной величины: движок говорил
++    # «Ratio 2.7:1 – ниже минимума», а карточка рядом показывала «1,3 –
++    # критически мало» (байесовский режим). Движок режима не знает и знать не
++    # может — валидация идёт до его выбора, — поэтому говорит качественно, а
++    # число показывает экран, который режим знает. Сами числа уезжают отдельным
++    # блоком `detected` (`ratio`, `ratio_gate`, `ratio_raw`) — там их читает
++    # тот слой, который умеет выбрать нужное.
+     if ratio_gate < 2:
+         issues.append({
+             'type': 'insufficient_data',
+-            'message': f'Ratio данных {ratio_gate:.1f}:1 - критически мало. Модель почти наверняка переобучится - β-коэффициенты будут случайными',
++            'message': 'Наблюдений на параметр критически мало для любого режима расчёта. Модель почти наверняка переобучится - β-коэффициенты будут случайными',
+             'severity': 'critical',
+         })
+     elif ratio_gate < 3:
+         warnings.append({
+             'type': 'low_data',
+-            'message': f'Ratio {ratio_gate:.1f}:1 - ниже минимума. Модель сойдётся, но правдоподобные диапазоны будут очень широкими - используйте результаты как ориентир',
++            'message': 'Наблюдений на параметр ниже минимума. Модель сойдётся, но правдоподобные диапазоны будут очень широкими - используйте результаты как ориентир',
+             'severity': 'warning',
+         })
+     elif ratio_gate < 4:
+         warnings.append({
+             'type': 'borderline_data',
+-            'message': f'Ratio {ratio_gate:.1f}:1 - ниже рекомендуемого. Модель работает, но с широкими правдоподобными диапазонами - результаты как качественные ориентиры',
++            'message': 'Наблюдений на параметр ниже рекомендуемого. Модель работает, но с широкими правдоподобными диапазонами - результаты как качественные ориентиры',
+             'severity': 'warning',
+         })
+ 
+@@ -918,6 +971,13 @@ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, A
+             # Сырой запас (наблюдения на назначенный столбец) — справочно,
+             # для второй строки подписи. Гейтить по нему нельзя: он завышает.
+             'ratio_raw': round(ratio_raw, 1),
++            # 🔴 Гейтовый запас — ровно то число, по которому здесь выставлены
++            # issues/warnings (внешний аудит, High, 2026-08-03). Фронт считает
++            # его же из `n_params_effective_ols` и блокирует кнопку
++            # «Подтвердить роли» по нему: пока поле и расчёт фронта совпадают,
++            # экран не может оказаться строже движка. Расхождение этих двух
++            # чисел — предмет сторожа, а не повод для третьей формулы.
++            'ratio_gate': round(ratio_gate, 1),
+             'date_frequency': date_frequency,
+         },
+         'available_kpi_types': sorted(available_kpi_types),
+diff --git a/sidecar/econometrica/tests/test_decomposer_exposes_breakeven_flag.py b/sidecar/econometrica/tests/test_decomposer_exposes_breakeven_flag.py
+index bb64964..ec832c5 100644
+--- a/sidecar/econometrica/tests/test_decomposer_exposes_breakeven_flag.py
++++ b/sidecar/econometrica/tests/test_decomposer_exposes_breakeven_flag.py
+@@ -56,6 +56,33 @@ def test_flag_is_computed_not_hardcoded():
+     )
+ 
+ 
++def test_нулевая_ценность_единицы_отключает_пороги():
++    """Граница «ценность единицы задана» совпадает с фронтовой (2026-08-03).
++
++    Развилка задачи 0 звучала так: фронт считает базу ROI по `vpcu > 0`, движок —
++    по `kpi_unit_cost is None`, поэтому при введённом нуле движок якобы пороги
++    ПРИМЕНЯЕТ, а экран говорит «база не определена». Замер обеих сторон показал,
++    что это не так: движок берёт значение только строго положительным (и override
++    из запроса, и снимок из pickle), при нуле кладёт None и уходит в
++    `money_roi_unavailable`. Границы совпадают — чинить нечего.
++
++    Но стерёг эту границу только фронт (`tier2-roi-base.guard.test.js`), а живёт
++    она в движке в ДВУХ местах. Разъедься они молча — вернулся бы ровно тот
++    дефект, который сняли внешним аудитом: экран говорит «база не определена»,
++    а вердикты за ним считаются по абсолютным порогам.
++    """
++    src = _source()
++    # Оба места, где значение принимается: override из запроса и снимок из pickle.
++    assert re.search(
++        r"kpi_unit_cost_override is not None and float\(kpi_unit_cost_override\) > 0",
++        src,
++    ), "граница override перестала быть строго положительной — ноль начнёт включать пороги"
++    assert re.search(
++        r"float\(_snap\) if _snap is not None and float\(_snap\) > 0 else None",
++        src,
++    ), "граница снимка перестала быть строго положительной — старые проекты разойдутся с экраном"
++
++
+ def test_effectiveness_mode_counted_as_no_breakeven():
+     """Режим эффективности тоже означает отсутствие денежных порогов.
+ 
+diff --git a/sidecar/econometrica/tests/test_validator_gate_and_non_numeric.py b/sidecar/econometrica/tests/test_validator_gate_and_non_numeric.py
+new file mode 100644
+index 0000000..6c8c6b6
+--- /dev/null
++++ b/sidecar/econometrica/tests/test_validator_gate_and_non_numeric.py
+@@ -0,0 +1,143 @@
++"""Сторожа валидатора по находкам внешнего аудита блока P0.2–P0.5 (2026-08-03).
++
++Две находки, обе про одно — про число, которое видит пользователь.
++
++**High.** Пороги `issues`/`warnings` считаются по самому мягкому знаменателю
++(OLS) сознательно: валидация идёт ДО выбора режима, и объявлять «критически
++мало» проекту, который в OLS считается нормально, значит отнять у него режим,
++созданный для коротких рядов. Но в ТЕКСТ сообщения подставлялось то же мягкое
++число, а экран рядом показывал байесовское — пользователь видел «Ratio 2.7:1 –
++ниже минимума» от движка и «1,3 – критически мало» в карточке над ним. Движок
++режима не знает и знать не может, поэтому говорит качественно; число показывает
++экран, который режим знает. Само число уезжает отдельным полем `ratio_gate` —
++по нему фронт гейтит кнопку и сверяется с движком.
++
++**Medium, уточнён зондом в худшую сторону.** Блок `stats` считался только для
++числовых колонок, и пять экранов через `?? 0` показывали «0% пропусков» именно
++на самой битой колонке. Зонд поведения обучения: текстовая ячейка («н/д») вообще
++не пропуск — `isna()` даёт ноль, — а `modeler.py` делает
++`df[col].fillna(0).values.astype(float)` и падает с ValueError на первой же
++нечисловой ячейке. То есть пользователь спокойно проходил валидацию и получал
++отказ на обучении, без объяснения причины.
++"""
++
++from __future__ import annotations
++
++import sys
++from pathlib import Path
++
++import numpy as np
++import pandas as pd
++
++sys.path.insert(0, str(Path(__file__).parent.parent))
++
++
++def _validate(data_file: Path) -> dict:
++    from engines.validator import validate_data
++    return validate_data(str(data_file))
++
++
++def _build(tmp_path: Path, n: int = 40, n_media: int = 8, **extra) -> Path:
++    """Датасет на n наблюдений с n_media медиа-каналами."""
++    rng = np.random.RandomState(0)
++    data = {
++        'Дата': pd.date_range('2024-01-01', periods=n, freq='W'),
++        'sales_rub': rng.uniform(100, 1000, n),
++    }
++    for i in range(n_media):
++        data[f'tv_spend_{i}'] = rng.uniform(50, 500, n)
++    data.update(extra)
++    df = pd.DataFrame(data)
++    f = tmp_path / 'data.xlsx'
++    df.to_excel(f, index=False)
++    return f
++
++
++# ── High: число не печатается в тексте, но уезжает полем ────────────────────
++
++def test_gate_ratio_отдаётся_отдельным_полем(tmp_path):
++    """Фронт гейтит кнопку этим числом — без него он гадал бы сам."""
++    res = _validate(_build(tmp_path, n=40, n_media=8))
++    detected = res['detected']
++    assert 'ratio_gate' in detected, 'поле гейта пропало — фронту нечем сверяться с движком'
++    # Зеркало формулы движка: наблюдения / (предикторы + свободный член).
++    expected = 40 / detected['n_params_effective_ols']
++    assert abs(detected['ratio_gate'] - round(expected, 1)) < 0.11
++
++
++def test_тексты_порогов_не_несут_числа(tmp_path):
++    """Мутация «вернуть f'Ratio {ratio_gate:.1f}:1'» красит этот тест.
++
++    Предмет охраны — не формулировка, а сам факт: в сообщении, которое видит
++    пользователь, не должно стоять число запаса данных. Иначе на одном экране
++    снова окажутся два разных числа одной величины.
++    """
++    # 12 наблюдений на 8 медиа — гарантированно ниже всех трёх порогов.
++    res = _validate(_build(tmp_path, n=12, n_media=8))
++    messages = [m['message'] for m in res['issues'] + res['warnings']]
++    гейтовые = [
++        m for m in messages
++        if 'наблюдений на параметр' in m.lower() or 'ratio' in m.lower()
++    ]
++    assert гейтовые, 'ни одно сообщение о запасе данных не выдано — проверка потеряла предмет'
++    for m in гейтовые:
++        assert ':1' not in m, f'в тексте снова стоит число запаса данных: {m}'
++        assert not any(ch.isdigit() for ch in m), f'в тексте появилось число: {m}'
++
++
++def test_сообщение_о_нехватке_данных_всё_ещё_выдаётся(tmp_path):
++    """Снятие числа не должно превратиться в снятие предупреждения."""
++    res = _validate(_build(tmp_path, n=12, n_media=8))
++    types = {m['type'] for m in res['issues'] + res['warnings']}
++    assert types & {'insufficient_data', 'low_data', 'borderline_data'}
++
++
++# ── Medium: нечисловая колонка ──────────────────────────────────────────────
++
++def test_нечисловая_колонка_получает_долю_непригодных_значений(tmp_path):
++    """Раньше `stats` не было вовсе → пять экранов показывали «0% пропусков»."""
++    n = 40
++    rng = np.random.RandomState(1)
++    broken = [str(round(v, 2)) for v in rng.uniform(10, 100, n)]
++    broken[3] = 'н/д'
++    broken[7] = 'нет данных'
++    f = _build(tmp_path, n=n, n_media=3, digital_spend=broken)
++
++    res = _validate(f)
++    col = next(c for c in res['columns'] if c['name'] == 'digital_spend')
++    assert col.get('stats'), 'у нечисловой колонки снова нет статистики'
++    assert col['stats']['missing_pct'] > 0, 'доля непригодных значений показана нулём'
++    assert col['stats']['nulls'] == 2
++    assert col['stats']['missing_pct'] == 5.0  # 2 из 40
++
++
++def test_нечисловая_колонка_объявлена_прямо_а_не_молча(tmp_path):
++    """Обучение на такой колонке падает — молчать об этом нельзя.
++
++    Мутация «убрать issue, оставив только stats» красит тест: пользователь
++    снова доходил бы до обучения и получал ValueError без объяснения.
++    """
++    n = 40
++    rng = np.random.RandomState(1)
++    broken = [str(round(v, 2)) for v in rng.uniform(10, 100, n)]
++    broken[5] = 'н/д'
++    res = _validate(_build(tmp_path, n=n, n_media=3, digital_spend=broken))
++
++    issue = next(
++        (i for i in res['issues'] if i.get('type') == 'non_numeric_values'), None
++    )
++    assert issue is not None, 'нечисловая колонка прошла валидацию молча'
++    assert issue['column'] == 'digital_spend'
++    assert issue['severity'] == 'critical'
++    # Пользователю говорится и что случится, и что делать.
++    assert 'не запустится' in issue['message']
++    assert 'н/д' in issue['message'], 'пример непригодного значения не показан'
++
++
++def test_здоровая_колонка_молчит(tmp_path):
++    """Проверка тишины: сторож не должен красить нормальные данные."""
++    res = _validate(_build(tmp_path, n=40, n_media=8))
++    assert not [i for i in res['issues'] if i.get('type') == 'non_numeric_values']
++    for c in res['columns']:
++        if c.get('role') in ('media', 'control', 'kpi'):
++            assert not c.get('stats', {}).get('non_numeric')
+diff --git a/src-tauri/src/commands/gateway_executor.rs b/src-tauri/src/commands/gateway_executor.rs
+index 949adf2..0d3d59c 100644
+--- a/src-tauri/src/commands/gateway_executor.rs
++++ b/src-tauri/src/commands/gateway_executor.rs
+@@ -427,6 +427,20 @@ fn cancel_notice(state: &JobState) -> Option<String> {
+         .then(|| unconfirmed_cancel_text(&state.job_id))
+ }
+ 
++/// Дописать к ответу номер работы, оставшейся на узле после автоповтора.
++///
++/// 🔴 Зовётся во ВСЕХ ветках выхода, а не только в успешной (находка внешнего
++/// аудита). После повтора работа может закончиться отменой, обрывом связи или
++/// отказом сервера — и каждая такая ветка уходит из функции раньше успешной.
++/// Приписка только в успешном пути означала, что при неуспехе человек не узнает
++/// об осиротевшем задании вовсе, а именно неуспех и делает эту весть нужной:
++/// место среди одновременных занято, следующий вопрос упрётся в потолок.
++fn append_stray_notice(text: &mut String, stray_job: &Option<String>) {
++    if let Some(id) = stray_job {
++        text.push_str(&unconfirmed_cancel_text(id));
++    }
++}
++
+ /// Что сделать с памятью набора после успешной работы.
+ #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+ enum InputsVerdict {
+@@ -866,15 +880,21 @@ async fn execute(
+             keep = false;
+             shown.clear();
+             // 🔴 Экран обязан забыть показанное ВМЕСТЕ с накопленным текстом.
+-            // Событие несёт весь ответ целиком, и интерфейс заменяет показанное,
+-            // — но только когда событие приходит. Если второй заход не отдаст ни
+-            // одного куска (человек остановил работу, сервер отказал сразу), на
+-            // экране остаётся абзац, которого нет ни в возврате, ни в истории:
+-            // видимое и сохранённое расходятся молча.
++            // Если второй заход не отдаст ни одного куска (человек остановил
++            // работу, сервер отказал сразу), на экране остался бы абзац, которого
++            // нет ни в возврате, ни в истории: видимое и сохранённое расходятся
++            // молча.
++            //
++            // 🔴 Шлём `clear_response`, а НЕ пустой `build_stream_event("")`
++            // (находка внешнего аудита). Пустое событие приёмник игнорирует: обе
++            // ветки замены отсечены условием на непустой текст, а склейка даёт
++            // «показанное + пустая строка» — то есть прежнее. Событие для этой
++            // задачи в интерфейсе уже есть и снимает частичный ответ прошлой
++            // попытки целиком.
+             if !suppress_done {
+                 let _ = app_handle.emit(
+                     &format!("claude-stream-{cabinet_id}"),
+-                    build_stream_event(""),
++                    serde_json::json!({ "type": "clear_response" }).to_string(),
+                 );
+             }
+             continue;
+@@ -888,11 +908,30 @@ async fn execute(
+     // ради которого правило и вводилось.
+     if work.cancelled() {
+         info!("Работа остановлена пользователем [{cabinet_id}]");
++        // 🔴 Приписка добавляется и ВЫПУСКАЕТСЯ до сигнала завершения (находка
++        // внешнего аудита). Прежде она дописывалась в возвращаемое значение уже
++        // после `claude-done`, а чат собирается ИСКЛЮЧИТЕЛЬНО из событий
++        // `claude-stream`: обработчик завершения при отмене выходит первым же
++        // условием, и возвращённая строка на экран не попадала вовсе. Человек
++        // не узнавал номер осиротевшей работы — ровно того, ради чего приписка
++        // и заводилась: место среди одновременных занято, следующий вопрос
++        // упрётся в потолок, а называть поддержке нечего.
++        let has_notice = stray_job.is_some();
++        append_stray_notice(&mut shown, &stray_job);
+         // 🔴 Сигнал завершения шлётся и при отмене. Интерфейс держит признак
+         // «остановлено» до него: без сигнала признак висит, и СЛЕДУЮЩИЙ ответ
+         // съедается им — не попадает ни в чат, ни в историю. Отчёт при этом не
+         // сохраняем: работы, которую пользователь остановил, в файлах быть не должно.
+         if !suppress_done {
++            // Событие с текстом — только когда есть что сказать: пустое ничего
++            // не заменяет (приёмник отсекает пустой блок), а лишний пузырь
++            // ответа на экране оставляет.
++            if has_notice {
++                let _ = app_handle.emit(
++                    &format!("claude-stream-{cabinet_id}"),
++                    build_stream_event(&shown),
++                );
++            }
+             let _ = app_handle.emit(
+                 &format!("claude-done-{cabinet_id}"),
+                 serde_json::json!({ "exit_code": 0, "cancelled": true }),
+@@ -905,9 +944,12 @@ async fn execute(
+         Err(e) => {
+             warn!("Облачное обращение не удалось [{cabinet_id}]: {e}");
+             if shown.trim().is_empty() {
+-                anyhow::bail!("[TC-GW-NET] {}", e.user_text());
++                let mut refusal = e.user_text();
++                append_stray_notice(&mut refusal, &stray_job);
++                anyhow::bail!("[TC-GW-NET] {refusal}");
+             }
+-            let text = format!("{shown}\n\n---\n**Ответ неполный.** {}", e.user_text());
++            let mut text = format!("{shown}\n\n---\n**Ответ неполный.** {}", e.user_text());
++            append_stray_notice(&mut text, &stray_job);
+             if !suppress_done {
+                 let _ = app_handle.emit(
+                     &format!("claude-stream-{cabinet_id}"),
+@@ -929,19 +971,25 @@ async fn execute(
+         // Пользователь остановил работу. Отчёт НЕ сохраняем и метку НЕ возвращаем:
+         // следующий вопрос обязан начать новый диалог, а не продолжить отменённый.
+         info!("Задание остановлено пользователем [{cabinet_id}]");
++        // 🔴 Текст собирается ДО события завершения: интерфейс, слушающий это
++        // событие, забирает показанное — приписка, добавленная после, до него уже
++        // не доедет (находка внешнего аудита).
++        let mut text = state.text.clone();
++        if let Some(notice) = cancel_notice(&state) {
++            warn!("Остановка не подтверждена сервером [{cabinet_id}]: {}", state.job_id);
++            text.push_str(&notice);
++        }
++        append_stray_notice(&mut text, &stray_job);
+         if !suppress_done {
++            let _ = app_handle.emit(
++                &format!("claude-stream-{cabinet_id}"),
++                build_result_event(&text),
++            );
+             let _ = app_handle.emit(
+                 &format!("claude-done-{cabinet_id}"),
+                 serde_json::json!({ "exit_code": 0, "cancelled": true }),
+             );
+         }
+-        // 🔴 Остановка, которую сервер не подтвердил, обязана быть названа: работа
+-        // могла остаться идти и занимать место среди одновременных.
+-        let mut text = state.text.clone();
+-        if let Some(notice) = cancel_notice(&state) {
+-            warn!("Остановка не подтверждена сервером [{cabinet_id}]: {}", state.job_id);
+-            text.push_str(&notice);
+-        }
+         return Ok((None, text));
+     }
+     if !state.is_success() {
+@@ -949,7 +997,9 @@ async fn execute(
+         if let Some(internal) = hidden {
+             warn!("шлюз: внутренняя диагностика узла (пользователю не показана): {internal}");
+         }
+-        anyhow::bail!("[TC-GW-SRV] {text}");
++        let mut refusal = text;
++        append_stray_notice(&mut refusal, &stray_job);
++        anyhow::bail!("[TC-GW-SRV] {refusal}");
+     }
+ 
+     // 🔴 Отпечаток запоминается ТОЛЬКО после успешной работы и только если файлы
+@@ -998,9 +1048,7 @@ async fn execute(
+     // единственное место, где о ней вообще можно сказать: сам отказ повтор уже
+     // выбросил, а следующий вопрос упрётся в потолок работ без объяснимой
+     // причины.
+-    if let Some(id) = &stray_job {
+-        text.push_str(&unconfirmed_cancel_text(id));
+-    }
++    append_stray_notice(&mut text, &stray_job);
+ 
+     if !suppress_done {
+         // Финальный текст в чат ДО готовности (порядок локального пути): иначе
+diff --git a/src/lib/__tests__/goalseek-corridor-honesty.guard.test.js b/src/lib/__tests__/goalseek-corridor-honesty.guard.test.js
+index 662b397..2447c5b 100644
+--- a/src/lib/__tests__/goalseek-corridor-honesty.guard.test.js
++++ b/src/lib/__tests__/goalseek-corridor-honesty.guard.test.js
+@@ -30,7 +30,24 @@ describe('зелёная зона не выдаёт ориентир за наб
+   });
+ 
+   it('признак выводится из пришедших границ, а не из константы', () => {
+-    expect(src).toMatch(/corridorIsObserved\s*=\s*\$derived\([\s\S]{0,200}salesCorridor/);
++    expect(src).toMatch(/corridorIsObserved\s*=\s*\$derived(\.by)?\([\s\S]{0,400}salesCorridor/);
++  });
++
++  it('вырожденный коридор настоящим не считается', () => {
++    // Развилка задачи 0, решена 2026-08-03. Проверки `lo != null && hi != null`
++    // было мало: `{lo: 0, hi: 0}` — валидный по ней объект, и экран утверждал
++    // «диапазон, наблюдавшийся в данных», хотя диапазона нет. Ровно тот же
++    // класс, что и само обещание про наблюдения: признак правды, который
++    // истинен там, где правды нет.
++    const at = src.indexOf('corridorIsObserved =');
++    expect(at).toBeGreaterThan(-1);
++    // Тело признака: от объявления до начала следующего объявления рядом.
++    const body = src.slice(at, src.indexOf('corridorNote', at));
++    // Конечность — против Infinity/NaN, пришедших из деления на ноль в движке.
++    expect(body).toMatch(/Number\.isFinite/);
++    // Порядок и положительность границ — против нулевого и перевёрнутого коридора.
++    expect(body).toMatch(/hi\s*>\s*lo/);
++    expect(body).toMatch(/lo\s*>\s*0/);
+   });
+ 
+   it('запасная ветка честно называет зону ориентиром от текущего уровня', () => {
+diff --git a/src/lib/__tests__/ratio-gate-and-holidays.guard.test.js b/src/lib/__tests__/ratio-gate-and-holidays.guard.test.js
+new file mode 100644
+index 0000000..fca28e4
+--- /dev/null
++++ b/src/lib/__tests__/ratio-gate-and-holidays.guard.test.js
+@@ -0,0 +1,180 @@
++/**
++ * Сторож запаса данных: чем ГЕЙТИМ, чем ПОКАЗЫВАЕМ и что знает знаменатель.
++ *
++ * ЗАЧЕМ. Внешний аудит блока P0.2–P0.5 (2026-08-03) нашёл здесь Critical и три
++ * High — все об одном: правка P0.3 свела показ запаса данных к эффективному
++ * знаменателю, но вместе с показом на него уехали блокировка работы, а часть
++ * потребителей осталась со своим числом.
++ *
++ *   - Critical: кнопка «Подтвердить роли» стала блокироваться по эффективному
++ *     запасу. Проект с сырым 4,0 получал 1,7 и не проходил валидацию — пилот,
++ *     работавший вчера, вставал на экране; «исключите слабые каналы» из текста
++ *     блокировки авто-часть знаменателя не убирает вовсе, выхода не было.
++ *   - High: мастер-переключатель «Учитывать праздники РФ» знаменателю неизвестен,
++ *     хотя при ВЫКЛ модель праздников не заводит — встроенная справка советует
++ *     выключить их при нехватке данных, и совет был инертным.
++ *   - High: липкая шапка считала по числу ролей из ответа движка, а сырой запас
++ *     рядом — по живым ролям: три числа одной величины на одном экране.
++ *   - High: под-шаг «Роли колонок» терял режим и всегда считал по байесовскому.
++ *
++ * Решение владельца 2026-08-03: показ остаётся эффективным (честное число
++ * параметров фактического режима), ГЕЙТ — по знаменателю движка. Экран не
++ * вправе быть строже расчёта.
++ *
++ * ЧТО СТЕРЕЖЁТ ЭТОТ ФАЙЛ — следствия, а не печать чисел: какая ветка выбрана,
++ * какую фразу увидит пользователь, совпадает ли фронт с движком.
++ */
++import { describe, expect, it } from 'vitest';
++
++import { effectiveParamCount, effectiveRatio, gateRatio } from '../ratio-classifier.js';
++import { validateInsights, validateRolesInsights } from '../insights-rules.js';
++import validateStepSrc from '../components/pipeline/ValidateStepV13.svelte?raw';
++
++/**
++ * Ответ /compute/validate: 40 наблюдений, 10 назначенных столбцов (8 медиа +
++ * 2 контроля), 12 авто-праздников. Ровно сценарий Critical из отчёта аудита.
++ * @param {{holidays?: number, predictors?: number}} [o]
++ */
++function mkDetected(o = {}) {
++  const holidays = o.holidays ?? 12;
++  const predictors = o.predictors ?? 10;
++  return {
++    n_predictors: predictors,
++    n_holidays_auto: holidays,
++    n_intercept: 1,
++    n_params_effective_bayesian: predictors + holidays + 1,
++    n_params_effective_ols: predictors + 1,
++    n_params_effective_pretrain: predictors + holidays + 1,
++  };
++}
++
++describe('гейтовый знаменатель = знаменатель движка', () => {
++  it('не зависит от выбранного режима — это нижняя граница числа параметров', () => {
++    const d = mkDetected();
++    // 40 / (10 + 1) = 3,64 — и в байесе, и в OLS одинаково.
++    expect(gateRatio(40, d)).toBeCloseTo(3.64, 2);
++    expect(gateRatio(40, d)).toBeCloseTo(effectiveRatio(40, d, 'ols'), 6);
++  });
++
++  it('совпадает с числом, которое движок кладёт в ответ (detected.ratio_gate)', () => {
++    // Движок: ratio_gate = n_rows / n_params_effective_ols (validator.py).
++    // Расхождение этих двух чисел означает, что экран гейтит НЕ тем, чем движок.
++    const d = mkDetected();
++    const fromEngine = 40 / d.n_params_effective_ols;
++    expect(gateRatio(40, d)).toBeCloseTo(fromEngine, 6);
++  });
++
++  it('никогда не строже показанного: гейт ≥ эффективного запаса', () => {
++    for (const predictors of [3, 10, 25]) {
++      for (const obs of [20, 40, 104]) {
++        const d = mkDetected({ predictors });
++        expect(gateRatio(obs, d)).toBeGreaterThanOrEqual(effectiveRatio(obs, d, 'bayesian'));
++      }
++    }
++  });
++
++  it('сценарий Critical из отчёта: работа не блокируется там, где движок её пропускает', () => {
++    const d = mkDetected();
++    // Показ честно говорит «мало» (40/23 = 1,7)…
++    expect(effectiveRatio(40, d, 'bayesian')).toBeLessThan(2);
++    // …но гейт (40/11 = 3,6) выше порога, и кнопка обязана остаться активной.
++    expect(gateRatio(40, d)).toBeGreaterThanOrEqual(2);
++  });
++});
++
++describe('блокировка кнопки считается гейтовым числом, а не показанным', () => {
++  it('условие разблокировки читает поле gate', () => {
++    // Мутация «вернуть data.ratio в условие» красит этот тест по адресу.
++    expect(validateStepSrc).toMatch(/ratioBlockedReason[\s\S]{0,700}data\.gate\s*>=\s*2/);
++  });
++
++  it('лекарство из текста блокировки считается тем же числом, что её держит', () => {
++    // Иначе продукт обещает «исключите каналы → станет N:1», где N посчитано
++    // другой формулой, и после исключения блокировка не снимается.
++    expect(validateStepSrc).toMatch(/afterExcludeGate\s*=\s*[\s\S]{0,200}gateRatio\(/);
++    expect(validateStepSrc).toMatch(/const after = data\.afterExcludeGate/);
++  });
++
++  it('показ карточки остаётся эффективным — гейт его не подменил', () => {
++    expect(validateStepSrc).toMatch(/const ratio = effectiveRatio\(/);
++  });
++});
++
++describe('мастер-переключатель праздников доезжает до знаменателя', () => {
++  it('выключенные праздники убирают авто-часть в байесовском режиме', () => {
++    const d = mkDetected();
++    expect(effectiveParamCount(d, 'bayesian', null, true)).toBe(23);
++    expect(effectiveParamCount(d, 'bayesian', null, false)).toBe(11);
++  });
++
++  it('то же с живым числом ролей (пользователь меняет их на экране)', () => {
++    const d = mkDetected();
++    expect(effectiveParamCount(d, 'bayesian', 7, true)).toBe(20);
++    expect(effectiveParamCount(d, 'bayesian', 7, false)).toBe(8);
++  });
++
++  it('в OLS выключение ничего не меняет — праздников там не было и так', () => {
++    const d = mkDetected();
++    expect(effectiveParamCount(d, 'ols', null, true)).toBe(11);
++    expect(effectiveParamCount(d, 'ols', null, false)).toBe(11);
++  });
++
++  it('умолчание — праздники учитываются (совместимость со старыми вызовами)', () => {
++    const d = mkDetected();
++    expect(effectiveParamCount(d, 'bayesian')).toBe(23);
++  });
++
++  it('сценарий High из отчёта: совет справки перестал быть инертным', () => {
++    const d = mkDetected();
++    // Пользователь делает ровно то, что советует справка при нехватке данных.
++    const before = effectiveRatio(40, d, 'bayesian', 10, true);
++    const after = effectiveRatio(40, d, 'bayesian', 10, false);
++    expect(before).toBeLessThan(2);
++    expect(after).toBeGreaterThan(before);
++    expect(after).toBeGreaterThanOrEqual(3);
++  });
++});
++
++describe('режим доезжает до под-шага «Роли колонок»', () => {
++  /** Минимальный ответ валидации: 52 наблюдения, 8 медиа + 2 контроля. */
++  const result = {
++    file: { rows: 52 },
++    detected: mkDetected(),
++    columns: [
++      { name: 'date', role: 'date' },
++      { name: 'sales', role: 'kpi', stats: { zeros_pct: 0 } },
++      ...Array.from({ length: 8 }, (_, i) => ({
++        name: `media_${i}`, role: 'media', stats: { zeros_pct: 5, cv: 40 },
++      })),
++      ...Array.from({ length: 2 }, (_, i) => ({
++        name: `ctrl_${i}`, role: 'control', stats: { zeros_pct: 0, cv: 30 },
++      })),
++    ],
++    issues: [],
++    warnings: [],
++  };
++
++  const texts = (/** @type {{text?: string}[]} */ list) => list.map(i => i.text ?? '').join('\n');
++
++  it('делегирование не теряет режим: OLS и байес дают разные тексты', () => {
++    const bayes = texts(validateRolesInsights(result, 'roi', 'bayesian'));
++    const ols = texts(validateRolesInsights(result, 'roi', 'ols'));
++    expect(bayes).not.toEqual(ols);
++  });
++
++  it('совпадает с прямым вызовом того же режима — общий источник, не копия', () => {
++    expect(validateRolesInsights(result, 'roi', 'ols'))
++      .toEqual(validateInsights(result, 'roi', 'ols'));
++  });
++
++  it('мастер-переключатель тоже доезжает через делегирование', () => {
++    const on = texts(validateRolesInsights(result, 'roi', 'bayesian', true));
++    const off = texts(validateRolesInsights(result, 'roi', 'bayesian', false));
++    expect(on).not.toEqual(off);
++  });
++
++  it('умолчания сохранены — старые вызовы считают как раньше', () => {
++    expect(validateRolesInsights(result, 'roi'))
++      .toEqual(validateInsights(result, 'roi', 'bayesian', true));
++  });
++});
+diff --git a/src/lib/components/pipeline/InsightsPanel.svelte b/src/lib/components/pipeline/InsightsPanel.svelte
+index 4a30039..89ee9b4 100644
+--- a/src/lib/components/pipeline/InsightsPanel.svelte
++++ b/src/lib/components/pipeline/InsightsPanel.svelte
+@@ -37,7 +37,7 @@
+     validateKpiInsights, validateRolesInsights, validateMetricsInsights, validateConfirmInsights,
+   } from '$lib/insights-rules.js';
+   // v2.1.0 (rc2 U-05): subStep store для контекстной маршрутизации.
+-  import { validateSubStep, analysisMode, perChannelInput, unitCosts, unitCostInputMode, budgetInputs, modelEnabledMediaNames, validationHeaderMetrics, modelEngine } from '$lib/project-state.js';
++  import { validateSubStep, analysisMode, perChannelInput, unitCosts, unitCostInputMode, budgetInputs, modelEnabledMediaNames, validationHeaderMetrics, modelEngine, useHolidays } from '$lib/project-state.js';
+   // Tier 2 (Claude-усилитель инсайтов, «Phase 10»). Видим только в облачной
+   // редакции с согласием и для продукта Econometrica.
+   import { isEconometrica } from '$lib/creative-store.js';
+@@ -293,7 +293,10 @@
+         if (sub === 2)  return validateMetricsInsights(val?.result, ctx);
+         if (sub === 3)  return validateConfirmInsights(val?.result, ctx);
+         // -1 (Роли колонок) и 0 / 1 (legacy) - общая validateInsights logic
+-        return validateRolesInsights(val?.result, objective);
++        // Внешний аудит (High, 2026-08-03): режим и мастер-переключатель
++        // праздников доезжают до под-шага «Роли колонок» — раньше он молча
++        // считал по байесовскому знаменателю и противоречил шапке над собой.
++        return validateRolesInsights(val?.result, objective, $modelEngine, $useHolidays);
+       }
+       case 2: {
+         // If training hasn't produced diagnostics yet → educational/context insights.
+@@ -304,7 +307,7 @@
+           const activeMedia = $modelEnabledMediaNames;
+           // P0.3: режим передаётся явно — запас данных считается по нему
+           // (байес заводит авто-праздники, OLS не заводит ни одного).
+-          return modelPreTrainingInsights(val?.result, activeMedia.length > 0 ? activeMedia : undefined, $modelEngine);
++          return modelPreTrainingInsights(val?.result, activeMedia.length > 0 ? activeMedia : undefined, $modelEngine, $useHolidays);
+         }
+         // v2.1.0 (пилот 2026-05-16): передаём frontend SSOT ratio - Антон:
+         // «ratio в расчёте было 3.9, на модели опять неверные ratio».
+diff --git a/src/lib/components/pipeline/OptimizeGoalSeek.svelte b/src/lib/components/pipeline/OptimizeGoalSeek.svelte
+index 33f636f..8872196 100644
+--- a/src/lib/components/pipeline/OptimizeGoalSeek.svelte
++++ b/src/lib/components/pipeline/OptimizeGoalSeek.svelte
+@@ -113,9 +113,16 @@
+    * нужен один и тот же прямой проход через модель, считать порознь значит
+    * делать работу дважды.
+    */
+-  const corridorIsObserved = $derived(
+-    salesCorridor?.lo != null && salesCorridor?.hi != null,
+-  );
++  // Коридор считается пришедшим только если он ОСМЫСЛЕН как диапазон
++  // (развилка задачи 0, решена 2026-08-03). Проверки `!= null` мало: при
++  // {lo: 0, hi: 0}, бесконечности или перевёрнутых границах экран утверждал
++  // «диапазон, наблюдавшийся в данных», хотя наблюдать там нечего. Честная
++  // ветка текста рядом уже написана — теперь в неё есть попадание.
++  const corridorIsObserved = $derived.by(() => {
++    const lo = Number(salesCorridor?.lo);
++    const hi = Number(salesCorridor?.hi);
++    return Number.isFinite(lo) && Number.isFinite(hi) && lo > 0 && hi > lo;
++  });
+ 
+   const corridorNote = $derived(
+     corridorIsObserved
+diff --git a/src/lib/components/pipeline/ValidateStepV13.svelte b/src/lib/components/pipeline/ValidateStepV13.svelte
+index 68f0d7e..9989504 100644
+--- a/src/lib/components/pipeline/ValidateStepV13.svelte
++++ b/src/lib/components/pipeline/ValidateStepV13.svelte
+@@ -35,8 +35,11 @@
+     mediaPlanDetected,
+     // P0.3: запас данных считается по режиму — байес заводит праздники, OLS нет.
+     modelEngine,
++    // Внешний аудит (High, 2026-08-03): мастер-переключатель праздников меняет
++    // состав модели, значит и знаменатель запаса данных на этом же экране.
++    useHolidays,
+   } from '$lib/project-state.js';
+-  import { effectiveParamCount, effectiveRatio } from '$lib/ratio-classifier.js';
++  import { effectiveParamCount, effectiveRatio, gateRatio } from '$lib/ratio-classifier.js';
+   import {
+     deriveModeWithExplanation,
+     kpiKindForType,
+@@ -803,25 +806,37 @@
+     // ролей: пользователь меняет их прямо на этом экране, и значение из ответа
+     // движка успевает устареть. Авто-часть от ролей не зависит и приходит
+     // из ответа.
+-    const ratio = effectiveRatio(nObs, result.detected, $modelEngine, nPredictors);
+-    const nParamsEffective = effectiveParamCount(result.detected, $modelEngine, nPredictors);
++    const ratio = effectiveRatio(nObs, result.detected, $modelEngine, nPredictors, $useHolidays);
++    const nParamsEffective = effectiveParamCount(result.detected, $modelEngine, nPredictors, $useHolidays);
+     const ratioRaw = nObs / nPredictors;
++    // 🔴 Гейтовое число (внешний аудит, Critical, решение владельца 2026-08-03):
++    // блокировка кнопки считается по знаменателю движка, а не по показанному.
++    // Показ остаётся честным эффективным, гейт — не строже расчёта.
++    const gate = gateRatio(nObs, result.detected, nPredictors);
+     // Weak: media каналы с >50% нулей.
+     const weakMedia = cols.filter((/** @type {any} */ c) =>
+       c?.role === 'media' && Number(c?.stats?.zeros_pct ?? 0) > 50
+     );
+-    const afterExclude = nPredictors - weakMedia.length > 0
+-      ? effectiveRatio(nObs, result.detected, $modelEngine, nPredictors - weakMedia.length)
++    const nAfter = nPredictors - weakMedia.length;
++    const afterExclude = nAfter > 0
++      ? effectiveRatio(nObs, result.detected, $modelEngine, nAfter, $useHolidays)
++      : null;
++    // Лекарство из текста блокировки обещает снять саму блокировку — значит
++    // считается тем же числом, что её держит.
++    const afterExcludeGate = nAfter > 0
++      ? gateRatio(nObs, result.detected, nAfter)
+       : null;
+     return {
+       ratio,
+       ratioRaw,
++      gate,
+       nParamsEffective,
+       nObs,
+       nPredictors,
+       weakChannelsCount: weakMedia.length,
+       weakChannelNames: weakMedia.map((/** @type {any} */ c) => c?.name).filter(Boolean),
+       afterExcludeRatio: afterExclude,
++      afterExcludeGate,
+     };
+   });
+ 
+@@ -835,10 +850,15 @@
+   const ratioBlockedReason = $derived.by(() => {
+     const data = ratioCardData;
+     if (!data) return null;
+-    if (data.ratio >= 2) return null;  // unblock at ratio >= 2:1
+-    const after = data.afterExcludeRatio;
++    // 🔴 Гейт по знаменателю движка, не по показанному (Critical внешнего
++    // аудита, решение владельца 2026-08-03). Экран не строже расчёта: пока
++    // движок считает данные достаточными хотя бы для одного режима, работу не
++    // останавливаем — иначе действующий пилот встаёт на шаге, который вчера
++    // проходил, а «исключите слабые каналы» авто-часть знаменателя не убирает.
++    if (data.gate >= 2) return null;  // unblock at gate ratio >= 2:1
++    const after = data.afterExcludeGate;
+     const canFix = data.weakChannelsCount > 0 && after != null && after >= 2;
+-    let reason = `Текущий ratio ${data.ratio.toFixed(1)}:1 ниже минимального 2:1 - модель «выучит» точки вместо закономерности. `;
++    let reason = `Наблюдений на параметр ${data.gate.toFixed(1)}:1 - ниже минимальных 2:1 даже для самого экономного режима. Модель «выучит» точки вместо закономерности. `;
+     if (canFix) {
+       reason += `Исключите ${data.weakChannelsCount} малоактивн${data.weakChannelsCount === 1 ? 'ый канал' : data.weakChannelsCount < 5 ? 'ых канала' : 'ых каналов'} (кнопка «Применить рекомендацию» выше) → ratio станет ${after.toFixed(1)}:1.`;
+     } else {
+@@ -914,7 +934,7 @@
+     const map = {};
+     try {
+       // P0.3: режим передаётся явно — запас данных зависит от него.
+-      const insights = validateInsights(result, objective, $modelEngine);
++      const insights = validateInsights(result, objective, $modelEngine, $useHolidays);
+       for (const ins of (insights || [])) {
+         // Filter: только жёсткие issues (warning + error), не optimization tips.
+         if (ins?.severity !== 'warning' && ins?.severity !== 'error') continue;
+diff --git a/src/lib/insights-rules.js b/src/lib/insights-rules.js
+index 5c92d43..003a81e 100644
+--- a/src/lib/insights-rules.js
++++ b/src/lib/insights-rules.js
+@@ -260,12 +260,20 @@ export function validateKpiInsights(result, context = {}) {
+  * v2.1.0 (rc2 U-05): инсайты для под-шага «2. Роли колонок».
+  * Это была монолитная validateInsights - теперь явное имя.
+  *
++ * 🔴 Режим и мастер-переключатель праздников пробрасываются явно (внешний
++ * аудит, High, 2026-08-03). Раньше делегирование теряло третий аргумент, и
++ * под-шаг «Роли колонок» всегда считал запас данных по байесовскому
++ * знаменателю: проект в OLS видел в шапке «4,7 – рекомендуемый уровень», а в
++ * подсказках прямо под ней «2,3 – критически мало».
++ *
+  * @param {any} result
+  * @param {string} [objective]
++ * @param {'bayesian'|'ols'|string} [engine]
++ * @param {boolean} [useHolidays]
+  * @returns {Insight[]}
+  */
+-export function validateRolesInsights(result, objective = 'roi') {
+-  return validateInsights(result, objective);
++export function validateRolesInsights(result, objective = 'roi', engine = 'bayesian', useHolidays = true) {
++  return validateInsights(result, objective, engine, useHolidays);
+ }
+ 
+ /**
+@@ -395,9 +403,14 @@ export function validateConfirmInsights(result, context = {}) {
+ 
+ /**
+  * @param {any} result
++ * @param {string} [objective]
++ * @param {'bayesian'|'ols'|string} [engine]  режим моделирования: знаменатель
++ *   запаса данных считается по нему (байес заводит авто-праздники, OLS нет).
++ * @param {boolean} [useHolidays]  мастер-переключатель «Учитывать праздники РФ»:
++ *   при ВЫКЛ авто-праздники не заводятся ни в одном режиме.
+  * @returns {Insight[]}
+  */
+-export function validateInsights(result, objective = 'roi', engine = 'bayesian') {
++export function validateInsights(result, objective = 'roi', engine = 'bayesian', useHolidays = true) {
+   /** @type {Insight[]} */
+   const out = [];
+   if (!result) return out;
+@@ -416,8 +429,8 @@ export function validateInsights(result, objective = 'roi', engine = 'bayesian')
+   // Число назначенных столбцов берём живое (из ролей): пользователь меняет их
+   // на этом же экране. Авто-часть (праздники для байеса, свободный член) — из
+   // ответа движка, она от ролей не зависит.
+-  const paramCountCheck = effectiveParamCount(result.detected, engine, mediaCount + controlCount);
+-  const liveRatio = effectiveRatio(rowsCheck, result.detected, engine, mediaCount + controlCount);
++  const paramCountCheck = effectiveParamCount(result.detected, engine, mediaCount + controlCount, useHolidays);
++  const liveRatio = effectiveRatio(rowsCheck, result.detected, engine, mediaCount + controlCount, useHolidays);
+   /** @type {'ok'|'warning'|'error'} */
+   let effectiveStatus = 'ok';
+   if (kpiCount !== 1 || mediaCount === 0 || liveRatio < 2) {
+@@ -982,7 +995,7 @@ export function validateInsights(result, objective = 'roi', engine = 'bayesian')
+   // параметров. Из-за этого блок готовности противоречил статусу на том же
+   // экране. Теперь оба идут через единый источник.
+   const currentRatio = mediaCols.length > 0
+-    ? effectiveRatio(totalRows, result.detected, engine, mediaCols.length + controlCols.length)
++    ? effectiveRatio(totalRows, result.detected, engine, mediaCols.length + controlCols.length, useHolidays)
+     : 0;
+   const maxChannels = Math.max(2, Math.floor(totalRows / 4) - controlCols.length);
+   const excessChannels = mediaCols.length - maxChannels;
+@@ -1070,7 +1083,7 @@ export function validateInsights(result, objective = 'roi', engine = 'bayesian')
+  *   при 7 включённых чекбоксах.
+  * @returns {Insight[]}
+  */
+-export function modelPreTrainingInsights(validateResult, enabledMediaNames = undefined, engine = 'bayesian') {
++export function modelPreTrainingInsights(validateResult, enabledMediaNames = undefined, engine = 'bayesian', useHolidays = true) {
+   /** @type {Insight[]} */
+   const out = [];
+   if (!validateResult) return out;
+@@ -1092,8 +1105,8 @@ export function modelPreTrainingInsights(validateResult, enabledMediaNames = und
+   // медиа-ролям — потому число назначенных передаём явно; авто-часть приходит
+   // из ответа движка и зависит от режима (у OLS праздников нет).
+   const userVisibleParams = mediaCount + controlCount;
+-  const paramCount = effectiveParamCount(validateResult.detected, engine, userVisibleParams);
+-  const ratio = effectiveRatio(rows, validateResult.detected, engine, userVisibleParams);
++  const paramCount = effectiveParamCount(validateResult.detected, engine, userVisibleParams, useHolidays);
++  const ratio = effectiveRatio(rows, validateResult.detected, engine, userVisibleParams, useHolidays);
+ 
+   // ── 1. Ready-state summary ──
+   if (kpiNames.length > 0 && mediaCount > 0) {
+diff --git a/src/lib/project-state.js b/src/lib/project-state.js
+index b8045a7..548eca3 100644
+--- a/src/lib/project-state.js
++++ b/src/lib/project-state.js
+@@ -462,7 +462,31 @@ export const modelEnabledMediaNames = derived(modelChannelEnabled, ($map) => {
+  */
+ export const modelEngine = writable('bayesian');
+ 
+-export const validationHeaderMetrics = derived([validateData, modelEngine], ([$vd, $engine]) => {
++/**
++ * Мастер-флаг «учитывать праздники РФ как факторы» (2026-06-13). ON по умолчанию.
++ * Когда False — modeler.py НЕ инжектит ~12 holiday-контролей → n_params падает →
++ * Ratio (степени свободы) растёт. Полезно при тонких данных или категории,
++ * независимой от праздников (с риском OVB, если праздники реально влияют). Персистится
++ * в project.json через project_update; buildTrainConfig шлёт как `use_holidays`.
++ * Гидрируется из activeProject; legacy-проекты без флага → true (всегда учитывали).
++ *
++ * Внешний аудит (High, 2026-08-03): объявлен ЗДЕСЬ, выше validationHeaderMetrics,
++ * по той же причине, что и modelEngine, — derived ниже подписан на этот стор, и
++ * объявление после подписки упало бы в мёртвую зону инициализации. Флаг влияет
++ * на состав модели, а значит и на знаменатель запаса данных.
++ * @type {import('svelte/store').Writable<boolean>}
++ */
++export const useHolidays = writable(true);
++
++activeProject.subscribe((p) => {
++  if (p && typeof p.use_holidays === 'boolean') {
++    useHolidays.set(p.use_holidays);
++  } else {
++    useHolidays.set(true);  // default ON (нет проекта / legacy без флага)
++  }
++});
++
++export const validationHeaderMetrics = derived([validateData, modelEngine, useHolidays], ([$vd, $engine, $useHolidays]) => {
+   const result = $vd?.result;
+   if (!result) return null;
+ 
+@@ -481,14 +505,19 @@ export const validationHeaderMetrics = derived([validateData, modelEngine], ([$v
+   // F-A1-5: эффективное число параметров с учётом авто-контролей (праздники + intercept).
+   // Backend проставляет detected.n_params_effective_pretrain при вызове /compute/validate;
+   // для реконструированных проектов (нет свежего validate) — пересчёт с дефолтными 12+1.
+-  const nParamsEffectivePretrain = effectiveParamCount(result.detected, $engine);
++  // 🔴 Живое число ролей передаётся сюда (внешний аудит, High, 2026-08-03).
++  // Раньше авто-часть и число предикторов брались из ответа движка целиком, а
++  // ratioRaw строкой ниже считался по текущим ролям: сняв роль с трёх каналов,
++  // пользователь видел на одном экране три разных числа одной величины —
++  // карточку, липкую шапку и вторую строку подписи.
++  const nParamsEffectivePretrain = effectiveParamCount(result.detected, $engine, nPredictors, $useHolidays);
+   // P0.3 (решение владельца «всё к эффективному»): запас данных считается по
+   // числу параметров, которое модель заведёт НА САМОМ ДЕЛЕ — с авто-праздниками
+   // и свободным членом для байеса, только со свободным членом для OLS. Сырой
+   // (obs / назначенные столбцы) завышал достаточность (INV-50) и давал скачок:
+   // до обучения «Рекомендуемый уровень», после — «Критически мало» на тех же
+   // данных. Сырой оставлен рядом справочно, для второй строки подписи.
+-  const ratio = effectiveRatio(nObs, result.detected, $engine);
++  const ratio = effectiveRatio(nObs, result.detected, $engine, nPredictors, $useHolidays);
+   const ratioRaw = nObs > 0 && nPredictors > 0 ? nObs / nPredictors : 0;
+ 
+   // VIF max - collinearity worst-case среди media каналов
+@@ -707,25 +736,6 @@ activeProject.subscribe((p) => {
+   }
+ });
+ 
+-/**
+- * Мастер-флаг «учитывать праздники РФ как факторы» (2026-06-13). ON по умолчанию.
+- * Когда False — modeler.py НЕ инжектит ~12 holiday-контролей → n_params падает →
+- * Ratio (степени свободы) растёт. Полезно при тонких данных или категории,
+- * независимой от праздников (с риском OVB, если праздники реально влияют). Персистится
+- * в project.json через project_update; buildTrainConfig шлёт как `use_holidays`.
+- * Гидрируется из activeProject; legacy-проекты без флага → true (всегда учитывали).
+- * @type {import('svelte/store').Writable<boolean>}
+- */
+-export const useHolidays = writable(true);
+-
+-activeProject.subscribe((p) => {
+-  if (p && typeof p.use_holidays === 'boolean') {
+-    useHolidays.set(p.use_holidays);
+-  } else {
+-    useHolidays.set(true);  // default ON (нет проекта / legacy без флага)
+-  }
+-});
+-
+ /**
+  * Мастер-флаг «учитывать сезонность» (автосезонность А, 2026-07-04). ON по умолчанию.
+  * Когда True — modeler.py авто-детектит сезонную волну и инжектит Фурье-гармоники
+diff --git a/src/lib/ratio-classifier.js b/src/lib/ratio-classifier.js
+index 7088d9f..b765c47 100644
+--- a/src/lib/ratio-classifier.js
++++ b/src/lib/ratio-classifier.js
+@@ -163,26 +163,39 @@ export function severityTo3Tier(severity) {
+  * только выбор по режиму — собирать состав на фронте нельзя, это завело бы
+  * второй источник истины.
+  *
++ * 🔴 Мастер-переключатель праздников (внешний аудит, High, 2026-08-03). Экран
++ * «Учитывать праздники РФ» шлёт в обучение `use_holidays`, и при ВЫКЛ движок
++ * не заводит ни одного праздника (`modeler.py`: инъекция под флагом). Валидация
++ * идёт раньше и флага не знает, поэтому авто-часть корректируется здесь. Без
++ * этого встроенная справка советует выключить праздники при нехватке данных,
++ * пользователь так и делает, а число на экране не двигается.
++ *
+  * @param {any} detected  блок `result.detected` из ответа /compute/validate
+  * @param {'bayesian'|'ols'|string|null|undefined} engine  текущий режим
+  * @param {number|null} [nPredictorsOverride]  актуальное число назначенных
+  *   столбцов, когда пользователь меняет роли на лету и число из ответа движка
+  *   уже устарело. Авто-часть (праздники, свободный член) берётся из ответа —
+  *   она от ролей не зависит.
++ * @param {boolean} [useHolidays]  состояние мастер-переключателя праздников;
++ *   при `false` авто-праздники не заводятся ни в одном режиме.
+  * @returns {number} число параметров, которое модель заведёт на самом деле
+  */
+-export function effectiveParamCount(detected, engine, nPredictorsOverride = null) {
++export function effectiveParamCount(detected, engine, nPredictorsOverride = null, useHolidays = true) {
+   const nPredictors = Number(detected?.n_predictors ?? 0) || 0;
+-  const isOls = engine === 'ols';
++  const noHolidays = engine === 'ols' || useHolidays === false;
+ 
+   if (nPredictorsOverride != null && Number.isFinite(Number(nPredictorsOverride))) {
+     const live = Number(nPredictorsOverride);
+     const intercept = Number(detected?.n_intercept ?? 1) || 1;
+-    const holidays = isOls ? 0 : (Number(detected?.n_holidays_auto ?? 12) || 0);
++    const holidays = noHolidays ? 0 : (Number(detected?.n_holidays_auto ?? 12) || 0);
+     return Math.max(live + holidays + intercept, 1);
+   }
+ 
+-  const fromBackend = isOls
++  // Праздники выключены мастер-флагом: готовое байесовское число из ответа
++  // движка их уже включает, а OLS-число — нет и никогда не включало. Значит
++  // при ВЫКЛ обе ветки сходятся к одному знаменателю «предикторы + свободный
++  // член», и брать его надо из OLS-поля, а не вычитать из байесовского.
++  const fromBackend = noHolidays
+     ? detected?.n_params_effective_ols
+     : (detected?.n_params_effective_bayesian ?? detected?.n_params_effective_pretrain);
+   const parsed = Number(fromBackend);
+@@ -193,7 +206,7 @@ export function effectiveParamCount(detected, engine, nPredictorsOverride = null
+   // оценка консервативная (знаменатель не меньше фактического).
+   const N_HOLIDAYS_DEFAULT = 12;
+   const N_INTERCEPT = 1;
+-  return isOls
++  return noHolidays
+     ? nPredictors + N_INTERCEPT
+     : nPredictors + N_HOLIDAYS_DEFAULT + N_INTERCEPT;
+ }
+@@ -205,11 +218,45 @@ export function effectiveParamCount(detected, engine, nPredictorsOverride = null
+  * @param {any} detected     блок `result.detected`
+  * @param {'bayesian'|'ols'|string|null|undefined} engine
+  * @param {number|null} [nPredictorsOverride]  см. effectiveParamCount
++ * @param {boolean} [useHolidays]  см. effectiveParamCount
+  * @returns {number} наблюдений на фактический параметр, 0 если посчитать не из чего
+  */
+-export function effectiveRatio(nObs, detected, engine, nPredictorsOverride = null) {
++export function effectiveRatio(nObs, detected, engine, nPredictorsOverride = null, useHolidays = true) {
+   const obs = Number(nObs) || 0;
+-  const params = effectiveParamCount(detected, engine, nPredictorsOverride);
++  const params = effectiveParamCount(detected, engine, nPredictorsOverride, useHolidays);
+   if (obs <= 0 || params <= 0) return 0;
+   return obs / params;
+ }
++
++/**
++ * 🔴 ЗАПАС ДАННЫХ ДЛЯ ГЕЙТА — то, чем блокируется работа, а не то, что показано.
++ *
++ * Решение владельца 2026-08-03 по Critical внешнего аудита: показ остаётся
++ * эффективным (честное число параметров фактического режима), а жёсткая
++ * блокировка кнопки «Подтвердить роли» считается по САМОМУ МЯГКОМУ
++ * знаменателю — тому же, которым гейтит движок (`validator.py`: `ratio_gate`
++ * по `n_params_effective_ols`).
++ *
++ * Зачем расходятся показ и гейт. Правка P0.3 перевела на эффективный
++ * знаменатель и показ, и блокировку — а вместе с ней и порог. Проект с сырым
++ * запасом 4,0 получал 1,7 и переставал проходить валидацию: действующий пилот
++ * вставал на экране, который вчера пропускал его дальше. При этом «лекарство»
++ * из текста блокировки (исключить малоактивные каналы) авто-часть знаменателя
++ * не убирает вовсе — выхода у пользователя не оставалось.
++ *
++ * Почему именно OLS-знаменатель, а не сырой. Он ровно повторяет гейт движка:
++ * фронт перестаёт быть строже расчёта, и «критически мало» на экране означает
++ * то же, что «критически мало» в сообщениях движка — мало для ЛЮБОГО режима.
++ * Сырой (obs / назначенные столбцы) завёл бы на фронте третью формулу, не
++ * совпадающую ни с показом, ни с движком.
++ *
++ * @param {number} nObs      число наблюдений
++ * @param {any} detected     блок `result.detected`
++ * @param {number|null} [nPredictorsOverride]  живое число назначенных столбцов
++ * @returns {number} запас данных по гейтовому знаменателю, 0 если не из чего считать
++ */
++export function gateRatio(nObs, detected, nPredictorsOverride = null) {
++  // Режим передаётся жёстко 'ols': гейтовый знаменатель от выбора пользователя
++  // не зависит по определению — это нижняя граница числа параметров.
++  return effectiveRatio(nObs, detected, 'ols', nPredictorsOverride);
++}
+diff --git a/tools/__tests__/build-cloud.test.mjs b/tools/__tests__/build-cloud.test.mjs
+index e9485e7..b563cca 100644
+--- a/tools/__tests__/build-cloud.test.mjs
++++ b/tools/__tests__/build-cloud.test.mjs
+@@ -387,6 +387,16 @@ describe('definedFunctionNames — три способа промолчать (H
+     });
+   });
+ 
++  // 🔴 Находка внешнего аудита: `blankNonCode` гасит строковые литералы вместе с
++  // кавычками, поэтому к разбору `pub extern "C" fn` приходит как
++  // `pub extern     fn`. Требование кавычек давало ложное КРАСНОЕ на исправном
++  // крейте — беда зеркальная той, ради которой формы и расширяли.
++  it('видит pub extern "C" fn — кавычки к этому месту уже погашены', () => {
++    withTree({ 'a.rs': 'impl Foo {\n    pub extern "C" fn ffi_name(&self) {}\n}\n' }, (names) => {
++      expect(names.has('Foo::ffi_name')).toBe(true);
++    });
++  });
++
+   it('НЕ считает объявлением помощника из тестового модуля', () => {
+     withTree({
+       'a.rs': 'impl Foo {\n    pub fn real(&self) {}\n}\n'
+diff --git a/tools/build-cloud.mjs b/tools/build-cloud.mjs
+index 03f83a6..53f372f 100644
+--- a/tools/build-cloud.mjs
++++ b/tools/build-cloud.mjs
+@@ -149,6 +149,7 @@ export const KNOWN_GATEWAY_METHODS = {
+   is_success: { type: 'JobState', why: 'задание завершилось успешно' },
+   failure_text: { type: 'JobState', why: 'текст отказа для человека (и скрытая диагностика узла)' },
+   user_text: { type: 'CloudError', why: 'текст для человека, без внутренних подробностей' },
++  stray_job: { type: 'CloudError', why: 'номер задания, снятие которого сервер не подтвердил' },
+ };
+ 
+ /** Методы общего слоя из {@link KNOWN_GATEWAY_METHODS}, реально вызванные в коде продукта. */
+@@ -316,7 +317,12 @@ export function implTypeName(header) {
+  */
+ export function definedFunctionNames(crateSrcDir) {
+   const names = new Set();
+-  const declaration = /\bpub\s+(?:const\s+|async\s+|unsafe\s+|extern\s+"[^"]*"\s+)*fn\s+([A-Za-z_][A-Za-z0-9_]*)/g;
++  // 🔴 У `extern` кавычки НЕОБЯЗАТЕЛЬНЫ (находка внешнего аудита): `blankNonCode`
++  // гасит строковые литералы вместе с кавычками ещё до этого разбора, поэтому
++  // `pub extern "C" fn` приходит сюда как `pub extern     fn`. Требование кавычек
++  // означало ложное КРАСНОЕ на исправном крейте — та самая зеркальная беда, ради
++  // которой формы объявления и расширяли.
++  const declaration = /\bpub\s+(?:const\s+|async\s+|unsafe\s+|extern\s+(?:"[^"]*"\s+)?)*fn\s+([A-Za-z_][A-Za-z0-9_]*)/g;
+   const walk = (dir) => {
+     for (const entry of readdirSync(dir, { withFileTypes: true })) {
+       const full = join(dir, entry.name);
+diff --git a/tools/build_glossary.py b/tools/build_glossary.py
+index 576e70f..63a7610 100644
+--- a/tools/build_glossary.py
++++ b/tools/build_glossary.py
+@@ -63,7 +63,6 @@ ID_MAP = {
+     "CPP (Стоимость пункта рейтинга)": "cpp",
+     "Охват (Reach)": "reach",
+     "Частота (Frequency)": "frequency",
+-    "NRMSE (Нормализованная ошибка)": "nrmse",
+     "R² (Коэффициент детерминации)": "r_squared",
+     "MAPE (Процент ошибки)": "mape",
+     "Сценарий «что если» (Scenario / What-If)": "scenario_whatif",

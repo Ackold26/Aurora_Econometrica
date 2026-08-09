@@ -214,6 +214,13 @@ pub struct OnlineAuthStatus {
     pub update_url: Option<String>,
     // v3 fields (Phase 5)
     pub vault_versions: Option<std::collections::HashMap<String, u32>>,
+    /// Контрольные суммы vault-файлов от сервера (filename → hash), прокинутые
+    /// из `AuthResponse::vault_checksums` без изменений. Поле объявлялось в
+    /// `AuthResponse`, но терялось при сборке `OnlineAuthStatus` во всех ветках
+    /// `authorize()` — сверка целостности при автоматической докачке была мертва
+    /// целиком. См. `content_updater::normalize_checksum` для разбора формата
+    /// (сервер этого продукта шлёт голый hex, без префикса `sha256:`).
+    pub vault_checksums: Option<serde_json::Value>,
     pub content_pack_version: Option<u32>,
     pub content_pack_url: Option<String>,
     pub content_pack_checksum: Option<String>,
@@ -684,6 +691,7 @@ pub async fn authorize(
                     update_required: resp.update_required,
                     update_url: resp.update_url,
                     vault_versions: resp.vault_versions,
+                    vault_checksums: resp.vault_checksums,
                     content_pack_version: resp.content_pack_version,
                     content_pack_url: resp.content_pack_url,
                     content_pack_checksum: resp.content_pack_checksum,
@@ -705,6 +713,7 @@ pub async fn authorize(
                     update_required: false,
                     update_url: None,
                     vault_versions: None,
+                    vault_checksums: None,
                     content_pack_version: None,
                     content_pack_url: None,
                     content_pack_checksum: None,
@@ -732,6 +741,7 @@ pub async fn authorize(
                     update_required: cached.update_required,
                     update_url: cached.update_url,
                     vault_versions: cached.vault_versions,
+                    vault_checksums: cached.vault_checksums,
                     content_pack_version: cached.content_pack_version,
                     content_pack_url: cached.content_pack_url,
                     content_pack_checksum: cached.content_pack_checksum,
@@ -753,6 +763,7 @@ pub async fn authorize(
                     update_required: false,
                     update_url: None,
                     vault_versions: None,
+                    vault_checksums: None,
                     content_pack_version: None,
                     content_pack_url: None,
                     content_pack_checksum: None,

@@ -986,7 +986,11 @@ def _map_pipeline_to_builder_data(
     if diag_src:
         try:
             from utils.optimizer_honesty import model_reliability_verdict
-            _verdict = model_reliability_verdict(diag_src)
+            # Единый источник (2026-08-07): вердикт берём ГОТОВЫМ из диагностики —
+            # он проставлен на границе её записи (stamp_reliability) и по
+            # построению соответствует её содержимому. Пересчёт остаётся
+            # запасным путём: проекты, обученные до этой правки, поля не имеют.
+            _verdict = diag_src.get('model_reliability') or model_reliability_verdict(diag_src)
             diagnostics["honesty_verdict"] = _verdict.get("verdict")
             _reasons = [str(r) for r in (_verdict.get("reasons") or [])]
             if _reasons:
@@ -1002,6 +1006,42 @@ def _map_pipeline_to_builder_data(
                 diagnostics["honesty_caveat_text"] = str(_caveat_text)
         except Exception:  # noqa: BLE001 - honesty-доставка не роняет экспорт
             pass
+        # Происхождение (2026-08-07): числа переброски могли быть посчитаны на
+        # ДРУГОЙ модели — переобучение не удаляет optimization.json, и он
+        # воскресает с диска при открытии проекта. Сверяем подписи и, если они
+        # разошлись, честно говорим об этом клиенту, вместо того чтобы молча
+        # ставить свежий вердикт надёжности рядом с мёртвыми числами. Обе
+        # подписи могут отсутствовать (старые проекты) — тогда сверки нет.
+        _diag_fp = diag_src.get("model_fingerprint")
+        _opt_fp = optimize_data.get("model_fingerprint")
+        _подписи_разошлись = bool(_diag_fp and _opt_fp and _diag_fp != _opt_fp)
+        # 🔴 Вторая половина сверки (внешний аудит 2026-08-08). Одной подписи
+        # модели МАЛО: `tools/recompute_mqs.py` пересчитывает качество модели
+        # без переобучения — диагностика меняется, сама модель нет, подпись
+        # остаётся прежней. Замороженный вердикт в optimization.json при этом
+        # устаревает, и расхождение форматов, ради которого всё затевалось,
+        # выживает незамеченным. Поэтому сравниваем ещё и сами вердикты.
+        # Тип значения проверяем явно: соседний блок честности намеренно обёрнут
+        # в перехват — «доставка честности не роняет выгрузку». Испорченное поле
+        # (строка вместо словаря в повреждённом файле) не должно ронять сборку
+        # отчёта целиком; в худшем случае эта половина сверки просто не делается.
+        def _вердикт(источник: dict) -> str:
+            значение = источник.get("model_reliability")
+            if not isinstance(значение, dict):
+                return ""
+            return str(значение.get("verdict") or "").lower()
+
+        _diag_v = _вердикт(diag_src)
+        _opt_v = _вердикт(optimize_data)
+        _вердикты_разошлись = bool(_diag_v and _opt_v and _diag_v != _opt_v)
+        # Нет какой-то из величин — этой половины сверки просто не делаем:
+        # проекты, обученные до правки, обязаны молчать. Ложная тревога здесь
+        # дороже пропуска, она подрывает доверие ко всем предупреждениям сразу.
+        if _подписи_разошлись or _вердикты_разошлись:
+            from utils.diagnostics import PROVENANCE_MISMATCH_NOTE
+            diagnostics["provenance_mismatch"] = True
+            diagnostics["provenance_note"] = PROVENANCE_MISMATCH_NOTE
+
         _pf = diag_src.get("preflight") or {}
         _pp = _pf.get("prior_predictive") or {}
         _qp = _pf.get("quick_proxy") or {}

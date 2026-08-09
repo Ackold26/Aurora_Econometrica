@@ -1,0 +1,4639 @@
+diff --git a/sidecar/econometrica/aurora_html/interactive.py b/sidecar/econometrica/aurora_html/interactive.py
+index 1fb11b9..6665f19 100644
+--- a/sidecar/econometrica/aurora_html/interactive.py
++++ b/sidecar/econometrica/aurora_html/interactive.py
+@@ -864,7 +864,7 @@ def bootstrap_js(
+ 
+     panel.innerHTML =
+       '<summary style="cursor:pointer;font-weight:600;color:var(--text);padding:4px 0;font-size:14px;">' +
+-        'Бюджет what-if · Hill saturation model' +
++        'Бюджет «что если» · модель насыщения (Hill)' +
+       '</summary>' +
+       '<div style="padding-top:12px;">' +
+         '<div style="font-size:12px;color:var(--text-muted);margin-bottom:8px;">' +
+diff --git a/sidecar/econometrica/aurora_html/sections.py b/sidecar/econometrica/aurora_html/sections.py
+index 78bfa9b..54ff20b 100644
+--- a/sidecar/econometrica/aurora_html/sections.py
++++ b/sidecar/econometrica/aurora_html/sections.py
+@@ -444,10 +444,17 @@ def _reliability_disclaimer_html(ctx: dict) -> str:
+             verdict_str = "unknown"
+     if verdict_str not in ("unreliable", "uncertain"):
+         return ""
+-    if verdict_str == "unreliable":
+-        note = "Модель имеет высокий R-hat или много расходящихся цепей – результаты ниже ориентировочные."
+-    else:
+-        note = "Узкий объём данных или слабый prior-coverage – результаты ниже трактуйте осторожно."
++    # 2026-08-04: verbatim caveat_text из SSOT (model_reliability_verdict),
++    # когда доехал по мосту (diagnostics["honesty_caveat_text"] -
++    # narrative_adapter._map_pipeline_to_builder_data) - несёт настоящую
++    # причину (Ratio, тир модели, дивергенции), а не общую фразу по verdict.
++    # Fallback - legacy diagnostics без этого поля (старые pickles).
++    note = diag.get("honesty_caveat_text")
++    if not note:
++        if verdict_str == "unreliable":
++            note = "Модель имеет высокий R-hat или много расходящихся цепей – результаты ниже ориентировочные."
++        else:
++            note = "Узкий объём данных или слабый prior-coverage – результаты ниже трактуйте осторожно."
+     return (
+         '<div class="reliability-disclaimer" role="alert" style="'
+         "margin:16px 0;padding:14px 18px;background:rgba(201,164,73,0.12);"
+@@ -1241,6 +1248,14 @@ def render_action_table(ctx: dict) -> str:
+         spend_mln = float(c.get("spend") or 0) / 1_000_000.0
+         mroas = c.get("mroas")
+         verdict = c.get("verdict") or "Watch"
++        # Волна 1 пункт 3 (2026-06-20, перенесено 2026-08-04): отображаемый
++        # вердикт — рус + honesty-смягчение (решение 2a). verdict_display несёт
++        # «Увеличить (предв.)» при не-reliable модели; machine-key `verdict`
++        # оставляем для CSS-класса цвета. Fallback на локализацию по ключу, если
++        # поле не пришло (legacy/wireframe payload).
++        from engines.channel_action import soften_verdict_display
++        v_display = c.get("verdict_display") or soften_verdict_display(verdict, None)[0]
++        v_modality = c.get("verdict_modality") or "firm"
+         share_pct = int(round(float(c.get("contribution") or 0) / total_contrib * 100))
+         fn = fn_by_name.get(name, "")
+         fn_html = f'<sup class="fn-marker">{fn}</sup>' if fn else ''
+@@ -1261,7 +1276,7 @@ def render_action_table(ctx: dict) -> str:
+             f'<td class="num" data-sort="{float(c.get("contribution") or 0):.2f}">{_fmt_contrib(c.get("contribution"), contrib_scale)}</td>'
+             f'<td class="num" data-sort="{float(mroas or 0):.3f}">{mroas_html}{fn_html}</td>'
+             f'<td class="num" data-sort="{share_pct}">{share_pct}</td>'
+-            f'<td><span class="verdict-badge verdict-{escape(verdict)}">{escape(verdict)}</span></td>'
++            f'<td><span class="verdict-badge verdict-{escape(verdict)} verdict-mod-{escape(v_modality)}">{escape(v_display)}</span></td>'
+             f'</tr>'
+         )
+ 
+@@ -1964,6 +1979,16 @@ def render_sources(ctx: dict) -> str:
+     mqs_caveat = format_thinness_caveat(diag.get("ratio"), diag.get("thinness_cap"),
+                                         leading_space=False)
+ 
++    # Волна 3 (2026-06-20, перенесено 2026-08-04): метка режима анализа + типа
++    # KPI (контекст метрик) — без неё клиент может принять долю вклада за ROI.
++    _mode_label = diag.get("analysis_mode_label")
++    _kind_label = diag.get("kpi_kind_label")
++    mode_html = ""
++    if _mode_label:
++        _kpi_part = f" · KPI: {escape(_kind_label)}" if _kind_label else ""
++        mode_html = (f'<div class="mqs-mode">Режим анализа: '
++                     f'{escape(_mode_label)}{_kpi_part}</div>')
++
+     mqs_diag_html = ""
+     if is_ols:
+         # OLS: показываем только R²/MAPE + frequentist метод (без MCMC).
+@@ -2020,6 +2045,7 @@ def render_sources(ctx: dict) -> str:
+     <div class="mqs-label">Model Quality Score</div>
+     {mqs_score_block}
+     {f'<div class="mqs-caveat">{escape(mqs_caveat)}</div>' if mqs_caveat else ''}
++    {mode_html}
+     {f'<div class="mqs-diag">{mqs_diag_html}</div>' if mqs_diag_html else ''}
+     <a class="method-badge" href="#method">{escape(_badge_text)}</a>
+   </div>
+diff --git a/sidecar/econometrica/aurora_pptx/builder.py b/sidecar/econometrica/aurora_pptx/builder.py
+index 51962e9..c791bce 100644
+--- a/sidecar/econometrica/aurora_pptx/builder.py
++++ b/sidecar/econometrica/aurora_pptx/builder.py
+@@ -368,6 +368,11 @@ class AuroraPPTXBuilder:
+         # применил cap (thinness_cap=50/70). ratio_eff — эффективный (драйвит cap).
+         self.thinness_cap = diag.get("thinness_cap")
+         self.ratio_eff = diag.get("ratio")
++        # Волна 3 (2026-06-20, перенесено 2026-08-04): метка режима анализа +
++        # типа KPI (контекст метрик) — без неё клиент может принять долю
++        # вклада за ROI.
++        self.analysis_mode_label = diag.get("analysis_mode_label")
++        self.kpi_kind_label = diag.get("kpi_kind_label")
+         # v2.1.0 (Pilot C): engine detection. 'ols' для small-data fallback,
+         # 'bayesian' (default) для production v1.2/v1.3 pickles. Determines
+         # methodology labels (MCMC/NUTS vs closed-form/bootstrap).
+@@ -2090,16 +2095,13 @@ class AuroraPPTXBuilder:
+             "Reduce": (self.gold_muted, True),
+             "Cut":    (self.gold, True),
+         }
+-        # Stage C.3: display verdicts in Russian. Enum keys stay English
+-        # internally so derive_verdict() and downstream narrative helpers
+-        # remain unchanged.
+-        verdict_ru = {
+-            "Scale":  "Увеличить",
+-            "Hold":   "Держать",
+-            "Watch":  "Наблюдать",
+-            "Reduce": "Сократить",
+-            "Cut":    "Остановить",
+-        }
++        # Волна 1 пункт 3 (2026-06-20, перенесено 2026-08-04): рус-локализация +
++        # honesty-смягчение вердикта — единый источник
++        # engines.channel_action.soften_verdict_display (VERDICT_DISPLAY_RU),
++        # синхрон с HTML. Прежний локальный verdict_ru убран (рассогласовывался
++        # с HTML при не-reliable модели). Enum-ключи (machine-key) остаются
++        # англ. внутри для verdict_colors / derive_verdict.
++        from engines.channel_action import soften_verdict_display
+         row_y = table_y + 0.65
+         for row in rows:
+             # Phase 1.9: rows are 8-tuples (added ci_str). Backward compat for fallback
+@@ -2172,7 +2174,9 @@ class AuroraPPTXBuilder:
+             x += col_widths[4]
+             # Verdict - fallback to Hold styling if unknown key
+             vcolor, vbold = verdict_colors.get(verdict, (self.deep_60, False))
+-            verdict_label = verdict_ru.get(verdict, verdict)
++            verdict_label, _v_mod = soften_verdict_display(verdict, self.honesty_verdict)
++            if _v_mod == "refused":  # модель не сошлась — направление не показываем
++                vcolor, vbold = self.deep_60, False
+             self._text(
+                 slide, x + 0.05, row_y, col_widths[5] - 0.1, 0.3, verdict_label,
+                 font=self.sans, size=11, bold=vbold, color=vcolor,
+@@ -3284,6 +3288,13 @@ class AuroraPPTXBuilder:
+                 ("Полнота",             "100% (0 пропусков)"),
+                 ("Аномалии",            "обработаны (праздничные недели)"),
+             ]
++        # Волна 3 (2026-06-20, перенесено 2026-08-04): метка режима анализа +
++        # типа KPI — без неё клиент может принять долю вклада за ROI.
++        if self.analysis_mode_label:
++            _mode_val = self.analysis_mode_label
++            if self.kpi_kind_label:
++                _mode_val += f" · KPI: {self.kpi_kind_label}"
++            data_info.append(("Режим анализа", _mode_val))
+         dy = card_y + 0.55
+         for label, val in data_info:
+             self._text(
+diff --git a/sidecar/econometrica/engines/channel_action.py b/sidecar/econometrica/engines/channel_action.py
+index d207c7b..5e456b3 100644
+--- a/sidecar/econometrica/engines/channel_action.py
++++ b/sidecar/econometrica/engines/channel_action.py
+@@ -31,6 +31,9 @@ Public API:
+   ACTION_LABEL_RU     - RU label per key
+   ACTION_TONE         - tone (good/warn/bad/neutral) per key
+   ACTION_PRIORITY     - sort priority per key (Scale=5, Hold=4, ..., Cut=0)
++  VERDICT_DISPLAY_RU  - краткий рус-вердикт для табличных ячеек отчётов
++  soften_verdict_display(verdict_key, reliability_verdict) → (label, modality) -
++                         honesty-потолок: смягчает директивность по надёжности модели
+   compute_channel_action(channel_dict, *, kpi_kind, vpcu, money_roi_unavailable,
+                          metric_short, cpu_per_label) → ChannelAction
+   build_action_summary(channels) → dict с counts + top_by_action_list
+@@ -81,6 +84,45 @@ ACTION_PRIORITY: dict[str, int] = {
+ }
+ 
+ 
++# Волна 1 пункт 3 (2026-06-20, перенесено 2026-08-04): краткий отображаемый
++# вердикт-действие для ТАБЛИЦ отчётов (HTML badge / PPTX action table). Единый
++# рус-источник — прежде HTML/PPTX могли показывать один канал по-разному в
++# разных форматах.
++VERDICT_DISPLAY_RU: dict[str, str] = {
++    'Scale':     'Увеличить',
++    'Hold':      'Держать',
++    'Watch':     'Наблюдать',
++    'Reduce':    'Сократить',
++    'Cut':       'Остановить',
++    'Uncertain': 'Недостаточно данных',
++}
++
++
++def soften_verdict_display(verdict_key: str, reliability_verdict: str | None) -> tuple[str, str]:
++    """Honesty-потолок (решение 2a, Антон): глобальная надёжность модели смягчает
++    ДИРЕКТИВНОСТЬ канального вердикта по МОДАЛЬНОСТИ, сохраняя НАПРАВЛЕНИЕ.
++
++    Снимает противоречие «канал Scale в отчёте vs Uncertain в декомпозиции»: при
++    неуверенной модели ни один канал не подаётся как директива к масштабированию.
++
++    Returns (label, modality):
++      • reliable / нет вердикта → директивный label («Увеличить»), modality 'firm'
++      • uncertain / unknown → label + « (предв.)» («Увеличить (предв.)»), modality
++        'tentative'; нейтральные Watch/Uncertain — без суффикса (уже неуверенные)
++      • unreliable → «Требует переобучения», modality 'refused' (модель не сошлась —
++        направление ненадёжно, не показываем; согласуется с гейтом M2 refused)
++    """
++    base = VERDICT_DISPLAY_RU.get(verdict_key, verdict_key)
++    rv = (reliability_verdict or '').lower()
++    if rv == 'unreliable':
++        return ('Требует переобучения', 'refused')
++    if rv in ('uncertain', 'unknown'):
++        if verdict_key in ('Uncertain', 'Watch'):
++            return (base, 'tentative')
++        return (f'{base} (предв.)', 'tentative')
++    return (base, 'firm')
++
++
+ @dataclass(frozen=True)
+ class ChannelAction:
+     """Result of compute_channel_action - what to do with this channel."""
+@@ -284,7 +326,7 @@ def compute_channel_action(
+             label_ru=ACTION_LABEL_RU['Cut'],
+             tone=ACTION_TONE['Cut'],
+             reasoning=(
+-                f'Optimizer рекомендует -{(1 - ratio) * 100:.0f}% - '
++                f'Оптимизатор рекомендует -{(1 - ratio) * 100:.0f}% - '
+                 f'бюджет лучше использовать на других каналах'
+             ),
+             priority=ACTION_PRIORITY['Cut'],
+@@ -302,7 +344,7 @@ def compute_channel_action(
+                 label_ru=ACTION_LABEL_RU['Reduce'],
+                 tone=ACTION_TONE['Reduce'],
+                 reasoning=(
+-                    f'{_metric_str}; Optimizer рекомендует {(ratio - 1) * 100:+.0f}% - '
++                    f'{_metric_str}; Оптимизатор рекомендует {(ratio - 1) * 100:+.0f}% - '
+                     f'задайте ценность единицы для оценки окупаемости'
+                 ),
+                 priority=ACTION_PRIORITY['Reduce'],
+@@ -314,7 +356,7 @@ def compute_channel_action(
+                 label_ru=ACTION_LABEL_RU['Scale'],
+                 tone=ACTION_TONE['Scale'],
+                 reasoning=(
+-                    f'{_metric_str}; Optimizer рекомендует +{(ratio - 1) * 100:.0f}% - '
++                    f'{_metric_str}; Оптимизатор рекомендует +{(ratio - 1) * 100:.0f}% - '
+                     f'задайте ценность единицы для оценки окупаемости'
+                 ),
+                 priority=ACTION_PRIORITY['Scale'],
+@@ -345,7 +387,7 @@ def compute_channel_action(
+             key='Cut',
+             label_ru=ACTION_LABEL_RU['Cut'],
+             tone=ACTION_TONE['Cut'],
+-            reasoning=f'{_metric_str} глубоко ниже breakeven - каждый рубль приносит убыток',
++            reasoning=f'{_metric_str} глубоко ниже точки безубыточности - каждый рубль приносит убыток',
+             priority=ACTION_PRIORITY['Cut'],
+             confidence=confidence,
+         )
+@@ -357,7 +399,7 @@ def compute_channel_action(
+             label_ru=ACTION_LABEL_RU['Reduce'],
+             tone=ACTION_TONE['Reduce'],
+             reasoning=(
+-                f'Optimizer рекомендует {(ratio - 1) * 100:+.0f}% - насыщение, '
++                f'Оптимизатор рекомендует {(ratio - 1) * 100:+.0f}% - насыщение, '
+                 f'{_metric_str} падает с ростом вложения'
+             ),
+             priority=ACTION_PRIORITY['Reduce'],
+@@ -370,7 +412,7 @@ def compute_channel_action(
+             key='Reduce',
+             label_ru=ACTION_LABEL_RU['Reduce'],
+             tone=ACTION_TONE['Reduce'],
+-            reasoning=f'{_metric_str} близко к breakeven - снизить риск',
++            reasoning=f'{_metric_str} близко к точке безубыточности - снизить риск',
+             priority=ACTION_PRIORITY['Reduce'],
+             confidence=confidence,
+         )
+@@ -382,7 +424,7 @@ def compute_channel_action(
+             label_ru=ACTION_LABEL_RU['Scale'],
+             tone=ACTION_TONE['Scale'],
+             reasoning=(
+-                f'Optimizer рекомендует +{(ratio - 1) * 100:.0f}%, {_metric_str} - '
++                f'Оптимизатор рекомендует +{(ratio - 1) * 100:.0f}%, {_metric_str} - '
+                 f'недо-инвестирован'
+             ),
+             priority=ACTION_PRIORITY['Scale'],
+diff --git a/sidecar/econometrica/engines/decomposer.py b/sidecar/econometrica/engines/decomposer.py
+index c2e6ebf..a41016e 100644
+--- a/sidecar/econometrica/engines/decomposer.py
++++ b/sidecar/econometrica/engines/decomposer.py
+@@ -54,6 +54,14 @@ def _fmt_roi(r) -> str:
+     return f"{r:.2f}×" if abs(r) < 1 else f"{r:.1f}×"
+ 
+ 
++def _clean_name(s) -> str:
++    """Имя канала без `\\n`/двойных пробелов (исходные Excel-заголовки несут переносы).
++    Зеркалит Rust report.rs::clean_label — иначе нарратив-insight (и таблицы XLSX/MD,
++    читающие его) рвут имя на строки (INV-50 гигиена клиентского текста, перенесено
++    2026-08-04)."""
++    return ' '.join(str(s).split())
++
++
+ def _build_channel_insight(
+     channels,
+     money_roi_unavailable: bool = False,
+@@ -131,6 +139,13 @@ def _build_channel_insight(
+             'Точную оценку отдачи и сценарии перераспределения см. в шаге «Оптимизация».'
+         )
+     top_roi = float(top.get('roi') or 0)
++    # INV-50 (2026-06-21, перенесено 2026-08-04): чистое имя канала — исходные
++    # Excel-заголовки несут `\n`/двойные пробелы, иначе грязное имя утекает в
++    # клиентский текст insight. Зеркалит Rust report.rs::clean_label. НЕ путать
++    # с _normalize_channel_name (вырезает суффиксы вроде «Бюджет до НДС») —
++    # другая задача, не трогаем.
++    top_name = _clean_name(top['name'])
++    worst_name = _clean_name(worst['name'])
+ 
+     # Форматирование метрики и словарь зависят от режима
+     if _eff_mode:
+@@ -162,32 +177,32 @@ def _build_channel_insight(
+         # Абсолютный вердикт окупаемости требует ценности единицы (её тут нет) → даём
+         # ОТНОСИТЕЛЬНОЕ сравнение по CPU (channels отсортированы по roi desc → top = мин CPU).
+         insight = (
+-            f"{top['name']} - самая низкая стоимость единицы (CPU {fmt_top}). "
+-            f"{worst['name']} - самая высокая (CPU {fmt_worst})."
++            f"{top_name} - самая низкая стоимость единицы (CPU {fmt_top}). "
++            f"{worst_name} - самая высокая (CPU {fmt_worst})."
+         )
+         if top.get('efficiency_gap', 0) > GAP_GOOD and worst.get('efficiency_gap', 0) < -GAP_GOOD:
+             insight += (
+-                f" Канал {worst['name']} использует больше бюджета чем даёт эффекта "
++                f" Канал {worst_name} использует больше бюджета чем даёт эффекта "
+                 f"(gap {worst['efficiency_gap']:+.0f} пп) - рассмотрите перераспределение "
+-                f"в {top['name']}. Точную оценку прироста см. в шаге «Оптимизация»."
++                f"в {top_name}. Точную оценку прироста см. в шаге «Оптимизация»."
+             )
+     else:
+         # Monetary: поведение как раньше (ROI ×)
+         if top_roi >= ROI_BREAKEVEN:
+             insight = (
+-                f"{top['name']} - самый эффективный канал (ROI {_fmt_roi(top['roi'])}). "
+-                f"{worst['name']} - наименее эффективный (ROI {_fmt_roi(worst['roi'])})."
++                f"{top_name} - самый эффективный канал (ROI {_fmt_roi(top['roi'])}). "
++                f"{worst_name} - наименее эффективный (ROI {_fmt_roi(worst['roi'])})."
+             )
+             if top.get('efficiency_gap', 0) > GAP_GOOD and worst.get('efficiency_gap', 0) < -GAP_GOOD:
+                 insight += (
+-                    f" Канал {worst['name']} использует больше бюджета чем даёт эффекта "
++                    f" Канал {worst_name} использует больше бюджета чем даёт эффекта "
+                     f"(gap {worst['efficiency_gap']:+.0f} пп) - рассмотрите перераспределение "
+-                    f"в {top['name']}. Точную оценку прироста см. в шаге «Оптимизация»."
++                    f"в {top_name}. Точную оценку прироста см. в шаге «Оптимизация»."
+                 )
+         else:
+             # INV-50: лучший канал сам не окупается → честная формулировка без «эффективный».
+             insight = (
+-                f"Ни один канал не окупается напрямую (лучший - {top['name']}, "
++                f"Ни один канал не окупается напрямую (лучший - {top_name}, "
+                 f"ROI {_fmt_roi(top['roi'])}). Продажи определяются в основном базовым "
+                 f"спросом, прямой медиа-вклад невелик. Точную оценку отдачи и сценарии "
+                 f"перераспределения см. в шаге «Оптимизация»."
+diff --git a/sidecar/econometrica/engines/narrative_adapter.py b/sidecar/econometrica/engines/narrative_adapter.py
+index 9fc6d8e..0d249af 100644
+--- a/sidecar/econometrica/engines/narrative_adapter.py
++++ b/sidecar/econometrica/engines/narrative_adapter.py
+@@ -50,9 +50,15 @@ def _fmt_ru_date(dt: datetime) -> str:
+ _SLUG_INTERNAL_MARKERS = {
+     "исходник", "источник", "dataset", "data", "source",
+     "test", "debug", "tmp", "temp", "backup", "bak",
+-    "ммх", "mmx", "mmm",  # platform/methodology tags - not client name
+ }
+ 
++# Методологические метки платформы (не часть клиентского имени). Обрабатываются
++# отдельно от _SLUG_INTERNAL_MARKERS: следом за ними часто идёт 4-значный токен
++# вида "ммх-2404" - это дата-код методологии (ДДММ, «24 апреля»), а не год, и
++# в клиентское имя течь не должен. Отличаем его от НАСТОЯЩЕГО года-диапазона
++# ("mmx-2021-2025") по тому, что за диапазоном следует ВТОРОЙ 4-значный токен.
++_SLUG_DATE_MARKER_TOKENS = {"ммх", "mmx", "mmm"}
++
+ 
+ def _sanitize_project_slug(raw: str | None) -> tuple[str, str]:
+     """Turn an internal project slug into a human-readable (client_label,
+@@ -80,18 +86,32 @@ def _sanitize_project_slug(raw: str | None) -> tuple[str, str]:
+ 
+     parts = [p for p in re.split(r'[-_\s]+', s) if p]
+     clean_parts = []
+-    year_range = None
+-    for p in parts:
++    i = 0
++    while i < len(parts):
++        p = parts[i]
++        pl = p.lower()
++        if pl in _SLUG_DATE_MARKER_TOKENS:
++            nxt = parts[i + 1] if i + 1 < len(parts) else None
++            nxt2 = parts[i + 2] if i + 2 < len(parts) else None
++            if nxt and re.fullmatch(r'\d{4}', nxt) and not (nxt2 and re.fullmatch(r'\d{4}', nxt2)):
++                i += 2  # метка + дата-код (ДДММ) - оба служебные, не год
++                continue
++            i += 1  # только метка; настоящий год-диапазон следом обработается ниже
++            continue
+         # Detect year range like "2021-2025" (already a token or captured)
+         if re.fullmatch(r'\d{4}', p):
+             clean_parts.append(p)
++            i += 1
+             continue
+-        if p.lower() in _SLUG_INTERNAL_MARKERS:
++        if pl in _SLUG_INTERNAL_MARKERS:
++            i += 1
+             continue
+         # Drop pure-digit suffix tokens shorter than 4 chars (revisions)
+         if re.fullmatch(r'\d{1,3}', p):
++            i += 1
+             continue
+         clean_parts.append(p)
++        i += 1
+ 
+     # Post-process: collapse adjacent year tokens into ranges
+     def _fmt_token(tok: str) -> str:
+@@ -114,7 +134,12 @@ def _sanitize_project_slug(raw: str | None) -> tuple[str, str]:
+             labels.append(_fmt_token(tok))
+             i += 1
+ 
+-    client_label = " ".join(labels)
++    # Клиентское имя - короткий ярлык, не полное описание проекта (докстринг:
++    # "имя ≤2 токенов"); служебные слова из внутреннего slug'а («данные»,
++    # «для», «на» и т.п.) не входят в маркеры выше, но и в клиентское имя
++    # течь не должны - обрезаем после первых двух групп (год-диапазон уже
++    # свёрнут в одну группу строкой выше).
++    client_label = " ".join(labels[:2])
+     # Project code: uppercase, hyphen-joined
+     project_code = "-".join(labels).upper()
+     return (client_label, project_code)
+@@ -234,6 +259,22 @@ def _merge_channels(decomp_chs: list | None, opt_chs: list | None) -> list[dict]
+         if oc.get('mroi_optimal_ci_low') is not None:
+             merged_ch['mroas_optimal_ci_low'] = oc.get('mroi_optimal_ci_low')
+             merged_ch['mroas_optimal_ci_high'] = oc.get('mroi_optimal_ci_high')
++        # Волна 1 Шаг 2 (2026-06-20): honesty-поля (unit_smell/smell_flags из
++        # decomposer's ROI-guard - канал в TRP/GRP, а не в рублях, roi=18500×
++        # выглядит абсурдно) прежде роняло на этом шве - hero-гард ниже
++        # (_by_mroas_clean) читает `unit_smell`, но получал его пустым и
++        # коронировал битый ROI-канал «лучшим» (INV-50). Пробрасываем как есть
++        # + заглушка числовых ROI-полей: битую единицу измерения нельзя честно
++        # показать никаким числом, roi_unreliable сигналит UI показать прочерк.
++        if dc.get('unit_smell'):
++            merged_ch['unit_smell'] = True
++            merged_ch['smell_flags'] = dc.get('smell_flags')
++            merged_ch['roi_unreliable'] = True
++            merged_ch['roi'] = None
++            merged_ch['avg_roi'] = None
++            merged_ch['mroas'] = None
++        else:
++            merged_ch['roi_unreliable'] = False
+         merged.append(merged_ch)
+     if dropped_empty:
+         logger.warning(
+@@ -950,6 +991,15 @@ def _map_pipeline_to_builder_data(
+             _reasons = [str(r) for r in (_verdict.get("reasons") or [])]
+             if _reasons:
+                 diagnostics["honesty_reasons"] = _reasons[:3]
++            # 2026-08-04: caveat_text считался, но нигде не сохранялся - сама
++            # model_reliability_verdict документирует «UI потребляет результат
++            # verbatim (INV-50), не пере-выводит», но до этой правки её
++            # caveat_text просто не доезжал никуда (HTML-баннер держал 2 своих
++            # канонических текста по verdict вместо настоящей причины - Ratio,
++            # тир, дивергенции). Пробрасываем дословно.
++            _caveat_text = _verdict.get("caveat_text")
++            if _caveat_text:
++                diagnostics["honesty_caveat_text"] = str(_caveat_text)
+         except Exception:  # noqa: BLE001 - honesty-доставка не роняет экспорт
+             pass
+         _pf = diag_src.get("preflight") or {}
+@@ -972,6 +1022,22 @@ def _map_pipeline_to_builder_data(
+                 "checks": _calib_checks,
+             }
+ 
++    # Волна 3 (2026-06-20, перенесено 2026-08-04): метка режима анализа + типа
++    # KPI — контекст метрик для клиента (ROI vs Эффективность/доля; денежный
++    # vs количественный KPI). Источник — decompose (derived_mode/kpi_kind).
++    # Без метки клиент может принять долю вклада за ROI.
++    _mode = str(decompose_data.get("derived_mode") or "roi").lower()
++    _kind = str(decompose_data.get("kpi_kind") or "monetary").lower()
++    diagnostics["analysis_mode"] = _mode
++    diagnostics["analysis_mode_label"] = {
++        "roi": "ROI (деньги)", "effectiveness": "Эффективность (доля вклада)",
++        "mixed": "Смешанный (эксперт)", "expert": "Смешанный (эксперт)",
++    }.get(_mode, _mode)
++    diagnostics["kpi_kind"] = _kind
++    diagnostics["kpi_kind_label"] = {
++        "monetary": "денежный", "count": "количественный",
++    }.get(_kind, _kind)
++
+     data: dict[str, Any] = {"meta": meta}
+     if diagnostics:
+         data["diagnostics"] = diagnostics
+@@ -1039,7 +1105,17 @@ def _map_pipeline_to_builder_data(
+     # генерируя свои hardcoded строки → coherence between table + commentary.
+     # Фаза 3, пласт 1 (2026-07-11): прокидываем kpi_action_kwargs → честные
+     # вердикты для count-метрик (исправляет «огульный Cut» при mROAS=0.01–0.05).
+-    from engines.channel_action import compute_channel_action
++    from engines.channel_action import compute_channel_action, soften_verdict_display
++    # Волна 1 пункт 3 (2026-06-20, перенесено 2026-08-04): honesty-потолок
++    # (решение 2a, Антон). Глобальная надёжность модели (SSOT — diagnostics
++    # ["honesty_verdict"], тот же вердикт, что в model_reliability_verdict
++    # выше) смягчает ДИРЕКТИВНОСТЬ вердикта канала по МОДАЛЬНОСТИ, сохраняя
++    # НАПРАВЛЕНИЕ: при не-reliable «Увеличить»→«Увеличить (предв.)», при
++    # unreliable→«Требует переобучения». Снимает противоречие «Scale в отчёте
++    # vs Uncertain в декомпозиции». machine-key ch["verdict"] НЕ трогаем
++    # (нужен для counts/narrative_facts) — смягчаем только отображаемый слой
++    # verdict_display (билдеры читают его).
++    _mr_verdict = diagnostics.get("honesty_verdict")
+     for ch in channels:
+         action = compute_channel_action(ch, **_kpi_action_kwargs)
+         ch["verdict"] = action.key
+@@ -1049,6 +1125,9 @@ def _map_pipeline_to_builder_data(
+         ch["action_tone"] = action.tone
+         ch["action_priority"] = action.priority
+         ch["action_confidence"] = action.confidence
++        v_label, v_modality = soften_verdict_display(action.key, _mr_verdict)
++        ch["verdict_display"] = v_label
++        ch["verdict_modality"] = v_modality
+ 
+     narrative_facts: dict | None = None
+     if len(channels) >= 2:
+diff --git a/sidecar/econometrica/tests/test_deliverable_thinness_disclosure.py b/sidecar/econometrica/tests/test_deliverable_thinness_disclosure.py
+index 79620f3..caf4f69 100644
+--- a/sidecar/econometrica/tests/test_deliverable_thinness_disclosure.py
++++ b/sidecar/econometrica/tests/test_deliverable_thinness_disclosure.py
+@@ -29,7 +29,10 @@ FAT = generate_diagnostics_summary(
+     n_obs=200, n_params=20, effective_params=18.0,
+ )
+ 
+-CAVEAT_RE = re.compile(r"переобуч|данных мало|артефакт", re.I)
++# Тон McElreath (2026-06-20): оговорка про «модель сдержана / опирается на
++# priors / ориентировочные», а не про «артефакт переобучения». Обе ветки
++# format_thinness_caveat начинаются с «Данных мало».
++CAVEAT_RE = re.compile(r"данных мало|сдержан|априорн|ориентировочн", re.I)
+ 
+ 
+ def _payload(diag):
+@@ -97,3 +100,239 @@ def test_pptx_deliverable_carries_caveat_when_capped():
+     # PPTX дробит текст по run'ам → ищем по стрипнутому тексту.
+     stripped = re.sub(r"<[^>]+>", "", txt)
+     assert CAVEAT_RE.search(stripped), "PPTX отчёт обязан нести оговорку при data-thinness cap"
++
++
++def test_no_overfitting_artefact_wording_in_caveat():
++    """Анти-регрессия тона (Волна 1, McElreath): старый алармизм «артефакт
++    переобучения / высокий риск переобучения» в клиентской оговорке недопустим."""
++    for r in (1.5, 2.4, 3.5):
++        cav = format_thinness_caveat(r, 70, leading_space=False).lower()
++        assert "артефакт" not in cav
++        assert "высокий риск переобуч" not in cav
++        assert "ненадёжны" not in cav
++
++
++def test_unreliable_channel_roi_blanked_in_payload():
++    """Волна 1 Шаг 2 (data-level заглушка): битый ROI-канал в payload обнулён
++    (mroas/roi=None, action_reasoning без сырого числа) → ни один билдер
++    (HTML/PPTX/XLSX) не покажет абсурдные 15525×. INV-50."""
++    dec = {"channels": [
++        {"name": "TRPs бренд", "spend": 22100, "contribution": 409e6, "roi": 18500,
++         "mroi_current": 15525, "unit_smell": True, "verdict": "ROI завышен (не рубли?)"},
++        {"name": "Social", "spend": 100e6, "contribution": 1345e6, "roi": 13.4,
++         "mroi_current": 1.5, "verdict": "Высокоэффективен"},
++    ]}
++    payload = _map_pipeline_to_builder_data(
++        model_data={}, decompose_data=dec, optimize_data={}, scenarios=[], project_id="t")
++    trp = next(c for c in payload["channels"] if "TRP" in (c.get("name") or ""))
++    assert trp["roi_unreliable"] is True
++    assert trp["mroas"] is None and trp["roi"] is None
++    reasoning = trp.get("action_reasoning") or ""
++    assert "15525" not in reasoning and "18500" not in reasoning
++    # надёжный канал не тронут
++    social = next(c for c in payload["channels"] if "Social" in (c.get("name") or ""))
++    assert social.get("roi_unreliable") is False
++
++
++# ── Волна 1 пункт 2 (2026-06-20): плашка надёжности модели в отчётах ──────────
++# Решение 1b (Антон): плашка ТОЛЬКО при verdict != reliable; caveat_text идёт
++# VERBATIM из SSOT (optimizer_honesty, тот же текст в UI — INV-50, без рассинхрона).
++
++MR_UNCERTAIN = {
++    "verdict": "uncertain", "refused": False,
++    "caveat_text": "Рекомендации ориентировочные: опирайтесь на доверительные интервалы.",
++    "reasons": ["Ограниченные данные (Ratio 2.4:1 < 4:1): модель сдержана, опирается на priors."],
++}
++MR_RELIABLE = {"verdict": "reliable", "refused": False, "caveat_text": "", "reasons": []}
++
++
++def _payload_opt(opt):
++    return _map_pipeline_to_builder_data(
++        model_data={"diagnostics": FAT}, decompose_data={}, optimize_data=opt,
++        scenarios=[], project_id="test",
++    )
++
++
++def test_seam_carries_model_reliability_when_uncertain():
++    """Мост доносит вердикт надёжности модели в diagnostics при verdict != reliable,
++    caveat_text VERBATIM (INV-50).
++
++    Правка 2026-08-04 (после уточнения от команды): исходный тест ждал вердикт
++    через optimize_data["model_reliability"] - это шов из июньской ветки
++    ai-insights-tier2, которого в нашей архитектуре НЕТ. Действующий источник
++    честности - model_data["diagnostics"] через
++    utils.optimizer_honesty.model_reliability_verdict (тот же вокабуляр
++    reliable/uncertain/unreliable/unknown), уже подключённый к
++    soften_verdict_display в narrative_adapter.py/aurora_html/aurora_pptx.
++    Проверяемое свойство (плашка видна при не-reliable, текст verbatim) не
++    меняется - меняется только источник данных в фикстуре теста."""
++    from utils.optimizer_honesty import model_reliability_verdict
++    expected = model_reliability_verdict(THIN)
++    pdiag = _payload(THIN)["diagnostics"]
++    assert pdiag.get("honesty_verdict") == "uncertain" == expected["verdict"]
++    assert pdiag.get("honesty_reasons")
++    assert pdiag.get("honesty_caveat_text") == expected["caveat_text"]  # VERBATIM (INV-50)
++
++
++def test_seam_drops_model_reliability_when_reliable():
++    """При reliable плашки нет — не зашумляем хороший отчёт (решение 1b)."""
++    pdiag = _payload_opt({"model_reliability": MR_RELIABLE}).get("diagnostics", {})
++    assert "model_reliability" not in pdiag
++
++
++def test_html_carries_reliability_plaque_when_uncertain():
++    """HTML несёт плашку надёжности (verdict != reliable) с текстом verbatim.
++
++    Правка 2026-08-04 (после уточнения от команды): источник - model_data
++    diagnostics honesty_verdict (см. правку test_seam_carries_model_reliability_
++    when_uncertain выше), не optimize_data. Плашка - действующий баннер
++    reliability-disclaimer (F-A1-9, 2026-07-06), не «mqs-reliability» из
++    июньской ветки, которого в коде никогда не было."""
++    from engines.html_export import build_html
++    from utils.optimizer_honesty import model_reliability_verdict
++    expected_caveat = model_reliability_verdict(THIN)["caveat_text"]
++    out = tempfile.gettempdir() + "/test_mr_uncertain.html"
++    build_html(model_data={"diagnostics": THIN}, decompose_data={},
++               optimize_data={}, output_path=out, project_id="test")
++    html = open(out, encoding="utf-8").read()
++    assert "reliability-disclaimer" in html, "HTML обязан нести плашку надёжности при uncertain"
++    assert expected_caveat in html  # verbatim из SSOT (INV-50)
++
++
++def test_html_no_reliability_plaque_when_reliable():
++    from engines.html_export import build_html
++    out = tempfile.gettempdir() + "/test_mr_reliable.html"
++    build_html(model_data={"diagnostics": FAT}, decompose_data={},
++               optimize_data={"model_reliability": MR_RELIABLE},
++               output_path=out, project_id="test")
++    html = open(out, encoding="utf-8").read()
++    assert "mqs-reliability" not in html, "при reliable плашку фабриковать нельзя"
++
++
++def test_pptx_carries_reliability_plaque_when_uncertain():
++    from aurora_pptx.builder import AuroraPPTXBuilder
++    b = AuroraPPTXBuilder(_payload_opt({"model_reliability": MR_UNCERTAIN}))
++    prs = b.build()
++    out = tempfile.gettempdir() + "/test_mr_uncertain.pptx"
++    prs.save(out)
++    import zipfile
++    z = zipfile.ZipFile(out)
++    txt = " ".join(z.read(n).decode("utf-8", "ignore") for n in z.namelist() if n.endswith(".xml"))
++    stripped = re.sub(r"<[^>]+>", "", txt)
++    assert re.search(r"надёжност|ориентировочн", stripped, re.I), \
++        "PPTX обязан нести плашку надёжности при uncertain"
++
++
++# ── Волна 1 пункт 3 (2026-06-20): синхрон вердиктов — honesty-потолок (2a) ─────
++# Решение 2a (Антон): глобальная надёжность модели смягчает ДИРЕКТИВНОСТЬ
++# канального вердикта по МОДАЛЬНОСТИ, сохраняя НАПРАВЛЕНИЕ. Снимает противоречие
++# «Scale в отчёте vs Uncertain в декомпозиции».
++
++def test_soften_verdict_display_preserves_direction():
++    from engines.channel_action import soften_verdict_display
++    # reliable / нет вердикта → директивный label
++    assert soften_verdict_display("Scale", "reliable") == ("Увеличить", "firm")
++    assert soften_verdict_display("Scale", None) == ("Увеличить", "firm")
++    # uncertain/unknown → направление сохранено + «(предв.)»
++    lbl, mod = soften_verdict_display("Scale", "uncertain")
++    assert "Увеличить" in lbl and "предв" in lbl and mod == "tentative"
++    lbl, _ = soften_verdict_display("Cut", "unknown")
++    assert "Остановить" in lbl and "предв" in lbl
++    # нейтральные (Watch/Uncertain) — без суффикса, уже неуверенные
++    assert soften_verdict_display("Watch", "uncertain") == ("Наблюдать", "tentative")
++    # unreliable → нейтрализация: направление НЕ показываем (модель не сошлась)
++    assert soften_verdict_display("Scale", "unreliable") == ("Требует переобучения", "refused")
++
++
++_DEC_DIRECTIVE = {"channels": [
++    {"name": "TV", "spend": 100e6, "contribution": 200e6, "roi": 2.0,
++     "mroas": 1.5, "optimal_spend": 130e6, "current_spend": 100e6},
++    {"name": "Social", "spend": 50e6, "contribution": 120e6, "roi": 2.4, "mroas": 1.6},
++]}
++
++
++def test_seam_channel_verdict_softened_when_uncertain():
++    """Мост смягчает verdict_display при не-reliable; machine-key verdict цел (counts).
++
++    Правка 2026-08-04 (после уточнения от команды): источник честности -
++    model_data diagnostics (THIN, ratio 2.4:1 < 4:1 → honesty_verdict=uncertain),
++    не optimize_data["model_reliability"] (тот шов не существует - см. правки
++    выше в этом файле)."""
++    payload = _map_pipeline_to_builder_data(
++        model_data={"diagnostics": THIN}, decompose_data=_DEC_DIRECTIVE,
++        optimize_data={}, scenarios=[], project_id="t")
++    for ch in payload["channels"]:
++        assert ch.get("verdict_modality") == "tentative"
++        assert ch.get("verdict") in ("Scale", "Hold", "Watch", "Reduce", "Cut", "Uncertain")
++    # хотя бы один директивный канал смягчён до «(предв.)»
++    assert any("предв" in (ch.get("verdict_display") or "") for ch in payload["channels"])
++
++
++def test_seam_channel_verdict_firm_when_reliable():
++    """При reliable вердикты остаются директивными (без «(предв.)»)."""
++    payload = _map_pipeline_to_builder_data(
++        model_data={}, decompose_data=_DEC_DIRECTIVE,
++        optimize_data={"model_reliability": MR_RELIABLE}, scenarios=[], project_id="t")
++    for ch in payload["channels"]:
++        assert ch.get("verdict_modality") == "firm"
++        assert "предв" not in (ch.get("verdict_display") or "")
++
++
++# ── Волна 3 (2026-06-20): гигиена клиентского текста ──────────────────────────
++
++def test_sanitize_slug_no_service_word_leak():
++    """Служебные слова slug НЕ текут в «Подготовлено для»; имя ≤2 токенов."""
++    from engines.narrative_adapter import _sanitize_project_slug
++    cl, _ = _sanitize_project_slug('кагоцел-рф--данные-для-эконометрики---на-ммх-2006-26--3')
++    assert cl == 'Кагоцел Рф'
++    assert 'Данные' not in cl and 'Эконометрики' not in cl and '2006' not in cl
++    # дата-маркер ммх (2404 = 24 апр) не год → не протекает в имя
++    assert _sanitize_project_slug('венарус-ммх-2404-26--2')[0] == 'Венарус'
++    # настоящий год-диапазон сохраняется
++    assert '2021-2025' in _sanitize_project_slug('mmx-2021-2025-исходник-26--4')[0]
++
++
++def test_seam_carries_analysis_mode_labels():
++    """Волна 3: мост доносит метку режима анализа + типа KPI из decompose."""
++    payload = _map_pipeline_to_builder_data(
++        model_data={}, decompose_data={
++            "derived_mode": "effectiveness", "kpi_kind": "count",
++            "channels": [{"name": "A", "mroas": 1.2}, {"name": "B", "mroas": 1.0}]},
++        optimize_data={}, scenarios=[], project_id="t")
++    d = payload["diagnostics"]
++    assert d["analysis_mode_label"] == "Эффективность (доля вклада)"
++    assert d["kpi_kind_label"] == "количественный"
++    # дефолт (нет полей) → ROI/денежный
++    payload2 = _map_pipeline_to_builder_data(
++        model_data={}, decompose_data={"channels": [{"name": "A", "mroas": 1.2}, {"name": "B"}]},
++        optimize_data={}, scenarios=[], project_id="t")
++    assert payload2["diagnostics"]["analysis_mode_label"] == "ROI (деньги)"
++
++
++def test_channel_reasoning_no_anglicisms():
++    """Волна 3: клиентский reasoning без англицизмов (saturation/breakeven/Optimizer)."""
++    from engines.channel_action import compute_channel_action
++    samples = [
++        {"name": "A", "mroas": 0.5, "current_spend": 100, "optimal_spend": 100},   # Cut
++        {"name": "B", "mroas": 1.3, "current_spend": 100, "optimal_spend": 70},     # Reduce (saturation)
++        {"name": "C", "mroas": 1.4, "current_spend": 100, "optimal_spend": 140},    # Scale
++    ]
++    for ch in samples:
++        r = compute_channel_action(ch).reasoning.lower()
++        for bad in ("saturation", "breakeven", "optimizer"):
++            assert bad not in r, f"англицизм '{bad}' в reasoning: {r}"
++
++
++def test_merge_channels_preserves_unit_smell():
++    """Волна 1: honesty-поля (unit_smell/smell_flags) доходят через мост до
++    hero-гарда; иначе битый ROI-канал (TRP, не рубли) коронуется «лучшим»."""
++    from engines.narrative_adapter import _merge_channels
++    decomp = [
++        {"name": "TRPs бренд", "spend": 22100, "contribution": 409e6, "roi": 18500,
++         "unit_smell": True, "smell_flags": [{"type": "roi_max"}], "category": "brand"},
++        {"name": "Social", "spend": 100e6, "contribution": 1345e6, "roi": 13.4},
++    ]
++    merged = _merge_channels(decomp, [])
++    trp = next(c for c in merged if "TRP" in (c.get("name") or ""))
++    assert trp.get("unit_smell") is True
++    assert trp.get("smell_flags")
+diff --git a/sidecar/econometrica/tests/test_diagnostics_verdict.py b/sidecar/econometrica/tests/test_diagnostics_verdict.py
+index b3b12ea..1a19c03 100644
+--- a/sidecar/econometrica/tests/test_diagnostics_verdict.py
++++ b/sidecar/econometrica/tests/test_diagnostics_verdict.py
+@@ -23,7 +23,12 @@ def test_high_r2_thin_data_verdict_not_misleading():
+     verdict = summary['verdict']
+     assert 'только' not in verdict, f"Вводящее в заблуждение «только» при R²=98%: {verdict}"
+     assert '98%' in verdict
+-    assert 'переобуч' in verdict.lower(), f"Должно объяснять переобучение: {verdict}"
++    # Тон McElreath (2026-06-20): высокий fit на коротких данных объясняем через
++    # ограниченность точечной надёжности / priors / доверительные интервалы, а не
++    # алармизмом «переобучение» (синхрон с optimizer_honesty.py).
++    assert ('надёжность ограничена' in verdict.lower() or 'априорн' in verdict.lower()
++            or 'доверительн' in verdict.lower()), \
++        f"Должно честно объяснять ограниченность на коротких данных: {verdict}"
+ 
+ 
+ def test_genuinely_low_r2_keeps_honest_verdict():
+diff --git a/sidecar/econometrica/tests/test_ported_tier2_functions.py b/sidecar/econometrica/tests/test_ported_tier2_functions.py
+new file mode 100644
+index 0000000..1d3930e
+--- /dev/null
++++ b/sidecar/econometrica/tests/test_ported_tier2_functions.py
+@@ -0,0 +1,204 @@
++"""Перенос трёх находок из origin/feat/ai-insights-tier2, потерянных при
++развитии ветки feat/econ-canon-p0 (2026-08-04). Наша архитектура (unit_smell /
++ROI_ARTIFACT / _derive_data_coverage / honesty_verdict SSOT) новее и надёжнее
++их версии — переносим ТОЛЬКО недостающее поверх неё, не откатывая.
++
++1. Метка режима анализа (analysis_mode_label) + типа KPI (kpi_kind_label) —
++   без неё клиент может принять долю вклада за ROI (narrative_adapter →
++   diagnostics → sections.py / builder.py).
++2. `_clean_name` в decomposer.py — грязное имя канала (Excel `\\n`/двойные
++   пробелы) не должно утекать в клиентский insight-текст.
++3. `soften_verdict_display` в channel_action.py — honesty-потолок: смягчает
++   директивность канального вердикта по глобальной надёжности модели
++   (SSOT — diagnostics["honesty_verdict"] / self.honesty_verdict), сохраняя
++   направление.
++"""
++import re
++import sys
++import tempfile
++import zipfile
++from pathlib import Path
++
++sys.path.insert(0, str(Path(__file__).parent.parent))
++
++from engines.channel_action import soften_verdict_display  # noqa: E402
++from engines.decomposer import _build_channel_insight, _clean_name  # noqa: E402
++from engines.narrative_adapter import _map_pipeline_to_builder_data  # noqa: E402
++
++
++def _pptx_text(prs) -> str:
++    """PPTX дробит текст по run'ам → извлекаем весь текст из XML частей архива.
++    Уникальное имя файла на вызов — тесты идут параллельно (pytest-xdist,
++    -n 4 в pytest.ini), общий путь ловил гонку записи/чтения (BadZipFile)."""
++    fd, out = tempfile.mkstemp(suffix=".pptx", prefix="test_ported_tier2_")
++    import os
++    os.close(fd)
++    prs.save(out)
++    z = zipfile.ZipFile(out)
++    txt = " ".join(z.read(n).decode("utf-8", "ignore") for n in z.namelist() if n.endswith(".xml"))
++    return re.sub(r"<[^>]+>", "", txt)
++
++
++# ─── Задача 1: метка режима анализа + типа KPI ────────────────────────────────
++
++DEC_TWO_CH = {
++    "derived_mode": "effectiveness",
++    "kpi_kind": "count",
++    "channels": [
++        {"name": "TV", "spend": 100e6, "contribution": 200e6, "roi": 2.0,
++         "mroas": 1.5, "optimal_spend": 130e6, "current_spend": 100e6,
++         "contribution_pct": 60.0},
++        {"name": "Social", "spend": 50e6, "contribution": 120e6, "roi": 2.4,
++         "mroas": 1.6, "contribution_pct": 40.0},
++    ],
++}
++
++
++def test_seam_carries_analysis_mode_and_kpi_kind_labels():
++    """Шов диагностики несёт analysis_mode_label/kpi_kind_label (прежде ронял)."""
++    diag = _map_pipeline_to_builder_data(
++        model_data={}, decompose_data=DEC_TWO_CH, optimize_data={},
++        scenarios=[], project_id="t",
++    )["diagnostics"]
++    assert diag["analysis_mode"] == "effectiveness"
++    assert diag["analysis_mode_label"] == "Эффективность (доля вклада)"
++    assert diag["kpi_kind"] == "count"
++    assert diag["kpi_kind_label"] == "количественный"
++
++
++def test_seam_analysis_mode_defaults_to_roi_monetary():
++    """derived_mode/kpi_kind отсутствуют в payload → честный дефолт roi/monetary."""
++    diag = _map_pipeline_to_builder_data(
++        model_data={}, decompose_data={"channels": DEC_TWO_CH["channels"]},
++        optimize_data={}, scenarios=[], project_id="t",
++    )["diagnostics"]
++    assert diag["analysis_mode_label"] == "ROI (деньги)"
++    assert diag["kpi_kind_label"] == "денежный"
++
++
++def test_html_deliverable_shows_analysis_mode_label():
++    from engines.html_export import build_html
++    out = tempfile.gettempdir() + "/test_ported_tier2_mode.html"
++    res = build_html(model_data={}, decompose_data=DEC_TWO_CH, optimize_data={},
++                     output_path=out, project_id="test")
++    assert res.get("status") == "ok"
++    html = open(out, encoding="utf-8").read()
++    assert "Режим анализа: Эффективность (доля вклада)" in html
++    assert "KPI: количественный" in html
++
++
++def test_pptx_deliverable_shows_analysis_mode_label():
++    from aurora_pptx.builder import AuroraPPTXBuilder
++    payload = _map_pipeline_to_builder_data(
++        model_data={}, decompose_data=DEC_TWO_CH, optimize_data={},
++        scenarios=[], project_id="t",
++    )
++    b = AuroraPPTXBuilder(payload)
++    assert b.analysis_mode_label == "Эффективность (доля вклада)"
++    assert b.kpi_kind_label == "количественный"
++    stripped = _pptx_text(b.build())
++    assert "Режим анализа" in stripped
++
++
++# ─── Задача 2: _clean_name — грязное имя канала не утекает в insight ─────────
++
++def test_clean_name_strips_newlines_and_double_spaces():
++    assert _clean_name("TV\nБюджет  до  НДС") == "TV Бюджет до НДС"
++    assert _clean_name("  Social   ") == "Social"
++
++
++def test_build_channel_insight_uses_clean_name_monetary():
++    """Excel-заголовок с переносом строки не должен утечь в клиентский insight."""
++    channels = [
++        {"name": "TV\nБренд", "roi": 2.0, "efficiency_gap": 8.0, "unit_smell": False},
++        {"name": "Radio\n \nБренд", "roi": 0.3, "efficiency_gap": -8.0, "unit_smell": False},
++    ]
++    insight = _build_channel_insight(channels)
++    assert "\n" not in insight
++    assert "TV Бренд" in insight
++    assert "Radio Бренд" in insight
++
++
++def test_build_channel_insight_uses_clean_name_count_mode():
++    channels = [
++        {"name": "Digital\nVideo", "roi": 0.02, "efficiency_gap": 8.0, "unit_smell": False},
++        {"name": "Print\n\nAds", "roi": 0.005, "efficiency_gap": -8.0, "unit_smell": False},
++    ]
++    insight = _build_channel_insight(channels, kpi_kind="count")
++    assert "\n" not in insight
++    assert "Digital Video" in insight
++    assert "Print Ads" in insight
++
++
++# ─── Задача 3: soften_verdict_display — honesty-потолок канального вердикта ──
++
++def test_soften_verdict_display_preserves_direction():
++    # reliable / нет вердикта → директивный label
++    assert soften_verdict_display("Scale", "reliable") == ("Увеличить", "firm")
++    assert soften_verdict_display("Scale", None) == ("Увеличить", "firm")
++    # uncertain/unknown → направление сохранено + «(предв.)»
++    lbl, mod = soften_verdict_display("Scale", "uncertain")
++    assert "Увеличить" in lbl and "предв" in lbl and mod == "tentative"
++    lbl, _ = soften_verdict_display("Cut", "unknown")
++    assert "Остановить" in lbl and "предв" in lbl
++    # нейтральные (Watch/Uncertain) — без суффикса, уже неуверенные
++    assert soften_verdict_display("Watch", "uncertain") == ("Наблюдать", "tentative")
++    # unreliable → нейтрализация: направление НЕ показываем (модель не сошлась)
++    assert soften_verdict_display("Scale", "unreliable") == ("Требует переобучения", "refused")
++
++
++# Диагностика, которая ведёт model_reliability_verdict (utils/optimizer_honesty.py)
++# к вердикту 'reliable': checks непустые и без False, r_hat в норме, mqs не weak/poor.
++DIAG_RELIABLE = {
++    "metrics": {"r_hat_max": 1.0, "divergences": 0},
++    "checks": {"ratio": True, "ess": True, "bfmi": True},
++    "mqs": {"tier": "good", "tier_label": "Хорошее", "score": 80},
++}
++# r_hat_max >= RHAT_REFUSE_THRESHOLD (1.05) → 'unreliable' (модель не сошлась).
++DIAG_UNRELIABLE = {
++    "metrics": {"r_hat_max": 1.20},
++}
++
++
++def test_seam_channel_verdict_display_firm_when_reliable():
++    payload = _map_pipeline_to_builder_data(
++        model_data={"diagnostics": DIAG_RELIABLE}, decompose_data=DEC_TWO_CH,
++        optimize_data={}, scenarios=[], project_id="t",
++    )
++    assert payload["diagnostics"]["honesty_verdict"] == "reliable"
++    for ch in payload["channels"]:
++        assert ch.get("verdict_modality") == "firm"
++        assert "предв" not in (ch.get("verdict_display") or "")
++
++
++def test_seam_channel_verdict_display_refused_when_unreliable():
++    """Модель не сошлась → ни один канал не показывает директивное направление."""
++    payload = _map_pipeline_to_builder_data(
++        model_data={"diagnostics": DIAG_UNRELIABLE}, decompose_data=DEC_TWO_CH,
++        optimize_data={}, scenarios=[], project_id="t",
++    )
++    assert payload["diagnostics"]["honesty_verdict"] == "unreliable"
++    for ch in payload["channels"]:
++        assert ch.get("verdict_modality") == "refused"
++        assert ch.get("verdict_display") == "Требует переобучения"
++
++
++def test_html_deliverable_softens_verdict_when_unreliable():
++    from engines.html_export import build_html
++    out = tempfile.gettempdir() + "/test_ported_tier2_verdict.html"
++    build_html(model_data={"diagnostics": DIAG_UNRELIABLE}, decompose_data=DEC_TWO_CH,
++              optimize_data={}, output_path=out, project_id="test")
++    html = open(out, encoding="utf-8").read()
++    assert "Требует переобучения" in html
++
++
++def test_pptx_deliverable_softens_verdict_when_unreliable():
++    from aurora_pptx.builder import AuroraPPTXBuilder
++    payload = _map_pipeline_to_builder_data(
++        model_data={"diagnostics": DIAG_UNRELIABLE}, decompose_data=DEC_TWO_CH,
++        optimize_data={}, scenarios=[], project_id="t",
++    )
++    b = AuroraPPTXBuilder(payload)
++    assert b.honesty_verdict == "unreliable"
++    stripped = _pptx_text(b.build())
++    assert "Требует переобучения" in stripped
+diff --git a/sidecar/econometrica/utils/diagnostics.py b/sidecar/econometrica/utils/diagnostics.py
+index 39ddd58..45ff0b9 100644
+--- a/sidecar/econometrica/utils/diagnostics.py
++++ b/sidecar/econometrica/utils/diagnostics.py
+@@ -237,11 +237,16 @@ def format_thinness_caveat(ratio: float | None, thinness_cap: int | None,
+     if thinness_cap is None or ratio is None:
+         return ""
+     if ratio < 2:
+-        body = (f"⚠ Данных критически мало (Ratio {ratio:.1f}:1) - высокий риск "
+-                f"переобучения, результаты ненадёжны.")
++        # Тон McElreath (Волна 1, 2026-06-20): не «артефакт переобучения» /
++        # алармизм, а честно про механизм — модель на таких данных сильно
++        # опирается на априорные допущения, точечная надёжность ограничена.
++        body = (f"⚠ Данных мало (Ratio {ratio:.1f}:1) - модель сильно опирается "
++                f"на априорные предположения, правдоподобный диапазон широкий, "
++                f"точечная надёжность ограничена.")
+     else:
+-        body = (f"⚠ Данных мало (Ratio {ratio:.1f}:1 < 4:1) - высокий R² может "
+-                f"быть артефактом переобучения. Правдоподобный диапазон будет широким.")
++        body = (f"⚠ Данных мало (Ratio {ratio:.1f}:1 < 4:1) - модель сдержана, "
++                f"опирается на априорные предположения; правдоподобный диапазон "
++                f"будет широким.")
+     return (" " + body) if leading_space else body
+ 
+ 
+diff --git a/src-tauri/src/commands/gateway_executor.rs b/src-tauri/src/commands/gateway_executor.rs
+index 906607d..85c4bcb 100644
+--- a/src-tauri/src/commands/gateway_executor.rs
++++ b/src-tauri/src/commands/gateway_executor.rs
+@@ -253,6 +253,55 @@ fn build_result_event(text: &str) -> String {
+     serde_json::json!({ "type": "result", "result": text, "replace": true }).to_string()
+ }
+ 
++/// Хвост ОСТАНОВЛЕННОЙ работы: текст и то немногое, что обязано дойти в любом случае.
++///
++/// 🔴 Признак `cancelled_run` нужен потому, что событие может доехать уже ПОСЛЕ
++/// того, как человек задал следующий вопрос (находка внешнего аудита; облачное
++/// ожидание длится до минуты, а «Остановить» отпускает окно немедленно). К тому
++/// времени признак остановки в интерфейсе снят, и хвост прежней работы приклеивался
++/// к чужому ответу либо затирал его целиком — финальное событие несёт признак
++/// замены. Различить их приёмнику было нечем: в событии нет ничего, что говорило
++/// бы, чьё оно.
++///
++/// `notice` — приписка (номер осиротевшей работы, «остановка не подтверждена»).
++/// Полный текст применим, только пока человек смотрит на остановленный ответ;
++/// приписка нужна ему всегда, потому и живёт отдельным полем.
++fn build_cancelled_event(text: &str, notice: &str) -> String {
++    serde_json::json!({
++        "type": "assistant",
++        "message": { "content": [ { "type": "text", "text": text } ] },
++        "cancelled_run": true,
++        "notice": notice,
++    })
++    .to_string()
++}
++
++/// Финальные события в чат: обычный финал либо хвост догнавшей отмены.
++///
++/// 🔴 `Some(...)` означает, что отмена догнала уже готовый ответ: между проверкой
++/// отмены и этой точкой прошли круг сети и запись выгрузки. Обычным финалом такой
++/// ответ слать нельзя — интерфейс заменяет им показанное, а показанное может
++/// принадлежать уже СЛЕДУЮЩЕМУ вопросу человека.
++fn emit_final(
++    app_handle: &tauri::AppHandle,
++    cabinet_id: &str,
++    text: &str,
++    cancelled_notice: Option<&str>,
++) {
++    let (stream_event, done_payload) = match cancelled_notice {
++        Some(notice) => (
++            build_cancelled_event(text, notice),
++            serde_json::json!({ "exit_code": 0, "cancelled": true }),
++        ),
++        None => (
++            build_result_event(text),
++            serde_json::json!({ "exit_code": 0 }),
++        ),
++    };
++    let _ = app_handle.emit(&format!("claude-stream-{cabinet_id}"), stream_event);
++    let _ = app_handle.emit(&format!("claude-done-{cabinet_id}"), done_payload);
++}
++
+ /// С каким усилием считать: настройка пользователя, как и на локальном пути.
+ fn effort_for(app_handle: &tauri::AppHandle) -> Option<String> {
+     app_handle
+@@ -443,9 +492,12 @@ fn cancel_notice(state: &JobState) -> Option<String> {
+ /// об осиротевшем задании вовсе, а именно неуспех и делает эту весть нужной:
+ /// место среди одновременных занято, следующий вопрос упрётся в потолок.
+ fn append_stray_notice(text: &mut String, stray_job: &Option<String>) {
+-    if let Some(id) = stray_job {
+-        text.push_str(&unconfirmed_cancel_text(id));
+-    }
++    text.push_str(&stray_notice_text(stray_job));
++}
++
++/// Приписка про осиротевшую работу отдельной строкой — без текста ответа.
++fn stray_notice_text(stray_job: &Option<String>) -> String {
++    stray_job.as_ref().map(|id| unconfirmed_cancel_text(id)).unwrap_or_default()
+ }
+ 
+ /// Что сделать с памятью набора после успешной работы.
+@@ -936,7 +988,7 @@ async fn execute(
+             if has_notice {
+                 let _ = app_handle.emit(
+                     &format!("claude-stream-{cabinet_id}"),
+-                    build_stream_event(&shown),
++                    build_cancelled_event(&shown, &stray_notice_text(&stray_job)),
+                 );
+             }
+             let _ = app_handle.emit(
+@@ -958,14 +1010,8 @@ async fn execute(
+             let mut text = format!("{shown}\n\n---\n**Ответ неполный.** {}", e.user_text());
+             append_stray_notice(&mut text, &stray_job);
+             if !suppress_done {
+-                let _ = app_handle.emit(
+-                    &format!("claude-stream-{cabinet_id}"),
+-                    build_result_event(&text),
+-                );
+-                let _ = app_handle.emit(
+-                    &format!("claude-done-{cabinet_id}"),
+-                    serde_json::json!({ "exit_code": 0 }),
+-                );
++                let cancelled_tail = work.cancelled().then(|| stray_notice_text(&stray_job));
++                emit_final(&app_handle, &cabinet_id, &text, cancelled_tail.as_deref());
+             }
+             if !suppress_export {
+                 // 🔴 Признак неполноты идёт и в ИМЯ файла (находка внешнего аудита):
+@@ -986,20 +1032,18 @@ async fn execute(
+         // событие, забирает показанное — приписка, добавленная после, до него уже
+         // не доедет (находка внешнего аудита).
+         let mut text = state.text.clone();
+-        if let Some(notice) = cancel_notice(&state) {
++        // Приписки собираются и отдельно: полный текст остановленной работы
++        // применим, только пока человек смотрит на неё, а приписка нужна всегда.
++        let mut notice = String::new();
++        if let Some(unconfirmed) = cancel_notice(&state) {
+             warn!("Остановка не подтверждена сервером [{cabinet_id}]: {}", state.job_id);
+-            text.push_str(&notice);
++            text.push_str(&unconfirmed);
++            notice.push_str(&unconfirmed);
+         }
+         append_stray_notice(&mut text, &stray_job);
++        notice.push_str(&stray_notice_text(&stray_job));
+         if !suppress_done {
+-            let _ = app_handle.emit(
+-                &format!("claude-stream-{cabinet_id}"),
+-                build_result_event(&text),
+-            );
+-            let _ = app_handle.emit(
+-                &format!("claude-done-{cabinet_id}"),
+-                serde_json::json!({ "exit_code": 0, "cancelled": true }),
+-            );
++            emit_final(&app_handle, &cabinet_id, &text, Some(&notice));
+         }
+         return Ok((None, text));
+     }
+@@ -1064,14 +1108,8 @@ async fn execute(
+     if !suppress_done {
+         // Финальный текст в чат ДО готовности (порядок локального пути): иначе
+         // интерфейс получил бы сигнал завершения раньше самого ответа.
+-        let _ = app_handle.emit(
+-            &format!("claude-stream-{cabinet_id}"),
+-            build_result_event(&text),
+-        );
+-        let _ = app_handle.emit(
+-            &format!("claude-done-{cabinet_id}"),
+-            serde_json::json!({ "exit_code": 0 }),
+-        );
++        let cancelled_tail = work.cancelled().then(|| stray_notice_text(&stray_job));
++        emit_final(&app_handle, &cabinet_id, &text, cancelled_tail.as_deref());
+     }
+ 
+     if !suppress_export {
+@@ -1259,6 +1297,38 @@ mod tests {
+         assert_eq!(v["result"], "Строка с «кавычками», \"двойными\"\nи переносом");
+     }
+ 
++    #[test]
++    fn cancelled_tail_says_whose_it_is() {
++        // 🔴 Хвост остановленной работы может доехать уже во время СЛЕДУЮЩЕЙ
++        // (облачное ожидание — до минуты, «Остановить» отпускает окно сразу).
++        // Без пометки приёмнику нечем отличить его от своего: текст приклеивался
++        // к чужому ответу, а финальное событие затирало чужой ответ целиком.
++        let raw = build_cancelled_event("показанное", "работа 7f3 осталась на узле");
++        let v: serde_json::Value = serde_json::from_str(&raw).expect("событие обязано быть JSON");
++        assert_eq!(v["cancelled_run"], true, "событие обязано называть себя хвостом остановленной работы");
++        assert_eq!(
++            v["notice"], "работа 7f3 осталась на узле",
++            "приписка обязана ехать отдельно: полный текст применим не всегда, а она — всегда",
++        );
++        assert_eq!(
++            v["message"]["content"][0]["text"], "показанное",
++            "разбор текста обязан совпадать с обычным событием потока",
++        );
++        assert!(
++            v.get("replace").is_none(),
++            "хвост остановленной работы не имеет права требовать замены показанного",
++        );
++    }
++
++    #[test]
++    fn stray_notice_is_empty_when_nothing_was_left_behind() {
++        assert_eq!(stray_notice_text(&None), "");
++        assert!(
++            stray_notice_text(&Some("7f3".to_string())).contains("7f3"),
++            "приписка обязана называть номер работы поимённо",
++        );
++    }
++
+     #[test]
+     fn stream_event_matches_what_the_interface_expects() {
+         let raw = build_stream_event("Медиасплит по каналам");
+diff --git a/src-tauri/src/commands/report.rs b/src-tauri/src/commands/report.rs
+index fd7e9bb..634a3b3 100644
+--- a/src-tauri/src/commands/report.rs
++++ b/src-tauri/src/commands/report.rs
+@@ -15,6 +15,93 @@ use crate::commands::mqs_tiers;
+ 
+ // ── Helpers ──────────────────────────────────────────────────────────────────
+ 
++/// Канал с ненадёжным ROI (битые единицы / артефакт): unit_smell ИЛИ маркер
++/// артефакта в тексте вердикта. Зеркалит narrative_adapter._roi_unreliable
++/// (Python-мост сюда не доходит — Rust XLSX/MD читают results JSON напрямую).
++/// Битый ROI нельзя подавать клиенту числом (INV-50) — билдер пишет «н/д».
++fn roi_unreliable(ch: &Value) -> bool {
++    if ch["unit_smell"].as_bool().unwrap_or(false) {
++        return true;
++    }
++    let v = ch["verdict"].as_str().unwrap_or("").to_lowercase();
++    v.contains("завышен")
++        || v.contains("нереалистичн")
++        || v.contains("артефакт")
++        || v.contains("не рубл")
++}
++
++/// Волна 1 пункт 2 (2026-06-20): заголовок-вердикт плашки надёжности модели.
++/// Зеркалит лейблы Python (narrative_adapter / sections.py / builder.py) — Rust
++/// XLSX/MD читают optimization.json напрямую, мимо Python-моста. caveat_text сам
++/// идёт VERBATIM из optimization.json (SSOT optimizer_honesty, INV-50) — здесь
++/// только заголовок. Пустая строка ⇒ плашку не рисуем (verdict reliable/нет).
++fn reliability_label(verdict: &str) -> &'static str {
++    match verdict {
++        "uncertain" => "Ограниченная надёжность модели",
++        "unreliable" => "Модель ненадёжна – переброска отключена",
++        "unknown" => "Надёжность модели не подтверждена",
++        "" | "reliable" => "",
++        _ => "Надёжность модели",
++    }
++}
++
++/// Волна 1 пункт 3 (2026-06-20): отображаемый вердикт-действие (рус) + honesty-
++/// смягчение (решение 2a). Зеркалит engines.channel_action.soften_verdict_display
++/// (Python) — Rust XLSX/MD читают results JSON напрямую, мимо Python-моста, поэтому
++/// рус-локализацию и смягчение держим здесь. Глобальная надёжность модели смягчает
++/// ДИРЕКТИВНОСТЬ, сохраняя НАПРАВЛЕНИЕ: reliable→«Увеличить»; uncertain/unknown→
++/// «Увеличить (предв.)»; unreliable→«Требует переобучения». Снимает рассогласование
++/// (прежде XLSX/MD писали англ. machine-key «Scale», PPTX – рус «Увеличить»).
++fn verdict_display(verdict_key: &str, reliability_verdict: &str) -> String {
++    let base = match verdict_key {
++        "Scale" => "Увеличить",
++        "Hold" => "Держать",
++        "Watch" => "Наблюдать",
++        "Reduce" => "Сократить",
++        "Cut" => "Остановить",
++        "Uncertain" => "Недостаточно данных",
++        other => other,
++    };
++    match reliability_verdict {
++        "unreliable" => "Требует переобучения".to_string(),
++        "uncertain" | "unknown" => {
++            if verdict_key == "Uncertain" || verdict_key == "Watch" {
++                base.to_string()
++            } else {
++                format!("{base} (предв.)")
++            }
++        }
++        _ => base.to_string(),
++    }
++}
++
++/// Волна 2 (2026-06-20): чистка мусора в клиентских метках. Имена каналов несут
++/// `\n` и двойные пробелы из исходных Excel-заголовков («Статьи Бюджет \nДО НДС
++/// до АК») — в отчёте это многострочные ячейки и рваный текст. Схлопывает любой
++/// whitespace (вкл. переводы строк) в один пробел, обрезает края.
++fn clean_label(s: &str) -> String {
++    s.split_whitespace().collect::<Vec<_>>().join(" ")
++}
++
++/// Волна 3 (2026-06-20): метка режима анализа + типа KPI (контекст метрик для
++/// клиента). Зеркало Python (narrative_adapter). Rust XLSX/MD читают decompose
++/// JSON напрямую. Пустая строка ⇒ метку не показываем.
++fn analysis_mode_label(mode: &str) -> &'static str {
++    match mode {
++        "roi" => "ROI (деньги)",
++        "effectiveness" => "Эффективность (доля вклада)",
++        "mixed" | "expert" => "Смешанный (эксперт)",
++        _ => "",
++    }
++}
++fn kpi_kind_label(kind: &str) -> &'static str {
++    match kind {
++        "monetary" => "денежный",
++        "count" => "количественный",
++        _ => "",
++    }
++}
++
+ /// Transliterate Cyrillic to Latin per GOST 7.79-2000 System B, then strip to
+ /// ASCII-alphanumeric + underscore. Used for client-slug segment of XLSX
+ /// filename (Aurora_Econometrica_{slug}_Model_{date}_v{NN}.xlsx). Returns
+@@ -365,9 +452,13 @@ fn build_markdown(model: &Value, decompose: &Value, optimize: &Value) -> String
+         .unwrap_or(0.0);
+ 
+     // Top ROI channel (by decompose channels)
++    // INV-50: исключаем roi_unreliable каналы — иначе битый ROI (unit_smell
++    // «не рубли», артефакт единиц) коронуется «лучшим» и «Приоритизировать».
++    // clean_label — имя может нести `\n` из исходных Excel-заголовков.
+     let top_ch = decompose["channels"].as_array()
+         .and_then(|chs| {
+             chs.iter()
++                .filter(|c| !roi_unreliable(c))
+                 .max_by(|a, b| {
+                     let ra = a["roi"].as_f64().unwrap_or(0.0);
+                     let rb = b["roi"].as_f64().unwrap_or(0.0);
+@@ -375,7 +466,8 @@ fn build_markdown(model: &Value, decompose: &Value, optimize: &Value) -> String
+                 })
+                 .and_then(|c| c["name"].as_str())
+         })
+-        .unwrap_or("н/д");
++        .map(clean_label)
++        .unwrap_or_else(|| "н/д".to_string());
+ 
+     let now = Local::now().format("%d.%m.%Y %H:%M").to_string();
+     let mut md = String::with_capacity(4096);
+@@ -393,6 +485,15 @@ fn build_markdown(model: &Value, decompose: &Value, optimize: &Value) -> String
+         )),
+         None => md.push_str(&format!("- **Качество модели (MQS):** {MQS_ABSENT_TEXT}\n")),
+     }
++    // Волна 3 (2026-06-20): метка режима анализа + типа KPI (контекст метрик).
++    {
++        let md_mode = analysis_mode_label(&decompose["derived_mode"].as_str().unwrap_or("roi").to_lowercase());
++        let md_kind = kpi_kind_label(&decompose["kpi_kind"].as_str().unwrap_or("monetary").to_lowercase());
++        if !md_mode.is_empty() {
++            let kpi_part = if md_kind.is_empty() { String::new() } else { format!(" · KPI: {md_kind}") };
++            md.push_str(&format!("- **Режим анализа:** {md_mode}{kpi_part}\n"));
++        }
++    }
+     md.push_str(&format!("- **R²:** {r_squared:.4} (объяснённая дисперсия: {:.1}%)\n", r_squared * 100.0));
+     md.push_str(&format!("- **MAPE:** {mape:.2}%\n"));
+     md.push_str(&format!("- **Ожидаемый прирост от оптимизации:** {:+.1}%\n", lift));
+@@ -400,6 +501,17 @@ fn build_markdown(model: &Value, decompose: &Value, optimize: &Value) -> String
+     if budget > 0.0 {
+         md.push_str(&format!("- **Оптимизированный бюджет:** {budget:.0} руб.\n"));
+     }
++    // Волна 1 пункт 2 (2026-06-20): плашка надёжности модели (verdict != reliable).
++    // caveat_text VERBATIM из optimization.json (SSOT optimizer_honesty, INV-50) —
++    // тот же текст, что в UI/HTML/PPTX. Заголовок-вердикт — reliability_label.
++    {
++        let mr_verdict = optimize["model_reliability"]["verdict"].as_str().unwrap_or("").to_lowercase();
++        let mr_label = reliability_label(&mr_verdict);
++        let mr_caveat = optimize["model_reliability"]["caveat_text"].as_str().unwrap_or("");
++        if !mr_label.is_empty() && !mr_caveat.is_empty() {
++            md.push_str(&format!("\n> ⚠ **{mr_label}.** {mr_caveat}\n"));
++        }
++    }
+     md.push_str("\n---\n\n");
+ 
+     // ── Model Quality ────────────────────────────────────────
+@@ -439,7 +551,7 @@ fn build_markdown(model: &Value, decompose: &Value, optimize: &Value) -> String
+         md.push_str("| Категория | Вклад | % |\n");
+         md.push_str("|-----------|------:|--:|\n");
+         for item in wf {
+-            let cat = item["category"].as_str().unwrap_or("-");
++            let cat = clean_label(item["category"].as_str().unwrap_or("-"));
+             let val = item["value"].as_f64().unwrap_or(0.0);
+             let pct = item["contribution_pct"].as_f64().unwrap_or(0.0);
+             md.push_str(&format!("| {cat} | {val:.0} | {pct:.1}% |\n"));
+@@ -448,17 +560,26 @@ fn build_markdown(model: &Value, decompose: &Value, optimize: &Value) -> String
+     }
+ 
+     // ── Channel ROI ──────────────────────────────────────────
++    // Волна 1 пункт 3 (2026-06-20): honesty-смягчение вердикта (решение 2a) —
++    // verdict_display несёт рус + «(предв.)» при не-reliable модели.
++    let mr_v_md = optimize["model_reliability"]["verdict"].as_str().unwrap_or("").to_lowercase();
+     if let Some(chs) = decompose["channels"].as_array() {
+         md.push_str("## БЛОК: Инвестиции. ROI по каналам\n\n");
+         md.push_str("| Канал | Расход | Вклад | ROI | Вердикт |\n");
+         md.push_str("|-------|-------:|------:|----:|---------|\n");
+         for ch in chs {
+-            let name   = ch["name"].as_str().unwrap_or("-");
++            let name   = clean_label(ch["name"].as_str().unwrap_or("-"));
+             let spend  = ch["spend"].as_f64().unwrap_or(0.0);
+             let contrib = ch["contribution"].as_f64().unwrap_or(0.0);
+-            let roi    = ch["roi"].as_f64().unwrap_or(0.0);
+             let verdict = ch["verdict"].as_str().unwrap_or("-");
+-            md.push_str(&format!("| {name} | {spend:.0} | {contrib:.0} | {roi:.2}x | {verdict} |\n"));
++            // INV-50: битый ROI (артефакт единиц) не пишем числом.
++            let roi_cell = if roi_unreliable(ch) {
++                "н/д".to_string()
++            } else {
++                format!("{:.2}x", ch["roi"].as_f64().unwrap_or(0.0))
++            };
++            let vshow = verdict_display(verdict, &mr_v_md);
++            md.push_str(&format!("| {name} | {spend:.0} | {contrib:.0} | {roi_cell} | {vshow} |\n"));
+         }
+         md.push('\n');
+ 
+@@ -469,11 +590,15 @@ fn build_markdown(model: &Value, decompose: &Value, optimize: &Value) -> String
+             md.push_str("| Канал | ROI | Диапазон нижний | Диапазон верхний |\n");
+             md.push_str("|-------|----:|----------:|-----------:|\n");
+             for ch in chs_for_ci {
+-                let ch_name = ch["name"].as_str().unwrap_or("-");
+-                let roi     = ch["roi"].as_f64().unwrap_or(0.0);
+-                let ci_lo   = ch["roi_ci_low"].as_f64().unwrap_or(0.0);
+-                let ci_hi   = ch["roi_ci_high"].as_f64().unwrap_or(0.0);
+-                md.push_str(&format!("| {ch_name} | {roi:.2}x | {ci_lo:.2}x | {ci_hi:.2}x |\n"));
++                let ch_name = clean_label(ch["name"].as_str().unwrap_or("-"));
++                if roi_unreliable(ch) {
++                    md.push_str(&format!("| {ch_name} | н/д | – | – |\n"));
++                } else {
++                    let roi   = ch["roi"].as_f64().unwrap_or(0.0);
++                    let ci_lo = ch["roi_ci_low"].as_f64().unwrap_or(0.0);
++                    let ci_hi = ch["roi_ci_high"].as_f64().unwrap_or(0.0);
++                    md.push_str(&format!("| {ch_name} | {roi:.2}x | {ci_lo:.2}x | {ci_hi:.2}x |\n"));
++                }
+             }
+             md.push('\n');
+         }
+@@ -496,7 +621,7 @@ fn build_markdown(model: &Value, decompose: &Value, optimize: &Value) -> String
+         md.push_str("| Канал | Текущий, ₽ | Оптимальный, ₽ | Δ, ₽ | Δ% |\n");
+         md.push_str("|-------|-----------:|---------------:|-----:|---:|\n");
+         for ch in opt_chs {
+-            let name  = ch["name"].as_str().unwrap_or("-");
++            let name  = clean_label(ch["name"].as_str().unwrap_or("-"));
+             let curr  = ch["current_spend_money"].as_f64()
+                 .unwrap_or_else(|| ch["current_spend"].as_f64().unwrap_or(0.0));
+             let opt   = ch["optimal_spend_money"].as_f64()
+@@ -602,6 +727,9 @@ pub async fn econ_export_xlsx(
+     model_data: Value,
+     decompose_data: Value,
+     optimize_data: Value,
++    // Волна 3 (2026-06-20): глоссарий из фронта (SSOT glossary.js, 50 терминов).
++    // Option → старые вызовы без поля дают None → fallback на встроенные 11.
++    glossary: Option<Value>,
+ ) -> Result<Value, String> {
+     info!("econ_export_xlsx: project={project_id}");
+ 
+@@ -627,7 +755,7 @@ pub async fn econ_export_xlsx(
+     // Прогноз - опциональный. Лист «Прогноз» добавляется только при наличии данных.
+     let forecast = read_forecast(&project_id);
+ 
+-    build_xlsx(&model_data, &decompose_data, &optimize_data, &scenarios, forecast.as_ref(), &project_id, &path)?;
++    build_xlsx(&model_data, &decompose_data, &optimize_data, &scenarios, forecast.as_ref(), &project_id, &path, glossary.as_ref())?;
+ 
+     info!("XLSX saved: {}", path.display());
+     Ok(serde_json::json!({
+@@ -775,6 +903,9 @@ fn build_xlsx(
+     forecast: Option<&Value>,
+     project_id: &str,
+     path: &PathBuf,
++    // Волна 3 (2026-06-20): глоссарий из фронта (SSOT glossary.js, 50 терминов);
++    // None → fallback на встроенные 11.
++    glossary: Option<&Value>,
+ ) -> Result<(), String> {
+     use rust_xlsxwriter::{Chart, ChartType, Color, ConditionalFormatCell, ConditionalFormatCellRule, Formula, Image};
+ 
+@@ -966,11 +1097,17 @@ fn build_xlsx(
+         let value_fmt = base_fmt.clone().set_font_color(Color::RGB(DEEP_100));
+ 
+         let today = Local::now().format("%d.%m.%Y").to_string();
++        // Волна 3 (2026-06-20): метка режима анализа + типа KPI (контекст метрик).
++        let mode_lbl = analysis_mode_label(&decompose["derived_mode"].as_str().unwrap_or("roi").to_lowercase());
++        let kind_lbl = kpi_kind_label(&decompose["kpi_kind"].as_str().unwrap_or("monetary").to_lowercase());
++        let mode_meta = if kind_lbl.is_empty() { mode_lbl.to_string() }
++                        else { format!("{mode_lbl} · KPI: {kind_lbl}") };
+         let meta_rows: &[(&str, String)] = &[
+             ("Подготовлено для:", client_label.to_string()),
+             ("Проект:",           project_id.to_string()),
+             ("Дата:",             today),
+             ("Версия:",           "v1.0.13".to_string()),
++            ("Режим анализа:",    mode_meta),
+             ("Гриф:",             "Конфиденциально".to_string()),
+         ];
+         for (i, (k, v)) in meta_rows.iter().enumerate() {
+@@ -1216,7 +1353,7 @@ fn build_xlsx(
+ 
+         for (i, item) in wf.iter().enumerate() {
+             let row = (i + 3) as u32; // header at row 2 → data starts row 3
+-            let cat = item["category"].as_str().unwrap_or("-");
++            let cat = clean_label(item["category"].as_str().unwrap_or("-"));
+             let val = item["value"].as_f64().unwrap_or(0.0);
+             ws.write(row, 0, cat).map_err(|e| format!("{e}"))?;
+             ws.write_with_format(row, 1, val, &num_fmt).map_err(|e| format!("{e}"))?;
+@@ -1260,26 +1397,48 @@ fn build_xlsx(
+             ws.write_with_format(2, c as u16, *h, &header_fmt).map_err(|e| format!("{e}"))?;
+         }
+ 
++        // Волна 1 пункт 3 (2026-06-20): honesty-смягчение вердикта (решение 2a) —
++        // verdict_display несёт рус + «(предв.)» при не-reliable модели.
++        let mr_v = optimize["model_reliability"]["verdict"].as_str().unwrap_or("").to_lowercase();
++
+         // 5c (2026-05-04) FIX: CI fields live in decompose.channels[i].roi_ci_low/high,
+         // NOT в model["channelParams"] (modeler output не содержит CI). Pre-fix Rust
+         // читал из wrong source с typo (ci_lower vs ci_low) → CI=0 для всех каналов.
+         for (i, ch) in chs.iter().enumerate() {
+             let row = (i + 3) as u32;
+-            let name = ch["name"].as_str().unwrap_or("-");
++            let name = clean_label(ch["name"].as_str().unwrap_or("-"));
+             let spend = ch["spend"].as_f64().unwrap_or(0.0);
+             let contrib = ch["contribution"].as_f64().unwrap_or(0.0);
+             let verdict = ch["verdict"].as_str().unwrap_or("-");
+             let ci_lo = ch["roi_ci_low"].as_f64().unwrap_or(0.0);
+             let ci_hi = ch["roi_ci_high"].as_f64().unwrap_or(0.0);
+ 
++            // Волна 1 Шаг 2: битый ROI (битые единицы / артефакт) не пишем числом —
++            // абсурдные значения нельзя подавать клиенту как факт (INV-50). Признак —
++            // helper roi_unreliable (зеркалит narrative_adapter._roi_unreliable; Python
++            // мост сюда не доходит: Rust XLSX читает results JSON напрямую).
++            let roi_bad = roi_unreliable(ch);
++
+             ws.write(row, 0, name).map_err(|e| format!("{e}"))?;
+             ws.write_with_format(row, 1, spend, &num_fmt).map_err(|e| format!("{e}"))?;
+             ws.write_with_format(row, 2, contrib, &num_fmt).map_err(|e| format!("{e}"))?;
+-            let roi = if spend > 0.0 { contrib / spend } else { 0.0 };
+-            ws.write_with_format(row, 3, roi, &roi_fmt).map_err(|e| format!("{e}"))?;
+-            ws.write_with_format(row, 4, ci_lo, &roi_fmt).map_err(|e| format!("{e}"))?;
+-            ws.write_with_format(row, 5, ci_hi, &roi_fmt).map_err(|e| format!("{e}"))?;
+-            ws.write(row, 6, verdict).map_err(|e| format!("{e}"))?;
++            if roi_bad {
++                ws.write(row, 3, "н/д*").map_err(|e| format!("{e}"))?;
++                ws.write(row, 4, "–").map_err(|e| format!("{e}"))?;
++                ws.write(row, 5, "–").map_err(|e| format!("{e}"))?;
++            } else {
++                let roi = if spend > 0.0 { contrib / spend } else { 0.0 };
++                ws.write_with_format(row, 3, roi, &roi_fmt).map_err(|e| format!("{e}"))?;
++                ws.write_with_format(row, 4, ci_lo, &roi_fmt).map_err(|e| format!("{e}"))?;
++                ws.write_with_format(row, 5, ci_hi, &roi_fmt).map_err(|e| format!("{e}"))?;
++            }
++            ws.write(row, 6, verdict_display(verdict, &mr_v)).map_err(|e| format!("{e}"))?;
++        }
++        // Сноска-пояснение «н/д*» (если был хоть один битый ROI-канал).
++        if chs.iter().any(roi_unreliable) {
++            let note_row = chs.len() as u32 + 4;
++            ws.write(note_row, 0, "* ROI н/д – единицы канала требуют проверки (не сопоставим с рублёвыми); сравнивайте по доле вклада.")
++                .map_err(|e| format!("{e}"))?;
+         }
+ 
+         // Conditional formatting: ROI > 2 = green, ROI < 1 = red (data rows 3..3+len)
+@@ -1334,7 +1493,7 @@ fn build_xlsx(
+ 
+         for (i, ch) in chs.iter().enumerate() {
+             let row = (i + 3) as u32;
+-            let name = ch["name"].as_str().unwrap_or("-");
++            let name = clean_label(ch["name"].as_str().unwrap_or("-"));
+             let spend = ch["spend"].as_f64().unwrap_or(0.0);
+             let contrib = ch["contribution"].as_f64().unwrap_or(0.0);
+             let spend_pct = if total_spend > 0.0 { spend / total_spend } else { 0.0 };
+@@ -1398,7 +1557,7 @@ fn build_xlsx(
+             // Header row at row 2
+             ws.write_with_format(2, 0, "Дата", &header_fmt).map_err(|e| format!("{e}"))?;
+             for (j, (header, _)) in columns.iter().enumerate() {
+-                ws.write_with_format(2, (j + 1) as u16, header.as_str(), &header_fmt)
++                ws.write_with_format(2, (j + 1) as u16, clean_label(header), &header_fmt)
+                     .map_err(|e| format!("{e}"))?;
+             }
+             let last_col = columns.len() as u16; // индекс последней колонки данных
+@@ -1496,7 +1655,7 @@ fn build_xlsx(
+             let delta_pct = if curr.abs() > 1e-9 { delta / curr } else { 0.0 };
+             let curr_roi = decompose_roi_by_name.get(&normalize_name(name)).copied().unwrap_or(0.0);
+ 
+-            ws.write(row, 0, name).map_err(|e| format!("{e}"))?;
++            ws.write(row, 0, clean_label(name)).map_err(|e| format!("{e}"))?;
+             ws.write_with_format(row, 1, curr, &num_fmt).map_err(|e| format!("{e}"))?;
+             ws.write_with_format(row, 2, opt, &num_fmt).map_err(|e| format!("{e}"))?;
+             ws.write_with_format(row, 3, delta, &num_fmt).map_err(|e| format!("{e}"))?;
+@@ -1806,7 +1965,7 @@ fn build_xlsx(
+         ws.write_with_format(2, 0, "Период", &header_fmt).map_err(|e| format!("{e}"))?;
+         ws.write_with_format(2, 1, "Базовый спрос", &header_fmt).map_err(|e| format!("{e}"))?;
+         for (i, name) in channel_names.iter().enumerate() {
+-            ws.write_with_format(2, (i + 2) as u16, name.as_str(), &header_fmt).map_err(|e| format!("{e}"))?;
++            ws.write_with_format(2, (i + 2) as u16, clean_label(name), &header_fmt).map_err(|e| format!("{e}"))?;
+         }
+         let total_col = (channel_names.len() + 2) as u16;
+         let kpi_col = total_col + 1;
+@@ -1873,7 +2032,13 @@ fn build_xlsx(
+             "Model Quality Score – комплексная оценка качества модели (0-100). {}.",
+             mqs_tiers::mqs_scale_text()
+         );
+-        let terms: &[(&str, &str)] = &[
++        // Волна 3 (2026-06-20): глоссарий из фронта (SSOT glossary.js, 50 терминов
++        // {term, definition}). XLSX перестаёт быть «расходящимся глоссарием» —
++        // единый источник glossary.js, Rust пассивно пишет переданное. Fallback на
++        // встроенные 11 (канон терминологии этого файла, включая mqs_glossary_text
++        // из mqs_tiers и «Правдоподобный диапазон» вместо «CI») — только при
++        // отсутствии параметра (legacy-вызовы без поля).
++        let fallback: &[(&str, &str)] = &[
+             ("MQS", mqs_glossary_text.as_str()),
+             ("R²", "Коэффициент детерминации – доля дисперсии KPI, объяснённая моделью. 1.0 = идеальная модель."),
+             ("MAPE", "Mean Absolute Percentage Error – средняя абсолютная ошибка в %. <10% = отлично."),
+@@ -1889,10 +2054,23 @@ fn build_xlsx(
+             ("Base sales", "Продажи без рекламного воздействия (органический спрос, бренд-эффект, сезонность)."),
+             ("Efficiency Index", "Отношение доли эффекта к доле бюджета. >1.0 = канал эффективнее среднего."),
+         ];
+-        for (i, (term, def)) in terms.iter().enumerate() {
+-            let row = (i + 3) as u32;
+-            ws.write_with_format(row, 0, *term, &bold).map_err(|e| format!("{e}"))?;
+-            ws.write(row, 1, *def).map_err(|e| format!("{e}"))?;
++        let mut row = 3u32;
++        if let Some(arr) = glossary.and_then(|g| g.as_array()).filter(|a| !a.is_empty()) {
++            for item in arr {
++                let term = item["term"].as_str().unwrap_or("-");
++                let def = item["definition"].as_str()
++                    .or_else(|| item["short"].as_str())
++                    .unwrap_or("");
++                ws.write_with_format(row, 0, term, &bold).map_err(|e| format!("{e}"))?;
++                ws.write(row, 1, def).map_err(|e| format!("{e}"))?;
++                row += 1;
++            }
++        } else {
++            for (term, def) in fallback.iter() {
++                ws.write_with_format(row, 0, *term, &bold).map_err(|e| format!("{e}"))?;
++                ws.write(row, 1, *def).map_err(|e| format!("{e}"))?;
++                row += 1;
++            }
+         }
+         // Widths - Глоссарий (A = 3 cm; B = 19.2 cm; C hidden, per Антон)
+         ws.set_column_width(0, 16.2).map_err(|e| format!("{e}"))?;
+@@ -2219,4 +2397,147 @@ mod tests {
+         }
+         assert_eq!(grade, "Ненадёжное");
+     }
++
++    // ── Перенос из origin/feat/ai-insights-tier2 (2026-08-04) ────────────────
++
++    /// Заголовок плашки надёжности. Пустая строка ⇒ плашки нет (reliable/нет
++    /// verdict); прочие verdict дают заголовок.
++    #[test]
++    fn reliability_label_gates_on_verdict() {
++        assert_eq!(reliability_label(""), "");
++        assert_eq!(reliability_label("reliable"), "");
++        assert_eq!(reliability_label("uncertain"), "Ограниченная надёжность модели");
++        assert_eq!(reliability_label("unreliable"), "Модель ненадёжна – переброска отключена");
++        assert_eq!(reliability_label("unknown"), "Надёжность модели не подтверждена");
++        assert_eq!(reliability_label("какой-то новый"), "Надёжность модели");
++    }
++
++    /// Honesty-смягчение вердикта: reliable→директивный; uncertain→«(предв.)»
++    /// (направление сохранено); unreliable→нейтрализация.
++    #[test]
++    fn verdict_display_softens_by_reliability() {
++        assert_eq!(verdict_display("Scale", "reliable"), "Увеличить");
++        assert_eq!(verdict_display("Scale", ""), "Увеличить");
++        assert_eq!(verdict_display("Scale", "uncertain"), "Увеличить (предв.)");
++        assert_eq!(verdict_display("Cut", "unknown"), "Остановить (предв.)");
++        assert_eq!(verdict_display("Watch", "uncertain"), "Наблюдать");
++        assert_eq!(verdict_display("Scale", "unreliable"), "Требует переобучения");
++    }
++
++    /// Метки режима анализа + типа KPI. Неизвестное ⇒ пустая строка.
++    #[test]
++    fn analysis_and_kpi_labels() {
++        assert_eq!(analysis_mode_label("roi"), "ROI (деньги)");
++        assert_eq!(analysis_mode_label("effectiveness"), "Эффективность (доля вклада)");
++        assert_eq!(analysis_mode_label("expert"), "Смешанный (эксперт)");
++        assert_eq!(analysis_mode_label("xyz"), "");
++        assert_eq!(kpi_kind_label("monetary"), "денежный");
++        assert_eq!(kpi_kind_label("count"), "количественный");
++        assert_eq!(kpi_kind_label("xyz"), "");
++    }
++
++    /// Чистка `\n`/двойных пробелов в именах каналов (исходные Excel-заголовки) —
++    /// иначе многострочные ячейки и рваный текст в отчёте.
++    #[test]
++    fn clean_label_collapses_whitespace() {
++        assert_eq!(clean_label("Статьи Бюджет \nДО НДС до АК"), "Статьи Бюджет ДО НДС до АК");
++        assert_eq!(clean_label("  TV  \n\n Digital "), "TV Digital");
++        assert_eq!(clean_label("OLV"), "OLV");
++    }
++
++    /// Признак битого ROI: unit_smell ИЛИ маркер артефакта в тексте вердикта.
++    #[test]
++    fn roi_unreliable_detects_unit_smell_and_verdict_markers() {
++        assert!(roi_unreliable(&json!({"unit_smell": true, "verdict": "Scale"})));
++        assert!(roi_unreliable(&json!({"verdict": "ROI завышен из-за единиц"})));
++        assert!(roi_unreliable(&json!({"verdict": "нереалистичный артефакт"})));
++        assert!(!roi_unreliable(&json!({"unit_smell": false, "verdict": "Scale"})));
++        assert!(!roi_unreliable(&json!({"verdict": "Hold"})));
++    }
++
++    /// Волна 3: глоссарий из фронта (SSOT glossary.js) — извлечение term/definition.
++    /// definition с fallback на short; пустой/None → ветка fallback (11 встроенных).
++    #[test]
++    fn glossary_from_frontend_extraction() {
++        let g = json!([
++            {"term": "ROAS", "definition": "возврат на рекламные расходы"},
++            {"term": "Adstock", "short": "остаточный эффект"},
++        ]);
++        let arr = g.as_array().unwrap();
++        assert_eq!(arr[0]["term"].as_str().unwrap(), "ROAS");
++        assert_eq!(arr[0]["definition"].as_str().unwrap(), "возврат на рекламные расходы");
++        let def = arr[1]["definition"].as_str().or_else(|| arr[1]["short"].as_str());
++        assert_eq!(def, Some("остаточный эффект"));
++        let empty: Option<Value> = Some(json!([]));
++        assert!(empty.as_ref().and_then(|x| x.as_array()).filter(|a| !a.is_empty()).is_none());
++        let none: Option<Value> = None;
++        assert!(none.as_ref().and_then(|x| x.as_array()).filter(|a| !a.is_empty()).is_none());
++    }
++
++    /// Мутационно проверено (2026-08-04, при переносе glossary из
++    /// ai-insights-tier2): временно закомментировав ветку `if let Some(arr) =
++    /// glossary...` в листе «Глоссарий» (build_xlsx) - тест падал на отсутствии
++    /// маркерного термина фронта; вернув ветку - тест снова зелёный. Подтверждает,
++    /// что параметр glossary реально доезжает до XLSX, а не тонет по пути
++    /// econ_export_xlsx → build_xlsx → лист «Глоссарий».
++    #[test]
++    fn glossary_xlsx_uses_frontend_terms_when_provided() {
++        fn xlsx_contains(path: &Path, needle: &str) -> bool {
++            let bytes = std::fs::read(path).expect("read xlsx");
++            let mut archive = zip::read::ZipArchive::new(Cursor::new(bytes)).expect("open xlsx zip");
++            for i in 0..archive.len() {
++                let mut entry = archive.by_index(i).expect("zip entry");
++                let mut content = String::new();
++                // Бинарные записи (напр. brand_mark.png) не UTF-8 - пропускаем, не паникуем.
++                if entry.read_to_string(&mut content).is_err() {
++                    continue;
++                }
++                if content.contains(needle) {
++                    return true;
++                }
++            }
++            false
++        }
++
++        let model = json!({"diagnostics": {"mqs": {"score": 70.0, "tier_label": "Хорошее"}}});
++        let decompose = json!({"channels": [
++            {"name": "TV", "spend": 100.0, "contribution": 150.0, "roi": 1.5}
++        ]});
++        // Sheet «Оптимизация» не гейтит conditional-format/chart на пустых
++        // channels (в отличие от «ROI каналов»/«Spend vs Effect») - в проде
++        // недостижимо (channels = цикл по media_cols ≥ 1), но пустой массив
++        // здесь уронил бы диапазон chart (last_row < first_row). Не в объёме
++        // переноса glossary - даём непустой optimize.channels, чтобы тест
++        // проверял именно глоссарий, а не наступал на этот отдельный пробел.
++        let optimize = json!({"channels": [
++            {"name": "TV", "current_spend_money": 100.0, "optimal_spend_money": 120.0}
++        ]});
++
++        // Без glossary - лист «Глоссарий» обязан показать встроенный fallback-термин.
++        let path_none = std::env::temp_dir().join("aurora_glossary_fallback_test.xlsx");
++        build_xlsx(&model, &decompose, &optimize, &[], None, "test", &path_none, None)
++            .expect("build_xlsx без glossary");
++        assert!(
++            xlsx_contains(&path_none, "Efficiency Index"),
++            "без glossary лист «Глоссарий» обязан показать встроенный fallback-термин"
++        );
++        let _ = std::fs::remove_file(&path_none);
++
++        // С glossary - термин фронта присутствует, fallback-термин пропадает.
++        let glossary = json!([
++            {"term": "УникальныйТестТермин42", "definition": "проверка передачи glossary с фронта"},
++        ]);
++        let path_some = std::env::temp_dir().join("aurora_glossary_frontend_test.xlsx");
++        build_xlsx(&model, &decompose, &optimize, &[], None, "test", &path_some, Some(&glossary))
++            .expect("build_xlsx с glossary");
++        assert!(
++            xlsx_contains(&path_some, "УникальныйТестТермин42"),
++            "с glossary лист «Глоссарий» обязан показать переданный термин фронта"
++        );
++        assert!(
++            !xlsx_contains(&path_some, "Efficiency Index"),
++            "с непустым glossary встроенный fallback-термин не должен появляться"
++        );
++        let _ = std::fs::remove_file(&path_some);
++    }
+ }
+diff --git a/src/app.css b/src/app.css
+index 86e673c..7171f5d 100644
+--- a/src/app.css
++++ b/src/app.css
+@@ -180,12 +180,17 @@
+   --card-bg-peach:    var(--bg-card);
+   --card-bg-coral:    var(--bg-card);
+ 
+-  /* ── Insight card backgrounds (per-severity) - default: subtle translucent ── */
++  /* ── Insight card backgrounds (per-severity) ──
++     Dark severity-tint 8% (DS-канон + эталон Creative Hub, выбор Антона 2026-06-21
++     «Вариант B» из live-превью). Прежде все = нейтральный серый 3% → severity читался
++     только левой полоской; теперь фон тонко окрашен по важности, как уже делает
++     light/fun-тема. Цвета = те же severity-токены, что у полоски (InsightsPanel .sev-*).
++     --bg-insight-base оставлен нейтральным fallback. ── */
+   --bg-insight-base:    color-mix(in srgb, var(--text-primary) 3%, transparent);
+-  --bg-insight-info:    var(--bg-insight-base);
+-  --bg-insight-success: var(--bg-insight-base);
+-  --bg-insight-warning: var(--bg-insight-base);
+-  --bg-insight-error:   var(--bg-insight-base);
++  --bg-insight-info:    color-mix(in srgb, var(--color-info) 8%, transparent);
++  --bg-insight-success: color-mix(in srgb, var(--success) 8%, transparent);
++  --bg-insight-warning: color-mix(in srgb, var(--warning) 8%, transparent);
++  --bg-insight-error:   color-mix(in srgb, var(--danger) 8%, transparent);
+ 
+   /* ── Surface: dropzones, empty states ── */
+   --dropzone-bg:     rgba(15, 23, 42, 0.4);
+diff --git a/src/aurora-ui-alias.css b/src/aurora-ui-alias.css
+new file mode 100644
+index 0000000..49fab42
+--- /dev/null
++++ b/src/aurora-ui-alias.css
+@@ -0,0 +1,64 @@
++/* ═══════════════════════════════════════════════════
++   Aurora canon-namespace alias  (--ui-* / --brand-*  →  живые локальные токены)
++   ───────────────────────────────────────────────────
++   Канон aurora_design (aurora-platform-core) и его компоненты/паттерны
++   (InsightCard, Stepper, Button, Card, Badge, Modal) написаны на --ui-* / --brand-*.
++   Эконометрика держит свой ЖИВОЙ Aether Mesh в app.css на --bg-*/--accent-*/--text-*
++   (3066 использований). tokens.generated.css (namespace --color-ui-*) НЕ импортирован
++   и НЕ используется — мёртвый артефакт другого генератора.
++
++   Этот файл — тонкий мост: канон-namespace ссылается на ЖИВЫЕ значения app.css
++   (через var, без хардкода hex). Позволяет канон-элементы и порты (InsightCard,
++   Stepper…) ложиться drop-in, не переписывая существующий UI на --bg-*.
++   Импортируется в +layout.svelte ПОСЛЕ app.css (значения --bg-* уже определены).
++   Design-sync 2026-06-20: цель — сходимость Эконометрики на канон-namespace --ui-*.
++
++   ⚠ Значения = единый источник app.css (локальный Aether Mesh). При правке палитры
++   менять ТОЛЬКО app.css — alias подхватит через var(). Не дублировать hex здесь. */
++:root {
++  /* ── Surfaces ── */
++  --ui-surface-bg-primary:    var(--bg-primary);
++  --ui-surface-bg-secondary:  var(--bg-secondary);
++  --ui-surface-bg-tertiary:   var(--bg-tertiary);
++  --ui-surface-bg-card:       var(--bg-card);
++  --ui-surface-bg-card-hover: var(--bg-card-hover);
++  --ui-surface-bg-glass:      var(--bg-glass);
++
++  /* ── Accent ── */
++  --ui-accent-primary:        var(--accent-primary);
++  --ui-accent-primary-hover:  var(--accent-hover);
++  --ui-accent-secondary:      var(--accent-secondary);
++  --ui-accent-glow:           var(--accent-glow);
++  --ui-accent-glow-strong:    var(--accent-glow-strong);
++
++  /* ── Signature lime (brand namespace) — sacred: только focus/active/Badge-lime ── */
++  --brand-signature-lime:     var(--accent-secondary);
++
++  /* ── Functional ── */
++  --ui-functional-info:       var(--color-info);
++  --ui-functional-completion: var(--color-completion);
++  --ui-functional-success:    var(--success);
++  --ui-functional-warning:    var(--warning);
++  --ui-functional-danger:     var(--danger);
++
++  /* ── Text ── */
++  --ui-text-primary:          var(--text-primary);
++  --ui-text-secondary:        var(--text-secondary);
++  --ui-text-muted:            var(--text-muted);   /* #9090A8 — WCAG-bump Эконометрики */
++
++  /* ── Border ── */
++  --ui-border-default:        var(--border);
++  --ui-border-subtle:         var(--border-subtle);
++  --ui-border-active:         var(--border-active);
++
++  /* ── Radius — маппинг по ЗНАЧЕНИЮ (Эконометрика --radius-lg=16 ≠ канон lg=14) ── */
++  --ui-radius-sm:  var(--radius-sm);   /* 8  */
++  --ui-radius-md:  var(--radius-md);   /* 12 */
++  --ui-radius-lg:  var(--radius);      /* 14 = канон lg (НЕ локальный --radius-lg=16) */
++  --ui-radius-xl:  var(--radius-lg);   /* 16 */
++  --ui-radius-2xl: var(--radius-xl);   /* 20 */
++
++  /* ── Typography ── */
++  --ui-typography-sans: var(--font-sans);
++  --ui-typography-mono: var(--font-mono);
++}
+diff --git a/src/lib/cancelled-run.js b/src/lib/cancelled-run.js
+new file mode 100644
+index 0000000..75ee937
+--- /dev/null
++++ b/src/lib/cancelled-run.js
+@@ -0,0 +1,59 @@
++/**
++ * Что делать с хвостом ОСТАНОВЛЕННОЙ работы, доехавшим до чата.
++ *
++ * 🔴 Зачем это вынесено отдельно (находка внешнего аудита 2026-08-03).
++ * Признак остановки жил ТОЛЬКО в переменной приёмника и снимался следующим
++ * вопросом человека. Облачное ожидание длится до минуты, а «Остановить»
++ * отпускает окно немедленно — поэтому обычный порядок событий такой:
++ *
++ *   1. человек останавливает работу и сразу задаёт следующий вопрос;
++ *   2. признак остановки снят, идёт новая работа;
++ *   3. приезжает хвост ПЕРВОЙ работы — и приёмнику нечем отличить его от своего.
++ *
++ * Дальше текст остановленной работы либо приклеивался к чужому ответу, либо
++ * затирал его целиком (финальное событие облачного пути несёт признак замены).
++ *
++ * 🔴 Второй заход аудита (тот же день) показал, что первая починка воспроизводила
++ * дефект: решение принималось по `$isLoading`, то есть СНОВА по памяти приёмника —
++ * сменили только переменную. Стоило следующему вопросу успеть ответить (короткий
++ * ответ, секунды), и хвост первой работы дописывался в конец ЕГО текста.
++ *
++ * Поэтому теперь решение не зависит от состояния приёмника вообще: **хвост
++ * остановленной работы никогда не продолжает ленту**. Её полный текст уже показан
++ * потоком, а всё, что обязано дойти до человека, — приписка (номер оставшейся на
++ * узле работы, «остановка не подтверждена»).
++ *
++ * Копия того же правила живёт у Oracle: продукты собираются раздельно, общего слоя
++ * интерфейса у них нет. Расхождение ловит гейт паритета в каждом дереве.
++ */
++
++/**
++ * Показывать ли приписку хвоста остановленной работы.
++ *
++ * @param {string|undefined|null} notice приписка от сервера
++ * @returns {'notice'|'skip'} `notice` — показать отдельным сообщением; `skip` — сказать нечего
++ */
++export function cancelledTailAction(notice) {
++  return notice && notice.trim() ? 'notice' : 'skip';
++}
++
++/**
++ * Вставить служебное сообщение ПЕРЕД активным пузырём ответа, а не в конец ленты.
++ *
++ * 🔴 Находка внешнего аудита. Облачный путь шлёт поток НАКОПИТЕЛЬНО: каждое событие
++ * несёт весь текст с начала, а приёмник склеивает его с последним сообщением, если
++ * оно от ассистента. Служебная строка, приписанная в КОНЕЦ во время живого ответа,
++ * рвёт эту склейку: следующий кусок видит чужую роль последней и заводит второй
++ * пузырь с полным текстом с начала. Человек видит ответ дважды, и обе копии уходят
++ * в историю.
++ *
++ * @template {{role: string}} T
++ * @param {T[]} messages текущая лента
++ * @param {T} note служебное сообщение
++ * @returns {T[]} лента со вставкой перед активным пузырём
++ */
++export function insertBeforeActiveBubble(messages, note) {
++  const last = messages[messages.length - 1];
++  const at = last && last.role === 'assistant' ? messages.length - 1 : messages.length;
++  return [...messages.slice(0, at), note, ...messages.slice(at)];
++}
+diff --git a/src/lib/cancelled-run.parity.test.js b/src/lib/cancelled-run.parity.test.js
+new file mode 100644
+index 0000000..4111b1c
+--- /dev/null
++++ b/src/lib/cancelled-run.parity.test.js
+@@ -0,0 +1,115 @@
++// @ts-nocheck — node-side тест (fs/path/process): svelte-check checkJs не имеет
++// @types/node в scope, логика проверяется через vitest, не через типы.
++/**
++ * Гейт: принадлежность события живёт В СОБЫТИИ, а не в памяти приёмника.
++ *
++ * 🔴 Найдено внешним аудитом 2026-08-03. Признак остановки был переменной
++ * интерфейса и снимался следующим вопросом человека. Облачное ожидание длится до
++ * минуты, «Остановить» отпускает окно немедленно — значит обычный порядок такой:
++ * остановил → сразу спросил дальше → приехал хвост первой работы. Отличить его от
++ * своего приёмнику было НЕЧЕМ, а у этого продукта отмена шлёт финальное событие с
++ * признаком замены — то есть чужой ответ затирался целиком, а не дополнялся.
++ *
++ * Дефект не ловится ни тестом Rust в одиночку (там видно только форму события),
++ * ни тестом интерфейса в одиночку (там видно только разбор) — ловится сверкой.
++ *
++ * Страховка от тихого нуля: пустой исходник — КРАСНЫЙ, а не «всё чисто».
++ */
++import { describe, it, expect } from 'vitest';
++import fs from 'node:fs';
++import path from 'node:path';
++
++const EXECUTOR_RS = path.join(process.cwd(), 'src-tauri/src/commands/gateway_executor.rs');
++const CHAT_PANEL = path.join(process.cwd(), 'src/lib/components/ChatPanel.svelte');
++
++/** Рабочий код исполнителя — без модуля проверок и без пояснений.
++ *
++ * 🔴 Комментарии гасятся ДО поиска. Гейт, краснеющий от пояснения «почему так
++ * писать нельзя», учит убирать пояснения, а не дефекты.
++ */
++function executorWorkingCode() {
++  const source = fs.readFileSync(EXECUTOR_RS, 'utf8');
++  expect(source.length, 'исходник исполнителя не прочитался — гейт смотрит не туда')
++    .toBeGreaterThan(1000);
++  const testsAt = source.indexOf('#[cfg(test)]');
++  const working = testsAt === -1 ? source : source.slice(0, testsAt);
++  return working
++    .split('\n')
++    .filter(line => !line.trim().startsWith('//'))
++    .join('\n');
++}
++
++describe('хвост остановленной работы помечен и разбирается по пометке', () => {
++  it('облачный путь помечает событие остановленной работы', () => {
++    const code = executorWorkingCode();
++    expect(code, 'событие остановленной работы обязано нести признак принадлежности')
++      .toContain('"cancelled_run": true');
++    expect(code, 'приписка обязана ехать отдельным полем: полный текст применим не всегда')
++      .toMatch(/"notice":\s*notice/);
++  });
++
++  it('ни одна ветка остановки не уходит обычным финалом', () => {
++    const code = executorWorkingCode();
++    const marked = [...code.matchAll(/build_cancelled_event\(/g)].length;
++    expect(marked, 'помеченным идут: ранний выход с припиской и общий финал')
++      .toBeGreaterThanOrEqual(2);
++    // Финал собирается в одном месте, и там же решается, помечать ли его.
++    expect(code, 'финал обязан знать про догнавшую отмену').toContain('cancelled_notice');
++    expect(code, 'признак берётся у работы, а не додумывается')
++      .toMatch(/work\.cancelled\(\)\.then\(/);
++    const plainFinal = [...code.matchAll(/build_result_event\(/g)].length;
++    // Одно — определение функции, одно — обычная ветка внутри общего финала.
++    expect(plainFinal, 'обычный финал собирается в одном месте, а не в каждой ветке')
++      .toBeLessThanOrEqual(2);
++  });
++
++  it('приёмник решает по событию, а не по своей переменной', () => {
++    const source = fs.readFileSync(CHAT_PANEL, 'utf8');
++    expect(source.length, 'исходник интерфейса не прочитался — гейт смотрит не туда')
++      .toBeGreaterThan(1000);
++    // Ищем пометку, а не имя переменной: переименование разбора не должно ронять гейт.
++    expect(source, 'хвост остановленной работы обязан распознаваться по пометке события')
++      .toMatch(/\?\.cancelled_run|\.cancelled_run\b/);
++    expect(source, 'решение вынесено в проверяемую функцию, а не размазано по обработчику')
++      .toContain('cancelledTailAction');
++    expect(source, 'завершение обязано читать пометку события')
++      .toMatch(/payload\?\.cancelled/);
++    expect(source, 'обработчик завершения обязан получать событие, а не игнорировать его')
++      .toMatch(/listen\(`claude-done-\$\{cabinetId\}`,\s*\(event\)/);
++  });
++
++  it('отказ прошлого хода не гасит индикацию текущего', () => {
++    // 🔴 Непокрытый путь того же класса, найденный аудитом правок. Отказ работы
++    // возвращается НЕ событием, а результатом команды, и признака принадлежности не
++    // несёт вовсе: промис висит до конца работы, поэтому отказ остановленной работы
++    // срабатывает уже во время следующей — и гасит её защитный таймер и прогресс.
++    const source = fs.readFileSync(CHAT_PANEL, 'utf8');
++    expect(source, 'у хода чата обязан быть номер: у отказа нет иного признака принадлежности')
++      .toMatch(/let turnSeq = 0/);
++    expect(source, 'отказ обязан сверяться с текущим ходом ДО гашения индикации')
++      .toMatch(/myTurn !== turnSeq/);
++  });
++
++  it('помеченный хвост разбирается РАНЬШЕ признака отмены', () => {
++    // 🔴 Находка аудита правок. Ранний выход `if (cancelled) return` стоял выше
++    // разбора хвоста — и хвост погибал ровно в том случае, ради которого пометка
++    // заведена: человек нажал «Остановить», признак стоит, приписка с номером
++    // осиротевшей работы выброшена первой же строкой. Ветка «человек всё ещё
++    // смотрит, текст применим» была недостижима в бою, а все сторожа — зелёные:
++    // один проверял чистую функцию в отрыве, другой наличие полей на обеих сторонах.
++    const source = fs.readFileSync(CHAT_PANEL, 'utf8');
++    const tail = source.indexOf('cancelled_run');
++    expect(tail, 'разбор помеченного хвоста не найден — гейт смотрит не туда')
++      .toBeGreaterThan(-1);
++    const guard = source.search(/^\s*if \(cancelled\) return;/m);
++    expect(guard, 'ранний выход по признаку отмены не найден — гейт смотрит не туда')
++      .toBeGreaterThan(-1);
++    expect(tail, 'хвост обязан разбираться ДО признака отмены').toBeLessThan(guard);
++    // 🔴 Решение о хвосте не смеет зависеть от состояния приёмника: первая починка
++    // смотрела на `$isLoading` и воспроизводила сам дефект (аудит нашёл повторно).
++    expect(source, 'решение о хвосте не принимает признаков состояния приёмника')
++      .not.toMatch(/cancelledTailAction\(\$isLoading/);
++    expect(source, 'служебная строка обязана вставать перед активным пузырём')
++      .toContain('insertBeforeActiveBubble');
++  });
++});
+diff --git a/src/lib/cancelled-run.test.js b/src/lib/cancelled-run.test.js
+new file mode 100644
+index 0000000..5ffec8d
+--- /dev/null
++++ b/src/lib/cancelled-run.test.js
+@@ -0,0 +1,56 @@
++import { describe, it, expect } from 'vitest';
++import { cancelledTailAction, insertBeforeActiveBubble } from './cancelled-run.js';
++
++describe('хвост остановленной работы (находки внешнего аудита 2026-08-03)', () => {
++  it('приписка показывается всегда, когда она есть', () => {
++    // Номер осиротевшей работы — единственное, чем человек может назвать поддержке
++    // занятое место среди одновременных. Решение НЕ зависит от состояния приёмника:
++    // первая починка смотрела на `$isLoading` и воспроизводила сам дефект.
++    expect(cancelledTailAction('работа 7f3 осталась на узле')).toBe('notice');
++  });
++
++  it('сказать нечего — молчим', () => {
++    expect(cancelledTailAction('')).toBe('skip');
++    expect(cancelledTailAction('   ')).toBe('skip');
++    expect(cancelledTailAction(undefined)).toBe('skip');
++    expect(cancelledTailAction(null)).toBe('skip');
++  });
++
++  it('решение не принимает НИ ОДНОГО признака состояния приёмника', () => {
++    // Сторож на класс дефекта: у функции ровно один вход — приписка. Появится
++    // второй параметр «идёт ли работа» — тест покраснеет, и это правильно.
++    expect(cancelledTailAction.length).toBe(1);
++  });
++});
++
++describe('служебная строка встаёт перед активным пузырём', () => {
++  const note = { role: 'system', content: 'работа 7f3 осталась на узле' };
++
++  it('во время живого ответа — ПЕРЕД ним, а не после', () => {
++    // 🔴 Облачный путь шлёт поток накопительно: каждое событие несёт весь текст с
++    // начала. Строка, приписанная в конец, рвёт склейку — следующий кусок видит
++    // чужую роль последней и заводит второй пузырь с полным текстом.
++    const lenta = [
++      { role: 'user', content: 'вопрос' },
++      { role: 'assistant', content: 'ответ печатается' },
++    ];
++    const out = insertBeforeActiveBubble(lenta, note);
++    expect(out.map(m => m.role)).toEqual(['user', 'system', 'assistant']);
++    expect(out[out.length - 1].content).toBe('ответ печатается');
++  });
++
++  it('когда ответа ещё нет — в конец', () => {
++    const lenta = [{ role: 'user', content: 'вопрос' }];
++    expect(insertBeforeActiveBubble(lenta, note).map(m => m.role)).toEqual(['user', 'system']);
++  });
++
++  it('на пустой ленте не падает', () => {
++    expect(insertBeforeActiveBubble([], note)).toEqual([note]);
++  });
++
++  it('исходную ленту не меняет', () => {
++    const lenta = [{ role: 'assistant', content: 'ответ' }];
++    insertBeforeActiveBubble(lenta, note);
++    expect(lenta).toHaveLength(1);
++  });
++});
+diff --git a/src/lib/components/BrandChip.svelte b/src/lib/components/BrandChip.svelte
+new file mode 100644
+index 0000000..50e5511
+--- /dev/null
++++ b/src/lib/components/BrandChip.svelte
+@@ -0,0 +1,63 @@
++<script>
++  /**
++   * BrandChip — фирменный чип названия приложения (левый верхний угол).
++   * Стандарт Aurora Core (эталон Creative Hub .brand-rosst): чип-бейдж с
++   * accent-рамкой + accent-фоном + accent-текстом (electric-blue в dark, адаптив
++   * под тему). Логотип Aurora Horizon (крупный) + название в две строки.
++   * Название — английским (по требованию): ECONOMETRICA / MMM OPTIMIZER.
++   * Токены — локальные Эконометрики (Aether Mesh), без хардкода hex.
++   */
++</script>
++
++<div class="brand-chip">
++  <img src="/logo-horizon.png" alt="Aurora AI" class="brand-chip-logo" />
++  <div class="brand-chip-text">
++    <span class="brand-chip-product">Econometrica</span>
++    <span class="brand-chip-sub">MMM Optimizer</span>
++  </div>
++</div>
++
++<style>
++  .brand-chip {
++    display: inline-flex;
++    align-items: center;
++    gap: 10px;
++  }
++
++  /* Логотип Horizon — крупный, как на главной (размер 87px). */
++  .brand-chip-logo {
++    height: 87px;
++    width: auto;
++    display: block;
++  }
++
++  /* Чип-бейдж electric-blue (стандарт Aurora Core, эталон Creative Hub .brand-rosst):
++     accent-рамка + accent-фон + accent-текст, адаптируется под тему. Две строки. */
++  .brand-chip-text {
++    display: flex;
++    flex-direction: column;
++    gap: 1px;
++    line-height: 1.15;
++    padding: 5px 12px;
++    color: var(--accent-primary);
++    border: 1px solid color-mix(in srgb, var(--accent-primary) 40%, transparent);
++    background: color-mix(in srgb, var(--accent-primary) 8%, transparent);
++    border-radius: var(--radius-chip, 8px);
++  }
++
++  .brand-chip-product {
++    font-size: 13px;
++    font-weight: 700;
++    letter-spacing: 0.12em;
++    color: var(--accent-primary);
++    text-transform: uppercase;
++  }
++
++  .brand-chip-sub {
++    font-size: 9.5px;
++    font-weight: 600;
++    letter-spacing: 0.16em;
++    color: color-mix(in srgb, var(--accent-primary) 72%, var(--text-secondary));
++    text-transform: uppercase;
++  }
++</style>
+diff --git a/src/lib/components/ChatPanel.svelte b/src/lib/components/ChatPanel.svelte
+index efdb0ab..cc63d5d 100644
+--- a/src/lib/components/ChatPanel.svelte
++++ b/src/lib/components/ChatPanel.svelte
+@@ -5,6 +5,7 @@
+   import { messages, isLoading, activeCabinet, pendingCommand, stickyContext, cabinetCommands, inboxFiles as inboxFilesStore } from '$lib/store.js';
+   import { toast } from '$lib/toast.js';
+   import { attachmentsSkippedText } from '$lib/cloud-warning-text.js';
++  import { cancelledTailAction, insertBeforeActiveBubble } from '$lib/cancelled-run.js';
+   import { getNextSteps, getRandomInsight, getCurrentPhase, trackRequest, getEmpathyError, getTimeGreeting, getUsageHint, startSession, incrementSessionMessages, endSession, pluralRu, getResponseActions, getSafetyTimeout, getEndowedProgressMessage, getContextInsight } from '$lib/psy.js';
+   import { classifyMessage } from '$lib/chat-classifier.js';
+   import { markMessageUnsaved } from '$lib/chat-save-status.js';
+@@ -156,6 +157,11 @@
+   /** @type {number|null} */
+   let startTime = null;
+   let cancelled = false;
++  // 🔴 Номер хода чата. Отказ работы возвращается НЕ событием, а результатом команды,
++  // и признака принадлежности не несёт вовсе: промис висит до конца работы, поэтому
++  // отказ ОСТАНОВЛЕННОЙ работы срабатывает уже во время следующей — гасит её
++  // защитный таймер и прогресс. Тот же класс, что CPD-42, на непокрытом пути.
++  let turnSeq = 0;
+ 
+   // PSY-2: Random insight for loading state
+   let currentInsight = $state('');
+@@ -455,6 +461,29 @@
+     }
+ 
+     unlistenStream = await listen(`claude-stream-${cabinetId}`, (event) => {
++      // 🔴 Помеченный хвост ОСТАНОВЛЕННОЙ работы разбирается ДО признака отмены
++      // (находка аудита правок). Прежде проверка стояла ниже, и хвост погибал ровно
++      // в том случае, ради которого пометка заведена: человек нажал «Остановить»,
++      // признак стоит — и приписка с номером осиротевшей работы выбрасывалась первой
++      // же строкой. Без неё человеку нечего назвать поддержке: место среди
++      // одновременных занято, а следующий вопрос упрётся в потолок.
++      let tail = null;
++      try { tail = JSON.parse(event.payload); } catch { tail = null; }
++      if (tail?.cancelled_run) {
++        // 🔴 Хвост остановленной работы НИКОГДА не продолжает ленту (второй заход
++        // аудита). Прежде решение принималось по `$isLoading` — то есть снова по
++        // памяти приёмника, только переменную сменили: стоило следующему вопросу
++        // успеть ответить, и текст остановленной работы дописывался в конец ЕГО
++        // ответа. Полный текст уже показан потоком; дойти обязана приписка, и она
++        // встаёт ПЕРЕД активным пузырём, чтобы не рвать накопительную склейку.
++        if (cancelledTailAction(tail.notice) === 'notice') {
++          messages.update(msgs => insertBeforeActiveBubble(msgs, {
++            role: 'system', content: tail.notice, ts: Date.now(),
++          }));
++          if (isNearBottom()) scrollToBottom();
++        }
++        return;
++      }
+       if (cancelled) return;
+       try {
+         const data = JSON.parse(event.payload);
+@@ -648,7 +677,23 @@
+       toast(reason, 'warning', 10000);
+     });
+ 
+-    unlistenDone = await listen(`claude-done-${cabinetId}`, () => {
++    unlistenDone = await listen(`claude-done-${cabinetId}`, (event) => {
++      // 🔴 Остановленность определяет САМО событие, а не наш признак (находка
++      // внешнего аудита). Признак снимается следующим вопросом человека, и
++      // завершение остановленной работы, доехавшее после него, шло по обычному
++      // пути: гасило прогресс и защитный таймер ЖИВОЙ работы, а её недописанный
++      // текст уходило сохранять в историю.
++      let payload = event.payload;
++      if (typeof payload === 'string') {
++        try { payload = JSON.parse(payload); } catch { payload = null; }
++      }
++      if (payload?.cancelled) {
++        // 🔴 Флаг НЕ трогаем (находка аудита правок): финал остановленной работы A
++        // мог доехать, когда признак принадлежит уже работе B, которую человек тоже
++        // остановил. Сбросив его здесь, мы пустили бы финал B обычным путём — он
++        // погасил бы прогресс и сохранил недописанное в историю.
++        return;
++      }
+       if (cancelled) {
+         cancelled = false;
+         return;
+@@ -803,6 +848,7 @@
+     incrementSessionMessages();
+     inputText = '';
+     cancelled = false;
++    const myTurn = ++turnSeq;
+     // Track command for auto-continue (slash commands only, reset for follow-ups)
+     if (text.startsWith('/')) {
+       lastCommand = text.split(/\s/)[0];
+@@ -863,8 +909,19 @@
+     try {
+       await invoke('send_message', { cabinetId, message: messageToSend });
+     } catch (err) {
++      // 🔴 Отказ ПРОШЛОГО хода не властен над текущим (тот же класс, что CPD-42, на
++      // пути, который событий не шлёт вовсе). Промис команды висит до конца работы,
++      // поэтому отказ остановленной работы срабатывает уже во время следующей: он
++      // погасил бы её защитный таймер, прогресс и признак занятости. Сам текст отказа
++      // человеку показать обязаны — работа, которую он запускал, не удалась.
++      const stale = myTurn !== turnSeq;
++      // Отказ прошлого хода встаёт ПЕРЕД активным пузырём: приписанный в конец, он
++      // разорвал бы накопительную склейку текущего ответа и тот показался бы дважды.
++      messages.update(msgs => insertBeforeActiveBubble(msgs, {
++        role: 'system', content: `Ошибка: ${err}`, ts: Date.now(),
++      }));
++      if (stale) return;
+       clearTimeout(safetyTimer);
+-      messages.update(msgs => [...msgs, { role: 'system', content: `Ошибка: ${err}`, ts: Date.now() }]);
+       isLoading.set(false);
+       resetProgress();
+     }
+diff --git a/src/lib/components/pipeline/DiagnosticsPanel.svelte b/src/lib/components/pipeline/DiagnosticsPanel.svelte
+new file mode 100644
+index 0000000..df380f3
+--- /dev/null
++++ b/src/lib/components/pipeline/DiagnosticsPanel.svelte
+@@ -0,0 +1,569 @@
++<script>
++  /**
++   * DiagnosticsPanel - v2.0.0 Phase C diagnostic summary.
++   *
++   * Manager view (default): 4 traffic-light rows with CSS dot indicators
++   * (accessibility per audit M2 - no emoji for status).
++   * Expert expand: trace plots placeholder + ESS per-parameter table +
++   * PPCScatter sub-component.
++   *
++   * Per WIZARD_FLOW_v2_FINAL.md §3.2 + §6.
++   *
++   * @component DiagnosticsPanel
++   */
++  import { ChevronDown, TrendingUp, Info } from 'lucide-svelte';
++  import { expertMode } from '$lib/project-state.js';
++  import PPCScatter from './PPCScatter.svelte';
++
++  /**
++   * @type {{
++   *   diagnostics: {
++   *     mcmcConvergence?: { r_hat?: number, ess?: number, per_param_rhat?: Record<string, number>, per_param_ess?: Record<string, number> } | null,
++   *     backtest?: { mape?: number, r2?: number } | null,
++   *     ppc?: { r2?: number, durbin_watson?: number, actual?: number[], predicted?: number[], residuals?: number[] } | null,
++   *     sensitivity?: { param_label?: string, sensitivity_pct?: number } | null,
++   *   } | null,
++   *   expandable?: boolean,
++   * }}
++   */
++  const { diagnostics = null, expandable = true } = $props();
++
++  /** Whether expert section is open */
++  let expertOpen = $state(false);
++
++  // ── Thresholds ──────────────────────────────────────────────────────────────
++
++  /**
++   * Compute MCMC convergence status from r_hat + ess.
++   * @param {number | undefined} rhat
++   * @param {number | undefined} ess
++   * @returns {'ok' | 'warn' | 'bad'}
++   */
++  function mcmcStatus(rhat, ess) {
++    const r = rhat ?? 0;
++    const e = ess ?? 0;
++    if (r < 1.05 && e > 400) return 'ok';
++    if (r <= 1.10 && e >= 200) return 'warn';
++    return 'bad';
++  }
++
++  /**
++   * Compute backtest status from MAPE.
++   * @param {number | undefined} mape
++   * @returns {'ok' | 'warn' | 'bad'}
++   */
++  function backtestStatus(mape) {
++    const m = mape ?? 100;
++    if (m < 10) return 'ok';
++    if (m <= 20) return 'warn';
++    return 'bad';
++  }
++
++  /**
++   * Compute PPC status from r2.
++   * @param {number | undefined} r2
++   * @returns {'ok' | 'warn' | 'bad'}
++   */
++  function ppcStatus(r2) {
++    const v = r2 ?? 0;
++    if (v > 0.85) return 'ok';
++    if (v >= 0.70) return 'warn';
++    return 'bad';
++  }
++
++  // ── Derived row data ─────────────────────────────────────────────────────────
++
++  const mcmc = $derived.by(() => {
++    const d = diagnostics?.mcmcConvergence;
++    const rhat = d?.r_hat ?? undefined;
++    const ess = d?.ess ?? undefined;
++    return {
++      status: mcmcStatus(rhat, ess),
++      rhat: rhat != null ? Number(rhat).toFixed(4) : '-',
++      ess: ess != null ? Math.round(ess) : '-',
++    };
++  });
++
++  const backtest = $derived.by(() => {
++    const d = diagnostics?.backtest;
++    const mape = d?.mape ?? undefined;
++    const r2 = d?.r2 ?? undefined;
++    return {
++      status: backtestStatus(mape),
++      mape: mape != null ? Number(mape).toFixed(1) : '-',
++      r2: r2 != null ? Number(r2).toFixed(3) : '-',
++    };
++  });
++
++  const ppc = $derived.by(() => {
++    const d = diagnostics?.ppc;
++    const r2 = d?.r2 ?? undefined;
++    const dw = d?.durbin_watson ?? undefined;
++    return {
++      status: ppcStatus(r2),
++      r2: r2 != null ? Number(r2).toFixed(3) : '-',
++      dw: dw != null ? Number(dw).toFixed(2) : '-',
++    };
++  });
++
++  const sensitivity = $derived.by(() => {
++    const d = diagnostics?.sensitivity;
++    return {
++      label: d?.param_label ?? 'Топ-параметр',
++      pct: d?.sensitivity_pct != null ? Number(d.sensitivity_pct).toFixed(1) : '-',
++    };
++  });
++
++  /** ESS per-parameter for expert table */
++  const essParams = $derived.by(() => {
++    const perEss = diagnostics?.mcmcConvergence?.per_param_ess ?? {};
++    const perRhat = diagnostics?.mcmcConvergence?.per_param_rhat ?? {};
++    return Object.keys(perEss).map(k => ({
++      name: k,
++      ess: Math.round(perEss[k]),
++      rhat: Number(perRhat[k] ?? 0).toFixed(4),
++      status: mcmcStatus(perRhat[k], perEss[k]),
++    }));
++  });
++
++  /** PPC data for PPCScatter sub-component */
++  const ppcData = $derived.by(() => {
++    const d = diagnostics?.ppc;
++    if (!d?.actual?.length || !d?.predicted?.length) return null;
++    return {
++      actual: d.actual,
++      predicted: d.predicted,
++      residuals: d.residuals ?? d.actual.map((a, i) => a - (d.predicted?.[i] ?? 0)),
++      r2: d.r2 ?? 0,
++      durbin_watson: d.durbin_watson ?? 0,
++    };
++  });
++
++  /** Show expert expand button */
++  const canExpand = $derived(expandable || $expertMode);
++
++  /** Overall panel status: worst of 4 rows */
++  const overallStatus = $derived.by(() => {
++    const statuses = [mcmc.status, backtest.status, ppc.status];
++    if (statuses.includes('bad')) return 'bad';
++    if (statuses.includes('warn')) return 'warn';
++    return 'ok';
++  });
++</script>
++
++<div class="diag-panel" class:status-ok={overallStatus === 'ok'} class:status-warn={overallStatus === 'warn'} class:status-bad={overallStatus === 'bad'}>
++
++  <header class="panel-header">
++    <span class="header-icon"><TrendingUp size={16} strokeWidth={1.8} /></span>
++    <h3 class="panel-title">Диагностика модели</h3>
++    {#if canExpand}
++      <button
++        type="button"
++        class="expand-btn"
++        aria-expanded={expertOpen}
++        aria-controls="diag-expert-section"
++        onclick={() => (expertOpen = !expertOpen)}
++      >
++        <span class="expand-label">{expertOpen ? 'Свернуть' : 'Подробнее'}</span>
++        <span class="chevron" class:open={expertOpen}><ChevronDown size={14} /></span>
++      </button>
++    {/if}
++  </header>
++
++  <!-- ── Manager view: 4 traffic-light rows ─────────────────────────────────── -->
++  <div class="rows" role="list" aria-label="Показатели качества модели">
++
++    <!-- Row 1: MCMC Convergence -->
++    <div class="diag-row" role="listitem">
++      <span class="tl-dot tl-{mcmc.status}" aria-label="Сходимость: {mcmc.status === 'ok' ? 'хорошо' : mcmc.status === 'warn' ? 'предупреждение' : 'ошибка'}"></span>
++      <span class="row-label">Сходимость (MCMC)</span>
++      <span class="row-values">
++        <span class="metric-chip">R-hat {mcmc.rhat}</span>
++        <span class="metric-chip">ESS {mcmc.ess}</span>
++      </span>
++      <span class="row-hint">
++        {#if mcmc.status === 'ok'}Модель сошлась
++        {:else if mcmc.status === 'warn'}Частичная сходимость
++        {:else}Не сошлась - нужно больше итераций{/if}
++      </span>
++    </div>
++
++    <!-- Row 2: Backtest -->
++    <div class="diag-row" role="listitem">
++      <span class="tl-dot tl-{backtest.status}" aria-label="Бэктест: {backtest.status === 'ok' ? 'хорошо' : backtest.status === 'warn' ? 'предупреждение' : 'ошибка'}"></span>
++      <span class="row-label">Бэктест</span>
++      <span class="row-values">
++        <span class="metric-chip">MAPE {backtest.mape}%</span>
++        <span class="metric-chip">R² {backtest.r2}</span>
++      </span>
++      <span class="row-hint">
++        {#if backtest.status === 'ok'}Точность прогноза высокая
++        {:else if backtest.status === 'warn'}Умеренная точность
++        {:else}Ошибка прогноза высокая{/if}
++      </span>
++    </div>
++
++    <!-- Row 3: Posterior Predictive Check -->
++    <div class="diag-row" role="listitem">
++      <span class="tl-dot tl-{ppc.status}" aria-label="Posterior predictive: {ppc.status === 'ok' ? 'хорошо' : ppc.status === 'warn' ? 'предупреждение' : 'ошибка'}"></span>
++      <span class="row-label">Posterior predictive</span>
++      <span class="row-values">
++        <span class="metric-chip">R² {ppc.r2}</span>
++        <span class="metric-chip">DW {ppc.dw}</span>
++      </span>
++      <span class="row-hint">
++        {#if ppc.status === 'ok'}Остатки без паттернов
++        {:else if ppc.status === 'warn'}Умеренное качество подгонки
++        {:else}Систематическая ошибка{/if}
++      </span>
++    </div>
++
++    <!-- Row 4: Sensitivity -->
++    <div class="diag-row" role="listitem">
++      <span class="tl-dot tl-ok" aria-label="Чувствительность: информация"></span>
++      <span class="row-label">Чувствительность - {sensitivity.label}</span>
++      <span class="row-values">
++        <span class="metric-chip chip-info">±{sensitivity.pct}%</span>
++      </span>
++      <span class="row-hint">Влияние параметра на ROI</span>
++    </div>
++  </div>
++
++  <!-- ── Expert expand section ─────────────────────────────────────────────── -->
++  {#if expertOpen && canExpand}
++    <div id="diag-expert-section" class="expert-section" role="region" aria-label="Детальная диагностика">
++
++      <div class="expert-badge-row">
++        <span class="expert-badge">EXPERT</span>
++        <span class="expert-note"><Info size={12} /> Детальные метрики - только для аналитиков</span>
++      </div>
++
++      <!-- Trace plots placeholder -->
++      <div class="trace-placeholder">
++        <div class="trace-placeholder-inner">
++          <TrendingUp size={24} strokeWidth={1} />
++          <p>Trace plots доступны в v2.1.0</p>
++          <span class="trace-note">MCMC chains визуализация + effective sample size per parameter</span>
++        </div>
++      </div>
++
++      <!-- ESS per-parameter table -->
++      {#if essParams.length > 0}
++        <div class="ess-table-wrap">
++          <h4 class="expert-section-title">ESS по параметрам</h4>
++          <table class="ess-table" aria-label="Effective Sample Size по параметрам">
++            <thead>
++              <tr>
++                <th scope="col">Параметр</th>
++                <th scope="col">R-hat</th>
++                <th scope="col">ESS</th>
++                <th scope="col">Статус</th>
++              </tr>
++            </thead>
++            <tbody>
++              {#each essParams as row (row.name)}
++                <tr>
++                  <td class="param-name">{row.name}</td>
++                  <td class="metric-val">{row.rhat}</td>
++                  <td class="metric-val">{row.ess}</td>
++                  <td><span class="tl-dot tl-{row.status}" style="display:inline-block"></span></td>
++                </tr>
++              {/each}
++            </tbody>
++          </table>
++        </div>
++      {:else}
++        <p class="no-data">Детальная статистика ESS недоступна</p>
++      {/if}
++
++      <!-- PPC Scatter sub-component -->
++      {#if ppcData}
++        <div class="ppc-scatter-wrap">
++          <h4 class="expert-section-title">Posterior Predictive Check - детали</h4>
++          <PPCScatter ppcData={ppcData} />
++        </div>
++      {/if}
++
++    </div>
++  {/if}
++
++</div>
++
++<style>
++  /* ─── Panel shell ─────────────────────────────────────────────────────────── */
++  .diag-panel {
++    background: var(--bg-card, #181824);
++    border: 1px solid var(--border, rgba(255,255,255,0.08));
++    border-radius: var(--radius-card, 12px);
++    padding: 16px 18px 14px;
++    display: flex;
++    flex-direction: column;
++    gap: 10px;
++  }
++
++  /* Left-side hairline accent by overall status */
++  .diag-panel.status-ok  { border-left: 3px solid var(--success,  #10B981); }
++  .diag-panel.status-warn { border-left: 3px solid var(--warning, #F59E0B); }
++  .diag-panel.status-bad { border-left: 3px solid var(--danger,  #EF4444); }
++
++  /* ─── Header ─────────────────────────────────────────────────────────────── */
++  .panel-header {
++    display: flex;
++    align-items: center;
++    gap: 8px;
++  }
++  .header-icon {
++    display: flex;
++    align-items: center;
++    color: var(--text-secondary);
++    flex-shrink: 0;
++  }
++  .panel-title {
++    font-size: 13px;
++    font-weight: 600;
++    color: var(--text-primary);
++    margin: 0;
++    flex: 1;
++    letter-spacing: 0.01em;
++  }
++  .expand-btn {
++    display: flex;
++    align-items: center;
++    gap: 4px;
++    background: none;
++    border: 1px solid var(--border-subtle, rgba(255,255,255,0.1));
++    border-radius: 6px;
++    color: var(--text-secondary);
++    font: inherit;
++    font-size: 11px;
++    padding: 3px 8px;
++    cursor: pointer;
++    transition: border-color 0.15s, color 0.15s;
++    flex-shrink: 0;
++  }
++  .expand-btn:hover {
++    border-color: var(--accent-primary);
++    color: var(--text-primary);
++  }
++  .expand-label { white-space: nowrap; }
++  .chevron {
++    display: flex;
++    align-items: center;
++    transition: transform 0.2s;
++  }
++  .chevron.open { transform: rotate(180deg); }
++
++  /* ─── Rows ─────────────────────────────────────────────────────────────────── */
++  .rows {
++    display: flex;
++    flex-direction: column;
++    gap: 6px;
++  }
++
++  .diag-row {
++    display: grid;
++    grid-template-columns: 14px minmax(140px, 1fr) auto auto;
++    align-items: center;
++    gap: 8px 10px;
++    padding: 7px 8px;
++    background: color-mix(in srgb, var(--text-primary) 3%, transparent);
++    border-radius: 6px;
++    min-height: 32px;
++  }
++
++  @media (max-width: 600px) {
++    .diag-row {
++      grid-template-columns: 14px 1fr;
++      grid-template-rows: auto auto;
++    }
++    .row-values { grid-column: 2; }
++    .row-hint { grid-column: 1 / -1; padding-left: 22px; }
++  }
++
++  /* ─── Traffic-light CSS dots (accessibility: not emoji) ─────────────────── */
++  .tl-dot {
++    width: 10px;
++    height: 10px;
++    border-radius: 50%;
++    flex-shrink: 0;
++    display: block;
++  }
++  .tl-ok   { background: var(--success,  #10B981); box-shadow: 0 0 6px color-mix(in srgb, var(--success,  #10B981) 60%, transparent); }
++  .tl-warn { background: var(--warning, #F59E0B); box-shadow: 0 0 6px color-mix(in srgb, var(--warning, #F59E0B) 60%, transparent); }
++  .tl-bad  { background: var(--danger,  #EF4444); box-shadow: 0 0 6px color-mix(in srgb, var(--danger,  #EF4444) 60%, transparent); }
++
++  .row-label {
++    font-size: 12px;
++    color: var(--text-primary);
++    white-space: nowrap;
++    overflow: hidden;
++    text-overflow: ellipsis;
++  }
++
++  .row-values {
++    display: flex;
++    gap: 4px;
++    flex-wrap: wrap;
++    justify-content: flex-end;
++  }
++
++  .metric-chip {
++    font-size: 11px;
++    font-variant-numeric: tabular-nums;
++    padding: 2px 7px;
++    border-radius: 4px;
++    background: color-mix(in srgb, var(--accent-primary) 10%, transparent);
++    color: var(--text-secondary);
++    border: 1px solid color-mix(in srgb, var(--accent-primary) 20%, transparent);
++    white-space: nowrap;
++  }
++
++  .chip-info {
++    background: color-mix(in srgb, var(--warning, #F59E0B) 10%, transparent);
++    border-color: color-mix(in srgb, var(--warning, #F59E0B) 25%, transparent);
++    color: var(--warning-text, #FBBF24);
++  }
++
++  .row-hint {
++    font-size: 11px;
++    color: var(--text-secondary);
++    white-space: nowrap;
++    overflow: hidden;
++    text-overflow: ellipsis;
++    grid-column: 4;
++  }
++
++  /* ─── Expert section ──────────────────────────────────────────────────────── */
++  .expert-section {
++    border-top: 1px solid var(--border-subtle, rgba(255,255,255,0.08));
++    padding-top: 12px;
++    display: flex;
++    flex-direction: column;
++    gap: 14px;
++  }
++
++  .expert-badge-row {
++    display: flex;
++    align-items: center;
++    gap: 10px;
++  }
++
++  .expert-badge {
++    display: inline-flex;
++    align-items: center;
++    padding: 2px 7px;
++    border-radius: 4px;
++    background: color-mix(in srgb, var(--warning, #F59E0B) 15%, transparent);
++    border: 1px solid color-mix(in srgb, var(--warning, #F59E0B) 40%, transparent);
++    font-size: 9px;
++    font-weight: 700;
++    letter-spacing: 0.12em;
++    text-transform: uppercase;
++    color: var(--warning, #F59E0B);
++    flex-shrink: 0;
++  }
++
++  .expert-note {
++    display: flex;
++    align-items: center;
++    gap: 4px;
++    font-size: 11px;
++    color: var(--text-secondary);
++  }
++
++  /* ─── Trace placeholder ───────────────────────────────────────────────────── */
++  .trace-placeholder {
++    border: 1px dashed var(--border-subtle, rgba(255,255,255,0.1));
++    border-radius: 8px;
++    padding: 2px;
++  }
++
++  .trace-placeholder-inner {
++    display: flex;
++    flex-direction: column;
++    align-items: center;
++    justify-content: center;
++    gap: 6px;
++    min-height: 80px;
++    padding: 16px;
++    background: color-mix(in srgb, var(--text-primary) 2%, transparent);
++    border-radius: 6px;
++    color: var(--text-secondary);
++    text-align: center;
++  }
++
++  .trace-placeholder-inner p {
++    margin: 0;
++    font-size: 12px;
++    font-weight: 500;
++    color: var(--text-secondary);
++  }
++
++  .trace-note {
++    font-size: 11px;
++    color: color-mix(in srgb, var(--text-secondary) 70%, transparent);
++  }
++
++  .expert-section-title {
++    font-size: 11px;
++    font-weight: 600;
++    text-transform: uppercase;
++    letter-spacing: 0.08em;
++    color: var(--text-secondary);
++    margin: 0 0 8px;
++  }
++
++  /* ─── ESS table ────────────────────────────────────────────────────────────── */
++  .ess-table-wrap {
++    overflow-x: auto;
++  }
++
++  .ess-table {
++    width: 100%;
++    border-collapse: collapse;
++    font-size: 12px;
++  }
++
++  .ess-table th {
++    text-align: left;
++    font-size: 10px;
++    font-weight: 600;
++    text-transform: uppercase;
++    letter-spacing: 0.08em;
++    color: var(--text-secondary);
++    padding: 4px 8px;
++    border-bottom: 1px solid var(--border-subtle, rgba(255,255,255,0.08));
++  }
++
++  .ess-table td {
++    padding: 5px 8px;
++    color: var(--text-primary);
++    border-bottom: 1px solid color-mix(in srgb, var(--border-subtle) 50%, transparent);
++    vertical-align: middle;
++  }
++
++  .param-name {
++    font-family: var(--font-mono, monospace);
++    font-size: 11px;
++    color: var(--text-secondary);
++  }
++
++  .metric-val {
++    font-variant-numeric: tabular-nums;
++    font-size: 12px;
++    text-align: right;
++  }
++
++  .no-data {
++    font-size: 12px;
++    color: var(--text-secondary);
++    margin: 0;
++    padding: 8px 0;
++  }
++
++  .ppc-scatter-wrap {
++    display: flex;
++    flex-direction: column;
++    gap: 8px;
++  }
++</style>
+diff --git a/src/lib/components/pipeline/ReportStep.svelte b/src/lib/components/pipeline/ReportStep.svelte
+index f37736d..acc9d68 100644
+--- a/src/lib/components/pipeline/ReportStep.svelte
++++ b/src/lib/components/pipeline/ReportStep.svelte
+@@ -33,6 +33,7 @@
+   import Tooltip from '$lib/components/Tooltip.svelte';
+   import { TOOLTIPS } from '$lib/data/tooltip-texts.js';
+   import { TriangleAlert, ChartColumn, Globe, Check, ClipboardList } from 'lucide-svelte';
++  import { getAllTerms } from '$lib/glossary.js';
+ 
+   let showOnboarding = $state(false);
+   let onboardingChecked = false;
+@@ -707,6 +708,9 @@
+         modelData:    get(modelData),
+         decomposeData: get(decomposeData),
+         optimizeData:  get(optimizeData),
++        // Волна 3: глоссарий из единого источника glossary.js (50 терминов) —
++        // XLSX больше не держит свою расходящуюся копию (SSOT).
++        glossary:     getAllTerms().map((t) => ({ term: t.term, definition: t.short })),
+       }));
+ 
+       if (result.status === 'ok') {
+diff --git a/src/lib/glossary.js b/src/lib/glossary.js
+index dc6321f..06709b1 100644
+--- a/src/lib/glossary.js
++++ b/src/lib/glossary.js
+@@ -429,7 +429,7 @@ export function getTerm(termId) {
+ 
+ /**
+  * Get all terms as array (for search/listing UI).
+- * @returns {Array<object>}
++ * @returns {Array<{id: string, term: string, short: string, long: string, example: string, related: string[]}>}
+  */
+ export function getAllTerms() {
+   return Object.values(GLOSSARY);
+diff --git a/src/lib/help-econometrica/analysis-mode.html b/src/lib/help-econometrica/analysis-mode.html
+new file mode 100644
+index 0000000..ebbd865
+--- /dev/null
++++ b/src/lib/help-econometrica/analysis-mode.html
+@@ -0,0 +1,638 @@
++<!DOCTYPE html>
++<html lang="ru">
++<head>
++  <meta charset="UTF-8" />
++  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
++  <title>Какой режим выбрать — Aurora MMM Optimizer v2.0.0</title>
++  <style>
++    /* ─── Aurora MMM Optimizer help page — dark theme, premium tier-1 ─── */
++    :root {
++      --bg-page:         #0f0f1a;
++      --bg-card:         #181824;
++      --bg-card-alt:     #1a1a28;
++      --bg-secondary:    #141420;
++      --text-primary:    #EAEAF0;
++      --text-secondary:  #A8A8B8;
++      --accent-primary:  #2E5BFF;
++      --accent-secondary:#CCFF00;
++      --gold:            #c9a449;
++      --warning:         #F59E0B;
++      --success:         #10B981;
++      --danger:          #EF4444;
++      --border:          rgba(255,255,255,0.10);
++      --border-subtle:   rgba(255,255,255,0.06);
++      --radius-card:     12px;
++      --shadow-card:     0 2px 16px rgba(0,0,0,0.4);
++    }
++
++    * { box-sizing: border-box; margin: 0; padding: 0; }
++
++    body {
++      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
++      background: var(--bg-page);
++      color: var(--text-primary);
++      font-size: 13.5px;
++      line-height: 1.65;
++      padding: 32px 24px 48px;
++      max-width: 860px;
++      margin: 0 auto;
++    }
++
++    /* ─── Page header ─── */
++    .page-header {
++      margin-bottom: 32px;
++      padding-bottom: 20px;
++      border-bottom: 1px solid var(--border-subtle);
++    }
++
++    .page-badge {
++      display: inline-flex;
++      align-items: center;
++      gap: 6px;
++      padding: 3px 9px;
++      border-radius: 4px;
++      background: color-mix(in srgb, var(--gold) 12%, var(--bg-secondary));
++      border: 1px solid color-mix(in srgb, var(--gold) 30%, transparent);
++      font-size: 10px;
++      font-weight: 700;
++      letter-spacing: 0.08em;
++      text-transform: uppercase;
++      color: var(--gold);
++      margin-bottom: 12px;
++    }
++
++    h1 {
++      font-size: 22px;
++      font-weight: 700;
++      letter-spacing: -0.02em;
++      line-height: 1.2;
++      color: var(--text-primary);
++      margin-bottom: 8px;
++    }
++
++    .page-lead {
++      font-size: 14px;
++      color: var(--text-secondary);
++      max-width: 620px;
++      line-height: 1.6;
++    }
++
++    /* ─── Section ─── */
++    section {
++      margin-bottom: 28px;
++    }
++
++    h2 {
++      font-size: 15px;
++      font-weight: 700;
++      letter-spacing: -0.01em;
++      color: var(--text-primary);
++      margin-bottom: 10px;
++      display: flex;
++      align-items: center;
++      gap: 8px;
++    }
++
++    h2 .h2-badge {
++      display: inline-flex;
++      padding: 1px 7px;
++      border-radius: 3px;
++      font-size: 9.5px;
++      font-weight: 700;
++      letter-spacing: 0.07em;
++      text-transform: uppercase;
++    }
++
++    h2 .badge-roi {
++      background: color-mix(in srgb, var(--gold) 15%, transparent);
++      border: 1px solid color-mix(in srgb, var(--gold) 35%, transparent);
++      color: var(--gold);
++    }
++
++    h2 .badge-eff {
++      background: color-mix(in srgb, var(--accent-primary) 15%, transparent);
++      border: 1px solid color-mix(in srgb, var(--accent-primary) 35%, transparent);
++      color: #7aa3ff;
++    }
++
++    h2 .badge-exp {
++      background: color-mix(in srgb, var(--warning) 15%, transparent);
++      border: 1px solid color-mix(in srgb, var(--warning) 35%, transparent);
++      color: var(--warning);
++    }
++
++    h2 .badge-info {
++      background: color-mix(in srgb, var(--accent-primary) 12%, transparent);
++      border: 1px solid color-mix(in srgb, var(--accent-primary) 25%, transparent);
++      color: #7aa3ff;
++    }
++
++    h2 .badge-compat {
++      background: color-mix(in srgb, var(--success) 12%, transparent);
++      border: 1px solid color-mix(in srgb, var(--success) 30%, transparent);
++      color: var(--success);
++    }
++
++    /* ─── Cards ─── */
++    .card {
++      background: var(--bg-card);
++      border: 1px solid var(--border);
++      border-radius: var(--radius-card);
++      padding: 18px 20px;
++      box-shadow: var(--shadow-card);
++    }
++
++    .card-gold {
++      border-color: color-mix(in srgb, var(--gold) 35%, var(--border));
++      background: color-mix(in srgb, var(--gold) 4%, var(--bg-card));
++    }
++
++    .card-blue {
++      border-color: color-mix(in srgb, var(--accent-primary) 35%, var(--border));
++      background: color-mix(in srgb, var(--accent-primary) 3%, var(--bg-card));
++    }
++
++    .card-warn {
++      border-color: color-mix(in srgb, var(--warning) 30%, var(--border));
++      background: color-mix(in srgb, var(--warning) 4%, var(--bg-card));
++    }
++
++    /* ─── Use-when / don't-use ─── */
++    .use-grid {
++      display: grid;
++      grid-template-columns: 1fr 1fr;
++      gap: 10px;
++      margin-top: 12px;
++    }
++
++    @media (max-width: 640px) {
++      .use-grid { grid-template-columns: 1fr; }
++    }
++
++    .use-block {
++      padding: 12px 14px;
++      border-radius: 8px;
++      background: var(--bg-secondary);
++      border: 1px solid var(--border-subtle);
++    }
++
++    .use-title {
++      font-size: 10.5px;
++      font-weight: 700;
++      letter-spacing: 0.07em;
++      text-transform: uppercase;
++      margin-bottom: 8px;
++    }
++
++    .use-when .use-title  { color: var(--success); }
++    .dont-use .use-title  { color: color-mix(in srgb, var(--danger) 80%, var(--text-secondary)); }
++
++    ul {
++      padding-left: 0;
++      list-style: none;
++      display: flex;
++      flex-direction: column;
++      gap: 5px;
++    }
++
++    li {
++      padding-left: 16px;
++      position: relative;
++      font-size: 13px;
++      color: var(--text-secondary);
++      line-height: 1.5;
++    }
++
++    .use-when li::before {
++      content: '✓';
++      position: absolute;
++      left: 0;
++      color: var(--success);
++      font-size: 11px;
++      top: 1px;
++    }
++
++    .dont-use li::before {
++      content: '✗';
++      position: absolute;
++      left: 0;
++      color: color-mix(in srgb, var(--danger) 80%, var(--text-secondary));
++      font-size: 11px;
++      top: 1px;
++    }
++
++    .info-list li::before {
++      content: '→';
++      position: absolute;
++      left: 0;
++      color: var(--accent-primary);
++      font-size: 11px;
++      top: 1px;
++    }
++
++    /* ─── Output block ─── */
++    .output-row {
++      display: flex;
++      gap: 8px;
++      flex-wrap: wrap;
++      margin-top: 10px;
++    }
++
++    .output-tag {
++      display: inline-flex;
++      padding: 3px 10px;
++      border-radius: 4px;
++      font-size: 11.5px;
++      font-weight: 600;
++      background: color-mix(in srgb, var(--accent-secondary) 10%, var(--bg-secondary));
++      border: 1px solid color-mix(in srgb, var(--accent-secondary) 25%, transparent);
++      color: color-mix(in srgb, var(--accent-secondary) 90%, var(--text-primary));
++    }
++
++    /* ─── Info box ─── */
++    .info-box {
++      margin-top: 12px;
++      padding: 12px 16px;
++      background: color-mix(in srgb, var(--accent-primary) 6%, var(--bg-secondary));
++      border-left: 2px solid var(--accent-primary);
++      border-radius: 0 6px 6px 0;
++      font-size: 12.5px;
++      color: var(--text-secondary);
++      line-height: 1.6;
++    }
++
++    .info-box strong { color: var(--text-primary); }
++
++    /* ─── Warning box ─── */
++    .warn-box {
++      margin-top: 12px;
++      padding: 12px 16px;
++      background: color-mix(in srgb, var(--warning) 6%, var(--bg-secondary));
++      border-left: 2px solid var(--warning);
++      border-radius: 0 6px 6px 0;
++      font-size: 12.5px;
++      color: var(--text-secondary);
++      line-height: 1.6;
++    }
++
++    .warn-box strong { color: var(--text-primary); }
++
++    /* ─── How-to step ─── */
++    .howto-steps {
++      margin-top: 12px;
++      display: flex;
++      flex-direction: column;
++      gap: 10px;
++    }
++
++    .howto-step {
++      display: flex;
++      gap: 12px;
++      align-items: flex-start;
++    }
++
++    .step-num {
++      display: flex;
++      align-items: center;
++      justify-content: center;
++      width: 24px;
++      height: 24px;
++      flex-shrink: 0;
++      border-radius: 50%;
++      background: color-mix(in srgb, var(--gold) 15%, var(--bg-secondary));
++      border: 1px solid color-mix(in srgb, var(--gold) 35%, transparent);
++      font-size: 11px;
++      font-weight: 700;
++      color: var(--gold);
++    }
++
++    .step-body {
++      font-size: 13px;
++      color: var(--text-secondary);
++      line-height: 1.5;
++      padding-top: 3px;
++    }
++
++    .step-body strong { color: var(--text-primary); }
++
++    /* ─── Migration table ─── */
++    .compat-table {
++      width: 100%;
++      border-collapse: collapse;
++      font-size: 12.5px;
++      margin-top: 12px;
++    }
++
++    .compat-table th {
++      text-align: left;
++      padding: 8px 12px;
++      background: var(--bg-secondary);
++      border: 1px solid var(--border-subtle);
++      font-size: 10.5px;
++      font-weight: 700;
++      letter-spacing: 0.05em;
++      text-transform: uppercase;
++      color: var(--text-secondary);
++    }
++
++    .compat-table td {
++      padding: 8px 12px;
++      border: 1px solid var(--border-subtle);
++      color: var(--text-secondary);
++      vertical-align: top;
++    }
++
++    .compat-table td:first-child {
++      color: var(--text-primary);
++      font-weight: 600;
++    }
++
++    .tag-auto {
++      display: inline-flex;
++      padding: 1px 6px;
++      border-radius: 3px;
++      font-size: 10px;
++      font-weight: 600;
++      background: color-mix(in srgb, var(--success) 12%, transparent);
++      border: 1px solid color-mix(in srgb, var(--success) 28%, transparent);
++      color: var(--success);
++      margin-left: 4px;
++    }
++
++    .tag-manual {
++      display: inline-flex;
++      padding: 1px 6px;
++      border-radius: 3px;
++      font-size: 10px;
++      font-weight: 600;
++      background: color-mix(in srgb, var(--warning) 12%, transparent);
++      border: 1px solid color-mix(in srgb, var(--warning) 28%, transparent);
++      color: var(--warning);
++      margin-left: 4px;
++    }
++
++    /* ─── Footer ─── */
++    .page-footer {
++      margin-top: 36px;
++      padding-top: 16px;
++      border-top: 1px solid var(--border-subtle);
++      font-size: 11.5px;
++      color: var(--text-secondary);
++      opacity: 0.65;
++    }
++  </style>
++</head>
++<body>
++
++  <div class="page-header">
++    <div class="page-badge">Aurora MMM Optimizer · Справка</div>
++    <h1>Какой режим выбрать: ROI, Эффективность или Смешанный</h1>
++    <p class="page-lead">
++      Режим анализа определяет единицы, в которых медиа-каналы подаются в модель.
++      Это не зависит от KPI — один и тот же KPI (продажи) может быть рассчитан
++      в любом режиме. Правильный выбор влияет на интерпретацию выходных метрик.
++    </p>
++  </div>
++
++  <!-- ─── ROI ─── -->
++  <section>
++    <h2>
++      <span>ROI режим</span>
++      <span class="h2-badge badge-roi">₽ / ROI</span>
++    </h2>
++
++    <div class="card card-gold">
++      <p>
++        Все медиа-каналы подаются в рублях (фактические бюджеты спенда).
++        Модель напрямую оценивает финансовую отдачу — <strong>ROI</strong>
++        (₽ выручки на ₽ вложений) и <strong>CPU</strong> (₽ на единицу KPI
++        — лид, упаковка, посещение).
++      </p>
++
++      <div class="use-grid">
++        <div class="use-block use-when">
++          <div class="use-title">Когда использовать</div>
++          <ul>
++            <li>Прямые закупки без посредников</li>
++            <li>Данные бюджетов точные и прозрачные</li>
++            <li>ROI / CPU — ключевая отчётная метрика</li>
++            <li>Нужно оправдать маркетинговые расходы перед финансовым директором</li>
++          </ul>
++        </div>
++        <div class="use-block dont-use">
++          <div class="use-title">Когда не подходит</div>
++          <ul>
++            <li>Бартерные размещения или агентские скидки «в конверте»</li>
++            <li>Неизвестная наценка агентства (30–50%)</li>
++            <li>TV-кампании с данными только по GRP, без ₽</li>
++            <li>Бюджет «по медиаплану» значительно расходится с реальным</li>
++          </ul>
++        </div>
++      </div>
++
++      <div class="info-box">
++        <strong>Результат:</strong> ROI и CPU по каждому каналу с доверительным интервалом.
++        Декомпозиция показывает ₽ вклада в продажи.
++      </div>
++    </div>
++  </section>
++
++  <!-- ─── Effectiveness ─── -->
++  <section>
++    <h2>
++      <span>Эффективность режим</span>
++      <span class="h2-badge badge-eff">TRP / Показы</span>
++    </h2>
++
++    <div class="card card-blue">
++      <p>
++        Медиа-каналы подаются в <strong>физических единицах контакта</strong>:
++        TRP для телевидения, показы (impressions) для Digital и OOH,
++        клики для Performance. Модель считает <strong>долю вклада каждого канала
++        в % от KPI</strong> без пересчёта в деньги.
++      </p>
++
++      <div class="use-grid">
++        <div class="use-block use-when">
++          <div class="use-title">Когда использовать</div>
++          <ul>
++            <li>TV-heavy микс без прозрачных бюджетов (закупка по GRP)</li>
++            <li>Бартерные размещения — ₽ данных нет или ненадёжны</li>
++            <li>Brand-кампании, где KPI — охват, узнаваемость</li>
++            <li>Агентские скидки меняют реальную стоимость контакта</li>
++          </ul>
++        </div>
++        <div class="use-block dont-use">
++          <div class="use-title">Ограничения</div>
++          <ul>
++            <li>Нет прямой финансовой метрики ROI (только % вклад)</li>
++            <li>Для оптимизации бюджета нужна дополнительная ставка CPP/CPM</li>
++            <li>Нельзя сравнить «телевизор vs Performance» по стоимости конверсии напрямую</li>
++          </ul>
++        </div>
++      </div>
++
++      <div class="output-row">
++        <span class="output-tag">% вклад в KPI</span>
++        <span class="output-tag">Sales share по каналу</span>
++        <span class="output-tag">Saturation кривые</span>
++      </div>
++
++      <div class="info-box">
++        <strong>Рекомендация по умолчанию:</strong> если сомневаетесь — выбирайте этот режим.
++        Он даёт стабильные оценки вкладов даже при неточных или смешанных бюджетных данных.
++        Переключить режим можно в любой момент — модель пересчитается.
++      </div>
++    </div>
++  </section>
++
++  <!-- ─── Expert/Mixed ─── -->
++  <section>
++    <h2>
++      <span>Смешанный (Expert)</span>
++      <span class="h2-badge badge-exp">Expert only</span>
++    </h2>
++
++    <div class="card card-warn">
++      <p>
++        Каждый канал настраивается <strong>индивидуально</strong>:
++        часть каналов в рублях, часть в физических метриках.
++        Физические каналы требуют ставок конверсии (<strong>CPP или CPM</strong>)
++        для приведения к единому знаменателю.
++      </p>
++
++      <div class="use-grid">
++        <div class="use-block use-when">
++          <div class="use-title">Когда оправдан</div>
++          <ul>
++            <li>Performance-каналы с точными ₽ + TV с данными только по GRP</li>
++            <li>Опытный аналитик контролирует ставки CPP</li>
++            <li>Необходима унифицированная ROI-оценка при разнородных данных</li>
++          </ul>
++        </div>
++        <div class="use-block dont-use">
++          <div class="use-title">Предупреждения</div>
++          <ul>
++            <li>Добавляет ±10–25% неопределённости в ROI из-за ставок конверсии</li>
++            <li>Требует unit_cost или CPP ставки для каждого физ. канала</li>
++            <li>Сложнее интерпретировать — Manager mode не отображает Expert UI</li>
++          </ul>
++        </div>
++      </div>
++
++      <div class="warn-box">
++        <strong>Важно:</strong> этот режим доступен только при включённом
++        <strong>Expert mode</strong> в настройках. Он не появится в Manager mode —
++        это намеренное ограничение для предотвращения ошибочного использования.
++      </div>
++    </div>
++  </section>
++
++  <!-- ─── How to switch ─── -->
++  <section>
++    <h2>
++      <span>Как переключить режим</span>
++      <span class="h2-badge badge-info">Шаги</span>
++    </h2>
++
++    <div class="card">
++      <div class="howto-steps">
++        <div class="howto-step">
++          <span class="step-num">1</span>
++          <span class="step-body">
++            Откройте шаг <strong>Валидация</strong> или <strong>Настройки</strong>
++            в pipeline — в верхней части страницы находится
++            <strong>AnalysisModeSelector</strong>.
++          </span>
++        </div>
++        <div class="howto-step">
++          <span class="step-num">2</span>
++          <span class="step-body">
++            Выберите нужную карточку режима. Модель автоматически сбрасывает
++            результаты и предлагает пересчёт.
++          </span>
++        </div>
++        <div class="howto-step">
++          <span class="step-num">3</span>
++          <span class="step-body">
++            Для доступа к <strong>Смешанному режиму</strong>: сначала включите
++            <strong>Expert mode</strong> в Настройках (иконка шестерёнки),
++            затем вернитесь к AnalysisModeSelector — появится третья карточка.
++          </span>
++        </div>
++        <div class="howto-step">
++          <span class="step-num">4</span>
++          <span class="step-body">
++            Запустите обучение модели заново. Переключение режима в середине цикла
++            аннулирует предыдущие результаты — это ожидаемое поведение.
++          </span>
++        </div>
++      </div>
++    </div>
++  </section>
++
++  <!-- ─── Backward compatibility ─── -->
++  <section>
++    <h2>
++      <span>Совместимость с проектами v1.3.x</span>
++      <span class="h2-badge badge-compat">Авто-миграция</span>
++    </h2>
++
++    <div class="card">
++      <p style="color:var(--text-secondary); margin-bottom:12px;">
++        При открытии проекта v1.3.x программа автоматически определяет режим
++        по ранее выбранным единицам каналов (per-channel input). Никаких ручных
++        действий не требуется.
++      </p>
++
++      <table class="compat-table">
++        <thead>
++          <tr>
++            <th>Конфигурация v1.3.x</th>
++            <th>Результат миграции</th>
++            <th>Toast</th>
++          </tr>
++        </thead>
++        <tbody>
++          <tr>
++            <td>Новый пустой проект</td>
++            <td>ROI режим <span class="tag-auto">авто</span></td>
++            <td>Нет</td>
++          </tr>
++          <tr>
++            <td>Все каналы в ₽</td>
++            <td>ROI режим <span class="tag-auto">авто</span></td>
++            <td>Нет</td>
++          </tr>
++          <tr>
++            <td>Все каналы в физ. метриках</td>
++            <td>Эффективность режим <span class="tag-auto">авто</span></td>
++            <td>Нет</td>
++          </tr>
++          <tr>
++            <td>Часть в ₽, часть в физических</td>
++            <td>Смешанный + Expert mode <span class="tag-manual">уведомление</span></td>
++            <td>Да</td>
++          </tr>
++          <tr>
++            <td>Неизвестные / null значения</td>
++            <td>Смешанный + Expert mode <span class="tag-manual">уведомление</span></td>
++            <td>Да</td>
++          </tr>
++        </tbody>
++      </table>
++
++      <div class="info-box" style="margin-top:14px;">
++        Если после миграции показывается toast об Expert mode — это означает,
++        что ваш проект использовал смешанные единицы. Рекомендуется привести
++        все каналы к единому режиму в шаге Валидация для повышения точности ROI.
++      </div>
++    </div>
++  </section>
++
++  <div class="page-footer">
++    Aurora MMM Optimizer v2.0.0 · Справочная страница analysis-mode · Обновлено 2026-05
++  </div>
++
++</body>
++</html>
+diff --git a/src/lib/help-econometrica/signed-factors-and-holidays.html b/src/lib/help-econometrica/signed-factors-and-holidays.html
+new file mode 100644
+index 0000000..c70cd00
+--- /dev/null
++++ b/src/lib/help-econometrica/signed-factors-and-holidays.html
+@@ -0,0 +1,747 @@
++<!DOCTYPE html>
++<html lang="ru">
++<head>
++  <meta charset="UTF-8" />
++  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
++  <title>Signed factors и РФ-праздники — Aurora MMM Optimizer v2.0.0</title>
++  <style>
++    /* ─── Aurora MMM Optimizer help page — dark theme, premium tier-1 ─── */
++    :root {
++      --bg-page:         #0f0f1a;
++      --bg-card:         #181824;
++      --bg-card-alt:     #1a1a28;
++      --bg-secondary:    #141420;
++      --text-primary:    #EAEAF0;
++      --text-secondary:  #A8A8B8;
++      --accent-primary:  #2E5BFF;
++      --accent-secondary:#CCFF00;
++      --gold:            #c9a449;
++      --warning:         #F59E0B;
++      --success:         #10B981;
++      --danger:          #EF4444;
++      --border:          rgba(255,255,255,0.10);
++      --border-subtle:   rgba(255,255,255,0.06);
++      --radius-card:     12px;
++      --shadow-card:     0 2px 16px rgba(0,0,0,0.4);
++    }
++
++    * { box-sizing: border-box; margin: 0; padding: 0; }
++
++    body {
++      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
++      background: var(--bg-page);
++      color: var(--text-primary);
++      font-size: 13.5px;
++      line-height: 1.65;
++      padding: 32px 24px 48px;
++      max-width: 860px;
++      margin: 0 auto;
++    }
++
++    /* ─── Page header ─── */
++    .page-header {
++      margin-bottom: 32px;
++      padding-bottom: 20px;
++      border-bottom: 1px solid var(--border-subtle);
++    }
++
++    .page-badge {
++      display: inline-flex;
++      align-items: center;
++      gap: 6px;
++      padding: 3px 9px;
++      border-radius: 4px;
++      background: color-mix(in srgb, var(--gold) 12%, var(--bg-secondary));
++      border: 1px solid color-mix(in srgb, var(--gold) 30%, transparent);
++      font-size: 10px;
++      font-weight: 700;
++      letter-spacing: 0.08em;
++      text-transform: uppercase;
++      color: var(--gold);
++      margin-bottom: 12px;
++    }
++
++    h1 {
++      font-size: 22px;
++      font-weight: 700;
++      letter-spacing: -0.02em;
++      line-height: 1.2;
++      color: var(--text-primary);
++      margin-bottom: 8px;
++    }
++
++    .page-lead {
++      font-size: 14px;
++      color: var(--text-secondary);
++      max-width: 640px;
++      line-height: 1.6;
++    }
++
++    /* ─── Section ─── */
++    section {
++      margin-bottom: 28px;
++    }
++
++    h2 {
++      font-size: 15px;
++      font-weight: 700;
++      letter-spacing: -0.01em;
++      color: var(--text-primary);
++      margin-bottom: 10px;
++      display: flex;
++      align-items: center;
++      gap: 8px;
++    }
++
++    h2 .h2-badge {
++      display: inline-flex;
++      padding: 1px 7px;
++      border-radius: 3px;
++      font-size: 9.5px;
++      font-weight: 700;
++      letter-spacing: 0.07em;
++      text-transform: uppercase;
++    }
++
++    .badge-concept {
++      background: color-mix(in srgb, var(--accent-primary) 15%, transparent);
++      border: 1px solid color-mix(in srgb, var(--accent-primary) 35%, transparent);
++      color: #7aa3ff;
++    }
++
++    .badge-neg {
++      background: color-mix(in srgb, var(--danger) 12%, transparent);
++      border: 1px solid color-mix(in srgb, var(--danger) 28%, transparent);
++      color: color-mix(in srgb, var(--danger) 85%, #fff);
++    }
++
++    .badge-holiday {
++      background: color-mix(in srgb, var(--gold) 12%, transparent);
++      border: 1px solid color-mix(in srgb, var(--gold) 30%, transparent);
++      color: var(--gold);
++    }
++
++    .badge-custom {
++      background: color-mix(in srgb, var(--warning) 12%, transparent);
++      border: 1px solid color-mix(in srgb, var(--warning) 28%, transparent);
++      color: var(--warning);
++    }
++
++    /* ─── Cards ─── */
++    .card {
++      background: var(--bg-card);
++      border: 1px solid var(--border);
++      border-radius: var(--radius-card);
++      padding: 18px 20px;
++      box-shadow: var(--shadow-card);
++    }
++
++    /* ─── Factor grid ─── */
++    .factor-grid {
++      display: grid;
++      grid-template-columns: 1fr 1fr;
++      gap: 10px;
++      margin-top: 12px;
++    }
++
++    @media (max-width: 640px) {
++      .factor-grid { grid-template-columns: 1fr; }
++    }
++
++    .factor-card {
++      padding: 12px 14px;
++      border-radius: 8px;
++      background: var(--bg-secondary);
++      border: 1px solid var(--border-subtle);
++      display: flex;
++      flex-direction: column;
++      gap: 5px;
++    }
++
++    .factor-name {
++      font-size: 12.5px;
++      font-weight: 700;
++      color: var(--text-primary);
++      display: flex;
++      align-items: center;
++      gap: 6px;
++    }
++
++    .factor-col {
++      display: inline-block;
++      font-family: 'JetBrains Mono', 'Fira Code', monospace;
++      font-size: 10px;
++      padding: 1px 5px;
++      border-radius: 3px;
++      background: color-mix(in srgb, var(--accent-primary) 10%, var(--bg-secondary));
++      border: 1px solid color-mix(in srgb, var(--accent-primary) 22%, transparent);
++      color: #7aa3ff;
++    }
++
++    .factor-desc {
++      font-size: 12px;
++      color: var(--text-secondary);
++      line-height: 1.5;
++    }
++
++    .factor-sign {
++      font-size: 10.5px;
++      font-weight: 700;
++      padding: 1px 6px;
++      border-radius: 3px;
++    }
++
++    .sign-neg {
++      background: color-mix(in srgb, var(--danger) 12%, transparent);
++      border: 1px solid color-mix(in srgb, var(--danger) 25%, transparent);
++      color: color-mix(in srgb, var(--danger) 85%, #fff);
++    }
++
++    .sign-pos {
++      background: color-mix(in srgb, var(--warning) 12%, transparent);
++      border: 1px solid color-mix(in srgb, var(--warning) 25%, transparent);
++      color: var(--warning);
++    }
++
++    /* ─── Info / warn / quote boxes ─── */
++    .info-box {
++      margin-top: 12px;
++      padding: 12px 16px;
++      background: color-mix(in srgb, var(--accent-primary) 6%, var(--bg-secondary));
++      border-left: 2px solid var(--accent-primary);
++      border-radius: 0 6px 6px 0;
++      font-size: 12.5px;
++      color: var(--text-secondary);
++      line-height: 1.6;
++    }
++
++    .info-box strong { color: var(--text-primary); }
++
++    .warn-box {
++      margin-top: 12px;
++      padding: 12px 16px;
++      background: color-mix(in srgb, var(--warning) 6%, var(--bg-secondary));
++      border-left: 2px solid var(--warning);
++      border-radius: 0 6px 6px 0;
++      font-size: 12.5px;
++      color: var(--text-secondary);
++      line-height: 1.6;
++    }
++
++    .warn-box strong { color: var(--text-primary); }
++
++    .quote-box {
++      margin: 12px 0;
++      padding: 12px 16px;
++      background: color-mix(in srgb, var(--danger) 6%, var(--bg-secondary));
++      border-left: 2px solid color-mix(in srgb, var(--danger) 60%, var(--text-secondary));
++      border-radius: 0 6px 6px 0;
++      font-size: 13px;
++      font-style: italic;
++      color: var(--text-primary);
++      line-height: 1.6;
++    }
++
++    /* ─── Holiday table ─── */
++    .holiday-table {
++      width: 100%;
++      border-collapse: collapse;
++      font-size: 12.5px;
++      margin-top: 12px;
++    }
++
++    .holiday-table th {
++      text-align: left;
++      padding: 8px 12px;
++      background: var(--bg-secondary);
++      border: 1px solid var(--border-subtle);
++      font-size: 10.5px;
++      font-weight: 700;
++      letter-spacing: 0.05em;
++      text-transform: uppercase;
++      color: var(--text-secondary);
++    }
++
++    .holiday-table td {
++      padding: 7px 12px;
++      border: 1px solid var(--border-subtle);
++      color: var(--text-secondary);
++      vertical-align: top;
++    }
++
++    .holiday-table td:first-child {
++      color: var(--text-primary);
++      font-weight: 600;
++    }
++
++    .holiday-table td:nth-child(2) {
++      font-family: 'JetBrains Mono', 'Fira Code', monospace;
++      font-size: 11.5px;
++      color: #7aa3ff;
++    }
++
++    /* ─── Negative bar example ─── */
++    .decomp-example {
++      margin-top: 14px;
++      background: var(--bg-secondary);
++      border: 1px solid var(--border-subtle);
++      border-radius: 8px;
++      overflow: hidden;
++    }
++
++    .decomp-title {
++      padding: 8px 14px;
++      font-size: 10.5px;
++      font-weight: 700;
++      letter-spacing: 0.06em;
++      text-transform: uppercase;
++      color: var(--text-secondary);
++      border-bottom: 1px solid var(--border-subtle);
++      background: color-mix(in srgb, var(--bg-page) 40%, var(--bg-secondary));
++    }
++
++    .decomp-rows {
++      padding: 10px 14px;
++      display: flex;
++      flex-direction: column;
++      gap: 8px;
++    }
++
++    .decomp-row {
++      display: flex;
++      align-items: center;
++      gap: 10px;
++    }
++
++    .decomp-label {
++      font-size: 12px;
++      color: var(--text-secondary);
++      min-width: 130px;
++      flex-shrink: 0;
++    }
++
++    .bar-wrap {
++      flex: 1;
++      display: flex;
++      align-items: center;
++      gap: 6px;
++    }
++
++    .bar {
++      height: 12px;
++      border-radius: 3px;
++    }
++
++    .bar-pos {
++      background: var(--success);
++    }
++
++    .bar-neg {
++      background: color-mix(in srgb, var(--danger) 70%, var(--text-secondary));
++    }
++
++    .bar-neutral {
++      background: color-mix(in srgb, var(--gold) 70%, var(--text-secondary));
++    }
++
++    .bar-val {
++      font-size: 11.5px;
++      font-weight: 600;
++      min-width: 48px;
++      text-align: right;
++    }
++
++    .bar-val.neg { color: color-mix(in srgb, var(--danger) 80%, var(--text-secondary)); }
++    .bar-val.pos { color: var(--success); }
++    .bar-val.neutral { color: var(--gold); }
++
++    /* ─── Why auto section items ─── */
++    ul.reason-list {
++      padding-left: 0;
++      list-style: none;
++      margin-top: 10px;
++      display: flex;
++      flex-direction: column;
++      gap: 7px;
++    }
++
++    ul.reason-list li {
++      padding-left: 18px;
++      position: relative;
++      font-size: 13px;
++      color: var(--text-secondary);
++      line-height: 1.5;
++    }
++
++    ul.reason-list li::before {
++      content: '→';
++      position: absolute;
++      left: 0;
++      color: var(--gold);
++      font-size: 11px;
++      top: 1px;
++    }
++
++    ul.reason-list li strong { color: var(--text-primary); }
++
++    /* ─── Deferred tag ─── */
++    .deferred-tag {
++      display: inline-flex;
++      padding: 2px 8px;
++      border-radius: 4px;
++      font-size: 10.5px;
++      font-weight: 600;
++      background: color-mix(in srgb, var(--warning) 10%, var(--bg-secondary));
++      border: 1px solid color-mix(in srgb, var(--warning) 25%, transparent);
++      color: var(--warning);
++    }
++
++    /* ─── Footer ─── */
++    .page-footer {
++      margin-top: 36px;
++      padding-top: 16px;
++      border-top: 1px solid var(--border-subtle);
++      font-size: 11.5px;
++      color: var(--text-secondary);
++      opacity: 0.65;
++    }
++  </style>
++</head>
++<body>
++
++  <div class="page-header">
++    <div class="page-badge">Aurora MMM Optimizer · Справка</div>
++    <h1>Signed factors и РФ-праздники в модели</h1>
++    <p class="page-lead">
++      MMM-модель учитывает не только медиа-активность, но и внешние факторы:
++      активность конкурентов, ценовое давление, погоду, макроэкономику.
++      Часть из них имеет <em>отрицательный</em> знак в декомпозиции — это честное
++      отображение реальности, а не ошибка модели.
++    </p>
++  </div>
++
++  <!-- ─── What are signed factors ─── -->
++  <section>
++    <h2>
++      <span>Что такое signed factors</span>
++      <span class="h2-badge badge-concept">Контрольные переменные</span>
++    </h2>
++
++    <div class="card">
++      <p>
++        <strong>Signed factors</strong> — контрольные переменные с ожидаемым
++        знаком воздействия на KPI. Они не являются медиа-каналами и не оптимизируются,
++        но их включение в модель предотвращает <em>атрибутивную ошибку</em>:
++        без них их вклад ошибочно приписывается рекламным каналам.
++      </p>
++
++      <div class="factor-grid">
++        <div class="factor-card">
++          <div class="factor-name">
++            Конкуренты
++            <span class="factor-col">competitor_trp</span>
++            <span class="factor-sign sign-neg">−</span>
++          </div>
++          <div class="factor-desc">
++            Активность конкурентов снижает вашу долю продаж.
++            Высокий GRP конкурента в период акции объясняет падение
++            ваших продаж без «штрафа» на ваши каналы.
++          </div>
++        </div>
++
++        <div class="factor-card">
++          <div class="factor-name">
++            Цена
++            <span class="factor-col">price_index</span>
++            <span class="factor-sign sign-neg">±</span>
++          </div>
++          <div class="factor-desc">
++            Рост цены снижает спрос (отрицательный коэффициент).
++            При акционном снижении цены — положительный вклад.
++            Модель корректно разделяет ценовой эффект и рекламный.
++          </div>
++        </div>
++
++        <div class="factor-card">
++          <div class="factor-name">
++            Погода
++            <span class="factor-col">temp_avg</span>
++            <span class="factor-sign sign-pos">±</span>
++          </div>
++          <div class="factor-desc">
++            Для сезонных категорий (напитки, FMCG-продукты питания):
++            аномальная жара или холод объясняют всплески/падения продаж.
++            Знак зависит от категории.
++          </div>
++        </div>
++
++        <div class="factor-card">
++          <div class="factor-name">
++            Макро
++            <span class="factor-col">cpi / pmi</span>
++            <span class="factor-sign sign-neg">−</span>
++          </div>
++          <div class="factor-desc">
++            Индекс потребительских цен или PMI потребительского доверия.
++            Используется в категориях с высокой ценовой чувствительностью
++            (электроника, автомобили, крупная бытовая техника).
++          </div>
++        </div>
++      </div>
++
++      <div class="info-box">
++        <strong>Как добавить:</strong> включите нужные колонки как
++        <strong>Контрольные переменные</strong> в ColumnMapper (шаг «Валидация»).
++        Программа авто-определяет competitor_trp и price_index при confidence ≥ 0.9.
++        Погода и макро — ручная разметка.
++      </div>
++    </div>
++  </section>
++
++  <!-- ─── Negative bars ─── -->
++  <section>
++    <h2>
++      <span>Почему в декомпозиции бывают отрицательные bar</span>
++      <span class="h2-badge badge-neg">−% вклад</span>
++    </h2>
++
++    <div class="card">
++      <p>
++        Отрицательные столбцы в декомпозиции — это <strong>честное представление</strong>
++        реальности. Они означают, что данный фактор <em>снижал</em> продажи в указанный период.
++        Игнорировать их — значит перераспределить этот отрицательный эффект на рекламные каналы
++        и завысить их ROI.
++      </p>
++
++      <div class="quote-box">
++        «−15% от конкурентов» означает: если бы конкурент не проводил акцию,
++        ваши продажи были бы на 15% выше. Это не ошибка модели —
++        это корректная атрибуция потерь.
++      </div>
++
++      <div class="decomp-example">
++        <div class="decomp-title">Пример декомпозиции периода с активностью конкурентов</div>
++        <div class="decomp-rows">
++          <div class="decomp-row">
++            <span class="decomp-label">База (без рекламы)</span>
++            <div class="bar-wrap">
++              <div class="bar bar-neutral" style="width: 45%"></div>
++              <span class="bar-val neutral">+45%</span>
++            </div>
++          </div>
++          <div class="decomp-row">
++            <span class="decomp-label">TV-реклама</span>
++            <div class="bar-wrap">
++              <div class="bar bar-pos" style="width: 30%"></div>
++              <span class="bar-val pos">+30%</span>
++            </div>
++          </div>
++          <div class="decomp-row">
++            <span class="decomp-label">Digital</span>
++            <div class="bar-wrap">
++              <div class="bar bar-pos" style="width: 12%"></div>
++              <span class="bar-val pos">+12%</span>
++            </div>
++          </div>
++          <div class="decomp-row">
++            <span class="decomp-label">Активность конкурента</span>
++            <div class="bar-wrap">
++              <div class="bar bar-neg" style="width: 15%"></div>
++              <span class="bar-val neg">−15%</span>
++            </div>
++          </div>
++          <div class="decomp-row">
++            <span class="decomp-label">Рост цены</span>
++            <div class="bar-wrap">
++              <div class="bar bar-neg" style="width: 8%"></div>
++              <span class="bar-val neg">−8%</span>
++            </div>
++          </div>
++          <div class="decomp-row">
++            <span class="decomp-label" style="font-weight:600;color:var(--text-primary)">Итого продажи</span>
++            <div class="bar-wrap">
++              <span class="bar-val pos" style="font-size:13px;">≈ +64%</span>
++            </div>
++          </div>
++        </div>
++      </div>
++
++      <div class="info-box" style="margin-top:14px;">
++        <strong>Совет:</strong> если видите неожиданно крупный отрицательный bar —
++        проверьте, что конкурентный столбец содержит именно активность (GRP, impressions),
++        а не прочие показатели. Неправильная колонка может создать артефакт в декомпозиции.
++      </div>
++    </div>
++  </section>
++
++  <!-- ─── РФ holidays auto-inject ─── -->
++  <section>
++    <h2>
++      <span>РФ-праздники: авто-инъекция</span>
++      <span class="h2-badge badge-holiday">12 событий</span>
++    </h2>
++
++    <div class="card">
++      <p>
++        Программа автоматически добавляет <strong>12 праздничных событий</strong>
++        Российской Федерации в качестве контрольных переменных при каждом обучении.
++        Это единственный фактор, который не требует ни наличия в данных, ни ручной разметки.
++      </p>
++
++      <table class="holiday-table">
++        <thead>
++          <tr>
++            <th>Событие</th>
++            <th>Период</th>
++            <th>Тип воздействия</th>
++          </tr>
++        </thead>
++        <tbody>
++          <tr>
++            <td>Новый год</td>
++            <td>нед. 52–53 + нед. 1–2</td>
++            <td>Сезонный всплеск FMCG, подарки</td>
++          </tr>
++          <tr>
++            <td>Рождество</td>
++            <td>нед. 2 (7 января)</td>
++            <td>Малый пик (продовольствие)</td>
++          </tr>
++          <tr>
++            <td>23 февраля</td>
++            <td>нед. 8</td>
++            <td>Подарочный пик (мужская аудитория)</td>
++          </tr>
++          <tr>
++            <td>8 марта</td>
++            <td>нед. 10</td>
++            <td>Подарочный пик (женская аудитория)</td>
++          </tr>
++          <tr>
++            <td>Пасха</td>
++            <td>нед. 14–18 (плавает)</td>
++            <td>Продовольствие, бытовая химия</td>
++          </tr>
++          <tr>
++            <td>Майские праздники</td>
++            <td>нед. 18–19</td>
++            <td>DIY, авто, загородный отдых</td>
++          </tr>
++          <tr>
++            <td>9 мая</td>
++            <td>нед. 19</td>
++            <td>Пик алкоголь / гастрономия</td>
++          </tr>
++          <tr>
++            <td>День России</td>
++            <td>нед. 24</td>
++            <td>Малый пик (развлечения)</td>
++          </tr>
++          <tr>
++            <td>Back-to-School</td>
++            <td>нед. 33–35</td>
++            <td>Канцелярия, электроника, одежда</td>
++          </tr>
++          <tr>
++            <td>День народного единства</td>
++            <td>нед. 44</td>
++            <td>Малый пик</td>
++          </tr>
++          <tr>
++            <td>Чёрная пятница</td>
++            <td>нед. 47–48</td>
++            <td>Крупный пик e-com и розница</td>
++          </tr>
++          <tr>
++            <td>Предновогодний период</td>
++            <td>нед. 49–52</td>
++            <td>Устойчивый рост FMCG / подарки</td>
++          </tr>
++        </tbody>
++      </table>
++
++      <div class="info-box" style="margin-top:14px;">
++        <strong>Почему авто, а не ручная разметка?</strong>
++        Праздники — детерминированная информация с фиксированными датами.
++        Их пропуск систематически приводит к переоценке рекламного эффекта
++        в пиковые периоды (нов. год, 8 марта). Авто-инъекция устраняет
++        человеческий фактор (забыли добавить) и гарантирует воспроизводимость.
++      </div>
++    </div>
++  </section>
++
++  <!-- ─── Why auto ─── -->
++  <section>
++    <h2>
++      <span>Почему праздники вводятся автоматически, а не вручную</span>
++      <span class="h2-badge badge-concept">Методология</span>
++    </h2>
++
++    <div class="card">
++      <ul class="reason-list">
++        <li>
++          <strong>Избегает систематической ошибки.</strong>
++          Если праздничный эффект не выделен, модель приписывает сезонный всплеск
++          ближайшему активному медиа-каналу. Это завышает ROI рекламы в Q4 и Q1.
++        </li>
++        <li>
++          <strong>Гарантирует воспроизводимость.</strong>
++          Два аналитика с одинаковыми данными получают одинаковую модель —
++          не зависит от того, кто и какие праздники добавил вручную.
++        </li>
++        <li>
++          <strong>Охватывает неочевидные периоды.</strong>
++          Back-to-School и Чёрная пятница официально не являются праздниками,
++          но имеют сильный торговый эффект. Авто-инъекция включает их без
++          необходимости помнить об этом.
++        </li>
++        <li>
++          <strong>Экономит время.</strong>
++          Подготовка 12 dummy-переменных вручную — рутинная задача с высоким риском
++          ошибки в датах. Авто-инъекция выполняется за 0 кликов.
++        </li>
++      </ul>
++
++      <div class="warn-box">
++        <strong>Прозрачность:</strong> в шаге «Контекстные факторы» (Wizard Step 5)
++        всегда отображается счётчик авто-инъецированных праздников.
++        Вы видите, что именно включено в модель.
++      </div>
++    </div>
++  </section>
++
++  <!-- ─── Customer customization ─── -->
++  <section>
++    <h2>
++      <span>Кастомизация праздников</span>
++      <span class="h2-badge badge-custom">Отложено до v2.2.0</span>
++    </h2>
++
++    <div class="card">
++      <p style="color:var(--text-secondary);">
++        В версии v2.0.0 список праздников фиксирован и не редактируется пользователем.
++        Возможность добавлять пользовательские события (региональные праздники, отраслевые даты,
++        промо-события) запланирована в версии <strong>v2.2.0</strong>.
++      </p>
++
++      <div class="warn-box" style="margin-top:12px;">
++        <strong>Текущее обходное решение:</strong> если вам нужно добавить
++        кастомное событие (например, день компании или региональный праздник) —
++        добавьте соответствующую dummy-колонку в исходный Excel/CSV
++        (0/1 по неделям) и разметьте её как <strong>Контрольная переменная</strong>
++        в ColumnMapper. Модель включит её наравне с авто-праздниками.
++      </div>
++
++      <div class="info-box" style="margin-top:10px;">
++        <strong>Когда ждать v2.2.0:</strong> roadmap Aurora MMM Optimizer публикуется
++        на странице обновлений приложения. Подпишитесь на уведомления в настройках.
++      </div>
++    </div>
++  </section>
++
++  <div class="page-footer">
++    Aurora MMM Optimizer v2.0.0 · Справочная страница signed-factors-and-holidays · Обновлено 2026-05
++  </div>
++
++</body>
++</html>
+diff --git a/src/routes/+layout.svelte b/src/routes/+layout.svelte
+index 36ae988..bcbcd75 100644
+--- a/src/routes/+layout.svelte
++++ b/src/routes/+layout.svelte
+@@ -1,5 +1,6 @@
+ <script>
+   import '../app.css';
++  import '../aurora-ui-alias.css';  // канон-namespace --ui-* → живые токены app.css (design-sync 2026-06-20)
+   import { invoke } from '@tauri-apps/api/core';
+   import { get } from 'svelte/store';
+   import { page } from '$app/stores';
+@@ -13,6 +14,8 @@
+   import Toast from '$lib/components/Toast.svelte';
+   import CommandPalette from '$lib/components/CommandPalette.svelte';
+   import NavRail from '$lib/components/NavRail.svelte';
++  import BrandChip from '$lib/components/BrandChip.svelte';  // чип названия приложения (стандарт Aurora Core, левый верхний угол, все страницы)
++  import SessionTimer from '$lib/components/SessionTimer.svelte';  // таймер сессии (countdown), сквозной на всех внутренних страницах
+   import GlossaryPanel from '$lib/components/GlossaryPanel.svelte';
+   import IntroTutorial from '$lib/components/IntroTutorial.svelte';
+   import { showGlossaryPanel, glossaryInitialTerm, showIntroTutorial } from '$lib/project-state.js';
+@@ -278,6 +281,14 @@
+     />
+   {/if}
+   <div class="main-content">
++    <!-- Брендинг-чип на внутренних страницах в потоке (на главной — свой topbar
++         с BrandChip). Стандарт Aurora Core: название приложения, левый верхний угол. -->
++    {#if $page.url.pathname !== '/'}
++      <div class="global-topbar">
++        <BrandChip />
++        <div class="gt-timer"><SessionTimer /></div>
++      </div>
++    {/if}
+     {#key $page.url.pathname}
+       <div class="page-transition">
+         {@render children()}
+@@ -297,6 +308,29 @@
+ <style>
+   /* v1.3.2 audit: .glossary-fab removed (см. template comment). */
+ 
++  /* Брендинг-топбар на внутренних страницах (в потоке, sticky) — чип названия
++     приложения в левом верхнем углу (стандарт Aurora Core). Контент уходит ниже,
++     без наезда. На главной свой topbar — этот скрыт условием маршрута. */
++  .global-topbar {
++    display: flex;
++    align-items: center;
++    padding: 8px 18px;
++    position: sticky;
++    top: 0;
++    z-index: 30;
++    background: var(--bg-glass);
++    backdrop-filter: var(--glass-blur);
++    border-bottom: 1px solid var(--border-subtle);
++  }
++  /* Таймер сессии — по центру топбара, независимо от ширины чипа (как на главной). */
++  .gt-timer {
++    position: absolute;
++    left: 50%;
++    transform: translateX(-50%);
++    display: flex;
++    align-items: center;
++  }
++
+   .toast-container {
+     position: fixed;
+     bottom: 20px;
+diff --git a/src/routes/+page.svelte b/src/routes/+page.svelte
+index 4a56362..b332ed8 100644
+--- a/src/routes/+page.svelte
++++ b/src/routes/+page.svelte
+@@ -334,11 +334,13 @@
+ 
+     {:else}
+       <div class="pipeline-stage">
+-        <img
+-          src="/logo-hero.png"
+-          alt="Aurora AI"
+-          class="hero-logo"
+-        />
++        <div class="hero-zone">
++          <img
++            src="/logo-hero.png"
++            alt="Aurora AI"
++            class="hero-logo"
++          />
++        </div>
+         <div class="pipeline-promo pipeline-promo-rich">
+           <div class="promo-head">
+             <div class="promo-icon">
+@@ -1017,7 +1019,32 @@
+     max-width: 900px;
+   }
+ 
++  /* Зона логотипа – несёт его подсветку (утверждено Антоном в живой подгонке,
++     восстановлено после потери при развитии продукта). */
++  .hero-zone {
++    position: relative;
++    display: flex;
++    justify-content: center;
++  }
++
++  /* Hero-подсветка логотипа: радиальное accent-свечение за логотипом.
++     --accent-glow определён на обе темы (app.css) – глушится сам на светлом фоне. */
++  .hero-zone::before {
++    content: '';
++    position: absolute;
++    top: 50%;
++    left: 50%;
++    width: 420px;
++    height: 260px;
++    transform: translate(-50%, -50%);
++    background: radial-gradient(ellipse at center, var(--accent-glow) 0%, transparent 70%);
++    pointer-events: none;
++    z-index: 0;
++  }
++
+   .hero-logo {
++    position: relative;
++    z-index: 1;
+     width: 180px;
+     max-width: 60%;
+     height: auto;
+diff --git a/src/routes/settings/+page.svelte b/src/routes/settings/+page.svelte
+index 606654b..5ccb45e 100644
+--- a/src/routes/settings/+page.svelte
++++ b/src/routes/settings/+page.svelte
+@@ -1054,13 +1054,21 @@
+     width: auto;
+   }
+ 
++  /* Чип названия (electric-blue, как BrandChip на главной – стандарт Aurora Core):
++     accent-рамка 40% + accent-фон 8% + accent-текст. width: fit-content + margin
++     auto центрирует блочный элемент внутри .settings-logo. */
+   .settings-logo-subtitle {
+     display: block;
++    width: fit-content;
++    margin: 4px auto 0;
+     font-size: 18px;
+     font-weight: 700;
+     letter-spacing: 0.08em;
+-    color: var(--text-secondary);
+-    margin-top: 4px;
++    color: var(--accent-primary);
++    padding: 5px 12px;
++    border: 1px solid color-mix(in srgb, var(--accent-primary) 40%, transparent);
++    background: color-mix(in srgb, var(--accent-primary) 8%, transparent);
++    border-radius: var(--radius-chip, 8px);
+     text-transform: uppercase;
+   }
+ 
+diff --git a/src/tests/StepSummaryStub.svelte b/src/tests/StepSummaryStub.svelte
+new file mode 100644
+index 0000000..d54f059
+--- /dev/null
++++ b/src/tests/StepSummaryStub.svelte
+@@ -0,0 +1,12 @@
++<script>
++  /**
++   * StepSummaryStub - minimal test double for StepSummary.svelte.
++   * Used by scenario-wizard.test.js to avoid diagnostics crash.
++   */
++  const { onRun = null, onEditExpert = null } = $props();
++</script>
++
++<div class="step-summary-stub">
++  <button type="button" onclick={() => onRun?.()}>Запустить анализ</button>
++  <button type="button" onclick={() => onEditExpert?.()}>Expert mode</button>
++</div>
+diff --git a/tools/build-cloud.mjs b/tools/build-cloud.mjs
+index 30dfb1b..4eef34f 100644
+--- a/tools/build-cloud.mjs
++++ b/tools/build-cloud.mjs
+@@ -53,7 +53,7 @@ import {
+   existsSync, readFileSync, readdirSync, writeFileSync, copyFileSync, rmSync, mkdtempSync,
+   realpathSync,
+ } from 'node:fs';
+-import { dirname, join, resolve } from 'node:path';
++import { basename, dirname, join, resolve } from 'node:path';
+ import { fileURLToPath } from 'node:url';
+ import { tmpdir } from 'node:os';
+ 
+@@ -404,6 +404,90 @@ function info(message) {
+   console.log(`[облачная сборка] ${message}`);
+ }
+ 
++/**
++ * Наложение настройки сборки, если продукт его когда-либо заводил. У продуктов,
++ * получивших облачный режим сразу объединённой поставкой, файла нет вовсе.
++ */
++const BUILD_CONFIG_OVERLAY = join(TAURI_DIR, 'tauri.thin.conf.json');
++
++/**
++ * Настройка сборки не имеет права менять ЛИЦО продукта (ADR-049 §2, CPD-43).
++ *
++ * 🔴 Зачем гейт (найдено сессией Legal 2026-08-03 — глазами, по имени готового
++ * установщика «Aurora AI Legal Center C»). Наложение переопределяло `productName` и
++ * `identifier`, и собранная так поставка оказывалась не обновлением, а ВТОРОЙ
++ * программой: каталог данных Tauri берётся из идентификатора, поэтому обновившийся
++ * клиент получил бы пустой профиль — без лицензии, хранилищ кабинетов, выбранного
++ * режима и истории, — а прежняя копия осталась бы рядом. Канал обновлений привязан к
++ * тому же идентификатору, то есть выпуск вообще не встал бы обновлением, и человек об
++ * этом не узнал бы.
++ *
++ * Ловится только гейтом: сборка проходит зелёной, оба контура на месте, проверки
++ * редакции довольны — подмена видна лишь в имени файла установщика.
++ *
++ * 🔴 Отличие от исходной версии Legal: там при отсутствии файла функция молча
++ * возвращалась. Молчание читается как «проверено и сошлось», хотя проверка не
++ * выполнялась вовсе — тот же класс «отсутствие проверяемого = пройдено», что уже
++ * ловили в гейтах режима и канала. Здесь область называется вслух.
++ */
++function checkBuildConfigKeepsProductIdentity(configPath, { applied }) {
++  if (!existsSync(configPath)) {
++    info(
++      `настройка ${configPath} ${applied ? 'накладывается этим прогоном, но файла НЕТ' : 'отсутствует'}`
++      + ' — проверять нечего. Это не «чисто»: переименуй файл, и проверка лица продукта'
++      + ' выключится молча',
++    );
++    return;
++  }
++  let overlay;
++  try {
++    overlay = JSON.parse(readFileSync(configPath, 'utf8'));
++  } catch (e) {
++    fail(
++      `настройка сборки ${configPath} не разбирается как JSON: ${e.message}`,
++      'почините файл — молча пропустить его нельзя, он меняет собираемый продукт',
++    );
++    return;
++  }
++  const forbidden = ['productName', 'identifier'].filter((k) => overlay[k] !== undefined);
++  if (!forbidden.length) {
++    info(`настройка сборки лицо продукта не меняет (${configPath})`);
++    return;
++  }
++  // 🔴 Наличие полей само по себе НЕ дефект — дефектом их делает ПРИМЕНЕНИЕ. У продуктов,
++  // переведённых на ADR-049 раньше, файл оставлен в дереве намеренно (он заведён владельцем),
++  // но сборка его больше не накладывает. Первая версия этой проверки судила по файлу и
++  // покрасила два исправных продукта — поймано прогоном на них, а не рассуждением. А ложный
++  // красный кончается тем, что проверку снимают вместе с защитой.
++  const fields = forbidden.map((k) => `${k}=${JSON.stringify(overlay[k])}`).join(', ');
++  if (applied) {
++    fail(
++      `настройка сборки ${configPath} переопределяет ${forbidden.join(' и ')} (${fields}) `
++        + 'И накладывается сборкой — это отдельный продукт, а не объединённая поставка',
++      'ADR-049 §2: объединённая поставка идёт под идентификатором обычной редакции и в её '
++        + 'канал обновлений. Уберите эти поля из настройки либо перестаньте её накладывать; '
++        + 'иначе у клиента будет вторая программа с пустым профилем — без лицензии, '
++        + 'хранилищ кабинетов и истории',
++    );
++    return;
++  }
++  // Отказа нет, но и молчать нельзя: вернуть наложение — одна строка, а последствие у
++  // клиента необратимо. Пусть тот, кто её вернёт, увидит предупреждение уже сейчас.
++  info(
++    `⚠ настройка сборки ${configPath} переопределяет ${forbidden.join(' и ')} (${fields}), `
++    + 'но сборкой НЕ накладывается (ADR-049 §2) — дефекта нет. Вернёте наложение — '
++    + 'получите второй продукт у клиента, проверка станет отказом',
++  );
++}
++
++/** Тот же приём, что в гейтах на Python: комментарии гасятся, чтобы упоминание в
++ *  пояснении не считалось применением. */
++function without_js_comments(text) {
++  return text
++    .replace(/\/\*[\s\S]*?\*\//g, (m) => ' '.repeat(m.length))
++    .replace(/(^|[^:])\/\/[^\n]*/g, (m, p1) => p1 + ' '.repeat(m.length - p1.length));
++}
++
+ // ── Восстановление рабочего дерева ────────────────────────────────────────────
+ 
+ /** Взяли ли мы замок в этом прогоне (снимать чужой замок нельзя). */
+@@ -1007,6 +1091,13 @@ function recoverFromInterruptedRun() {
+  * экранировать нечего (E-9).
+  */
+ function runBuild(cmd, args, useShell) {
++  // 🔴 Проверка лица продукта стоит ВПЛОТНУЮ к запуску, а не выше по потоку. Первая
++  // версия звала её сразу после сборки `args` — и мутация показала дыру: строку
++  // `args = [...args, '--config', …]` можно дописать НИЖЕ вызова, и проверка её уже не
++  // увидит. Здесь args финальные по построению: следующий шаг — spawn.
++  checkBuildConfigKeepsProductIdentity(BUILD_CONFIG_OVERLAY, {
++    applied: args.some((a) => String(a).includes(basename(BUILD_CONFIG_OVERLAY))),
++  });
+   return new Promise((finish) => {
+     child = spawn(cmd, args, { cwd: ROOT, stdio: 'inherit', shell: useShell });
+     child.on('error', (e) => {
+diff --git a/tools/build_glossary.py b/tools/build_glossary.py
+index 1743e13..fd8b4f2 100644
+--- a/tools/build_glossary.py
++++ b/tools/build_glossary.py
+@@ -515,7 +515,7 @@ export function getTerm(termId) {{
+ 
+ /**
+  * Get all terms as array (for search/listing UI).
+- * @returns {{Array<object>}}
++ * @returns {{Array<{{id: string, term: string, short: string, long: string, example: string, related: string[]}}>}}
+  */
+ export function getAllTerms() {{
+   return Object.values(GLOSSARY);
+diff --git a/tools/synthetic_pilots/synth_retail_chain.xlsx b/tools/synthetic_pilots/synth_retail_chain.xlsx
+new file mode 100644
+index 0000000..6101661
+Binary files /dev/null and b/tools/synthetic_pilots/synth_retail_chain.xlsx differ
+diff --git a/tools/test_optimizer_honesty.py b/tools/test_optimizer_honesty.py
+index 7353b28..6dedb96 100644
+--- a/tools/test_optimizer_honesty.py
++++ b/tools/test_optimizer_honesty.py
+@@ -46,10 +46,21 @@ def test_uncertain_thin_data_kagocel_like():
+                                         divergences=1, tier='good'))
+     assert v['verdict'] == 'uncertain'
+     assert v['refused'] is False
+-    assert any('тонк' in r.lower() or 'ratio' in r.lower() for r in v['reasons'])
++    assert any('ограничен' in r.lower() or 'ratio' in r.lower() for r in v['reasons'])
+     assert v['caveat_text']  # непустой баннер
+ 
+ 
++def test_thin_data_tone_mentions_priors_not_broken():
++    """McElreath (regularizing priors): при тонких данных тон — «модель сдержана,
++    опирается на priors», а не «сломана/высокий риск переобучения»."""
++    v = model_reliability_verdict(_diag(ratio_ok=False, ratio=2.4, r_hat=1.0,
++                                        divergences=0, tier='good'))
++    joined = (' '.join(v['reasons']) + ' ' + v['caveat_text']).lower()
++    assert 'априорн' in joined or 'prior' in joined or 'сдержан' in joined
++    # старый пугающий тон «высокий риск переобучения» как главный посыл — ушёл
++    assert 'высокий риск переобучения' not in joined
++
++
+ def test_uncertain_weak_tier_even_if_ratio_ok():
+     v = model_reliability_verdict(_diag(ratio_ok=True, ratio=6.0, tier='weak', score=35))
+     assert v['verdict'] == 'uncertain'
+@@ -129,7 +140,7 @@ def test_holidays_excluded_adds_ovb_on_thin():
+     v = model_reliability_verdict(_diag(ratio_ok=False, ratio=2.4,
+                                         holidays_excluded=True))
+     assert v['verdict'] == 'uncertain'
+-    assert any('тонк' in r.lower() for r in v['reasons'])
++    assert any('ограничен' in r.lower() for r in v['reasons'])
+     assert any('праздник' in r.lower() for r in v['reasons'])
+ 
+ 

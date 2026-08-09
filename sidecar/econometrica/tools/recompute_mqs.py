@@ -24,6 +24,7 @@ from utils.diagnostics import (
     per_control_contraction,
 )
 from utils.safe_io import sanitize_nonfinite
+from utils.optimizer_honesty import stamp_reliability
 
 PROJECTS_ROOT = os.path.join(os.environ.get('APPDATA', ''), 'aurora-econometrica-gui', 'projects')
 
@@ -102,6 +103,13 @@ def recompute_project(proj_dir: str, dry_run: bool = False) -> dict:
         cfg.get('control_columns') or [])
     if pcc:
         diag['per_control_contraction'] = pcc
+
+    # 🔴 Пересчёт трогает `mqs` и `checks` — ровно то, из чего выводится вердикт
+    # надёжности. До 2026-08-07 штамп `honesty_verdict` здесь не обновлялся, и
+    # файл оставался внутренне противоречивым: метрики новые, вердикт старый,
+    # посчитанный по прежним `mqs`/`checks`. Переставляем штамп последним
+    # действием над `diag`, до записи.
+    stamp_reliability(diag)
 
     result = {
         'project': os.path.basename(proj_dir), 'status': 'ok',

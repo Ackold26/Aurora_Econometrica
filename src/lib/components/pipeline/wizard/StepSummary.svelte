@@ -150,13 +150,6 @@
     return 'green';
   }
 
-  /** @param {'green'|'yellow'|'red'} status */
-  function trafficDot(status) {
-    if (status === 'green')  return '🟢';
-    if (status === 'yellow') return '🟡';
-    return '🔴';
-  }
-
   /** @param {'green'|'yellow'|'red'} status @returns {string} */
   function trafficLabel(status) {
     if (status === 'green')  return 'ok';
@@ -278,9 +271,8 @@
 
       <!-- MCMC convergence -->
       <div class="diag-row diag-{mcmcSt}">
-        <span class="traffic-dot" aria-label={`MCMC: ${trafficLabel(mcmcSt)}`}>
-          {trafficDot(mcmcSt)}
-        </span>
+        <span class="traffic-dot dot-{mcmcSt}" aria-hidden="true"></span>
+        <span class="sr-only">MCMC: {trafficLabel(mcmcSt)}</span>
         <div class="diag-body">
           <span class="diag-name">Сходимость (MCMC)</span>
           <span class="diag-vals">
@@ -300,9 +292,8 @@
       <!-- Backtest (F-E1-2: только при живых данных - wireframe-строки нет) -->
       {#if hasBacktestDiag}
       <div class="diag-row diag-{backtestSt}">
-        <span class="traffic-dot" aria-label={`Проверка на истории: ${trafficLabel(backtestSt)}`}>
-          {trafficDot(backtestSt)}
-        </span>
+        <span class="traffic-dot dot-{backtestSt}" aria-hidden="true"></span>
+        <span class="sr-only">Проверка на истории: {trafficLabel(backtestSt)}</span>
         <div class="diag-body">
           <span class="diag-name">Проверка на истории</span>
           <span class="diag-vals">
@@ -326,9 +317,8 @@
       <!-- PPC -->
       {#if hasPpcDiag}
       <div class="diag-row diag-{ppcSt}">
-        <span class="traffic-dot" aria-label={`PPC: ${trafficLabel(ppcSt)}`}>
-          {trafficDot(ppcSt)}
-        </span>
+        <span class="traffic-dot dot-{ppcSt}" aria-hidden="true"></span>
+        <span class="sr-only">PPC: {trafficLabel(ppcSt)}</span>
         <div class="diag-body">
           <span class="diag-name">Posterior predictive</span>
           <span class="diag-vals">
@@ -346,7 +336,8 @@
       <!-- Sensitivity (always yellow, informational) -->
       {#if sensTopEntry !== null}
         <div class="diag-row diag-yellow">
-          <span class="traffic-dot" aria-label="Sensitivity: информационно">🟡</span>
+          <span class="traffic-dot dot-yellow" aria-hidden="true"></span>
+          <span class="sr-only">Sensitivity: информационно</span>
           <div class="diag-body">
             <span class="diag-name">Чувствительность</span>
             <span class="diag-vals">
@@ -566,9 +557,29 @@
 
   .traffic-dot {
     flex-shrink: 0;
-    font-size: 14px;
-    line-height: 1.6;
-    user-select: none;
+    width: 8px;
+    height: 8px;
+    margin-top: 4px;
+    border-radius: 50%;
+    display: inline-block;
+  }
+  .dot-green  { background: var(--success, #22c55e); }
+  .dot-yellow { background: var(--warning, #F59E0B); }
+  .dot-red    { background: var(--danger, #ef4444); }
+
+  /* Visually hidden but screen-reader readable status text для traffic-dot
+     (сама точка декоративна, aria-hidden). Паттерн — как в соседних
+     StepTargetConfirm.svelte / StepMediaConfirm.svelte. */
+  .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0,0,0,0);
+    white-space: nowrap;
+    border: 0;
   }
 
   .diag-body {

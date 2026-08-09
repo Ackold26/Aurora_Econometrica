@@ -763,6 +763,22 @@ async fn download_with_retries(url: &str, what: &str) -> Result<Vec<u8>> {
         .with_context(|| format!("{}: связь с сервером не установилась за {} попыток", what, DOWNLOAD_ATTEMPTS))
 }
 
+/// Нормализовать контрольную сумму от сервера: убрать необязательный префикс
+/// `sha256:` и привести к нижнему регистру перед сравнением с локально
+/// посчитанным hex SHA-256.
+///
+/// У этого продукта сервер отдаёт суммы vault-файлов голым hex, без префикса —
+/// на все четыре файла в манифесте расхождения формата сегодня нет. Нормализация
+/// всё равно применяется как страховка: у Legal Center те же по смыслу суммы
+/// приходят с префиксом `sha256:`, оба продукта берут их из одного и того же
+/// конвейера подготовки content-pack, и молчаливое расхождение формата на любой
+/// стороне не должно ронять докачку. Приём уже доказан в проде в
+/// `commands/updater.rs::verify_checksum` — тот же strip_prefix + lower-case, но
+/// здесь применяется к байтам vault-файла в памяти, а не к файлу .exe на диске.
+fn normalize_checksum(expected: &str) -> String {
+    expected.strip_prefix("sha256:").unwrap_or(expected).to_lowercase()
+}
+
 /// Скачать vault-файл с сервера, переживая обрывы канала.
 async fn download_vault_file(
     fingerprint_hash: &str,
@@ -785,6 +801,97 @@ async fn download_vault_file(
 /// рубил их гарантированно, даже когда передача исправно шла.
 async fn download_url_resilient(url: &str, what: &str) -> Result<Vec<u8>> {
     download_with_retries(url, what).await
+}
+
+/// Atomic write helper: write to `<dest>.tmp` then rename to dest.
+/// Prevents partial-write corruption from process kill or OS crash. The tmp
+/// file lives in the same directory as dest so rename is a metadata-only
+/// operation on a single filesystem.
+fn atomic_write_bytes(dest: &Path, bytes: &[u8]) -> std::io::Result<()> {
+    let mut tmp_name = dest
+        .file_name()
+        .unwrap_or_default()
+        .to_os_string();
+    tmp_name.push(".tmp");
+    let tmp = dest.with_file_name(tmp_name);
+    std::fs::write(&tmp, bytes)?;
+    if let Err(e) = std::fs::rename(&tmp, dest) {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(e);
+    }
+    Ok(())
+}
+
+/// Write a freshly encrypted vault to `dest` with rollback safety, then prove
+/// it by decrypting it back. Returns `true` on success (dest now holds the new,
+/// verified-readable vault); `false` if the write or the trial decryption
+/// failed, in which case any pre-existing vault at `dest` is restored and
+/// `dest` is left exactly as it was before this call.
+///
+/// Sync and network-free by design: `download_updates` is the only caller in
+/// production, but the rollback path itself needs no HTTP client to test.
+fn write_vault_with_rollback(dest: &Path, encrypted: &[u8], local_key: &[u8; 32], filename: &str) -> bool {
+    // Rollback safety: if a vault already exists at dest, back it up before
+    // replacing it. A version-update download (as opposed to a missing-file
+    // download) always overwrites a working file, so a corrupted replacement
+    // must not strand the user without the cabinet they had a moment ago.
+    let backup_path = dest.with_extension("vault.bak");
+    let had_backup = dest.exists();
+    if had_backup {
+        if let Err(e) = std::fs::rename(dest, &backup_path) {
+            error!("Failed to back up existing vault {} before replacing: {e}", dest.display());
+            return false;
+        }
+    }
+
+    // DAT-02: atomic write protects against partial vault ciphertext from
+    // process kill mid-download. Without atomic semantics a partial file fails
+    // AES-GCM decryption → vault stuck corrupt until manual deletion. tempfile
+    // + rename guarantees readers see either old (no file) or new (full file).
+    if let Err(e) = atomic_write_bytes(dest, encrypted) {
+        if had_backup {
+            let _ = std::fs::rename(&backup_path, dest);
+            warn!("Vault write failed for {}, restored previous version: {e}", filename);
+        }
+        error!("Failed to write vault file {}: {e}", dest.display());
+        return false;
+    }
+
+    // Trial decrypt: confirm the freshly written file is actually usable
+    // before trusting it. Catches truncated/corrupt downloads that still
+    // passed the checksum check upstream (e.g. a bit flip introduced during
+    // re-encryption) or a stale/wrong local key.
+    let decrypt_ok = std::fs::read(dest)
+        .ok()
+        .map(|bytes| crypto::aes::decrypt(local_key, &bytes).is_ok())
+        .unwrap_or(false);
+
+    if !decrypt_ok {
+        if had_backup {
+            match std::fs::rename(&backup_path, dest) {
+                Ok(_) => warn!(
+                    "Vault update failed trial decryption for {}, rolled back to previous version",
+                    filename
+                ),
+                Err(e) => error!(
+                    "Vault update failed trial decryption for {} AND rollback failed: {e}",
+                    filename
+                ),
+            }
+        } else {
+            warn!(
+                "Vault update failed trial decryption for {} (no previous version to roll back to)",
+                filename
+            );
+            let _ = std::fs::remove_file(dest);
+        }
+        return false;
+    }
+
+    if had_backup {
+        let _ = std::fs::remove_file(&backup_path);
+    }
+    true
 }
 
 /// Download and save all updated vault files.
@@ -829,20 +936,35 @@ pub async fn download_updates(
         match download_vault_file(&fp_hash, product, version, filename).await {
             Ok(data) => {
                 // Verify checksum if available (against unencrypted data from server)
-                if let Some(expected) = checksums.get(filename).and_then(|v| v.as_str()) {
-                    if !expected.is_empty() {
+                match checksums.get(filename).and_then(|v| v.as_str()) {
+                    Some(expected) if !expected.is_empty() => {
+                        let expected_norm = normalize_checksum(expected);
                         let mut hasher = Sha256::new();
                         hasher.update(&data);
                         let actual = format!("{:x}", hasher.finalize());
-                        if actual != expected {
+                        if actual != expected_norm {
                             error!(
                                 "Checksum mismatch for {}: expected {}..., got {}...",
                                 filename,
-                                &expected[..12.min(expected.len())],
+                                &expected_norm[..12.min(expected_norm.len())],
                                 &actual[..12]
                             );
                             continue;
                         }
+                    }
+                    _ => {
+                        // Принцип проекта — «никаких молчаливых пропусков». Раньше это
+                        // ветвление отсутствовало вовсе: при пустых/недостающих суммах
+                        // сверка пропускалась без единой строки в журнале. warn!, не
+                        // error! — это ожидаемый деградированный путь (старый сервер без
+                        // vault_checksums, либо файл вне присланной карты сумм), а не
+                        // отказ; поведение не меняется — файл всё равно принимается,
+                        // иначе обновление сломалось бы у клиентов на сервере, ещё не
+                        // публикующем vault_checksums.
+                        warn!(
+                            "Нет контрольной суммы для {} от сервера — файл принят без проверки целостности",
+                            filename
+                        );
                     }
                 }
 
@@ -851,8 +973,10 @@ pub async fn download_updates(
                     .with_context(|| format!("Failed to encrypt vault: {}", filename))?;
 
                 let dest = vaults_dir.join(filename);
-                std::fs::write(&dest, &encrypted)
-                    .with_context(|| format!("Failed to write vault file: {}", dest.display()))?;
+                if !write_vault_with_rollback(&dest, &encrypted, &local_key, filename) {
+                    // Не записываем новую версию — следующая проверка повторит докачку.
+                    continue;
+                }
 
                 info!("Updated vault: {} ({} bytes plain → {} bytes encrypted)", filename, data.len(), encrypted.len());
                 updated.push(filename.clone());
@@ -1852,6 +1976,118 @@ mod tests {
         let status = check_update_per_cabinet(dir.path(), &server);
         assert!(!status.update_available);
         assert!(status.files_to_update.is_empty());
+    }
+
+    // ── normalize_checksum ──────────────────────────────────────────────────
+
+    #[test]
+    fn normalize_checksum_bare_hex_unchanged() {
+        assert_eq!(normalize_checksum("abc123"), "abc123");
+    }
+
+    #[test]
+    fn normalize_checksum_strips_sha256_prefix() {
+        assert_eq!(normalize_checksum("sha256:abc123"), "abc123");
+    }
+
+    #[test]
+    fn normalize_checksum_lowercases_uppercase_hex() {
+        assert_eq!(normalize_checksum("ABC123"), "abc123");
+        assert_eq!(normalize_checksum("sha256:ABC123"), "abc123");
+    }
+
+    #[test]
+    fn normalize_checksum_empty_string() {
+        assert_eq!(normalize_checksum(""), "");
+    }
+
+    #[test]
+    fn normalize_checksum_prefixed_and_bare_forms_match() {
+        // Сервер этого продукта шлёт голый hex; у Legal Center та же по смыслу
+        // сумма приходит с префиксом и в другом регистре. После нормализации
+        // обе формы одной и той же суммы обязаны совпасть.
+        let bare = normalize_checksum("d41d8cd98f00b204e9800998ecf8427e");
+        let prefixed = normalize_checksum("sha256:D41D8CD98F00B204E9800998ECF8427E");
+        assert_eq!(bare, prefixed);
+    }
+
+    // ── write_vault_with_rollback ───────────────────────────────────────────────
+
+    #[test]
+    fn write_vault_rollback_restores_previous_on_bad_decrypt() {
+        let dir = TempDir::new().unwrap();
+        let dest = dir.path().join("media-analyst.vault");
+        let key = [7u8; 32];
+
+        // Seed an existing, genuinely decryptable vault.
+        let good_plain = b"previous cabinet contents";
+        let good_encrypted = crate::crypto::aes::encrypt(&key, good_plain).unwrap();
+        std::fs::write(&dest, &good_encrypted).unwrap();
+
+        // "Download" that is not valid ciphertext for this key - simulates a
+        // corrupted transfer or a re-encryption bug, without needing a network mock.
+        let bad_bytes = b"not valid aes-gcm ciphertext".to_vec();
+
+        let ok = write_vault_with_rollback(&dest, &bad_bytes, &key, "media-analyst.vault");
+
+        assert!(!ok, "write_vault_with_rollback must report failure for undecryptable data");
+        let restored = std::fs::read(&dest).unwrap();
+        assert_eq!(restored, good_encrypted, "dest must be restored to the exact previous vault bytes");
+        assert!(!dest.with_extension("vault.bak").exists(), "backup file must be cleaned up after restore");
+    }
+
+    #[test]
+    fn write_vault_rollback_does_not_touch_vault_versions_json_on_failure() {
+        let config_dir = TempDir::new().unwrap();
+        let vault_dir = TempDir::new().unwrap();
+        let dest = vault_dir.path().join("media-analyst.vault");
+        let key = [7u8; 32];
+
+        set_vault_version(config_dir.path(), "media-analyst", 2).unwrap();
+        let good_encrypted = crate::crypto::aes::encrypt(&key, b"previous contents").unwrap();
+        std::fs::write(&dest, &good_encrypted).unwrap();
+
+        let bad_bytes = b"garbage".to_vec();
+        let ok = write_vault_with_rollback(&dest, &bad_bytes, &key, "media-analyst.vault");
+        assert!(!ok);
+
+        // download_updates only calls set_vault_version when write_vault_with_rollback
+        // succeeds; this test locks in that vault-versions.json is untouched by the
+        // rollback path itself, matching the caller's `continue`-before-set_vault_version.
+        let versions = get_vault_versions(config_dir.path());
+        assert_eq!(versions.get("media-analyst"), Some(&2), "local version record must be unchanged after a failed update");
+    }
+
+    #[test]
+    fn write_vault_rollback_removes_new_file_when_no_previous_existed() {
+        let dir = TempDir::new().unwrap();
+        let dest = dir.path().join("media-analyst.vault");
+        let key = [7u8; 32];
+        assert!(!dest.exists());
+
+        let bad_bytes = b"garbage".to_vec();
+        let ok = write_vault_with_rollback(&dest, &bad_bytes, &key, "media-analyst.vault");
+
+        assert!(!ok);
+        assert!(!dest.exists(), "no vault existed before, so the failed write must not leave one behind");
+    }
+
+    #[test]
+    fn write_vault_rollback_succeeds_with_valid_ciphertext() {
+        let dir = TempDir::new().unwrap();
+        let dest = dir.path().join("media-analyst.vault");
+        let key = [7u8; 32];
+
+        let old_encrypted = crate::crypto::aes::encrypt(&key, b"old contents").unwrap();
+        std::fs::write(&dest, &old_encrypted).unwrap();
+
+        let new_encrypted = crate::crypto::aes::encrypt(&key, b"new contents").unwrap();
+        let ok = write_vault_with_rollback(&dest, &new_encrypted, &key, "media-analyst.vault");
+
+        assert!(ok);
+        let on_disk = std::fs::read(&dest).unwrap();
+        assert_eq!(on_disk, new_encrypted);
+        assert!(!dest.with_extension("vault.bak").exists(), "backup must be removed after a successful update");
     }
 
     // ── Local content pack / frontend version ─────────────────────────────────
