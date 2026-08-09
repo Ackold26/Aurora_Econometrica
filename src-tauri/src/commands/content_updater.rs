@@ -775,8 +775,16 @@ async fn download_with_retries(url: &str, what: &str) -> Result<Vec<u8>> {
 /// стороне не должно ронять докачку. Приём уже доказан в проде в
 /// `commands/updater.rs::verify_checksum` — тот же strip_prefix + lower-case, но
 /// здесь применяется к байтам vault-файла в памяти, а не к файлу .exe на диске.
+///
+/// 🔴 Порядок шагов важен: приставка срезается ПОСЛЕ приведения к нижнему регистру.
+/// Обратный порядок (как было до правки) режет только точное написание `sha256:`,
+/// а `SHA256:` или `Sha256:` остаются в строке — сравнение с посчитанным hex тогда
+/// не сходится никогда, и файл молча отбрасывается на каждой докачке. Сегодня наш
+/// сервер шлёт голый hex, то есть дефект не бьёт; правка снимает мину до того, как
+/// формат суммы на любой стороне конвейера сменится.
 fn normalize_checksum(expected: &str) -> String {
-    expected.strip_prefix("sha256:").unwrap_or(expected).to_lowercase()
+    let lowered = expected.to_lowercase();
+    lowered.strip_prefix("sha256:").unwrap_or(&lowered).to_string()
 }
 
 /// Скачать vault-файл с сервера, переживая обрывы канала.
@@ -842,6 +850,13 @@ fn write_vault_with_rollback(dest: &Path, encrypted: &[u8], local_key: &[u8; 32]
             error!("Failed to back up existing vault {} before replacing: {e}", dest.display());
             return false;
         }
+        // Тестовая пауза ровно в самом опасном месте — см. pause_after_backup.
+        // В сборке для клиента вызов пуст.
+        pause_after_backup(filename);
+    } else {
+        // Вторая тестовая точка: путь «резерва не было», на котором неудачная
+        // запись заканчивается удалением файла. См. pause_before_unguarded_write.
+        pause_before_unguarded_write(filename);
     }
 
     // DAT-02: atomic write protects against partial vault ciphertext from
@@ -894,6 +909,268 @@ fn write_vault_with_rollback(dest: &Path, encrypted: &[u8], local_key: &[u8; 32]
     true
 }
 
+/// Пауза между переименованием прежнего файла в резерв и записью нового — только
+/// для тестов, и только для того файла, который тест назвал сам.
+///
+/// Окно между этими двумя шагами измеряется микросекундами: тест «как повезёт»
+/// сторожем не является, красноту он показывает раз в сотню прогонов. Пауза делает
+/// окно широким и одинаковым на любой машине. Привязка к имени файла держит её
+/// строго в своём тесте — соседние тесты, что пишут другие файлы, не тормозят.
+/// 🔴 Хранится СПИСКОМ по именам файлов, а не одним значением: тесты идут
+/// параллельно в одном процессе, и одно общее поле они затирали бы друг другу —
+/// пауза чужого теста молча отменяла бы свою, а сторож гонки становился плавающим
+/// (поймано на второй мутации: краснота ушла из-за соседнего теста, а не из-за кода).
+#[cfg(test)]
+static BACKUP_PAUSES: std::sync::Mutex<Vec<(String, u64)>> = std::sync::Mutex::new(Vec::new());
+
+#[cfg(test)]
+fn pause_after_backup(filename: &str) {
+    // Замок отпускается до сна: иначе спящий держал бы список и остановил соседей.
+    let ms = BACKUP_PAUSES
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .iter()
+        .find(|(name, _)| name == filename)
+        .map(|(_, ms)| *ms);
+    if let Some(ms) = ms {
+        std::thread::sleep(std::time::Duration::from_millis(ms));
+    }
+}
+
+/// В сборке для клиента паузы нет — вызов исчезает при сборке.
+#[cfg(not(test))]
+#[inline(always)]
+fn pause_after_backup(_filename: &str) {}
+
+/// Пауза на втором опасном пути — когда резерва не было, и неудачная запись
+/// заканчивается удалением файла. Тоже только для тестов и только для названного
+/// файла: она позволяет показать самый тяжёлый исход гонки — кабинет исчезает с
+/// диска целиком, потому что один вызов удаляет файл, который другой только что
+/// вернул из своего резерва.
+#[cfg(test)]
+static NO_BACKUP_PAUSES: std::sync::Mutex<Vec<(String, u64)>> = std::sync::Mutex::new(Vec::new());
+
+#[cfg(test)]
+fn pause_before_unguarded_write(filename: &str) {
+    let ms = NO_BACKUP_PAUSES
+        .lock()
+        .unwrap_or_else(|e| e.into_inner())
+        .iter()
+        .find(|(name, _)| name == filename)
+        .map(|(_, ms)| *ms);
+    if let Some(ms) = ms {
+        std::thread::sleep(std::time::Duration::from_millis(ms));
+    }
+}
+
+/// В сборке для клиента паузы нет — вызов исчезает при сборке.
+#[cfg(not(test))]
+#[inline(always)]
+fn pause_before_unguarded_write(_filename: &str) {}
+
+/// Замки по ЦЕЛЕВОМУ файлу кабинета.
+///
+/// Замок `lock_for` разводит одинаковые скачивания, но ключ у него — адрес, а в
+/// адрес входят продукт, версия и отпечаток машины. Два вызова с разными версиями
+/// одного и того же кабинета получают разные адреса, расходятся по разным замкам —
+/// и пишут при этом в ОДИН файл. Точек вызова `download_updates` четыре, две из них
+/// срабатывают при старте почти одновременно, поэтому ключ здесь — путь файла.
+type PathLocks = std::sync::Mutex<HashMap<PathBuf, std::sync::Arc<tokio::sync::Mutex<()>>>>;
+
+fn vault_write_locks() -> &'static PathLocks {
+    static LOCKS: std::sync::OnceLock<PathLocks> = std::sync::OnceLock::new();
+    LOCKS.get_or_init(|| std::sync::Mutex::new(HashMap::new()))
+}
+
+/// Взять замок целевого файла, попутно выбросив те, за которые никто не держится.
+fn vault_lock_for(dest: &Path) -> std::sync::Arc<tokio::sync::Mutex<()>> {
+    let mut locks = vault_write_locks().lock().unwrap_or_else(|e| e.into_inner());
+    locks.retain(|_, l| std::sync::Arc::strong_count(l) > 1);
+    locks.entry(dest.to_path_buf()).or_default().clone()
+}
+
+/// Чем закончилась попытка положить файл кабинета на место.
+#[derive(Debug, PartialEq, Eq)]
+enum VaultStore {
+    /// Записан и прочитан обратно: размер исходных данных и размер шифротекста.
+    Written { plain_len: usize, encrypted_len: usize },
+    /// Контрольная сумма не сошлась — до записи дело не дошло.
+    Rejected,
+    /// Запись не удалась; прежний файл, если он был, возвращён на место.
+    Failed,
+}
+
+/// Неделимая половина обновления одного кабинета: под замком ЦЕЛЕВОГО файла
+/// добыть готовые к записи байты и записать их с откатом.
+///
+/// 🔴 Зачем замок именно здесь. `write_vault_with_rollback` переименовывает прежний
+/// файл в резерв, а потом пишет новый — и решение «резерв был» принимает по тому,
+/// существует ли файл. Два вызова на один кабинет расходятся ровно в этой щели:
+/// первый уже увёл файл в резерв, второй видит пустое место, считает «резерва не
+/// было» и пишет без страховки. Дальше первый откатывается на свой резерв и стирает
+/// написанное вторым — а второй уже доложил об успехе, и его номер версии ушёл в
+/// `vault-versions.json`. Кабинет остаётся со старым содержимым, и докачка больше
+/// никогда не повторится: по номеру версии он «свежий».
+///
+/// `prepare` — скачивание со сверкой суммы и шифрованием. Оно ленивое: работа
+/// начинается только внутри, когда замок уже взят, поэтому под замком лежит вся
+/// связка «скачать → сверить → записать», а не одна запись. `Ok(None)` от него
+/// значит «сумма не сошлась, писать нечего».
+///
+/// Порядок замков всегда один: сначала этот, по целевому файлу, потом внутренний
+/// по адресу (`download_with_retries`). Обратного порядка в коде нет, поэтому
+/// встречной блокировки не возникает.
+async fn store_vault_guarded<E>(
+    dest: &Path,
+    filename: &str,
+    local_key: &[u8; 32],
+    prepare: impl std::future::Future<Output = std::result::Result<Option<(usize, Vec<u8>)>, E>>,
+    on_written: impl FnOnce(),
+) -> std::result::Result<VaultStore, E> {
+    let lock = vault_lock_for(dest);
+    let _guard = lock.lock().await;
+
+    let Some((plain_len, encrypted)) = prepare.await? else {
+        return Ok(VaultStore::Rejected);
+    };
+
+    let encrypted_len = encrypted.len();
+    if write_vault_with_rollback(dest, &encrypted, local_key, filename) {
+        // 🔴 Отметка об успехе ставится ПОД ТЕМ ЖЕ замком. Останься она снаружи —
+        // номер версии кабинета менялся бы вне защищённой связки, то есть ровно
+        // тем же способом, что и дефект, который здесь чинится: файл и его номер
+        // обязаны меняться вместе, иначе номер может обогнать содержимое.
+        on_written();
+        Ok(VaultStore::Written { plain_len, encrypted_len })
+    } else {
+        Ok(VaultStore::Failed)
+    }
+}
+
+/// Почему подготовка файла к записи не удалась.
+///
+/// Разделение нужно, чтобы сохранить прежний смысл ответа `download_updates`:
+/// неудача связи копится в `last_error` и не мешает остальным файлам, а отказ
+/// шифрования выходит наружу немедленно — повторять его бессмысленно.
+enum PrepareFailure {
+    /// Файл не доехал с сервера.
+    Download(anyhow::Error),
+    /// Данные доехали, но зашифровать их локальным ключом не удалось.
+    Encrypt(anyhow::Error),
+}
+
+/// Расширение резервной копии, которую оставляет за собой `write_vault_with_rollback`.
+const VAULT_BACKUP_SUFFIX: &str = ".vault.bak";
+
+/// Подобрать резервные копии кабинетов, осиротевшие после прерванной записи.
+///
+/// `write_vault_with_rollback` сам возвращает резерв на место — но только если
+/// дошёл до конца своего пути. Снятие процесса, отключение питания или отказ
+/// машины между переименованием прежнего файла в `*.vault.bak` и записью нового
+/// оставляют кабинет БЕЗ рабочего файла, хотя целый резерв лежит рядом. Подобрать
+/// его до этой правки было некому: следующий запуск видел только отсутствие файла
+/// и шёл качать заново — а без сети кабинет просто не открывался.
+///
+/// Возвращает число файлов, возвращённых на место.
+///
+/// 🔴 Ничего не удаляет. Если рядом с резервом лежит и рабочий файл, оба остаются
+/// нетронутыми, а расхождение уходит в журнал. Такая пара — обычный след записи,
+/// прерванной уже ПОСЛЕ появления нового файла (резерв не успели убрать), и там
+/// рабочий файл новее резерва: подменять его старым — значит откатывать клиента
+/// без спроса. Обратный случай (рабочий файл негоден, резерв цел) тоже покрыт, но
+/// другим путём: проверка расшифровки при выдаче списка кабинетов помечает такой
+/// файл к повторной докачке. Молча стирать резерв нельзя тем более — это данные
+/// клиента, и когда сеть недоступна, он единственный уцелевший источник кабинета.
+pub fn restore_orphaned_vault_backups(app_data_dir: &Path) -> usize {
+    let vaults_dir = vault::vaults_dir(app_data_dir);
+    let entries = match std::fs::read_dir(&vaults_dir) {
+        Ok(entries) => entries,
+        // Папки ещё нет — первый запуск, подбирать нечего. Не отказ.
+        Err(_) => return 0,
+    };
+
+    let mut restored = 0usize;
+    for entry in entries.flatten() {
+        let backup_path = entry.path();
+        let Some(name) = backup_path.file_name().and_then(|n| n.to_str()) else {
+            continue;
+        };
+        let Some(working_name) = name.strip_suffix(".bak") else {
+            continue;
+        };
+        if !name.ends_with(VAULT_BACKUP_SUFFIX) {
+            continue;
+        }
+
+        let working_path = vaults_dir.join(working_name);
+        if working_path.exists() {
+            warn!(
+                "Рядом с рабочим файлом {} лежит резерв {} — оба оставлены нетронутыми, \
+                 запись когда-то прервалась после подмены файла",
+                working_name, name
+            );
+            continue;
+        }
+
+        // 🔴 Тот же класс дефекта, что чинится замком выше: между проверкой и
+        // действием состояние успевает измениться. Простое переименование затёрло
+        // бы рабочий файл, появись он в этой щели (докачка идёт своим чередом), —
+        // поэтому имя занимается эксклюзивно: создание либо удаётся, либо честно
+        // отказывает, и решение принимается не по прочитанному раньше состоянию.
+        let mut file = match std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&working_path)
+        {
+            Ok(file) => file,
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => {
+                warn!(
+                    "Рабочий файл {} появился, пока разбирался резерв {} — оба оставлены нетронутыми",
+                    working_name, name
+                );
+                continue;
+            }
+            Err(e) => {
+                error!("Не удалось занять имя {} для возврата из резерва: {e}", working_name);
+                continue;
+            }
+        };
+
+        let written = std::fs::read(&backup_path).and_then(|bytes| {
+            use std::io::Write as _;
+            file.write_all(&bytes)?;
+            file.sync_all()
+        });
+        drop(file);
+
+        match written {
+            Ok(()) => {
+                if let Err(e) = std::fs::remove_file(&backup_path) {
+                    warn!(
+                        "Рабочий файл {} возвращён, но резерв {} убрать не удалось: {e}",
+                        working_name, name
+                    );
+                }
+                restored += 1;
+                info!(
+                    "Рабочий файл кабинета {} возвращён из резерва: прошлая запись оборвалась",
+                    working_name
+                );
+            }
+            Err(e) => {
+                // Убираем свой же недоделанный файл; резерв остаётся нетронутым.
+                let _ = std::fs::remove_file(&working_path);
+                error!(
+                    "Не удалось вернуть {} из резерва {}: {e}",
+                    working_name, name
+                );
+            }
+        }
+    }
+
+    restored
+}
+
 /// Download and save all updated vault files.
 /// Returns the list of successfully updated files.
 /// If `app_handle` is provided, emits "vault-download-progress" events.
@@ -933,69 +1210,87 @@ pub async fn download_updates(
                 "total": files.len(),
             }));
         }
-        match download_vault_file(&fp_hash, product, version, filename).await {
-            Ok(data) => {
-                // Verify checksum if available (against unencrypted data from server)
-                match checksums.get(filename).and_then(|v| v.as_str()) {
-                    Some(expected) if !expected.is_empty() => {
-                        let expected_norm = normalize_checksum(expected);
-                        let mut hasher = Sha256::new();
-                        hasher.update(&data);
-                        let actual = format!("{:x}", hasher.finalize());
-                        if actual != expected_norm {
-                            error!(
-                                "Checksum mismatch for {}: expected {}..., got {}...",
-                                filename,
-                                &expected_norm[..12.min(expected_norm.len())],
-                                &actual[..12]
-                            );
-                            continue;
-                        }
-                    }
-                    _ => {
-                        // Принцип проекта — «никаких молчаливых пропусков». Раньше это
-                        // ветвление отсутствовало вовсе: при пустых/недостающих суммах
-                        // сверка пропускалась без единой строки в журнале. warn!, не
-                        // error! — это ожидаемый деградированный путь (старый сервер без
-                        // vault_checksums, либо файл вне присланной карты сумм), а не
-                        // отказ; поведение не меняется — файл всё равно принимается,
-                        // иначе обновление сломалось бы у клиентов на сервере, ещё не
-                        // публикующем vault_checksums.
-                        warn!(
-                            "Нет контрольной суммы для {} от сервера — файл принят без проверки целостности",
-                            filename
+        let dest = vaults_dir.join(filename);
+
+        // Подготовка файла к записи. Работа ленивая: она начнётся внутри
+        // store_vault_guarded, когда замок целевого файла уже взят, — поэтому
+        // «скачать → сверить сумму → записать с откатом» неделимо относительно
+        // одновременных вызовов на тот же кабинет.
+        let prepare = async {
+            let data = download_vault_file(&fp_hash, product, version, filename)
+                .await
+                .map_err(PrepareFailure::Download)?;
+
+            // Verify checksum if available (against unencrypted data from server)
+            match checksums.get(filename).and_then(|v| v.as_str()) {
+                Some(expected) if !expected.is_empty() => {
+                    let expected_norm = normalize_checksum(expected);
+                    let mut hasher = Sha256::new();
+                    hasher.update(&data);
+                    let actual = format!("{:x}", hasher.finalize());
+                    if actual != expected_norm {
+                        error!(
+                            "Checksum mismatch for {}: expected {}..., got {}...",
+                            filename,
+                            &expected_norm[..12.min(expected_norm.len())],
+                            &actual[..12]
                         );
+                        return Ok(None);
                     }
                 }
-
-                // Encrypt with local key before saving to disk
-                let encrypted = crypto::aes::encrypt(&local_key, &data)
-                    .with_context(|| format!("Failed to encrypt vault: {}", filename))?;
-
-                let dest = vaults_dir.join(filename);
-                if !write_vault_with_rollback(&dest, &encrypted, &local_key, filename) {
-                    // Не записываем новую версию — следующая проверка повторит докачку.
-                    continue;
+                _ => {
+                    // Принцип проекта — «никаких молчаливых пропусков». Раньше это
+                    // ветвление отсутствовало вовсе: при пустых/недостающих суммах
+                    // сверка пропускалась без единой строки в журнале. warn!, не
+                    // error! — это ожидаемый деградированный путь (старый сервер без
+                    // vault_checksums, либо файл вне присланной карты сумм), а не
+                    // отказ; поведение не меняется — файл всё равно принимается,
+                    // иначе обновление сломалось бы у клиентов на сервере, ещё не
+                    // публикующем vault_checksums.
+                    warn!(
+                        "Нет контрольной суммы для {} от сервера — файл принят без проверки целостности",
+                        filename
+                    );
                 }
+            }
 
-                info!("Updated vault: {} ({} bytes plain → {} bytes encrypted)", filename, data.len(), encrypted.len());
-                updated.push(filename.clone());
+            // Encrypt with local key before saving to disk
+            let encrypted = crypto::aes::encrypt(&local_key, &data)
+                .with_context(|| format!("Failed to encrypt vault: {}", filename))
+                .map_err(PrepareFailure::Encrypt)?;
 
-                // Track per-cabinet version in vault-versions.json — номер из
-                // per-cabinet карты сервера, а не глобального content_version
-                // (см. resolve_vault_version: рассинхрон двух счётчиков иначе
-                // зациклил бы докачку кабинета на каждом старте).
-                if let Some(stem) = filename.strip_suffix(".vault") {
-                    let cab_id = stem_to_cabinet_id(stem);
-                    let ver_num = resolve_vault_version(cab_id, vault_versions, version);
-                    if ver_num > 0 {
-                        if let Err(e) = set_vault_version(app_config_dir, cab_id, ver_num) {
-                            warn!("Failed to record per-cabinet version for {}: {}", cab_id, e);
-                        }
+            Ok(Some((data.len(), encrypted)))
+        };
+
+        // Track per-cabinet version in vault-versions.json — номер из
+        // per-cabinet карты сервера, а не глобального content_version
+        // (см. resolve_vault_version: рассинхрон двух счётчиков иначе
+        // зациклил бы докачку кабинета на каждом старте). Ставится под замком
+        // целевого файла, сразу после удачной записи — см. store_vault_guarded.
+        let record_version = || {
+            if let Some(stem) = filename.strip_suffix(".vault") {
+                let cab_id = stem_to_cabinet_id(stem);
+                let ver_num = resolve_vault_version(cab_id, vault_versions, version);
+                if ver_num > 0 {
+                    if let Err(e) = set_vault_version(app_config_dir, cab_id, ver_num) {
+                        warn!("Failed to record per-cabinet version for {}: {}", cab_id, e);
                     }
                 }
             }
-            Err(e) => {
+        };
+
+        match store_vault_guarded(&dest, filename, &local_key, prepare, record_version).await {
+            Ok(VaultStore::Written { plain_len, encrypted_len }) => {
+                info!("Updated vault: {} ({} bytes plain → {} bytes encrypted)", filename, plain_len, encrypted_len);
+                updated.push(filename.clone());
+            }
+            // Сумма не сошлась либо запись не удалась: новую версию не пишем —
+            // следующая проверка повторит докачку. Причина уже в журнале.
+            Ok(VaultStore::Rejected) | Ok(VaultStore::Failed) => continue,
+            // Зашифровать не удалось — отказ по существу, повторять нечего:
+            // выходим наружу сразу, как и до появления замка.
+            Err(PrepareFailure::Encrypt(e)) => return Err(e),
+            Err(PrepareFailure::Download(e)) => {
                 error!("Failed to download {}: {}", filename, e);
                 // Причину держим при себе: без неё вызывающий видит пустой
                 // список и сообщает пользователю «сервер не отдал файл», хотя
@@ -2001,6 +2296,22 @@ mod tests {
         assert_eq!(normalize_checksum(""), "");
     }
 
+    /// Сторож порядка шагов: приставка обязана срезаться и в верхнем регистре.
+    /// Пока срез шёл ДО приведения к нижнему регистру, `SHA256:` оставался в
+    /// строке целиком, сумма не сходилась ни разу и файл отбрасывался молча.
+    #[test]
+    fn normalize_checksum_strips_uppercase_prefix() {
+        assert_eq!(normalize_checksum("SHA256:ABC123"), "abc123");
+        assert_eq!(normalize_checksum("SHA256:abc123"), "abc123");
+    }
+
+    /// Смешанное написание приставки — тот же сторож с другой стороны.
+    #[test]
+    fn normalize_checksum_strips_mixed_case_prefix() {
+        assert_eq!(normalize_checksum("Sha256:AbC123"), "abc123");
+        assert_eq!(normalize_checksum("ShA256:abc123"), "abc123");
+    }
+
     #[test]
     fn normalize_checksum_prefixed_and_bare_forms_match() {
         // Сервер этого продукта шлёт голый hex; у Legal Center та же по смыслу
@@ -2088,6 +2399,321 @@ mod tests {
         let on_disk = std::fs::read(&dest).unwrap();
         assert_eq!(on_disk, new_encrypted);
         assert!(!dest.with_extension("vault.bak").exists(), "backup must be removed after a successful update");
+    }
+
+    // ── Гонка одновременных обновлений одного кабинета ────────────────────────
+    //
+    // Точек вызова download_updates четыре, две из них срабатывают при старте
+    // почти одновременно. Сторожа ниже держат связку «добыть байты → записать с
+    // откатом» неделимой для одного целевого файла.
+
+    /// Включить паузу после переименования в резерв — для одного имени файла.
+    /// Свою запись каждый тест ставит и снимает сам, чужие не трогает.
+    fn set_backup_pause(filename: &str, ms: u64) {
+        let mut pauses = BACKUP_PAUSES.lock().unwrap_or_else(|e| e.into_inner());
+        pauses.retain(|(name, _)| name != filename);
+        pauses.push((filename.to_string(), ms));
+    }
+
+    fn clear_backup_pause(filename: &str) {
+        BACKUP_PAUSES
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .retain(|(name, _)| name != filename);
+    }
+
+    /// Включить паузу на пути «резерва не было» — для одного имени файла.
+    fn set_no_backup_pause(filename: &str, ms: u64) {
+        let mut pauses = NO_BACKUP_PAUSES.lock().unwrap_or_else(|e| e.into_inner());
+        pauses.retain(|(name, _)| name != filename);
+        pauses.push((filename.to_string(), ms));
+    }
+
+    fn clear_no_backup_pause(filename: &str) {
+        NO_BACKUP_PAUSES
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .retain(|(name, _)| name != filename);
+    }
+
+    #[test]
+    fn vault_lock_is_keyed_by_target_file() {
+        let a = vault_lock_for(Path::new("C:/vaults/media-analyst.vault"));
+        let b = vault_lock_for(Path::new("C:/vaults/media-analyst.vault"));
+        let other = vault_lock_for(Path::new("C:/vaults/econometrist.vault"));
+
+        assert!(
+            std::sync::Arc::ptr_eq(&a, &b),
+            "один и тот же файл обязан получать один и тот же замок — иначе два вызова разных версий разойдутся"
+        );
+        assert!(
+            !std::sync::Arc::ptr_eq(&a, &other),
+            "разные кабинеты не должны ждать друг друга"
+        );
+    }
+
+    /// 🔴 Сторож гонки. Два вызова обновляют один кабинет: первый несёт негодные
+    /// байты (обязан откатиться на прежний файл), второй — настоящее обновление.
+    ///
+    /// Одновременность делается детерминированной паузой в самом опасном месте —
+    /// между переименованием прежнего файла в резерв и записью нового
+    /// (`pause_after_backup`, только под тестами и только для этого имени файла).
+    /// Без такой паузы окно шириной в микросекунды ловится раз в сотню прогонов,
+    /// то есть сторожем не является.
+    ///
+    /// Без замка второй вызов видит пустое место (первый уже увёл файл в резерв),
+    /// считает «резерва не было», пишет своё и докладывает об успехе — а первый,
+    /// проснувшись, откатывается на резерв и стирает написанное. На диске старое
+    /// содержимое, номер версии в vault-versions.json — новый, докачка больше
+    /// никогда не повторится.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn concurrent_updates_of_one_vault_keep_the_reported_contents() {
+        let dir = TempDir::new().unwrap();
+        let dest = dir.path().join("race-cabinet.vault");
+        let key = [11u8; 32];
+
+        let previous = crate::crypto::aes::encrypt(&key, b"previous cabinet contents").unwrap();
+        std::fs::write(&dest, &previous).unwrap();
+
+        let broken = b"not valid aes-gcm ciphertext".to_vec();
+        let fresh = crate::crypto::aes::encrypt(&key, b"fresh cabinet contents").unwrap();
+
+        set_backup_pause("race-cabinet.vault", 200);
+
+        let first = {
+            let dest = dest.clone();
+            let broken = broken.clone();
+            tokio::spawn(async move {
+                store_vault_guarded(
+                    &dest,
+                    "race-cabinet.vault",
+                    &key,
+                    async move { Ok::<_, std::convert::Infallible>(Some((broken.len(), broken))) },
+                    || {},
+                )
+                .await
+                .unwrap()
+            })
+        };
+
+        // Дать первому дойти до опасного места: файл уже уведён в резерв.
+        tokio::time::sleep(std::time::Duration::from_millis(80)).await;
+
+        let second = {
+            let dest = dest.clone();
+            let fresh_bytes = fresh.clone();
+            tokio::spawn(async move {
+                store_vault_guarded(
+                    &dest,
+                    "race-cabinet.vault",
+                    &key,
+                    async move {
+                        Ok::<_, std::convert::Infallible>(Some((fresh_bytes.len(), fresh_bytes)))
+                    },
+                    || {},
+                )
+                .await
+                .unwrap()
+            })
+        };
+
+        let first_res = first.await.unwrap();
+        let second_res = second.await.unwrap();
+        clear_backup_pause("race-cabinet.vault");
+
+        assert_eq!(first_res, VaultStore::Failed, "негодные байты обязаны быть отвергнуты");
+        assert!(
+            matches!(second_res, VaultStore::Written { .. }),
+            "настоящее обновление обязано записаться, получено {second_res:?}"
+        );
+
+        let on_disk = std::fs::read(&dest).unwrap();
+        assert_eq!(
+            on_disk, fresh,
+            "на диске обязано лежать содержимое того вызова, что доложил об успешной записи"
+        );
+        assert!(
+            !dest.with_extension("vault.bak").exists(),
+            "резерв не должен остаться сиротой после обеих записей"
+        );
+    }
+
+    /// 🔴 Второй сторож той же гонки — самый тяжёлый исход: кабинет исчезает с
+    /// диска целиком. Оба вызова несут негодные байты и обязаны откатиться.
+    ///
+    /// Без замка: первый увёл рабочий файл в резерв; второй видит пустое место,
+    /// считает «резерва не было», и его неудачная запись заканчивается удалением
+    /// файла — того самого, который первый только что вернул из своего резерва.
+    /// У клиента не остаётся ни рабочего файла, ни резерва, и кабинет не
+    /// открывается вовсе, пока нет сети. Обе паузы нужны, чтобы эти два пути
+    /// сошлись в нужном порядке на любой машине.
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn concurrent_failed_updates_leave_the_cabinet_in_place() {
+        let dir = TempDir::new().unwrap();
+        let dest = dir.path().join("race-survive.vault");
+        let key = [13u8; 32];
+
+        let previous = crate::crypto::aes::encrypt(&key, b"cabinet the client works with").unwrap();
+        std::fs::write(&dest, &previous).unwrap();
+
+        set_backup_pause("race-survive.vault", 200);
+        set_no_backup_pause("race-survive.vault", 200);
+
+        let first = {
+            let dest = dest.clone();
+            tokio::spawn(async move {
+                store_vault_guarded(
+                    &dest,
+                    "race-survive.vault",
+                    &key,
+                    async move {
+                        let bytes = b"garbage one".to_vec();
+                        Ok::<_, std::convert::Infallible>(Some((bytes.len(), bytes)))
+                    },
+                    || {},
+                )
+                .await
+                .unwrap()
+            })
+        };
+
+        tokio::time::sleep(std::time::Duration::from_millis(80)).await;
+
+        let second = {
+            let dest = dest.clone();
+            tokio::spawn(async move {
+                store_vault_guarded(
+                    &dest,
+                    "race-survive.vault",
+                    &key,
+                    async move {
+                        let bytes = b"garbage two".to_vec();
+                        Ok::<_, std::convert::Infallible>(Some((bytes.len(), bytes)))
+                    },
+                    || {},
+                )
+                .await
+                .unwrap()
+            })
+        };
+
+        assert_eq!(first.await.unwrap(), VaultStore::Failed);
+        assert_eq!(second.await.unwrap(), VaultStore::Failed);
+        clear_backup_pause("race-survive.vault");
+        clear_no_backup_pause("race-survive.vault");
+
+        assert!(dest.exists(), "кабинет клиента обязан остаться на диске");
+        assert_eq!(
+            std::fs::read(&dest).unwrap(),
+            previous,
+            "после двух неудачных обновлений на месте обязан лежать прежний рабочий файл"
+        );
+    }
+
+    /// Сумма не сошлась — до записи дело не доходит, прежний файл не тронут.
+    #[tokio::test]
+    async fn rejected_preparation_never_touches_the_existing_vault() {
+        let dir = TempDir::new().unwrap();
+        let dest = dir.path().join("media-analyst.vault");
+        let key = [17u8; 32];
+        let previous = crate::crypto::aes::encrypt(&key, b"previous contents").unwrap();
+        std::fs::write(&dest, &previous).unwrap();
+
+        // Отметка об успехе не должна ставиться, когда записи не было.
+        let recorded = std::sync::atomic::AtomicBool::new(false);
+        let outcome = store_vault_guarded(
+            &dest,
+            "media-analyst.vault",
+            &key,
+            async { Ok::<_, std::convert::Infallible>(None) },
+            || recorded.store(true, std::sync::atomic::Ordering::SeqCst),
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(outcome, VaultStore::Rejected);
+        assert!(
+            !recorded.load(std::sync::atomic::Ordering::SeqCst),
+            "номер версии не должен записываться, когда файл не записан"
+        );
+        assert_eq!(std::fs::read(&dest).unwrap(), previous);
+        assert!(!dest.with_extension("vault.bak").exists());
+    }
+
+    // ── restore_orphaned_vault_backups ────────────────────────────────────────
+    //
+    // Сторожа подбора резерва, осиротевшего после прерванной записи. Гейт против
+    // возврата состояния «рабочего файла нет, целый резерв лежит рядом, подобрать
+    // его некому» — кабинет тогда не открывается вовсе, пока нет сети.
+
+    #[test]
+    fn orphaned_backup_is_restored_when_working_file_missing() {
+        let data_dir = TempDir::new().unwrap();
+        let vaults = vault::vaults_dir(data_dir.path());
+        std::fs::create_dir_all(&vaults).unwrap();
+        let backup = vaults.join("media-analyst.vault.bak");
+        std::fs::write(&backup, b"prior cabinet bytes").unwrap();
+
+        let restored = restore_orphaned_vault_backups(data_dir.path());
+
+        assert_eq!(restored, 1, "осиротевший резерв обязан вернуться на место");
+        let working = vaults.join("media-analyst.vault");
+        assert_eq!(
+            std::fs::read(&working).unwrap(),
+            b"prior cabinet bytes",
+            "содержимое резерва обязано доехать до рабочего файла без изменений"
+        );
+        assert!(!backup.exists(), "после возврата резерв не должен оставаться на диске");
+    }
+
+    #[test]
+    fn backup_beside_working_file_is_left_untouched() {
+        let data_dir = TempDir::new().unwrap();
+        let vaults = vault::vaults_dir(data_dir.path());
+        std::fs::create_dir_all(&vaults).unwrap();
+        let working = vaults.join("media-analyst.vault");
+        let backup = vaults.join("media-analyst.vault.bak");
+        std::fs::write(&working, b"current cabinet bytes").unwrap();
+        std::fs::write(&backup, b"previous cabinet bytes").unwrap();
+
+        let restored = restore_orphaned_vault_backups(data_dir.path());
+
+        assert_eq!(restored, 0, "рабочий файл на месте — подменять его резервом нельзя");
+        assert_eq!(
+            std::fs::read(&working).unwrap(),
+            b"current cabinet bytes",
+            "рабочий файл обязан остаться ровно таким, каким был"
+        );
+        assert_eq!(
+            std::fs::read(&backup).unwrap(),
+            b"previous cabinet bytes",
+            "резерв — данные клиента, молча удалять его нельзя"
+        );
+    }
+
+    #[test]
+    fn restore_orphaned_backups_is_quiet_without_vaults_dir() {
+        let data_dir = TempDir::new().unwrap();
+        assert_eq!(restore_orphaned_vault_backups(data_dir.path()), 0);
+    }
+
+    #[test]
+    fn restore_orphaned_backups_ignores_foreign_files() {
+        let data_dir = TempDir::new().unwrap();
+        let vaults = vault::vaults_dir(data_dir.path());
+        std::fs::create_dir_all(&vaults).unwrap();
+        // Обрывок атомарной записи и посторонний резерв не от vault-файла:
+        // ни тот, ни другой не должны превратиться в рабочий файл кабинета.
+        std::fs::write(vaults.join("media-analyst.vault.tmp"), b"half written").unwrap();
+        std::fs::write(vaults.join("notes.txt.bak"), b"not a cabinet").unwrap();
+
+        let restored = restore_orphaned_vault_backups(data_dir.path());
+
+        assert_eq!(restored, 0);
+        assert!(!vaults.join("media-analyst.vault").exists(), "обрывок записи не подменяет кабинет");
+        assert!(!vaults.join("notes.txt").exists(), "посторонний файл не восстанавливается");
+        assert!(vaults.join("media-analyst.vault.tmp").exists(), "чужие файлы не трогаем");
+        assert!(vaults.join("notes.txt.bak").exists(), "чужие файлы не трогаем");
     }
 
     // ── Local content pack / frontend version ─────────────────────────────────

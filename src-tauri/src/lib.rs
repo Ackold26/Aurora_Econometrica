@@ -3610,6 +3610,15 @@ fn build_app() -> Result<(), String> {
                 if let Err(e) = commands::content_updater::migrate_from_legacy(&config_dir, &data_dir) {
                     warn!("vault-versions migration failed: {e}");
                 }
+
+                // Подобрать резерв кабинета, осиротевший после записи, прерванной
+                // снятием процесса или отказом машины: рабочего файла нет, а целый
+                // `*.vault.bak` лежит рядом. Без этого шага кабинет оставался пустым
+                // до следующей удачной докачки — то есть без сети не открывался вовсе.
+                let restored = commands::content_updater::restore_orphaned_vault_backups(&data_dir);
+                if restored > 0 {
+                    info!("Из резерва возвращено рабочих файлов кабинетов: {restored}");
+                }
             }
 
             // Content pack verification - result stored in AppState for dynamic loaders
