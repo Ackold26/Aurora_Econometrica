@@ -404,11 +404,14 @@ async fn run_claude_inner(
     args.push("-p");
     args.push("-"); // read prompt from stdin
 
-    // On Windows, npm CLIs are .cmd scripts - must run via cmd.exe /C
+    // On Windows, npm CLIs are .cmd scripts - must run via cmd.exe /C.
+    // Строку команды строит windows_cmd_command_line: путь ОТДЕЛЬНЫМ аргументом
+    // ломался на именах учётных записей со знаками `&`, `^`, `(` — см. там.
     #[cfg(windows)]
     let mut cmd = {
         let mut c = Command::new("cmd");
-        c.arg("/C").arg(&claude_path).args(&args);
+        c.arg("/C");
+        c.raw_arg(windows_cmd_command_line(&claude_path, &args));
         c
     };
     #[cfg(not(windows))]
@@ -1393,29 +1396,164 @@ mod tests {
         assert!(!ClaudeError::Unknown("test".to_string()).is_retryable());
     }
 
-    /// Починка ложного зонда: на Windows `.exe`/`.cmd` обязаны резолвиться ПЕРЕД
-    /// `claude` без расширения — иначе `find_claude_binary` возвращает Unix-скрипт,
-    /// который Windows не запускает напрямую (os error 193), и `probe_local`
-    /// (execution_mode.rs) ложно репортит локальный Claude Code недоступным.
+    // ── Резолв бинаря: проверяется НАБЛЮДАЕМЫМ поведением find_claude_in ───────────
+    //
+    // 🔴 Прежний сторож сверял `candidate_names()` сам с собой и с резолвом связан не
+    // был: возврат собственного массива в обход функции оставлял его зелёным. Здесь
+    // вместо списка имён — подставной каталог с файлами-кандидатами, и проверяется то,
+    // что резолв ВЕРНУЛ. Признак платформы передаётся параметром, поэтому оба порядка
+    // (windows и не-windows) проверяются на любой машине, а не только на «своей».
+
+    /// Положить файл-кандидат; на Unix — с битом исполнения, иначе резолв его не берёт.
+    fn put_candidate(dir: &Path, name: &str) -> std::path::PathBuf {
+        let path = dir.join(name);
+        std::fs::write(&path, b"fake").expect("записать файл-кандидат");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755))
+                .expect("бит исполнения");
+        }
+        path
+    }
+
+    /// На Windows `.exe`/`.cmd` обязаны выбираться ПЕРЕД `claude` без расширения:
+    /// Unix-скрипт без расширения Windows не запускает (os error 193), и зонд ложно
+    /// репортил локальный Claude Code недоступным, уводя работу на шлюз.
     #[test]
-    #[cfg(windows)]
-    fn candidate_order_prefers_native_exe_over_extensionless_script_on_windows() {
-        let candidates = candidate_names();
-        let exe_pos = candidates.iter().position(|&c| c == "claude.exe");
-        let cmd_pos = candidates.iter().position(|&c| c == "claude.cmd");
-        let bare_pos = candidates.iter().position(|&c| c == "claude");
+    fn resolve_prefers_native_exe_over_extensionless_script() {
+        let dir = tempfile::tempdir().expect("временный каталог");
+        for name in ["claude", "claude.cmd", "claude.exe"] {
+            put_candidate(dir.path(), name);
+        }
+        let trusted = vec![dir.path().to_string_lossy().to_string()];
+        let found = find_claude_in(&[dir.path().to_path_buf()], &trusted, true)
+            .expect("резолв обязан найти бинарь");
         assert!(
-            exe_pos.is_some() && cmd_pos.is_some() && bare_pos.is_some(),
-            "все три имени обязаны присутствовать в списке кандидатов: {candidates:?}"
+            found.ends_with("claude.exe"),
+            "выбран обязан быть claude.exe, а вернулось: {found}"
         );
+    }
+
+    /// Нативного `.exe` нет — берётся обёртка npm, но не скрипт без расширения.
+    #[test]
+    fn resolve_takes_cmd_wrapper_when_native_exe_absent() {
+        let dir = tempfile::tempdir().expect("временный каталог");
+        for name in ["claude", "claude.cmd"] {
+            put_candidate(dir.path(), name);
+        }
+        let trusted = vec![dir.path().to_string_lossy().to_string()];
+        let found = find_claude_in(&[dir.path().to_path_buf()], &trusted, true)
+            .expect("резолв обязан найти бинарь");
         assert!(
-            exe_pos < bare_pos,
-            "claude.exe обязан идти раньше claude без расширения: {candidates:?}"
+            found.ends_with("claude.cmd"),
+            "без claude.exe обязан выбираться claude.cmd, а вернулось: {found}"
         );
+    }
+
+    /// 🔴 Не-Windows: резолв обязан работать без `where`, которого на macOS и Linux
+    /// нет. Прежний код звал `Command::new("where")` → ENOENT → локальный режим
+    /// объявлялся недоступным навсегда, и работа уходила на шлюз.
+    #[test]
+    fn resolve_finds_binary_without_where_outside_windows() {
+        let dir = tempfile::tempdir().expect("временный каталог");
+        put_candidate(dir.path(), "claude");
+        let trusted = vec![dir.path().to_string_lossy().to_string()];
+        let found = find_claude_in(&[dir.path().to_path_buf()], &trusted, false)
+            .expect("на не-Windows резолв обязан найти claude в PATH");
+        assert!(found.ends_with("claude"), "вернулось: {found}");
+    }
+
+    /// Установка вне доверенных расположений — это ОТДЕЛЬНАЯ причина, а не «не найден»:
+    /// человеку нельзя показывать «Claude Code не найден», когда он стоит и работает.
+    #[test]
+    fn resolve_names_untrusted_location_instead_of_not_found() {
+        let dir = tempfile::tempdir().expect("временный каталог");
+        put_candidate(dir.path(), "claude.exe");
+        let failure = find_claude_in(&[dir.path().to_path_buf()], &[], true)
+            .expect_err("вне доверенных расположений резолв обязан отказать");
+        match failure {
+            ResolveFailure::Untrusted(path) => {
+                assert!(path.ends_with("claude.exe"), "причина обязана называть путь: {path}")
+            }
+            other => panic!("ожидался отказ по недоверенному расположению, получено: {other:?}"),
+        }
+    }
+
+    /// Пустой PATH — честное «не найден».
+    #[test]
+    fn resolve_reports_not_found_when_nothing_installed() {
+        let dir = tempfile::tempdir().expect("временный каталог");
+        let trusted = vec![dir.path().to_string_lossy().to_string()];
+        let failure = find_claude_in(&[dir.path().to_path_buf()], &trusted, true)
+            .expect_err("пустой каталог не может дать бинарь");
         assert!(
-            cmd_pos < bare_pos,
-            "claude.cmd обязан идти раньше claude без расширения: {candidates:?}"
+            matches!(failure, ResolveFailure::NotFound),
+            "ожидалось «не найден», получено: {failure:?}"
         );
+    }
+
+    /// 🔴 Один источник истины: файл, выбранный однажды, не меняется до явного сброса.
+    /// Иначе зонд доказывает запускаемость одной установки, а работа идёт через другую.
+    #[test]
+    fn resolved_binary_stays_the_same_until_forgotten() {
+        let dir = tempfile::tempdir().expect("временный каталог");
+        let real = put_candidate(dir.path(), "claude.exe").to_string_lossy().to_string();
+
+        forget_claude_binary();
+        let first = remembered_or_resolve(|| Ok(real.clone())).expect("первый резолв");
+        assert_eq!(first, real);
+
+        let second = remembered_or_resolve(|| Ok("вторая-установка".to_string()))
+            .expect("повторный резолв");
+        assert_eq!(
+            second, real,
+            "повторный резолв обязан вернуть тот же файл, а вернул: {second}"
+        );
+
+        forget_claude_binary();
+        let third = remembered_or_resolve(|| Ok("вторая-установка".to_string()))
+            .expect("резолв после сброса");
+        assert_eq!(third, "вторая-установка", "после сброса резолв обязан искать заново");
+        forget_claude_binary();
+    }
+
+    // ── Строка команды для cmd /C ─────────────────────────────────────────────────
+
+    /// 🔴 Маршрутный дефект: `&` в пути `cmd.exe` разбирал как оператор, зонд ложно
+    /// репортил локальный Claude Code недоступным, и материалы уходили на шлюз.
+    #[test]
+    fn cmd_line_wraps_path_with_shell_operators_in_quotes() {
+        let line = windows_cmd_command_line(r"C:\Users\A&B\AppData\Roaming\npm\claude.cmd", &["--version"]);
+        assert_eq!(
+            line, r#"""C:\Users\A&B\AppData\Roaming\npm\claude.cmd" --version""#,
+            "вся команда обязана быть во внешних кавычках, путь — в своих"
+        );
+        assert!(line.starts_with("\"\""), "внешняя пара кавычек обязана открывать строку: {line}");
+        assert!(line.ends_with('"'), "внешняя пара кавычек обязана закрывать строку: {line}");
+    }
+
+    /// Обычный путь и путь с пробелом обязаны остаться рабочими — правка не вправе
+    /// чинить редкий случай ценой обычного.
+    #[test]
+    fn cmd_line_keeps_plain_and_spaced_paths_working() {
+        let plain = windows_cmd_command_line(r"C:\npm\claude.cmd", &["--version"]);
+        assert_eq!(plain, r#"""C:\npm\claude.cmd" --version""#);
+
+        let spaced = windows_cmd_command_line(r"C:\Program Files\claude.exe", &["--version"]);
+        assert_eq!(spaced, r#"""C:\Program Files\claude.exe" --version""#);
+    }
+
+    /// Аргумент со знаком-оператором или пробелом обязан уезжать в кавычках.
+    #[test]
+    fn cmd_line_quotes_arguments_that_need_it() {
+        let line = windows_cmd_command_line(
+            r"C:\npm\claude.cmd",
+            &["--print", "--model", "имя со пробелом", "a&b"],
+        );
+        assert!(line.contains(" --print "), "простой флаг обрамлять не нужно: {line}");
+        assert!(line.contains("\"имя со пробелом\""), "аргумент с пробелом обязан быть в кавычках: {line}");
+        assert!(line.contains("\"a&b\""), "аргумент со знаком & обязан быть в кавычках: {line}");
     }
 }
 
@@ -1426,56 +1564,222 @@ mod tests {
 /// напрямую (os error 193). Зонд `probe_local` (execution_mode.rs) резолвил именно этот
 /// путь первым и ложно репортил «Claude Code найден, но не запускается», уводя
 /// автоопределение в облачный режим при рабочем локальном Claude Code.
-#[cfg_attr(feature = "thin", allow(dead_code))]
-pub(crate) fn candidate_names() -> &'static [&'static str] {
-    if cfg!(windows) {
+///
+/// Признак платформы — параметр, а не `cfg!` внутри: так порядок проверяется прогоном
+/// на ЛЮБОЙ машине, а не только там, где он и так работает. Сторож под `#[cfg(windows)]`
+/// молчит везде, где его не запускают.
+pub(crate) fn candidate_names(windows: bool) -> &'static [&'static str] {
+    if windows {
         &["claude.exe", "claude.cmd", "claude"]
     } else {
         &["claude"]
     }
 }
 
+/// Собрать строку команды для `cmd /C` так, чтобы знаки в пути не разбирались как
+/// операторы оболочки.
+///
+/// 🔴 Маршрутный дефект (подтверждён прогоном 2026-08-09). Путь, переданный ОТДЕЛЬНЫМ
+/// аргументом, Rust обрамляет кавычками только при пробеле или табуляции, а `cmd.exe`
+/// разбирает `&`, `^`, `(`, `)` как операторы. Имя учётной записи Windows такие знаки
+/// допускает: на пути вида `C:\Users\A&B\...\claude.cmd` запуск падал кодом 1 с
+/// «"C:\Users\A" не является внутренней или внешней командой». Для зонда доступности
+/// это означало ложное «локальный Claude Code недоступен» — и материалы клиента уходили
+/// на шлюз при полностью рабочей локальной установке.
+///
+/// Форма выбрана по правилу самого `cmd.exe`: если строка после `/C` начинается с
+/// кавычки и кавычек в ней больше двух, снимается ПЕРВАЯ и ПОСЛЕДНЯЯ, а остальное
+/// разбирается как команда. Поэтому вся команда обрамляется внешней парой, а путь
+/// внутри — своей: `""C:\A&B\claude.cmd" --version"`. Внутри кавычек `&` и `^` для
+/// `cmd.exe` — обычные знаки. Прогон на временных каталогах с `&`, `^`, `(`, `%`,
+/// апострофом, пробелом и сочетанием «пробел плюс &»: прежняя форма падала кодом 1 на
+/// четырёх из них, эта проходит на всех — и для `.cmd`, и для файла без расширения.
+///
+/// Аргумент, содержащий сам знак кавычки, этой формой не передаётся: у `cmd.exe` нет
+/// способа экранировать кавычку внутри такой строки. Ни один аргумент запуска Claude
+/// Code её не содержит — это либо постоянные флаги, либо значения из белых списков,
+/// либо идентификатор сессии, проверенный на состав знаков.
+#[cfg_attr(not(windows), allow(dead_code))]
+pub(crate) fn windows_cmd_command_line(binary: &str, args: &[&str]) -> String {
+    let mut line = String::with_capacity(binary.len() + 32);
+    line.push('"'); // внешняя кавычка — её cmd.exe снимет
+    line.push('"');
+    line.push_str(binary);
+    line.push('"');
+    for arg in args {
+        line.push(' ');
+        let needs_quotes = arg.is_empty()
+            || arg.chars().any(|c| {
+                c.is_whitespace() || matches!(c, '&' | '^' | '|' | '<' | '>' | '(' | ')')
+            });
+        if needs_quotes {
+            line.push('"');
+            line.push_str(arg);
+            line.push('"');
+        } else {
+            line.push_str(arg);
+        }
+    }
+    line.push('"'); // парная внешняя
+    line
+}
+
+/// Почему резолв не дал бинаря. Это разные ответы человеку: «нигде нет» он лечит
+/// установкой, «нашли вне доверенных расположений» — переносом или явным выбором
+/// режима, и путать их значит скрывать причину, по которой работа ушла на шлюз.
+#[derive(Debug)]
+pub(crate) enum ResolveFailure {
+    NotFound,
+    Untrusted(String),
+}
+
+/// Каталоги поиска — `PATH` процесса.
+///
+/// Раньше поиск шёл через `where`, которого на macOS и Linux нет: `Command::new("where")`
+/// давал ENOENT, все кандидаты отбраковывались, и локальный режим объявлялся недоступным
+/// навсегда. Штатный обход `PATH` работает одинаково всюду и заодно не ищет в текущем
+/// каталоге, как это делает `where`.
+fn path_dirs() -> Vec<std::path::PathBuf> {
+    std::env::var_os("PATH")
+        .map(|p| std::env::split_paths(&p).collect())
+        .unwrap_or_default()
+}
+
+/// Расположения, из которых мы согласны запускать найденный бинарь.
+fn trusted_prefixes() -> Vec<String> {
+    #[cfg(windows)]
+    {
+        [
+            std::env::var("APPDATA").ok(),
+            std::env::var("LOCALAPPDATA").ok(),
+            std::env::var("USERPROFILE").ok(),
+            std::env::var("PROGRAMFILES").ok(),
+            std::env::var("PROGRAMFILES(X86)").ok(),
+        ]
+        .into_iter()
+        .flatten()
+        .collect()
+    }
+    #[cfg(not(windows))]
+    {
+        let mut dirs: Vec<String> =
+            ["/usr", "/bin", "/opt", "/snap"].iter().map(|s| (*s).to_string()).collect();
+        if let Ok(home) = std::env::var("HOME") {
+            dirs.push(home);
+        }
+        dirs
+    }
+}
+
+#[cfg(unix)]
+fn is_runnable_file(path: &Path, windows: bool) -> bool {
+    use std::os::unix::fs::PermissionsExt;
+    let Ok(meta) = std::fs::metadata(path) else { return false };
+    if !meta.is_file() {
+        return false;
+    }
+    // Признак запуска на Unix — бит исполнения; на Windows его нет, и при проверке
+    // windows-порядка на unix-машине он не спрашивается.
+    windows || meta.permissions().mode() & 0o111 != 0
+}
+
+#[cfg(not(unix))]
+fn is_runnable_file(path: &Path, _windows: bool) -> bool {
+    std::fs::metadata(path).map(|m| m.is_file()).unwrap_or(false)
+}
+
+fn is_trusted(path: &str, prefixes: &[String], case_insensitive: bool) -> bool {
+    if case_insensitive {
+        let lower = path.to_lowercase();
+        prefixes.iter().any(|p| lower.starts_with(&p.to_lowercase()))
+    } else {
+        prefixes.iter().any(|p| path.starts_with(p.as_str()))
+    }
+}
+
+/// Сам поиск — без обращения к среде, поэтому проверяется подставным каталогом.
+fn find_claude_in(
+    dirs: &[std::path::PathBuf],
+    trusted: &[String],
+    windows: bool,
+) -> std::result::Result<String, ResolveFailure> {
+    let mut untrusted: Option<String> = None;
+    for name in candidate_names(windows) {
+        for dir in dirs {
+            let candidate = dir.join(name);
+            if !is_runnable_file(&candidate, windows) {
+                continue;
+            }
+            let resolved = candidate.to_string_lossy().to_string();
+            if is_trusted(&resolved, trusted, windows) {
+                debug!("Claude binary found: {resolved}");
+                return Ok(resolved);
+            }
+            warn!("Claude binary at untrusted location: {resolved} - skipping");
+            untrusted.get_or_insert(resolved);
+        }
+    }
+    match untrusted {
+        Some(path) => Err(ResolveFailure::Untrusted(path)),
+        None => Err(ResolveFailure::NotFound),
+    }
+}
+
+/// Путь, уже выбранный в этом запуске программы.
+///
+/// 🔴 Один источник истины о том, КАКОЙ файл мы берём. Зонд доступности
+/// (`execution_mode::probe_local`) и боевой запуск обязаны говорить об одном и том же
+/// файле: иначе зонд доказывает запускаемость одной установки, а работа идёт через
+/// другую — и человек видит «локальный режим доступен» ровно перед отказом.
+static RESOLVED_CLAUDE_BINARY: Mutex<Option<String>> = Mutex::new(None);
+
+fn remembered_or_resolve(
+    resolve: impl FnOnce() -> std::result::Result<String, ResolveFailure>,
+) -> std::result::Result<String, ResolveFailure> {
+    let mut guard = RESOLVED_CLAUDE_BINARY.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(path) = guard.as_ref() {
+        if Path::new(path).is_file() {
+            return Ok(path.clone());
+        }
+        // Файл исчез: установку снесли или переставили — ищем заново.
+        guard.take();
+    }
+    let resolved = resolve()?;
+    *guard = Some(resolved.clone());
+    Ok(resolved)
+}
+
+/// Забыть выбранный путь. Зовётся вместе со сбросом зонда: клиент мог поставить или
+/// переставить Claude Code, не перезапуская программу.
+pub(crate) fn forget_claude_binary() {
+    if let Ok(mut guard) = RESOLVED_CLAUDE_BINARY.lock() {
+        guard.take();
+    }
+}
+
+/// Найти Claude CLI с разбором причины отказа — для зонда доступности.
+pub(crate) fn find_claude_binary_detailed() -> std::result::Result<String, ResolveFailure> {
+    remembered_or_resolve(|| find_claude_in(&path_dirs(), &trusted_prefixes(), cfg!(windows)))
+}
+
 /// Find the Claude CLI binary and validate it's in a trusted location.
 /// Используется только из `run_claude_inner` — недостижима при feature `thin`, см. там.
 #[cfg_attr(feature = "thin", allow(dead_code))]
 pub(crate) fn find_claude_binary() -> Result<String> {
-    // Trusted directory prefixes (case-insensitive on Windows)
-    let trusted_prefixes: Vec<String> = [
-        std::env::var("APPDATA").ok(),
-        std::env::var("LOCALAPPDATA").ok(),
-        std::env::var("USERPROFILE").ok(),
-        std::env::var("PROGRAMFILES").ok(),
-        std::env::var("PROGRAMFILES(X86)").ok(),
-    ]
-    .into_iter()
-    .flatten()
-    .map(|p| p.to_lowercase())
-    .collect();
-
-    for name in candidate_names() {
-        let mut where_cmd = std::process::Command::new("where");
-        where_cmd.arg(name);
-        #[cfg(windows)]
-        where_cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
-        if let Ok(output) = where_cmd.output() {
-            if output.status.success() {
-                let path = String::from_utf8_lossy(&output.stdout);
-                if let Some(first_line) = path.lines().next() {
-                    if !first_line.trim().is_empty() {
-                        let resolved = first_line.trim().to_string();
-                        let lower = resolved.to_lowercase();
-
-                        if trusted_prefixes.iter().any(|prefix| lower.starts_with(prefix)) {
-                            debug!("Claude binary found: {resolved}");
-                            return Ok(resolved);
-                        }
-                        warn!("Claude binary at untrusted location: {resolved} - skipping");
-                    }
-                }
-            }
+    find_claude_binary_detailed().map_err(|failure| match failure {
+        ResolveFailure::NotFound => {
+            error!("Claude Code CLI not found in PATH");
+            coded_err(
+                ErrorCode::CL001,
+                "Claude Code CLI not found. Install it: npm install -g @anthropic-ai/claude-code",
+            )
         }
-    }
-
-    error!("Claude Code CLI not found in PATH");
-    Err(coded_err(ErrorCode::CL001, "Claude Code CLI not found. Install it: npm install -g @anthropic-ai/claude-code"))
+        ResolveFailure::Untrusted(path) => {
+            error!("Claude Code CLI found outside trusted locations: {path}");
+            coded_err(
+                ErrorCode::CL001,
+                &format!("Claude Code CLI found outside trusted locations: {path}"),
+            )
+        }
+    })
 }

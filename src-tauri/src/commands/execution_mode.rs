@@ -227,11 +227,18 @@ pub async fn local_available() -> (bool, String) {
 /// `find_claude_binary` уже уводит резолв от голого `claude`, когда есть выбор, но если
 /// на машине стоит ТОЛЬКО он — выбирать не из чего, и без этой обёртки зонд снова упал
 /// бы. На остальных системах путь запускается как есть.
+///
+/// 🔴 Строку команды строит `claude::windows_cmd_command_line` — тот же построитель,
+/// что и у боевого запуска. Своя сборка строки здесь означала бы, что зонд и работа
+/// разбирают путь по разным правилам: пока путь передавался отдельным аргументом,
+/// знак `&` в имени учётной записи ронял зонд, и материалы клиента уходили на шлюз при
+/// рабочей локальной установке.
 fn probe_command(binary: &str) -> tokio::process::Command {
     #[cfg(windows)]
     {
         let mut c = tokio::process::Command::new("cmd");
-        c.arg("/C").arg(binary).arg("--version");
+        c.arg("/C");
+        c.raw_arg(crate::commands::claude::windows_cmd_command_line(binary, &["--version"]));
         c
     }
     #[cfg(not(windows))]
@@ -243,10 +250,19 @@ fn probe_command(binary: &str) -> tokio::process::Command {
 }
 
 async fn probe_local() -> (bool, String) {
-    let binary = match crate::commands::claude::find_claude_binary() {
+    // 🔴 Тот же резолв, что и у боевого запуска, и с тем же запомненным ответом: зонд
+    // обязан доказывать запускаемость ИМЕННО того файла, который пойдёт в работу.
+    let binary = match crate::commands::claude::find_claude_binary_detailed() {
         Ok(path) => path,
+        Err(crate::commands::claude::ResolveFailure::Untrusted(path)) => {
+            // Отдельная причина: Claude Code стоит и, возможно, работает — мы сами
+            // отказались его запускать. Назвать это «не найден» значит скрыть от
+            // человека, почему работа ушла на шлюз.
+            warn!("Claude Code вне доверенных расположений: {path}");
+            return (false, "Claude Code установлен вне доверенных расположений".to_string());
+        }
         Err(e) => {
-            debug!("Локальный режим недоступен: {e}");
+            debug!("Локальный режим недоступен: {e:?}");
             return (false, "Claude Code на этой машине не найден".to_string());
         }
     };
@@ -291,10 +307,14 @@ pub fn mark_local_failed(reason: &str) {
 
 /// Забыть результат зонда: человек мог поставить Claude Code или войти в него, не
 /// перезапуская программу, и ждать истечения кэша ради этого он не обязан.
+///
+/// Вместе с результатом забывается и выбранный путь: если Claude Code переставили в
+/// другое место, зонд обязан искать заново, а не подтверждать вчерашний файл.
 pub fn forget_local_probe() {
     if let Ok(mut guard) = LOCAL_PROBE.lock() {
         *guard = None;
     }
+    crate::commands::claude::forget_claude_binary();
 }
 
 /// Отметить отказ шлюза по праву — чтобы пункт назывался недоступным с причиной.
@@ -638,10 +658,17 @@ mod tests {
     /// запускается напрямую (os error 193) — зонд обязан идти через `cmd /C`, как уже
     /// делает настоящий запуск в `claude.rs`. Без этой обёртки прямой `Command::new(binary)`
     /// ложно репортил «Claude Code найден, но не запускается» на рабочей установке.
+    ///
+    /// 🔴 Плюс главное: строку команды зонд обязан брать у ОБЩЕГО построителя, а не
+    /// собирать сам — иначе путь со знаком `&` в имени учётной записи снова разберётся
+    /// как оператор, зонд соврёт «недоступно», и материалы уйдут на шлюз. Сам
+    /// построитель проверяется в `claude.rs` без привязки к платформе; здесь —
+    /// что зонд пользуется именно им.
     #[test]
     #[cfg(windows)]
     fn probe_command_wraps_via_cmd_on_windows() {
-        let cmd = probe_command(r"C:\Users\test\AppData\Roaming\npm\claude");
+        let binary = r"C:\Users\A&B\AppData\Roaming\npm\claude.cmd";
+        let cmd = probe_command(binary);
         let std_cmd = cmd.as_std();
         assert_eq!(
             std_cmd.get_program().to_string_lossy(),
@@ -656,10 +683,14 @@ mod tests {
             args,
             vec![
                 "/C".to_string(),
-                r"C:\Users\test\AppData\Roaming\npm\claude".to_string(),
-                "--version".to_string(),
+                crate::commands::claude::windows_cmd_command_line(binary, &["--version"]),
             ],
-            "аргументы обязаны быть /C <бинарь> --version"
+            "зонд обязан звать cmd /C со строкой общего построителя"
+        );
+        assert!(
+            args[1].contains(&format!("\"{binary}\"")),
+            "путь обязан уехать в кавычках, иначе & разберётся как оператор: {}",
+            args[1]
         );
     }
 }
