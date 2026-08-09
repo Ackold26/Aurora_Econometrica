@@ -1392,14 +1392,53 @@ mod tests {
         assert!(!ClaudeError::AuthError.is_retryable());
         assert!(!ClaudeError::Unknown("test".to_string()).is_retryable());
     }
+
+    /// Починка ложного зонда: на Windows `.exe`/`.cmd` обязаны резолвиться ПЕРЕД
+    /// `claude` без расширения — иначе `find_claude_binary` возвращает Unix-скрипт,
+    /// который Windows не запускает напрямую (os error 193), и `probe_local`
+    /// (execution_mode.rs) ложно репортит локальный Claude Code недоступным.
+    #[test]
+    #[cfg(windows)]
+    fn candidate_order_prefers_native_exe_over_extensionless_script_on_windows() {
+        let candidates = candidate_names();
+        let exe_pos = candidates.iter().position(|&c| c == "claude.exe");
+        let cmd_pos = candidates.iter().position(|&c| c == "claude.cmd");
+        let bare_pos = candidates.iter().position(|&c| c == "claude");
+        assert!(
+            exe_pos.is_some() && cmd_pos.is_some() && bare_pos.is_some(),
+            "все три имени обязаны присутствовать в списке кандидатов: {candidates:?}"
+        );
+        assert!(
+            exe_pos < bare_pos,
+            "claude.exe обязан идти раньше claude без расширения: {candidates:?}"
+        );
+        assert!(
+            cmd_pos < bare_pos,
+            "claude.cmd обязан идти раньше claude без расширения: {candidates:?}"
+        );
+    }
+}
+
+/// Порядок кандидатов имени бинаря по платформам.
+///
+/// На Windows нативный `.exe` и `.cmd`-скрипт идут ПЕРЕД `claude` без расширения:
+/// npm кладёт рядом все три файла, а Unix-скрипт без расширения Windows не запускает
+/// напрямую (os error 193). Зонд `probe_local` (execution_mode.rs) резолвил именно этот
+/// путь первым и ложно репортил «Claude Code найден, но не запускается», уводя
+/// автоопределение в облачный режим при рабочем локальном Claude Code.
+#[cfg_attr(feature = "thin", allow(dead_code))]
+pub(crate) fn candidate_names() -> &'static [&'static str] {
+    if cfg!(windows) {
+        &["claude.exe", "claude.cmd", "claude"]
+    } else {
+        &["claude"]
+    }
 }
 
 /// Find the Claude CLI binary and validate it's in a trusted location.
 /// Используется только из `run_claude_inner` — недостижима при feature `thin`, см. там.
 #[cfg_attr(feature = "thin", allow(dead_code))]
 pub(crate) fn find_claude_binary() -> Result<String> {
-    let candidates = ["claude", "claude.cmd", "claude.exe"];
-
     // Trusted directory prefixes (case-insensitive on Windows)
     let trusted_prefixes: Vec<String> = [
         std::env::var("APPDATA").ok(),
@@ -1413,7 +1452,7 @@ pub(crate) fn find_claude_binary() -> Result<String> {
     .map(|p| p.to_lowercase())
     .collect();
 
-    for name in &candidates {
+    for name in candidate_names() {
         let mut where_cmd = std::process::Command::new("where");
         where_cmd.arg(name);
         #[cfg(windows)]
