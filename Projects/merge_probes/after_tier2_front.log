@@ -1,0 +1,45 @@
+
+> aurora-ai-agency@2.4.4 test
+> vitest run
+
+
+ RUN  v4.1.2 D:/Docs/Aurora_Ai/Dev/Aurora_Econometrica_canon
+
+Not implemented: navigation to another Document
+Not implemented: navigation to another Document
+Not implemented: navigation to another Document
+Not implemented: navigation to another Document
+02:03:54 [vite-plugin-svelte] src/lib/components/Tooltip.svelte:45:20 This reference only captures the initial value of `id`. Did you mean to reference it inside a closure instead?
+https://svelte.dev/e/state_referenced_locally
+02:03:54 [vite-plugin-svelte] src/lib/components/pipeline/MultiScenarioPage.svelte:401:16 Redundant role 'row'
+https://svelte.dev/e/a11y_no_redundant_roles
+02:03:54 [vite-plugin-svelte] src/lib/components/pipeline/ScenarioWizard.svelte:644:2 Unused CSS selector ".step-placeholder"
+https://svelte.dev/e/css_unused_selector
+02:03:54 [vite-plugin-svelte] src/lib/components/pipeline/ScenarioWizard.svelte:651:2 Unused CSS selector ".step-placeholder h2"
+https://svelte.dev/e/css_unused_selector
+02:03:54 [vite-plugin-svelte] src/lib/components/pipeline/ScenarioWizard.svelte:658:2 Unused CSS selector ".step-placeholder-body"
+https://svelte.dev/e/css_unused_selector
+02:03:55 [vite-plugin-svelte] src/lib/components/ExpandableCard.svelte:54:2 Elements with the 'dialog' interactive role must have a tabindex value
+https://svelte.dev/e/a11y_interactive_supports_focus
+02:03:55 [vite-plugin-svelte] src/lib/components/ExpandableCard.svelte:54:2 Visible, non-interactive elements with a click event must be accompanied by a keyboard event handler. Consider whether an interactive element such as `<button type="button">` or `<a>` might be more appropriate
+https://svelte.dev/e/a11y_click_events_have_key_events
+02:03:55 [vite-plugin-svelte] src/lib/components/ExpandableCard.svelte:61:4 Non-interactive element `<div>` should not be assigned mouse or keyboard event listeners
+https://svelte.dev/e/a11y_no_noninteractive_element_interactions
+02:05:00 [vite-plugin-svelte] src/lib/components/ConfigPanel.svelte:559:4 A form label must be associated with a control
+https://svelte.dev/e/a11y_label_has_associated_control
+02:05:00 [vite-plugin-svelte] src/lib/components/ConfigPanel.svelte:573:6 Visible, non-interactive elements with a click event must be accompanied by a keyboard event handler. Consider whether an interactive element such as `<button type="button">` or `<a>` might be more appropriate
+https://svelte.dev/e/a11y_click_events_have_key_events
+02:05:00 [vite-plugin-svelte] src/lib/components/ConfigPanel.svelte:589:4 A form label must be associated with a control
+https://svelte.dev/e/a11y_label_has_associated_control
+02:05:00 [vite-plugin-svelte] src/lib/components/ConfigPanel.svelte:605:4 A form label must be associated with a control
+https://svelte.dev/e/a11y_label_has_associated_control
+02:05:00 [vite-plugin-svelte] src/lib/components/ConfigPanel.svelte:645:8 Visible, non-interactive elements with a click event must be accompanied by a keyboard event handler. Consider whether an interactive element such as `<button type="button">` or `<a>` might be more appropriate
+https://svelte.dev/e/a11y_click_events_have_key_events
+02:05:00 [vite-plugin-svelte] src/lib/components/ConfigPanel.svelte:699:10 A form label must be associated with a control
+https://svelte.dev/e/a11y_label_has_associated_control
+
+ Test Files  94 passed (94)
+      Tests  1438 passed (1438)
+   Start at  02:03:48
+   Duration  72.70s (transform 299.01s, setup 14.81s, import 927.40s, tests 13.04s, environment 138.81s)
+
