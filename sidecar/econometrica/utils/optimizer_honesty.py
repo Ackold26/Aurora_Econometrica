@@ -40,6 +40,64 @@ DIVERGENCE_ABS_FLOOR = 20
 RHAT_REFUSE_THRESHOLD = 1.05
 WEAK_TIERS = ('weak', 'poor')
 
+#: Вердикт, означающий отказ от рекомендаций по переброске. Строку сопоставления
+#: держим здесь, а не россыпью по слоям представления: `refused` и `verdict`
+#: обязаны совпадать по смыслу в любом читателе.
+REFUSING_VERDICT = 'unreliable'
+
+
+def verdict_refuses(verdict: str | None) -> bool:
+    """True ⟺ вердикт означает отказ от рекомендаций.
+
+    Слои представления (PPTX/HTML) видят не полный дикт `model_reliability`, а
+    только поле-штамп `honesty_verdict` — сопоставление «unreliable ⟺ отказ»
+    им приходилось делать самим. Одна точка сопоставления вместо трёх.
+    """
+    return (verdict or '').strip().lower() == REFUSING_VERDICT
+
+
+def divergence_refuse_threshold(total_draws: int | None = None) -> int:
+    """Порог дивергенций для отказа: max(абсолютный пол, 1% черновиков).
+
+    Абс. пол защищает от ложного отказа при малом числе черновиков (пара
+    дивергенций на 30 наблюдениях — норма для NUTS, не катастрофа). Без
+    известного числа черновиков остаётся только пол.
+    """
+    try:
+        draws = int(total_draws or 0)
+    except (TypeError, ValueError):
+        draws = 0
+    if draws <= 0:
+        return DIVERGENCE_ABS_FLOOR
+    return max(DIVERGENCE_ABS_FLOOR, int(DIVERGENCE_REFUSE_FRAC * draws))
+
+
+def model_did_not_converge(r_hat_max: float | None, divergences: int | None,
+                           total_draws: int | None = None) -> bool:
+    """Единый предикат отказа: расчёт не сошёлся (ветка `unreliable` ниже).
+
+    🔴 Заведён 2026-08-09. Ветка отказа `model_reliability_verdict` и текст
+    вердикта модели в `utils/diagnostics.generate_diagnostics_summary` жили на
+    двух РАЗНЫХ основаниях: первая смотрела на сходимость, вторая — только на
+    ступень MQS и тонкость данных. При `r_hat=1.06` и нуле расхождений клиент
+    получал в одном документе «рекомендации по переброске бюджета отключены» и
+    «Надёжный результат для принятия бюджетных решений». Теперь основание одно
+    и физически общее — и вердикт, и текст зовут эту функцию.
+
+    Порог по дивергенциям зависит от числа черновиков, поэтому `total_draws`
+    передавать обязательно всюду, где оно известно: без него порог падает до
+    абсолютного пола (20) и на длинных цепях получится ЛОЖНЫЙ отказ.
+    """
+    try:
+        r_hat = float(r_hat_max or 0.0)
+    except (TypeError, ValueError):
+        r_hat = 0.0
+    try:
+        div = int(divergences or 0)
+    except (TypeError, ValueError):
+        div = 0
+    return r_hat >= RHAT_REFUSE_THRESHOLD or div > divergence_refuse_threshold(total_draws)
+
 
 def load_model_diagnostics(project_path: str | Path) -> dict[str, Any]:
     """Читает SSOT results/model-diagnostics.json. {} если файла нет (не блокируем)."""
@@ -146,8 +204,10 @@ def model_reliability_verdict(diagnostics: dict[str, Any]) -> dict[str, Any]:
     score = mqs.get('score')
 
     total_draws = _total_draws(metrics)
-    div_thresh = max(DIVERGENCE_ABS_FLOOR, int(DIVERGENCE_REFUSE_FRAC * total_draws)) \
-        if total_draws else DIVERGENCE_ABS_FLOOR
+    # Порог и сам предикат отказа — из общих функций выше: тем же основанием
+    # пользуется текст вердикта модели (utils/diagnostics), поэтому расхождение
+    # двух шкал (отказ против «надёжный результат») стало невозможным.
+    div_thresh = divergence_refuse_threshold(total_draws)
 
     reasons: list[str] = []
 

@@ -273,6 +273,26 @@ fn diag_metric(model: &Value, nested_key: &str, flat_key: &str) -> f64 {
 /// по поверхностям это тот же дефект в профиль.
 const MQS_ABSENT_TEXT: &str = "Оценка не выполнялась для этого расчёта";
 
+/// Фраза о применимости результата при несошедшемся расчёте.
+///
+/// 🔴 ЗЕРКАЛО ДОСЛОВНОЕ: единый источник — Python,
+/// `sidecar/econometrica/utils/diagnostics.py::RELIABILITY_STATEMENT_REFUSED`.
+/// Rust не импортирует Python и собирает Markdown и XLSX сам, поэтому синхрон
+/// держим строкой; сверяет его сторож шва
+/// `sidecar/econometrica/tests/test_reliability_statement_mirror.py` — сравнение
+/// побайтовое, не «по смыслу» (плейсхолдеров в строке нет, смягчать нечего).
+///
+/// Зачем вообще: шкала отказа (`model_reliability.refused`) и шкала показателя
+/// качества MQS расходились. Доказано зондом 2026-08-09 — R-hat 1.06 при нуле
+/// расхождений давал MQS 88 «Отличное» И `refused=true`, и один документ нёс
+/// «рекомендации по переброске бюджета отключены» рядом с «результаты модели
+/// надёжны для принятия решений».
+///
+/// 🔴 Гейтим ДЕЙСТВИЕ, не ДАННЫЕ: балл, ступень и метрики остаются на месте —
+/// фраза прямо говорит, что цифры показаны как есть. Прятать показатели нельзя.
+/// Клиентский текст: короткое тире «–» (U+2013).
+const RELIABILITY_STATEMENT_REFUSED: &str = "Расчёт не сошёлся – цифры показаны как есть, но опираться на них при распределении бюджета рано; переобучите модель.";
+
 /// Значение ячейки MQS Score листа «Executive Summary» — либо реальное число,
 /// либо честный текст отсутствия (никогда фиктивный 0.0).
 enum MqsCell {
@@ -286,7 +306,15 @@ enum MqsCell {
 /// несчитанную оценку в ноль, и лист печатал «MQS Score | 0 | Требует
 /// доработки» - приговор модели вместо отметки, что её не оценивали.
 /// Настоящий ноль (mqs == Some(0.0)) - валидное значение и сохраняется.
-fn mqs_xlsx_row(mqs: Option<f64>, mqs_label: Option<&str>) -> (MqsCell, &'static str, String) {
+///
+/// `refused` (2026-08-09) — расчёт не сошёлся (`optimize.model_reliability.refused`).
+/// Ступень при этом остаётся в строке (гейтим действие, не данные), но рядом с
+/// ней встаёт согласованная фраза: прежде лист печатал «MQS Tier: Отличное» и
+/// молчал, а плашка надёжности стояла восемью строками ниже — читатель ячейки
+/// её не видел. Фраза — дословное зеркало Python, см. RELIABILITY_STATEMENT_REFUSED.
+fn mqs_xlsx_row(mqs: Option<f64>, mqs_label: Option<&str>, refused: bool)
+    -> (MqsCell, &'static str, String)
+{
     match mqs {
         Some(v) => {
             // Единый источник (INV-106 продолжение, 2026-07-27): раньше `grade`
@@ -295,7 +323,12 @@ fn mqs_xlsx_row(mqs: Option<f64>, mqs_label: Option<&str>) -> (MqsCell, &'static
             // листа - ровно рецидив L16 внутри одной функции. Теперь оба берут
             // ОДИН резолвнутый ярлык канона (mqs_tiers).
             let grade = mqs_tiers::resolve_mqs_label(v, mqs_label);
-            (MqsCell::Value(v), grade, format!("MQS Tier: {grade}"))
+            let tier_line = if refused {
+                format!("MQS Tier: {grade}. {RELIABILITY_STATEMENT_REFUSED}")
+            } else {
+                format!("MQS Tier: {grade}")
+            };
+            (MqsCell::Value(v), grade, tier_line)
         }
         None => (MqsCell::Absent, "", MQS_ABSENT_TEXT.to_string()),
     }
@@ -736,15 +769,33 @@ fn build_markdown(model: &Value, decompose: &Value, optimize: &Value) -> String 
     // это давняя дыра, а не регресс правки порогов. `mqs_is_acceptable`
     // (mqs_tiers) закрывает середину: три предиката покрывают все пять
     // ступеней канона ровно по одному разу - см. регресс-тест в mqs_tiers.rs.
+    // 🔴 2026-08-09: строки ниже выводились ТОЛЬКО из ступени MQS и признака
+    // отказа не спрашивали. При несошедшемся расчёте с высоким баллом отчёт
+    // печатал строкой выше «переброска отключена», а здесь — «результаты модели
+    // надёжны для принятия решений». Ступень остаётся (гейтим действие, не
+    // данные), но положительные утверждения о применимости при отказе
+    // заменяются согласованной фразой из единого источника (Python-эталон,
+    // зеркало дословное — RELIABILITY_STATEMENT_REFUSED). Строка «Слабое или
+    // Ненадёжное» не трогается: она и так говорит о доработке, отказу не
+    // противоречит. Три предиката взаимоисключающие, поэтому фраза печатается
+    // не более одного раза.
     if let Some(v) = mqs {
         if mqs_tiers::mqs_is_weak(v) {
             md.push_str("- [СРЕДНЯЯ] MQS Score на уровне «Слабое» или «Ненадёжное» – модель требует доработки или дополнительных данных\n");
         }
         if mqs_tiers::mqs_is_acceptable(v) {
-            md.push_str("- [СРЕДНЯЯ] MQS Score на уровне «Приемлемое» – результаты пригодны для ориентировки, но не для точных решений\n");
+            if mr_refused {
+                md.push_str(&format!("- [ВЫСОКАЯ] MQS Score на уровне «Приемлемое». {RELIABILITY_STATEMENT_REFUSED}\n"));
+            } else {
+                md.push_str("- [СРЕДНЯЯ] MQS Score на уровне «Приемлемое» – результаты пригодны для ориентировки, но не для точных решений\n");
+            }
         }
         if mqs_tiers::mqs_is_dependable(v) {
-            md.push_str("- [ВЫСОКАЯ] MQS Score на уровне «Хорошее» и выше – результаты модели надёжны для принятия решений\n");
+            if mr_refused {
+                md.push_str(&format!("- [ВЫСОКАЯ] MQS Score на уровне «Хорошее» и выше. {RELIABILITY_STATEMENT_REFUSED}\n"));
+            } else {
+                md.push_str("- [ВЫСОКАЯ] MQS Score на уровне «Хорошее» и выше – результаты модели надёжны для принятия решений\n");
+            }
         }
     }
     md.push_str(&format!("- [ВЫСОКАЯ] Приоритизировать канал **{top_ch}** – наивысший ROI в миксе\n"));
@@ -1270,7 +1321,10 @@ fn build_xlsx(
         // MQS - строка 4 (B5/C5, см. define_name "MQS_Score" ниже) - отдельно
         // от общего вектора: при отсутствии оценки значение не выражается
         // числом f64 без лжи, и оценка-«вердикт» (col C) не рисуется вовсе.
-        let (mqs_cell, mqs_grade, mqs_tier_line) = mqs_xlsx_row(mqs, mqs_label);
+        // Отказ от рекомендаций читаем ровно там же, где его читает раздел
+        // рекомендаций Markdown и плашка ниже — единый признак, не пере-вывод.
+        let mqs_refused = optimize["model_reliability"]["refused"].as_bool().unwrap_or(false);
+        let (mqs_cell, mqs_grade, mqs_tier_line) = mqs_xlsx_row(mqs, mqs_label, mqs_refused);
         ws.write(4, 0, "MQS Score").map_err(|e| format!("{e}"))?;
         match mqs_cell {
             MqsCell::Value(v) => { ws.write(4, 1, v).map_err(|e| format!("{e}"))?; }
@@ -2523,9 +2577,101 @@ mod tests {
         );
     }
 
+    /// Диагностика и оптимизация доказанного зондом расклада: расчёт не сошёлся
+    /// (R-hat 1.06), а показатель качества при этом отличный (MQS 88).
+    fn refused_high_mqs_inputs(score: f64, refused: bool) -> (Value, Value, Value) {
+        let model = json!({
+            "diagnostics": {
+                "mqs": {"score": score, "tier_label": mqs_tiers::resolve_mqs_label(score, None)},
+                "metrics": {"r_hat_max": 1.06, "divergences": 0},
+            },
+        });
+        let decompose = json!({"channels": [{"name": "TV", "roi": 2.0}]});
+        let optimize = json!({
+            "expected_lift_pct": 12.0,
+            "model_reliability": {
+                "verdict": if refused { "unreliable" } else { "reliable" },
+                "refused": refused,
+                "caveat_text": "Модель не завершила расчёт корректно",
+            },
+            "channels": [
+                {"name": "TV", "current_spend_money": 100.0, "optimal_spend_money": 150.0}
+            ],
+        });
+        (model, decompose, optimize)
+    }
+
+    #[test]
+    fn markdown_refused_model_drops_reliability_endorsement() {
+        // 🔴 Доказанный дефект (2026-08-09): раздел рекомендаций выводил вердикт
+        // ТОЛЬКО из ступени MQS. При MQS 88 и refused=true отчёт печатал строкой
+        // выше «переброска отключена», а ниже — «результаты модели надёжны для
+        // принятия решений». Один документ, два взаимоисключающих утверждения.
+        let (model, decompose, optimize) = refused_high_mqs_inputs(88.0, true);
+        let md = build_markdown(&model, &decompose, &optimize);
+        assert!(
+            !md.contains("результаты модели надёжны для принятия решений"),
+            "расчёт не сошёлся, а отчёт утверждает надёжность:\n{md}"
+        );
+        assert!(
+            md.contains(RELIABILITY_STATEMENT_REFUSED),
+            "отчёт не несёт согласованную фразу единого источника:\n{md}"
+        );
+    }
+
+    #[test]
+    fn markdown_refused_model_keeps_mqs_numbers() {
+        // Гейтим действие, не данные: балл и ступень обязаны остаться видимыми.
+        let (model, decompose, optimize) = refused_high_mqs_inputs(88.0, true);
+        let md = build_markdown(&model, &decompose, &optimize);
+        assert!(md.contains("88"), "балл MQS обязан остаться в отчёте:\n{md}");
+        assert!(md.contains("Отличное"), "ступень обязана остаться в отчёте:\n{md}");
+    }
+
+    #[test]
+    fn markdown_converged_model_keeps_endorsement() {
+        // Регресс: у сошедшейся модели текст прежний, правка хирургическая.
+        let (model, decompose, optimize) = refused_high_mqs_inputs(88.0, false);
+        let md = build_markdown(&model, &decompose, &optimize);
+        assert!(
+            md.contains("результаты модели надёжны для принятия решений"),
+            "у сошедшейся модели прежняя рекомендация обязана остаться:\n{md}"
+        );
+        assert!(!md.contains(RELIABILITY_STATEMENT_REFUSED), "{md}");
+    }
+
+    #[test]
+    fn markdown_refused_acceptable_tier_drops_usability_claim() {
+        // Средняя ступень тоже несёт положительное утверждение о применимости
+        // («пригодны для ориентировки») — при отказе оно так же неуместно.
+        let (model, decompose, optimize) = refused_high_mqs_inputs(60.0, true);
+        let md = build_markdown(&model, &decompose, &optimize);
+        assert!(
+            !md.contains("результаты пригодны для ориентировки"),
+            "расчёт не сошёлся, а отчёт разрешает ориентироваться по цифрам:\n{md}"
+        );
+        assert!(md.contains(RELIABILITY_STATEMENT_REFUSED), "{md}");
+    }
+
+    #[test]
+    fn xlsx_mqs_row_refused_carries_statement_next_to_tier() {
+        // Прежде лист печатал «MQS Tier: Отличное» и молчал, а плашка надёжности
+        // стояла восемью строками ниже — читатель ячейки её не видел.
+        let (_cell, grade, tier_line) = mqs_xlsx_row(Some(88.0), Some("Отличное"), true);
+        assert_eq!(grade, "Отличное", "ступень обязана остаться — гейтим действие, не данные");
+        assert!(
+            tier_line.contains("Отличное"),
+            "строка уровня потеряла ступень: {tier_line}"
+        );
+        assert!(
+            tier_line.contains(RELIABILITY_STATEMENT_REFUSED),
+            "строка уровня не несёт согласованную фразу при отказе: {tier_line}"
+        );
+    }
+
     #[test]
     fn xlsx_mqs_row_absent_is_honest_text() {
-        let (cell, grade, tier_line) = mqs_xlsx_row(None, None);
+        let (cell, grade, tier_line) = mqs_xlsx_row(None, None, false);
         assert!(matches!(cell, MqsCell::Absent));
         assert_eq!(grade, "");
         assert_eq!(tier_line, MQS_ABSENT_TEXT);
@@ -2533,7 +2679,7 @@ mod tests {
 
     #[test]
     fn xlsx_mqs_row_present_is_value_with_grade() {
-        let (cell, grade, tier_line) = mqs_xlsx_row(Some(70.0), Some("Хорошее"));
+        let (cell, grade, tier_line) = mqs_xlsx_row(Some(70.0), Some("Хорошее"), false);
         match cell {
             MqsCell::Value(v) => assert_eq!(v, 70.0),
             MqsCell::Absent => panic!("оценка присутствует - ожидался MqsCell::Value"),
@@ -2546,7 +2692,7 @@ mod tests {
     fn xlsx_mqs_row_rejects_alien_label_derives_from_score() {
         // "Хорошо" не входит в набор канона ("Хорошее") - grade и tier_line
         // обязаны совпасть и взяться из балла, а не эхом чужого текста.
-        let (_cell, grade, tier_line) = mqs_xlsx_row(Some(70.0), Some("Хорошо"));
+        let (_cell, grade, tier_line) = mqs_xlsx_row(Some(70.0), Some("Хорошо"), false);
         assert_eq!(grade, "Хорошее");
         assert_eq!(tier_line, "MQS Tier: Хорошее");
     }
@@ -2555,7 +2701,7 @@ mod tests {
     fn xlsx_mqs_row_missing_label_derives_from_score_not_literal_na() {
         // Балл посчитан, ярлыка от бэкенда нет вовсе (None) - раньше здесь
         // печаталось "N/A" (англицизм); теперь уровень считается из балла.
-        let (_cell, grade, tier_line) = mqs_xlsx_row(Some(92.0), None);
+        let (_cell, grade, tier_line) = mqs_xlsx_row(Some(92.0), None, false);
         assert_eq!(grade, "Отличное");
         assert_eq!(tier_line, "MQS Tier: Отличное");
         assert!(!tier_line.contains("N/A"));
@@ -2563,7 +2709,7 @@ mod tests {
 
     #[test]
     fn xlsx_mqs_row_real_zero_is_valid_value_not_absent() {
-        let (cell, grade, _tier_line) = mqs_xlsx_row(Some(0.0), Some("Ненадёжное"));
+        let (cell, grade, _tier_line) = mqs_xlsx_row(Some(0.0), Some("Ненадёжное"), false);
         match cell {
             MqsCell::Value(v) => assert_eq!(v, 0.0),
             MqsCell::Absent => panic!("настоящий ноль - валидное значение, не отсутствие"),

@@ -84,7 +84,7 @@ fn ensure_not_local_only(app_handle: &tauri::AppHandle) -> Result<(), String> {
         .app_config_dir()
         .map_err(|e| format!("app_config_dir: {e}"))?;
     if crate::commands::user_config::local_only_enabled(&config_dir) {
-        return Err("[RAG-LOCAL-ONLY] Включён режим «только локально» — библиотека методологии отключена, данные не уходят".to_string());
+        return Err("[RAG-LOCAL-ONLY] Включён режим «только локально» — библиотека методологии отключена, материалы не уходят с этой машины".to_string());
     }
     Ok(())
 }

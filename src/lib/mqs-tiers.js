@@ -115,3 +115,36 @@ export function mqsScaleText() {
   });
   return parts.join(', ');
 }
+
+/**
+ * Фраза о применимости результата при несошедшемся расчёте.
+ *
+ * 🔴 ЗЕРКАЛО ДОСЛОВНОЕ: единый источник — Python,
+ * `sidecar/econometrica/utils/diagnostics.py::RELIABILITY_STATEMENT_REFUSED`.
+ * Интерфейс Python не импортирует, поэтому синхрон держится строкой; сверяет
+ * его сторож шва `sidecar/econometrica/tests/test_reliability_statement_mirror.py`
+ * (побайтово, вместе с Rust-зеркалом в `report.rs`).
+ *
+ * ЗАЧЕМ. Шкала отказа (`model_reliability.refused`) и шкала показателя качества
+ * MQS расходились. Доказано зондом 2026-08-09: R-hat 1.06 при нуле расхождений
+ * даёт MQS 88 «Отличное» И `refused=true`. Панель выводов при этом писала
+ * «Результаты надёжны для принятия решений», выводя вердикт ТОЛЬКО из ступени
+ * (`mqsIsDependable`) — в файле `insights-rules.js` слова «refused» не
+ * встречалось вовсе, то есть про отказ она не знала в принципе.
+ *
+ * 🔴 Гейтим ДЕЙСТВИЕ, не ДАННЫЕ: балл и ступень остаются на экране, фраза прямо
+ * говорит, что цифры показаны как есть.
+ */
+export const RELIABILITY_STATEMENT_REFUSED = 'Расчёт не сошёлся – цифры показаны как есть, но опираться на них при распределении бюджета рано; переобучите модель.';
+
+/**
+ * Означает ли вердикт надёжности отказ от рекомендаций по переброске.
+ * Зеркало `utils/optimizer_honesty.py::verdict_refuses` — одна точка
+ * сопоставления «unreliable ⟺ отказ» вместо копий по компонентам.
+ *
+ * @param {string|null|undefined} verdict
+ * @returns {boolean}
+ */
+export function verdictRefuses(verdict) {
+  return String(verdict ?? '').trim().toLowerCase() === 'unreliable';
+}

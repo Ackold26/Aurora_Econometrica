@@ -1368,6 +1368,11 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
             ess_bulk_min=ess_bulk_min,
             ess_tail_min=ess_tail_min,
             bfmi_min=bfmi_min,
+            # 2026-08-09: число черновиков нужно вердикт-тексту для порога отказа
+            # по дивергенциям (max(20, 1% черновиков)) — тот же порог, что у
+            # optimizer_honesty. Ниже это же произведение уезжает в metrics.mcmc,
+            # но diagnostics к тому моменту уже собран, поэтому передаём явно.
+            total_draws=int(chains) * int(draws),
         )
         # Enrich diagnostics with per-param R-hat and actual_vs_predicted
         diagnostics['per_param_rhat'] = per_param_rhat

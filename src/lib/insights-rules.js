@@ -32,7 +32,12 @@ import { pluralizeRu } from './utils/i18n.js';
 import { mqsView, ratioView } from './metric-views.js';
 // MQS SSOT (2026-07-26): ветвление по имени уровня канона, не по своим числам —
 // см. mqs-tiers.js и его гард.
-import { mqsTierInfo, mqsIsDependable } from './mqs-tiers.js';
+import {
+  mqsTierInfo,
+  mqsIsDependable,
+  verdictRefuses,
+  RELIABILITY_STATEMENT_REFUSED,
+} from './mqs-tiers.js';
 // Аудит 2026-07-05: пары «бюджет ₽ + натуральная метрика» одного канала
 // коррелированы by-design (r≈0.99 через закупочную цену) — инсайт-слой обязан
 // говорить о них то же, что heatmap (ожидаемо, в модель идёт одна колонка),
@@ -1375,12 +1380,29 @@ export function modelInsights(data, ratioOverride = undefined) {
   }
 
   // ── 1. Headline verdict (MQS-based) ──
+  // Признак отказа читаем из штампа надёжности диагностики (его ставит
+  // optimizer_honesty.stamp_reliability при обучении) — не пере-выводим по
+  // своим порогам, иначе заведётся третья шкала вдобавок к двум прежним.
+  const modelRefused = verdictRefuses(d.honesty_verdict)
+    || d.model_reliability?.refused === true;
   const thinSuffix = isThin ? ' Учитывайте, что данных мало – правдоподобный диапазон широкий.' : '';
   if (mqs == null) {
     out.push({
       severity: 'info',
       text: `Оценка качества модели (MQS) не рассчитана для этого расчёта – итоговый балл не показывается.${thinSuffix}`,
       tip: 'Отсутствие балла не означает низкое качество: оценка просто не была посчитана. Ориентируйтесь на метрики ниже (R², MAPE, сходимость); балл появится после полного расчёта.',
+    });
+  } else if (modelRefused) {
+    // 🔴 2026-08-09: заголовок выводился ТОЛЬКО из ступени MQS и про отказ не
+    // знал (слова «refused» в этом файле не встречалось вовсе). При R-hat 1.06
+    // и MQS 88 панель выводов писала «Результаты надёжны для принятия решений»,
+    // а оптимизатор рядом отключал переброску. Балл и ступень остаются (гейтим
+    // действие, не данные), фраза — из единого источника, та же, что в вердикте
+    // модели, в веб-отчёте, в презентации и в Markdown/XLSX.
+    out.push({
+      severity: 'warning',
+      text: `MQS = ${mqs.toFixed(0)} (${label}). ${RELIABILITY_STATEMENT_REFUSED}${thinSuffix}`,
+      tip: 'Показатель качества считается и при несошедшемся расчёте, поэтому высокий балл здесь не противоречит отказу. Увеличьте число итераций или упростите модель и переобучите – после этого рекомендации по переброске снова станут доступны.',
     });
   } else if (mqsIsDependable(mqs)) {
     out.push({
@@ -2331,7 +2353,18 @@ export function reportInsights(ctx = {}) {
   if (mape != null) mqsParts.push(`MAPE ${mape.toFixed(1)}%`);
   if (ratio != null) mqsParts.push(`Ratio ${ratio.toFixed(1)}:1`);
 
-  if (mqsIsDependable(mqs) && !isThin) {
+  // 🔴 2026-08-09: та же правка, что в modelInsights — сводка отчёта тоже
+  // выводила «Результаты надёжны» из одной ступени MQS. Признак отказа берём из
+  // результатов оптимизации (там он и живёт), а не пере-выводим по порогам.
+  const reportRefused = opt?.model_reliability?.refused === true
+    || verdictRefuses(opt?.model_reliability?.verdict);
+  if (reportRefused) {
+    out.push({
+      severity: 'warning',
+      text: `⚠ Модель: ${mqsParts.join(' · ')}. ${RELIABILITY_STATEMENT_REFUSED}`,
+      tip: 'Показатель качества считается и при несошедшемся расчёте, поэтому высокий балл здесь не противоречит отказу. Цифры отчёта остаются на месте – но переброска бюджета по ним не строится, пока модель не переобучена.',
+    });
+  } else if (mqsIsDependable(mqs) && !isThin) {
     out.push({
       severity: 'success',
       text: `🎯 Модель: ${mqsParts.join(' · ')}. Результаты надёжны.`,

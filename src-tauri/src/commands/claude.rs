@@ -156,7 +156,7 @@ fn ensure_not_local_only(app_handle: &tauri::AppHandle) -> Result<()> {
         .app_config_dir()
         .map_err(|e| anyhow::anyhow!("app_config_dir: {e}"))?;
     if crate::commands::user_config::local_only_enabled(&config_dir) {
-        anyhow::bail!("[CL-LOCAL-ONLY] Включён режим «только локально» — облачный ИИ отключён, данные не уходят на серверы");
+        anyhow::bail!("[CL-LOCAL-ONLY] Включён режим «только локально» — облачный ИИ отключён, материалы не уходят с этой машины");
     }
     Ok(())
 }

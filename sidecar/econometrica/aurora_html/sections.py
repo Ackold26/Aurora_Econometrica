@@ -916,6 +916,7 @@ def render_at_a_glance(ctx: dict) -> str:
             # из единого SSOT (utils.diagnostics.mqs_tier_info), а не дублируются
             # здесь; дубль этих чисел уже ловили в бою (см. комментарий выше).
             diag_tier = (ctx.get("diagnostics") or {}).get("mqs_tier_label")
+            diag_verdict = (ctx.get("diagnostics") or {}).get("honesty_verdict")
             # Audit fix (2026-04-29): explicit `is not None` check distinguishes
             # «backend not provided» vs «backend provided non-empty string».
             # Pre-fix: `if diag_tier:` falsy для empty string '' → silent fallback
@@ -945,6 +946,20 @@ def render_at_a_glance(ctx: dict) -> str:
                 mqs=mqs_val, tier_label=tier_label_text
             )
             f5_sup = strings["findings_templates"][support_key]
+            # 🔴 2026-08-09: подпись под баллом обещала применимость по ОДНОЙ
+            # ступени MQS — «Готовность к внедрению, можно опираться на
+            # рекомендации в планировании» печаталось и при несошедшемся
+            # расчёте, рядом с баннером «Ориентировочная модель» на этой же
+            # странице. Балл и ступень остаются (гейтим действие, не данные),
+            # но фраза о применимости при отказе приходит из единого источника.
+            # Шаблон в strings_ru.json намеренно НЕ заводим: копия фразы в файле
+            # строк — это ровно тот второй источник, из-за которого шкалы и
+            # разъехались.
+            from utils.diagnostics import mqs_tier_info, reliability_statement
+            from utils.optimizer_honesty import verdict_refuses
+            if verdict_refuses(diag_verdict):
+                f5_sup = reliability_statement(
+                    mqs_tier_info(mqs_val)['tier'], refused=True)
         findings.append((f5, f5_sup))
     else:
         # Preview mode
@@ -1998,6 +2013,19 @@ def render_sources(ctx: dict) -> str:
     mqs_caveat = format_thinness_caveat(diag.get("ratio"), diag.get("thinness_cap"),
                                         leading_space=False)
 
+    # 🔴 2026-08-09: карточка печатала балл и ступень («88 / Отличное») без
+    # единого слова о том, что расчёт не сошёлся, — а рекомендации по переброске
+    # при этом отключены. Балл и ступень остаются (гейтим действие, не данные),
+    # рядом встаёт согласованная фраза из единого источника. Ровно тот же приём,
+    # что строкой выше для оговорки о тонких данных.
+    from utils.diagnostics import mqs_tier_info, reliability_statement
+    from utils.optimizer_honesty import verdict_refuses
+    mqs_verdict_note = ""
+    if verdict_refuses(diag.get("honesty_verdict")):
+        _tier_key = (mqs_tier_info(_mqs_num)['tier']
+                     if (_mqs_num is not None and math.isfinite(_mqs_num)) else "")
+        mqs_verdict_note = reliability_statement(_tier_key, refused=True)
+
     # Волна 3 (2026-06-20, перенесено 2026-08-04): метка режима анализа + типа
     # KPI (контекст метрик) — без неё клиент может принять долю вклада за ROI.
     _mode_label = diag.get("analysis_mode_label")
@@ -2064,6 +2092,7 @@ def render_sources(ctx: dict) -> str:
     <div class="mqs-label">Model Quality Score</div>
     {mqs_score_block}
     {f'<div class="mqs-caveat">{escape(mqs_caveat)}</div>' if mqs_caveat else ''}
+    {f'<div class="mqs-caveat">{escape(mqs_verdict_note)}</div>' if mqs_verdict_note else ''}
     {mode_html}
     {f'<div class="mqs-diag">{mqs_diag_html}</div>' if mqs_diag_html else ''}
     <a class="method-badge" href="#method">{escape(_badge_text)}</a>

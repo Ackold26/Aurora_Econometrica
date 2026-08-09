@@ -1048,6 +1048,17 @@ class AuroraPPTXBuilder:
                 'weak': "Следует расширить период данных перед финальными решениями",
                 'poor': "Следует расширить период данных перед финальными решениями",
             }.get(_tier['tier'], "Рекомендации валидны с учётом диагностических метрик")
+            # 🔴 2026-08-09: подпись выводилась из ОДНОЙ ступени MQS, поэтому при
+            # несошедшемся расчёте колода обещала «можно опираться на рекомендации
+            # в планировании», а слайд «Данные и качество» той же колоды писал
+            # «ненадёжна — выводы ориентировочные». Балл и ступень остаются
+            # (гейтим действие, не данные), фраза о применимости при отказе
+            # приходит из единого источника — того же, что у веб-отчёта и
+            # вердикта программы.
+            from utils.diagnostics import reliability_statement
+            from utils.optimizer_honesty import verdict_refuses
+            if verdict_refuses(self.honesty_verdict):
+                s5 = reliability_statement(_tier['tier'], refused=True)
 
         return [
             ("01", f1, s1),
@@ -3236,6 +3247,31 @@ class AuroraPPTXBuilder:
                 slide, card_x + 0.35, card_y + 2.7, card_w - 0.7, 0.3,
                 _card_tier['tier_label'].lower(),
                 font=self.sans, size=12, italic=True, color=self.deep_100,
+            )
+
+        # 🔴 2026-08-09: карточка печатала «88 / 100 · отличное», а правая
+        # колонка того же слайда — «Вердикт надёжности: ненадёжна». Клиент читал
+        # противоречие на одном развороте. Балл и ступень остаются (гейтим
+        # действие, не данные), но при отказе фраза из единого источника встаёт
+        # ВНУТРИ карточки — та же, что в вердикте программы, в веб-отчёте и в
+        # Markdown/XLSX.
+        # Место выбрано опытом, а не на глаз: под карточкой (низ 5.75) фраза
+        # налезала на блок «PRIMARY» (y=6.0) — гейт переполнения показал
+        # OVERLAP на слайде 10. Внутри карточки свободна полоса под сеткой
+        # метрик (она кончается на card_y+3.32), до низа карточки. Держит гейт
+        # tests/test_pptx_overflow.py + сторож в
+        # tests/test_reliability_statement_single_source.py.
+        from utils.optimizer_honesty import verdict_refuses
+        _card_refused = verdict_refuses(self.honesty_verdict)
+        if _card_refused:
+            from utils.diagnostics import mqs_tier_info, reliability_statement
+            _card_tier_key = ""
+            if isinstance(self.mqs_score, (int, float)) and math.isfinite(float(self.mqs_score)):
+                _card_tier_key = mqs_tier_info(float(self.mqs_score))['tier']
+            self._text(
+                slide, card_x + 0.35, card_y + 3.40, card_w - 0.7, 0.42,
+                reliability_statement(_card_tier_key, refused=True),
+                font=self.sans, size=8, italic=True, color=self.gold,
             )
 
         # 4 key metrics inside card (2x2)

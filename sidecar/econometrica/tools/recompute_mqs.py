@@ -85,11 +85,22 @@ def recompute_project(proj_dir: str, dry_run: bool = False) -> dict:
     if not eff:
         return {'project': os.path.basename(proj_dir), 'status': 'skip', 'reason': 'eff_params not computable'}
 
+    # 2026-08-09: порог отказа по дивергенциям считается от числа черновиков
+    # (max(20, 1%)). Оно уже лежит в metrics.mcmc прежней диагностики — берём
+    # оттуда, иначе пересчитанный вердикт-текст объявил бы отказ там, где
+    # optimizer_honesty его не объявляет (порог упал бы до пола 20).
+    _mcmc = (diag.get('metrics') or {}).get('mcmc') or {}
+    try:
+        _total_draws = int(_mcmc.get('chains') or 0) * int(_mcmc.get('draws') or 0)
+    except (TypeError, ValueError):
+        _total_draws = 0
+
     old_score = diag.get('mqs', {}).get('score')
     new_diag = generate_diagnostics_summary(
         r_squared=r_squared, mape=mape, rmse=rmse,
         r_hat_max=r_hat_max, divergences=divergences,
         n_obs=n_obs, n_params=n_params, effective_params=eff,
+        total_draws=_total_draws or None,
     )
     # merge: обновляем только пересчитанные секции, остальное сохраняем
     diag['mqs'] = new_diag['mqs']
