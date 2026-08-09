@@ -219,6 +219,29 @@ pub async fn local_available() -> (bool, String) {
     (available, reason)
 }
 
+/// Собрать команду зонда `--version`.
+///
+/// На Windows — через `cmd /C`, тем же приёмом, что `run_claude_inner` в `claude.rs`:
+/// npm кладёт CLI как `.cmd`-скрипт, а такие скрипты (и скрипт без расширения) Windows
+/// не запускает напрямую (os error 193). Правка порядка кандидатов в
+/// `find_claude_binary` уже уводит резолв от голого `claude`, когда есть выбор, но если
+/// на машине стоит ТОЛЬКО он — выбирать не из чего, и без этой обёртки зонд снова упал
+/// бы. На остальных системах путь запускается как есть.
+fn probe_command(binary: &str) -> tokio::process::Command {
+    #[cfg(windows)]
+    {
+        let mut c = tokio::process::Command::new("cmd");
+        c.arg("/C").arg(binary).arg("--version");
+        c
+    }
+    #[cfg(not(windows))]
+    {
+        let mut c = tokio::process::Command::new(binary);
+        c.arg("--version");
+        c
+    }
+}
+
 async fn probe_local() -> (bool, String) {
     let binary = match crate::commands::claude::find_claude_binary() {
         Ok(path) => path,
@@ -228,8 +251,7 @@ async fn probe_local() -> (bool, String) {
         }
     };
 
-    let mut command = tokio::process::Command::new(&binary);
-    command.arg("--version");
+    let mut command = probe_command(&binary);
     command.stdin(std::process::Stdio::null());
     command.stdout(std::process::Stdio::piped());
     command.stderr(std::process::Stdio::piped());
@@ -610,5 +632,34 @@ mod tests {
         assert!(cloud_refusal().contains("лицензи"), "отказ по праву обязан запомниться");
         clear_cloud_refusal();
         assert!(cloud_refusal().is_empty(), "успешная работа снимает отметку отказа");
+    }
+
+    /// Починка ложного зонда: на Windows скрипт `.cmd`/скрипт без расширения не
+    /// запускается напрямую (os error 193) — зонд обязан идти через `cmd /C`, как уже
+    /// делает настоящий запуск в `claude.rs`. Без этой обёртки прямой `Command::new(binary)`
+    /// ложно репортил «Claude Code найден, но не запускается» на рабочей установке.
+    #[test]
+    #[cfg(windows)]
+    fn probe_command_wraps_via_cmd_on_windows() {
+        let cmd = probe_command(r"C:\Users\test\AppData\Roaming\npm\claude");
+        let std_cmd = cmd.as_std();
+        assert_eq!(
+            std_cmd.get_program().to_string_lossy(),
+            "cmd",
+            "зонд обязан запускаться через cmd.exe, а не напрямую"
+        );
+        let args: Vec<String> = std_cmd
+            .get_args()
+            .map(|a| a.to_string_lossy().into_owned())
+            .collect();
+        assert_eq!(
+            args,
+            vec![
+                "/C".to_string(),
+                r"C:\Users\test\AppData\Roaming\npm\claude".to_string(),
+                "--version".to_string(),
+            ],
+            "аргументы обязаны быть /C <бинарь> --version"
+        );
     }
 }
