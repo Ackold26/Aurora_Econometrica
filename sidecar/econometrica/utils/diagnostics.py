@@ -240,6 +240,19 @@ PROVENANCE_MISMATCH_NOTE = (
     'пересчитайте оптимизацию, прежде чем опираться на переброску бюджета.'
 )
 
+# 2026-08-10: вердикт honesty_verdict == 'unknown' означает «надёжность не
+# проверена» — часто потому, что пересчёт вердикта упал в аварийную ветку
+# (см. aurora_html.sections._reliability_disclaimer_html, except Exception:
+# verdict_str = "unknown"). Раньше при unknown отчёт молчал: клиент читает
+# молчание как «всё хорошо». SSOT-текст — единый источник для HTML и PPTX
+# (aurora_html/sections.py, aurora_pptx/builder.py), как и PROVENANCE_MISMATCH_NOTE
+# выше. Клиентский текст: короткое тире «–», без англицизмов.
+RELIABILITY_UNKNOWN_NOTE = (
+    'Проверка надёжности модели не выполнена – результаты ниже считайте '
+    'ориентировочными и переобучите модель, прежде чем опираться на '
+    'переброску бюджета.'
+)
+
 
 def format_thinness_caveat(ratio: float | None, thinness_cap: int | None,
                            *, leading_space: bool = True) -> str:

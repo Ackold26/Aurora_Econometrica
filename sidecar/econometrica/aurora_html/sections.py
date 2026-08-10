@@ -452,13 +452,31 @@ def _reliability_disclaimer_html(ctx: dict) -> str:
     # Приоритет: если honesty_verdict уже вычислен в diagnostics (modeler.py), читаем его.
     # Иначе — вычисляем здесь (legacy path: старые pickles без поля).
     verdict_str = diag.get("honesty_verdict")
-    if verdict_str is None:
+    if not verdict_str:
+        # Пустая строка трактуется наравне с отсутствующим ключом (2026-08-10):
+        # это тот же «пересчёт не проверен», а не отдельное «показывать нечего».
         try:
             from utils.optimizer_honesty import model_reliability_verdict
             _r = model_reliability_verdict(diag)
             verdict_str = _r.get("verdict", "unknown")
         except Exception:
             verdict_str = "unknown"
+    if verdict_str == "unknown":
+        # 2026-08-10: unknown означает «надёжность не проверена» — часто
+        # потому, что пересчёт вердикта упал в аварийную ветку (except выше).
+        # Раньше отчёт тут молчал: клиент читает молчание как «всё хорошо».
+        # Текст — SSOT (utils.diagnostics), синхронизировано с aurora_pptx.builder.
+        from utils.diagnostics import RELIABILITY_UNKNOWN_NOTE
+        return provenance_html + (
+            '<div class="reliability-disclaimer" role="alert" style="'
+            "margin:16px 0;padding:14px 18px;background:rgba(201,164,73,0.12);"
+            "border:1px solid rgba(201,164,73,0.4);border-radius:8px;"
+            "font-size:13px;line-height:1.5;color:#e2e8f0;"
+            '">'
+            '<strong style="color:#c9a449;">⚠ Надёжность модели не подтверждена.</strong> '
+            f'{escape(RELIABILITY_UNKNOWN_NOTE)}'
+            "</div>"
+        )
     if verdict_str not in ("unreliable", "uncertain"):
         # Даже у надёжной модели предупреждение о разном происхождении обязано
         # доехать до клиента — иначе он примет старые числа за новые.

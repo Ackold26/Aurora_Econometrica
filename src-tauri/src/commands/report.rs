@@ -30,17 +30,38 @@ fn roi_unreliable(ch: &Value) -> bool {
         || v.contains("не рубл")
 }
 
+/// Единственная точка чтения вердикта надёжности из результатов оптимизации
+/// (решение владельца, 2026-08-10). Раньше 4 места в этом файле читали
+/// `optimize["model_reliability"]["verdict"]` порознь через `.unwrap_or("")` —
+/// отсутствие ключа молча превращалось в пустую строку, и
+/// `reliability_label("")` гасил плашку: отчёт по модели БЕЗ проверки
+/// надёжности выглядел как отчёт по надёжной модели. Молчание клиент читает
+/// как «всё хорошо» — поэтому отсутствие/пустая строка/строка из одних
+/// пробелов нормализуются в "unknown", а не тонут в "". Сторож единственности
+/// точки чтения — тест `verdict_read_happens_only_inside_normalizer` ниже.
+fn normalize_reliability_verdict(optimize: &Value) -> String {
+    let raw = optimize["model_reliability"]["verdict"].as_str().unwrap_or("");
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        "unknown".to_string()
+    } else {
+        trimmed.to_lowercase()
+    }
+}
+
 /// Волна 1 пункт 2 (2026-06-20): заголовок-вердикт плашки надёжности модели.
 /// Зеркалит лейблы Python (narrative_adapter / sections.py / builder.py) — Rust
 /// XLSX/MD читают optimization.json напрямую, мимо Python-моста. caveat_text сам
 /// идёт VERBATIM из optimization.json (SSOT optimizer_honesty, INV-50) — здесь
-/// только заголовок. Пустая строка ⇒ плашку не рисуем (verdict reliable/нет).
+/// только заголовок. 2026-08-10 (решение владельца, изменено сознательно):
+/// пустая строка ведёт себя как "unknown" — плашка «Надёжность модели не
+/// подтверждена» рисуется, а не гасится молча наравне с настоящим "reliable".
 fn reliability_label(verdict: &str) -> &'static str {
     match verdict {
         "uncertain" => "Ограниченная надёжность модели",
         "unreliable" => "Модель ненадёжна – переброска отключена",
-        "unknown" => "Надёжность модели не подтверждена",
-        "" | "reliable" => "",
+        "" | "unknown" => "Надёжность модели не подтверждена",
+        "reliable" => "",
         _ => "Надёжность модели",
     }
 }
@@ -86,6 +107,15 @@ fn diagnostics_optimization_diverged(model: &Value, optimize: &Value) -> bool {
 /// только вердикты диагностики и оптимизации по времени расчёта.
 const FINGERPRINT_MISMATCH_TEXT: &str = "Диагностика модели и результаты оптимизации получены в разных расчётах – пересчитайте оптимизацию, прежде чем опираться на переброску бюджета.";
 
+/// Текст плашки «Надёжность модели не подтверждена» (verdict нормализуется в
+/// "unknown" — решение владельца, 2026-08-10): проверка надёжности не
+/// выполнена, и это перестало молчать — клиент читает молчание как «всё
+/// хорошо». Текст SSOT с Python-стороной (utils.diagnostics.
+/// RELIABILITY_UNKNOWN_NOTE, sidecar/econometrica) — сторож шва:
+/// test_reliability_unknown_seam_parity.py. Короткое тире «–» (U+2013), не
+/// длинное — линтер продукта валит длинное тире в клиентском тексте.
+const RELIABILITY_UNKNOWN_TEXT: &str = "Проверка надёжности модели не выполнена – результаты ниже считайте ориентировочными и переобучите модель, прежде чем опираться на переброску бюджета.";
+
 /// Волна 1 пункт 3 (2026-06-20): отображаемый вердикт-действие (рус) + honesty-
 /// смягчение (решение 2a). Зеркалит engines.channel_action.soften_verdict_display
 /// (Python) — Rust XLSX/MD читают results JSON напрямую, мимо Python-моста, поэтому
@@ -93,6 +123,9 @@ const FINGERPRINT_MISMATCH_TEXT: &str = "Диагностика модели и 
 /// ДИРЕКТИВНОСТЬ, сохраняя НАПРАВЛЕНИЕ: reliable→«Увеличить»; uncertain/unknown→
 /// «Увеличить (предв.)»; unreliable→«Требует переобучения». Снимает рассогласование
 /// (прежде XLSX/MD писали англ. machine-key «Scale», PPTX – рус «Увеличить»).
+/// 2026-08-10 (решение владельца, изменено сознательно): пустая строка (вердикт
+/// не пришёл) смягчает так же, как "unknown" — молчание не должно звучать
+/// директивнее, чем подтверждённая надёжность.
 fn verdict_display(verdict_key: &str, reliability_verdict: &str) -> String {
     let base = match verdict_key {
         "Scale" => "Увеличить",
@@ -105,7 +138,7 @@ fn verdict_display(verdict_key: &str, reliability_verdict: &str) -> String {
     };
     match reliability_verdict {
         "unreliable" => "Требует переобучения".to_string(),
-        "uncertain" | "unknown" => {
+        "" | "uncertain" | "unknown" => {
             if verdict_key == "Uncertain" || verdict_key == "Watch" {
                 base.to_string()
             } else {
@@ -597,10 +630,19 @@ fn build_markdown(model: &Value, decompose: &Value, optimize: &Value) -> String 
     // Волна 1 пункт 2 (2026-06-20): плашка надёжности модели (verdict != reliable).
     // caveat_text VERBATIM из optimization.json (SSOT optimizer_honesty, INV-50) —
     // тот же текст, что в UI/HTML/PPTX. Заголовок-вердикт — reliability_label.
+    // 2026-08-10 (решение владельца): при verdict=="unknown" без своего
+    // caveat_text (вердикт отсутствовал целиком) подставляем
+    // RELIABILITY_UNKNOWN_TEXT — плашка не гаснет из-за пустого caveat рядом
+    // с непустым заголовком.
     {
-        let mr_verdict = optimize["model_reliability"]["verdict"].as_str().unwrap_or("").to_lowercase();
+        let mr_verdict = normalize_reliability_verdict(optimize);
         let mr_label = reliability_label(&mr_verdict);
-        let mr_caveat = optimize["model_reliability"]["caveat_text"].as_str().unwrap_or("");
+        let mr_caveat_raw = optimize["model_reliability"]["caveat_text"].as_str().unwrap_or("");
+        let mr_caveat = if mr_caveat_raw.is_empty() && mr_verdict == "unknown" {
+            RELIABILITY_UNKNOWN_TEXT
+        } else {
+            mr_caveat_raw
+        };
         if !mr_label.is_empty() && !mr_caveat.is_empty() {
             md.push_str(&format!("\n> ⚠ **{mr_label}.** {mr_caveat}\n"));
         }
@@ -662,7 +704,7 @@ fn build_markdown(model: &Value, decompose: &Value, optimize: &Value) -> String 
     // ── Channel ROI ──────────────────────────────────────────
     // Волна 1 пункт 3 (2026-06-20): honesty-смягчение вердикта (решение 2a) —
     // verdict_display несёт рус + «(предв.)» при не-reliable модели.
-    let mr_v_md = optimize["model_reliability"]["verdict"].as_str().unwrap_or("").to_lowercase();
+    let mr_v_md = normalize_reliability_verdict(optimize);
     if let Some(chs) = decompose["channels"].as_array() {
         md.push_str("## БЛОК: Инвестиции. ROI по каналам\n\n");
         md.push_str("| Канал | Расход | Вклад | ROI | Вердикт |\n");
@@ -1379,12 +1421,19 @@ fn build_xlsx(
         // юнит-тест самой reliability_label был зелёным — функция цела, её просто
         // никто не звал на этом пути. Следствие для клиента: в XLSX не было
         // предупреждения о ненадёжной модели, а в Markdown и HTML было.
+        // 2026-08-10 (решение владельца): та же подстановка
+        // RELIABILITY_UNKNOWN_TEXT, что и в Markdown — при verdict=="unknown"
+        // без caveat_text плашка не гаснет.
         {
-            let mr_verdict = optimize["model_reliability"]["verdict"]
-                .as_str().unwrap_or("").to_lowercase();
+            let mr_verdict = normalize_reliability_verdict(optimize);
             let mr_label = reliability_label(&mr_verdict);
-            let mr_caveat = optimize["model_reliability"]["caveat_text"]
+            let mr_caveat_raw = optimize["model_reliability"]["caveat_text"]
                 .as_str().unwrap_or("");
+            let mr_caveat = if mr_caveat_raw.is_empty() && mr_verdict == "unknown" {
+                RELIABILITY_UNKNOWN_TEXT
+            } else {
+                mr_caveat_raw
+            };
             if !mr_label.is_empty() && !mr_caveat.is_empty() {
                 ws.write(12, 0, format!("⚠ {mr_label}. {mr_caveat}"))
                     .map_err(|e| format!("{e}"))?;
@@ -1565,7 +1614,7 @@ fn build_xlsx(
 
         // Волна 1 пункт 3 (2026-06-20): honesty-смягчение вердикта (решение 2a) —
         // verdict_display несёт рус + «(предв.)» при не-reliable модели.
-        let mr_v = optimize["model_reliability"]["verdict"].as_str().unwrap_or("").to_lowercase();
+        let mr_v = normalize_reliability_verdict(optimize);
 
         // 5c (2026-05-04) FIX: CI fields live in decompose.channels[i].roi_ci_low/high,
         // NOT в model["channelParams"] (modeler output не содержит CI). Pre-fix Rust
@@ -2254,7 +2303,11 @@ fn build_xlsx(
                 let def = item["definition"].as_str()
                     .or_else(|| item["short"].as_str())
                     .unwrap_or("");
-                ws.write_with_format(row, 0, term, &bold).map_err(|e| format!("{e}"))?;
+                // Термин приходит с фронта тем же непроверяемым путём, что и
+                // определение (2026-08-10): обрезка стояла только на определении,
+                // и термин длиннее лимита ячейки ронял сборку ВСЕЙ книги через `?`.
+                ws.write_with_format(row, 0, truncate_to_excel_cell_limit(term).as_ref(), &bold)
+                    .map_err(|e| format!("{e}"))?;
                 // Определение приходит с фронта (getAllTerms(), не статически
                 // проверяемый тип) - страховка от превышения лимита ячейки Excel.
                 ws.write(row, 1, truncate_to_excel_cell_limit(def).as_ref()).map_err(|e| format!("{e}"))?;
@@ -2719,11 +2772,15 @@ mod tests {
 
     // ── Перенос из origin/feat/ai-insights-tier2 (2026-08-04) ────────────────
 
-    /// Заголовок плашки надёжности. Пустая строка ⇒ плашки нет (reliable/нет
-    /// verdict); прочие verdict дают заголовок.
+    /// Заголовок плашки надёжности. 2026-08-10 (решение владельца, поведение
+    /// изменено СОЗНАТЕЛЬНО): прежде `reliability_label("") == ""` — пустая
+    /// строка (вердикт отсутствовал целиком) гасила плашку наравне с настоящим
+    /// "reliable", и отчёт по непроверенной модели выглядел как отчёт по
+    /// надёжной. Теперь "" ведёт себя как "unknown"; плашки нет только для
+    /// настоящего "reliable".
     #[test]
     fn reliability_label_gates_on_verdict() {
-        assert_eq!(reliability_label(""), "");
+        assert_eq!(reliability_label(""), "Надёжность модели не подтверждена");
         assert_eq!(reliability_label("reliable"), "");
         assert_eq!(reliability_label("uncertain"), "Ограниченная надёжность модели");
         assert_eq!(reliability_label("unreliable"), "Модель ненадёжна – переброска отключена");
@@ -2732,11 +2789,15 @@ mod tests {
     }
 
     /// Honesty-смягчение вердикта: reliable→директивный; uncertain→«(предв.)»
-    /// (направление сохранено); unreliable→нейтрализация.
+    /// (направление сохранено); unreliable→нейтрализация. 2026-08-10 (решение
+    /// владельца, поведение изменено СОЗНАТЕЛЬНО): прежде
+    /// `verdict_display("Scale", "") == "Увеличить"` — отсутствующий вердикт
+    /// звучал так же директивно, как подтверждённая надёжность. Теперь ""
+    /// смягчает так же, как "unknown".
     #[test]
     fn verdict_display_softens_by_reliability() {
         assert_eq!(verdict_display("Scale", "reliable"), "Увеличить");
-        assert_eq!(verdict_display("Scale", ""), "Увеличить");
+        assert_eq!(verdict_display("Scale", ""), "Увеличить (предв.)");
         assert_eq!(verdict_display("Scale", "uncertain"), "Увеличить (предв.)");
         assert_eq!(verdict_display("Cut", "unknown"), "Остановить (предв.)");
         assert_eq!(verdict_display("Watch", "uncertain"), "Наблюдать");
@@ -3183,5 +3244,196 @@ mod tests {
              вердикта ('Uncertain' vs 'uncertain')"
         );
         let _ = std::fs::remove_file(&path_verdict_case);
+    }
+
+    // ── Честность вердикта надёжности (решение владельца, 2026-08-10) ────────
+    // Вердикт надёжности в замороженной оптимизации отсутствовал у 2 из 4
+    // обученных проектов на живой машине (диагностика без вердикта), и
+    // ПОДПИСИ модели не было ни у одного - путь "величины нет" рабочий, не
+    // теоретический. 4 точки чтения читали verdict через `.unwrap_or("")` по
+    // отдельности - отсутствие ключа молча превращалось в "", reliability_label("")
+    // давала "" (плашки нет), verdict_display(_, "") не смягчала директиву.
+    // Итог: отчёт по модели БЕЗ проверки надёжности выглядел как отчёт по
+    // надёжной модели - молчание клиент читает как «всё хорошо».
+
+    /// Вердикт надёжности отсутствует целиком (старый проект / расчёт без
+    /// диагностики надёжности) - плашка «Надёжность модели не подтверждена» +
+    /// RELIABILITY_UNKNOWN_TEXT обязана появиться И в Markdown, И в XLSX.
+    #[test]
+    fn reliability_unknown_warns_in_both_formats_when_verdict_absent() {
+        fn xlsx_contains(path: &Path, needle: &str) -> bool {
+            let bytes = std::fs::read(path).expect("read xlsx");
+            let mut archive = zip::read::ZipArchive::new(Cursor::new(bytes)).expect("open xlsx zip");
+            for i in 0..archive.len() {
+                let mut entry = archive.by_index(i).expect("zip entry");
+                let mut content = String::new();
+                if entry.read_to_string(&mut content).is_err() {
+                    continue;
+                }
+                if content.contains(needle) {
+                    return true;
+                }
+            }
+            false
+        }
+
+        let model = json!({"diagnostics": {"mqs": {"score": 70.0, "tier_label": "Хорошее"}}});
+        let decompose = json!({"channels": [
+            {"name": "TV", "spend": 100.0, "contribution": 150.0, "roi": 1.5}
+        ]});
+        // model_reliability отсутствует целиком.
+        let optimize = json!({"channels": [
+            {"name": "TV", "current_spend_money": 100.0, "optimal_spend_money": 120.0}
+        ]});
+
+        let md = build_markdown(&model, &decompose, &optimize);
+        assert!(
+            md.contains("Надёжность модели не подтверждена"),
+            "Markdown обязан показать заголовок плашки при отсутствующем вердикте:\n{md}"
+        );
+        assert!(
+            md.contains(RELIABILITY_UNKNOWN_TEXT),
+            "Markdown обязан показать RELIABILITY_UNKNOWN_TEXT при отсутствующем вердикте:\n{md}"
+        );
+
+        let path = std::env::temp_dir().join("aurora_reliability_unknown_test.xlsx");
+        build_xlsx(&model, &decompose, &optimize, &[], None, "test", &path, None)
+            .expect("build_xlsx с отсутствующим вердиктом");
+        assert!(
+            xlsx_contains(&path, "Надёжность модели не подтверждена"),
+            "XLSX обязан показать заголовок плашки при отсутствующем вердикте"
+        );
+        assert!(
+            xlsx_contains(&path, RELIABILITY_UNKNOWN_TEXT),
+            "XLSX обязан показать RELIABILITY_UNKNOWN_TEXT при отсутствующем вердикте"
+        );
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// Защита от перепредупреждения: у надёжной модели (verdict == "reliable")
+    /// плашка молчит - как и до правки.
+    #[test]
+    fn reliability_plate_stays_silent_when_model_reliable() {
+        fn xlsx_contains(path: &Path, needle: &str) -> bool {
+            let bytes = std::fs::read(path).expect("read xlsx");
+            let mut archive = zip::read::ZipArchive::new(Cursor::new(bytes)).expect("open xlsx zip");
+            for i in 0..archive.len() {
+                let mut entry = archive.by_index(i).expect("zip entry");
+                let mut content = String::new();
+                if entry.read_to_string(&mut content).is_err() {
+                    continue;
+                }
+                if content.contains(needle) {
+                    return true;
+                }
+            }
+            false
+        }
+
+        let model = json!({"diagnostics": {"mqs": {"score": 70.0, "tier_label": "Хорошее"}}});
+        let decompose = json!({"channels": [
+            {"name": "TV", "spend": 100.0, "contribution": 150.0, "roi": 1.5}
+        ]});
+        // caveat_text задан НАРОЧНО даже при verdict=="reliable" (остаточный текст
+        // от прошлого расчёта в замороженном JSON) - молчание плашки обязана
+        // обеспечивать reliability_label("reliable")=="", а не пустой caveat:
+        // с непустым caveat гейт "и label, и caveat непустые" перестаёт маскировать
+        // регресс в самой reliability_label.
+        let optimize = json!({
+            "model_reliability": {
+                "verdict": "reliable",
+                "caveat_text": "остаточный текст от прошлого расчёта - не должен попасть в отчёт",
+            },
+            "channels": [
+                {"name": "TV", "current_spend_money": 100.0, "optimal_spend_money": 120.0}
+            ]
+        });
+
+        let md = build_markdown(&model, &decompose, &optimize);
+        assert!(
+            !md.contains("Надёжность модели не подтверждена"),
+            "надёжная модель не должна получать плашку unknown:\n{md}"
+        );
+        assert!(
+            !md.contains("остаточный текст от прошлого расчёта"),
+            "надёжная модель не должна показывать caveat_text вовсе (reliability_label(\"reliable\") обязана \
+             гасить всю плашку, включая случайно оставшийся caveat_text):\n{md}"
+        );
+        assert!(
+            !md.contains(RELIABILITY_UNKNOWN_TEXT),
+            "надёжная модель не должна получать текст RELIABILITY_UNKNOWN_TEXT:\n{md}"
+        );
+
+        let path = std::env::temp_dir().join("aurora_reliability_reliable_test.xlsx");
+        build_xlsx(&model, &decompose, &optimize, &[], None, "test", &path, None)
+            .expect("build_xlsx с reliable");
+        assert!(
+            !xlsx_contains(&path, "Надёжность модели не подтверждена"),
+            "XLSX: надёжная модель не должна получать плашку unknown"
+        );
+        assert!(
+            !xlsx_contains(&path, "остаточный текст от прошлого расчёта"),
+            "XLSX: надёжная модель не должна показывать caveat_text вовсе"
+        );
+        assert!(
+            !xlsx_contains(&path, RELIABILITY_UNKNOWN_TEXT),
+            "XLSX: надёжная модель не должна получать текст RELIABILITY_UNKNOWN_TEXT"
+        );
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// Регресс: у uncertain/unreliable с собственным caveat_text прежний текст
+    /// не подменяется RELIABILITY_UNKNOWN_TEXT - подстановка касается только
+    /// verdict=="unknown" без своего caveat.
+    #[test]
+    fn reliability_uncertain_and_unreliable_keep_own_caveat_text() {
+        let model = json!({"diagnostics": {"mqs": {"score": 70.0, "tier_label": "Хорошее"}}});
+        let decompose = json!({"channels": [
+            {"name": "TV", "spend": 100.0, "contribution": 150.0, "roi": 1.5}
+        ]});
+        for verdict in ["uncertain", "unreliable"] {
+            let optimize = json!({
+                "model_reliability": {
+                    "verdict": verdict,
+                    "caveat_text": "СВОЙ_ТЕКСТ_ОГОВОРКИ_НЕ_ТРОГАТЬ",
+                },
+                "channels": [
+                    {"name": "TV", "current_spend_money": 100.0, "optimal_spend_money": 120.0}
+                ]
+            });
+            let md = build_markdown(&model, &decompose, &optimize);
+            assert!(
+                md.contains("СВОЙ_ТЕКСТ_ОГОВОРКИ_НЕ_ТРОГАТЬ"),
+                "verdict={verdict}: собственный caveat_text обязан остаться дословно:\n{md}"
+            );
+            assert!(
+                !md.contains(RELIABILITY_UNKNOWN_TEXT),
+                "verdict={verdict}: RELIABILITY_UNKNOWN_TEXT не должен подменять собственный caveat_text:\n{md}"
+            );
+        }
+    }
+
+    /// Структурный сторож: во всём report.rs (продуктовый код, без тестового
+    /// модуля) должно быть РОВНО ОДНО чтение
+    /// `["model_reliability"]["verdict"].as_str().unwrap_or("")` - внутри
+    /// самого normalize_reliability_verdict(). Любая новая точка чтения мимо
+    /// нормализатора возвращает старый дефект: отсутствие ключа снова тонет в
+    /// пустой строке независимо для каждой точки.
+    #[test]
+    fn verdict_read_happens_only_inside_normalizer() {
+        let src = include_str!("report.rs");
+        let product_code = match src.find("#[cfg(test)]") {
+            Some(at) => &src[..at],
+            None => src,
+        };
+        let needle = r#"model_reliability"]["verdict"].as_str().unwrap_or("")"#;
+        let occurrences = product_code.matches(needle).count();
+        assert_eq!(
+            occurrences, 1,
+            "чтение вердикта надёжности мимо normalize_reliability_verdict(): найдено \
+             вхождений {occurrences}, ожидалось ровно 1 (внутри самого нормализатора). \
+             Отдельная точка чтения снова превратит отсутствующий вердикт в пустую \
+             строку, и плашка честности молча пропадёт (решение владельца 2026-08-10)."
+        );
     }
 }

@@ -3371,7 +3371,10 @@ class AuroraPPTXBuilder:
             "reliable": "модель надёжна",
             "uncertain": "требует осторожности",
             "unreliable": "ненадёжна — выводы ориентировочные",
-            "unknown": "качество не измерено",
+            # 2026-08-10: для unknown короткой машинной строки здесь больше нет —
+            # это состояние ниже разворачивается в полноценную оговорку с причиной
+            # и указанием, что делать. Две строки об одном и том же подряд («качество
+            # не измерено» + «надёжность не подтверждена») клиент читает как шум.
         }.get(self.honesty_verdict)
         if _verdict_ru:
             self._text(
@@ -3381,6 +3384,28 @@ class AuroraPPTXBuilder:
                 color=(self.deep_100 if self.honesty_verdict == "reliable" else self.gold),
             )
             _hy += 0.28
+
+        # 2026-08-10: unknown (пересчёт надёжности не выполнен/упал в
+        # аварийную ветку) обязан быть виден клиенту так же явно, как
+        # unreliable/uncertain — раньше PPTX здесь молчал (клиент читает
+        # молчание как «всё хорошо»). Пустая строка/None тоже трактуются
+        # как unknown. Заголовок и текст — SSOT (utils.diagnostics),
+        # синхронизировано с HTML _reliability_disclaimer_html (sections.py).
+        if (self.honesty_verdict or "unknown") == "unknown":
+            from utils.diagnostics import RELIABILITY_UNKNOWN_NOTE
+            self._text(
+                slide, right_x, _hy, right_w, 0.25,
+                "Надёжность модели не подтверждена",
+                font=self.sans, size=10, bold=True, color=self.gold,
+            )
+            _hy += 0.26
+            self._text(
+                slide, right_x, _hy, right_w, 0.55,
+                RELIABILITY_UNKNOWN_NOTE,
+                font=self.sans, size=10, italic=True, color=self.gold,
+            )
+            _hy += 0.55
+
         _pp_status = (self.preflight or {}).get("prior_predictive_status")
         if _pp_status == "fail":
             _pp_cov = (self.preflight or {}).get("prior_predictive_coverage")
