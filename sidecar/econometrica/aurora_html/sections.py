@@ -451,7 +451,12 @@ def _reliability_disclaimer_html(ctx: dict) -> str:
 
     # Приоритет: если honesty_verdict уже вычислен в diagnostics (modeler.py), читаем его.
     # Иначе — вычисляем здесь (legacy path: старые pickles без поля).
-    verdict_str = diag.get("honesty_verdict")
+    # 2026-08-10 (внешний аудит): приводим к тому же виду, что сторона Rust
+    # (normalize_reliability_verdict) и channel_action.soften_verdict_display —
+    # обрезка и нижний регистр. Без этого «   » и «Unknown» проходили мимо всех
+    # веток: HTML молчал, а Markdown и XLSX на тех же данных печатали плашку —
+    # один пакет отчётов давал клиенту разные ответы.
+    verdict_str = (diag.get("honesty_verdict") or "").strip().lower() or None
     if not verdict_str:
         # Пустая строка трактуется наравне с отсутствующим ключом (2026-08-10):
         # это тот же «пересчёт не проверен», а не отдельное «показывать нечего».

@@ -3391,7 +3391,10 @@ class AuroraPPTXBuilder:
         # молчание как «всё хорошо»). Пустая строка/None тоже трактуются
         # как unknown. Заголовок и текст — SSOT (utils.diagnostics),
         # синхронизировано с HTML _reliability_disclaimer_html (sections.py).
-        if (self.honesty_verdict or "unknown") == "unknown":
+        # 2026-08-10 (внешний аудит): обрезка и нижний регистр, как на стороне Rust
+        # и в channel_action — иначе «   » и «Unknown» не попадали ни в одну ветку,
+        # и презентация молчала там, где Markdown и XLSX печатали оговорку.
+        if ((self.honesty_verdict or "").strip().lower() or "unknown") == "unknown":
             from utils.diagnostics import RELIABILITY_UNKNOWN_NOTE
             self._text(
                 slide, right_x, _hy, right_w, 0.25,

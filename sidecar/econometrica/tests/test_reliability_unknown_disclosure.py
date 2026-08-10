@@ -25,6 +25,8 @@ import json
 import os
 from pathlib import Path
 
+import pytest
+
 from aurora_html.sections import _reliability_disclaimer_html
 from aurora_pptx.builder import AuroraPPTXBuilder
 from utils.diagnostics import RELIABILITY_UNKNOWN_NOTE
@@ -294,3 +296,29 @@ def test_pptx_report_no_bare_firm_label_when_verdict_missing_or_empty():
                 f"{случай}: ярлык «{label}» показан твёрдой директивой без «(предв.)» "
                 f"отдельным блоком - рядом с баннером неподтверждённой надёжности"
             )
+
+
+# ── Секция 8: регистр и пробелы (находка внешнего аудита 2026-08-10) ──────────
+#
+# Rust (normalize_reliability_verdict) и channel_action.soften_verdict_display
+# обрезают вердикт и приводят к нижнему регистру, а HTML и презентация сравнивали
+# значение как есть. Итог: «   » и «Unknown» не попадали ни в одну ветку — HTML и
+# презентация молчали, тогда как Markdown и XLSX на тех же данных печатали плашку.
+# Один пакет отчётов давал клиенту разные ответы. Мутация: убрать `.strip().lower()`
+# в sections.py или builder.py — оба теста ниже краснеют.
+
+@pytest.mark.parametrize("сырое", ["   ", "Unknown", "UNKNOWN", " unknown "])
+def test_html_normalises_case_and_spaces_of_verdict(сырое):
+    html = _reliability_disclaimer_html({"diagnostics": {"honesty_verdict": сырое}})
+    assert _TITLE in html, (
+        f"вердикт {сырое!r} обязан читаться как «надёжность не подтверждена»: "
+        "иначе HTML молчит там, где Markdown и XLSX предупреждают"
+    )
+
+
+@pytest.mark.parametrize("сырое", ["   ", "Unknown", "UNKNOWN", " unknown "])
+def test_pptx_normalises_case_and_spaces_of_verdict(сырое):
+    txt = _pptx_text(AuroraPPTXBuilder(_pptx_payload(honesty_verdict=сырое)).build())
+    assert _TITLE in txt, (
+        f"вердикт {сырое!r} обязан читаться как «надёжность не подтверждена» и в презентации"
+    )
