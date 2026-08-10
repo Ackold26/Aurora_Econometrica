@@ -44,11 +44,24 @@ const CHILD_WAIT_TIMEOUT: Duration = Duration::from_secs(3);
 const GRACEFUL_SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(5);
 
 /// Канонический конфиг для Econometrica. Остальные 9 продуктов имеют свой.
+///
+/// 🔴 `identifier_dir` — НЕ `product_id`. `product_id` фиксирован намеренно: это одно и то же
+/// значение рукопожатия с Python-модулем (`PRODUCT_ID` в `server.py`), который у обеих редакций —
+/// один и тот же собранный `econometrica-sidecar.exe`; разведение product_id по редакциям сломало
+/// бы рукопожатие и модуль форс-killился бы сразу после каждого старта.
+///
+/// `identifier_dir` — это каталог state-файла `sidecar.json` (порт/PID/session_id) на стороне
+/// Rust, редакции никак не касается. Он был захардкожен на базовый идентификатор для ОБЕИХ
+/// редакций, хотя `AURORA_APP_IDENTIFIER` (из `build.rs`) уже разводит `com.aurora.econometrica` и
+/// `com.aurora.econometrica.local` для durable_store/метрик. Клиент с обеими редакциями на одной
+/// машине делил бы один state-файл: одинаковый детерминированный порт (выводится из SID, не из
+/// редакции) + рукопожатие по одинаковому product_id не различает их — одна редакция могла убить
+/// активный расчёт другой, приняв её процесс за старую копию себя.
 const SIDECAR_CONFIG: SidecarConfig = SidecarConfig {
     product_id: "com.aurora.econometrica",
     version: env!("CARGO_PKG_VERSION"),
     legacy_port: 7430,
-    identifier_dir: "com.aurora.econometrica",
+    identifier_dir: env!("AURORA_APP_IDENTIFIER"),
     process_exe_hint: "econometrica-sidecar",
 };
 
@@ -704,4 +717,25 @@ pub fn stop_sidecar() {
     let _ = child.wait();
     delete_state_file(&SIDECAR_CONFIG);
     info!("Econometrica sidecar stopped (was PID={pid})");
+}
+
+#[cfg(test)]
+mod identifier_dir_tests {
+    /// Регрессия: `identifier_dir` раньше был жёстко `"com.aurora.econometrica"` для ОБЕИХ
+    /// редакций — локальная и облачная делили один state-файл `sidecar.json` (порт/PID),
+    /// а рукопожатие по одинаковому `product_id` их не различало. Клиент с обеими
+    /// редакциями на одной машине рисковал получить убитый форс-киллом активный расчёт.
+    #[test]
+    fn identifier_dir_tracks_build_edition_not_hardcoded() {
+        assert_eq!(
+            super::SIDECAR_CONFIG.identifier_dir,
+            env!("AURORA_APP_IDENTIFIER"),
+            "identifier_dir обязан идти от идентификатора сборки (build.rs), не быть отдельной константой"
+        );
+        let src = include_str!("econ_sidecar.rs");
+        assert!(
+            !src.contains("identifier_dir: \"com.aurora.econometrica\""),
+            "identifier_dir снова захардкожен строковым литералом — регресс общего state-файла редакций"
+        );
+    }
 }
