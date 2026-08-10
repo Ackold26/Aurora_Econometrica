@@ -116,6 +116,21 @@ const FINGERPRINT_MISMATCH_TEXT: &str = "Диагностика модели и 
 /// длинное — линтер продукта валит длинное тире в клиентском тексте.
 const RELIABILITY_UNKNOWN_TEXT: &str = "Проверка надёжности модели не выполнена – результаты ниже считайте ориентировочными и переобучите модель, прежде чем опираться на переброску бюджета.";
 
+/// Запасной текст оговорки для verdict=="unreliable" без собственного
+/// caveat_text (находка внешнего аудита, 2026-08-10): прежде гейт `!mr_label.
+/// is_empty() && !mr_caveat.is_empty()` гасил ВСЮ плашку целиком, хотя
+/// заголовок «Модель ненадёжна – переброска отключена» уже был непуст — HTML и
+/// PPTX печатают запасной текст на тех же данных, а Markdown/XLSX молчали.
+/// VERBATIM из Python (aurora_html/sections.py::_reliability_disclaimer_html,
+/// ветка `if verdict_str == "unreliable"`) — сторож шва:
+/// test_reliability_unknown_seam_parity.py. Короткое тире «–» (U+2013).
+const RELIABILITY_UNRELIABLE_FALLBACK_TEXT: &str = "Модель имеет высокий R-hat или много расходящихся цепей – результаты ниже ориентировочные.";
+
+/// То же для verdict=="uncertain" без caveat_text. VERBATIM из Python
+/// (aurora_html/sections.py::_reliability_disclaimer_html, ветка else). Сторож
+/// шва: test_reliability_unknown_seam_parity.py.
+const RELIABILITY_UNCERTAIN_FALLBACK_TEXT: &str = "Узкий объём данных или слабый prior-coverage – результаты ниже трактуйте осторожно.";
+
 /// Волна 1 пункт 3 (2026-06-20): отображаемый вердикт-действие (рус) + honesty-
 /// смягчение (решение 2a). Зеркалит engines.channel_action.soften_verdict_display
 /// (Python) — Rust XLSX/MD читают results JSON напрямую, мимо Python-моста, поэтому
@@ -634,14 +649,25 @@ fn build_markdown(model: &Value, decompose: &Value, optimize: &Value) -> String 
     // caveat_text (вердикт отсутствовал целиком) подставляем
     // RELIABILITY_UNKNOWN_TEXT — плашка не гаснет из-за пустого caveat рядом
     // с непустым заголовком.
+    // 2026-08-10 (находка внешнего аудита): тот же гейт `!mr_caveat.is_empty()`
+    // гасил ВСЮ плашку и для verdict=="unreliable"/"uncertain" без своего
+    // caveat_text — заголовок непуст (reliability_label уже дал текст), а
+    // запасного caveat не было НИ У кого, кроме "unknown". HTML/PPTX на тех же
+    // данных печатают запасной текст (sections.py::_reliability_disclaimer_html),
+    // Markdown/XLSX молчали. Fallback теперь на все три состояния без caveat.
     {
         let mr_verdict = normalize_reliability_verdict(optimize);
         let mr_label = reliability_label(&mr_verdict);
         let mr_caveat_raw = optimize["model_reliability"]["caveat_text"].as_str().unwrap_or("");
-        let mr_caveat = if mr_caveat_raw.is_empty() && mr_verdict == "unknown" {
-            RELIABILITY_UNKNOWN_TEXT
-        } else {
+        let mr_caveat = if !mr_caveat_raw.is_empty() {
             mr_caveat_raw
+        } else {
+            match mr_verdict.as_str() {
+                "unknown" => RELIABILITY_UNKNOWN_TEXT,
+                "unreliable" => RELIABILITY_UNRELIABLE_FALLBACK_TEXT,
+                "uncertain" => RELIABILITY_UNCERTAIN_FALLBACK_TEXT,
+                _ => "",
+            }
         };
         if !mr_label.is_empty() && !mr_caveat.is_empty() {
             md.push_str(&format!("\n> ⚠ **{mr_label}.** {mr_caveat}\n"));
@@ -1424,15 +1450,23 @@ fn build_xlsx(
         // 2026-08-10 (решение владельца): та же подстановка
         // RELIABILITY_UNKNOWN_TEXT, что и в Markdown — при verdict=="unknown"
         // без caveat_text плашка не гаснет.
+        // 2026-08-10 (находка внешнего аудита): то же зеркало Markdown-правки
+        // выше — fallback теперь и для "unreliable"/"uncertain" без caveat_text,
+        // не только для "unknown".
         {
             let mr_verdict = normalize_reliability_verdict(optimize);
             let mr_label = reliability_label(&mr_verdict);
             let mr_caveat_raw = optimize["model_reliability"]["caveat_text"]
                 .as_str().unwrap_or("");
-            let mr_caveat = if mr_caveat_raw.is_empty() && mr_verdict == "unknown" {
-                RELIABILITY_UNKNOWN_TEXT
-            } else {
+            let mr_caveat = if !mr_caveat_raw.is_empty() {
                 mr_caveat_raw
+            } else {
+                match mr_verdict.as_str() {
+                    "unknown" => RELIABILITY_UNKNOWN_TEXT,
+                    "unreliable" => RELIABILITY_UNRELIABLE_FALLBACK_TEXT,
+                    "uncertain" => RELIABILITY_UNCERTAIN_FALLBACK_TEXT,
+                    _ => "",
+                }
             };
             if !mr_label.is_empty() && !mr_caveat.is_empty() {
                 ws.write(12, 0, format!("⚠ {mr_label}. {mr_caveat}"))
@@ -3484,6 +3518,174 @@ mod tests {
                 "verdict={verdict}: RELIABILITY_UNKNOWN_TEXT не должен подменять собственный caveat_text:\n{md}"
             );
         }
+    }
+
+    /// Находка внешнего аудита (High, 2026-08-10): verdict=="unreliable"/
+    /// "uncertain" БЕЗ caveat_text прежде гасил ВСЮ плашку целиком в Markdown
+    /// и XLSX (заголовок непуст, caveat пуст → гейт `!mr_caveat.is_empty()`
+    /// молчал), хотя HTML/PPTX на тех же данных печатали запасной текст
+    /// (sections.py::_reliability_disclaimer_html). Один пакет отчётов давал
+    /// клиенту разные ответы. Fallback-тексты (RELIABILITY_UNRELIABLE_
+    /// FALLBACK_TEXT / RELIABILITY_UNCERTAIN_FALLBACK_TEXT) обязаны появиться
+    /// в обоих форматах.
+    #[test]
+    fn reliability_uncertain_and_unreliable_get_fallback_text_when_caveat_absent() {
+        fn xlsx_contains(path: &Path, needle: &str) -> bool {
+            let bytes = std::fs::read(path).expect("read xlsx");
+            let mut archive = zip::read::ZipArchive::new(Cursor::new(bytes)).expect("open xlsx zip");
+            for i in 0..archive.len() {
+                let mut entry = archive.by_index(i).expect("zip entry");
+                let mut content = String::new();
+                if entry.read_to_string(&mut content).is_err() {
+                    continue;
+                }
+                if content.contains(needle) {
+                    return true;
+                }
+            }
+            false
+        }
+
+        let model = json!({"diagnostics": {"mqs": {"score": 70.0, "tier_label": "Хорошее"}}});
+        let decompose = json!({"channels": [
+            {"name": "TV", "spend": 100.0, "contribution": 150.0, "roi": 1.5}
+        ]});
+        for (verdict, fallback, label) in [
+            ("unreliable", RELIABILITY_UNRELIABLE_FALLBACK_TEXT, "Модель ненадёжна"),
+            ("uncertain", RELIABILITY_UNCERTAIN_FALLBACK_TEXT, "Ограниченная надёжность модели"),
+        ] {
+            // caveat_text намеренно отсутствует - именно этот путь молчал.
+            let optimize = json!({
+                "model_reliability": {"verdict": verdict},
+                "channels": [
+                    {"name": "TV", "current_spend_money": 100.0, "optimal_spend_money": 120.0}
+                ]
+            });
+
+            let md = build_markdown(&model, &decompose, &optimize);
+            assert!(
+                md.contains(label),
+                "verdict={verdict}: Markdown обязан показать заголовок плашки без caveat_text:\n{md}"
+            );
+            assert!(
+                md.contains(fallback),
+                "verdict={verdict}: Markdown обязан показать запасной текст без caveat_text:\n{md}"
+            );
+
+            let path = std::env::temp_dir()
+                .join(format!("aurora_reliability_fallback_{verdict}_test.xlsx"));
+            build_xlsx(&model, &decompose, &optimize, &[], None, "test", &path, None)
+                .expect("build_xlsx без caveat_text");
+            assert!(
+                xlsx_contains(&path, label),
+                "verdict={verdict}: XLSX обязан показать заголовок плашки без caveat_text"
+            );
+            assert!(
+                xlsx_contains(&path, fallback),
+                "verdict={verdict}: XLSX обязан показать запасной текст без caveat_text"
+            );
+            let _ = std::fs::remove_file(&path);
+        }
+    }
+
+    /// Находка внешнего аудита (High, 2026-08-10): колонку «Вердикт» в таблице
+    /// каналов Markdown/XLSX (verdict_display(verdict, &mr_v_md)/(&mr_v),
+    /// строки ~717/~1633 - `let mr_v_md/mr_v = normalize_reliability_verdict
+    /// (optimize);`) не проверял ни один тест. Существует мутация, оставляющая
+    /// весь набор зелёным: подмена `normalize_reliability_verdict(optimize)`
+    /// в этих ДВУХ местах на буквальную цепочку `optimize.get("model_reliability")
+    /// .and_then(|m| m.get("verdict")).and_then(|v| v.as_str()).unwrap_or("")
+    /// .to_lowercase()` - структурный сторож `verdict_read_happens_only_inside_
+    /// normalizer` ниже считает вхождения bracket-синтаксиса
+    /// `["model_reliability"]["verdict"]` и остаётся зелёным (цепочка не
+    /// содержит этой подстроки буквально), а поведение ломается: без `.trim()`
+    /// вердикт из одних пробелов "   " не нормализуется в "unknown"
+    /// (`"   ".to_lowercase() != "unknown"`), verdict_display падает в ветку
+    /// `_ => base.to_string()` и печатает ТВЁРДУЮ директиву («Увеличить») без
+    /// «(предв.)» - РЯДОМ с баннером «Надёжность модели не подтверждена»
+    /// (тот баннер использует ДРУГОЙ, не задетый мутацией, вызов
+    /// normalize_reliability_verdict() выше по функции и остаётся честным).
+    /// Документ противоречит сам себе в одном пакете - тот же класс дефекта,
+    /// что Python-сторож `test_pptx_report_no_bare_firm_label_when_verdict_
+    /// missing_or_empty` / `test_html_report_no_firm_badge_alongside_unknown_
+    /// banner` в test_reliability_unknown_disclosure.py (секция 7).
+    #[test]
+    fn verdict_column_softens_directive_when_reliability_verdict_whitespace_only() {
+        fn xlsx_all_text(path: &Path) -> String {
+            let bytes = std::fs::read(path).expect("read xlsx");
+            let mut archive = zip::read::ZipArchive::new(Cursor::new(bytes)).expect("open xlsx zip");
+            let mut all = String::new();
+            for i in 0..archive.len() {
+                let mut entry = archive.by_index(i).expect("zip entry");
+                let mut content = String::new();
+                if entry.read_to_string(&mut content).is_ok() {
+                    all.push_str(&content);
+                }
+            }
+            all
+        }
+
+        // Твёрдая директива «Увеличить», не сопровождённая суффиксом
+        // «(предв.)» непосредственно следом, - именно тот дефект, что должна
+        // производить мутация. Скан по сырому XML/Markdown, не по значению
+        // отдельной ячейки (тот же приём, что и в остальных XLSX-сторожах
+        // этого файла) - «Увеличить» больше нигде в продуктовом выводе не
+        // встречается (только внутри verdict_display и doc-комментариев,
+        // которые не попадают в собранный документ).
+        fn has_bare_firm_directive(haystack: &str, firm_label: &str) -> bool {
+            let mut start = 0;
+            while let Some(pos) = haystack[start..].find(firm_label) {
+                let idx = start + pos;
+                let after = &haystack[idx + firm_label.len()..];
+                if !after.starts_with(" (предв.)") {
+                    return true;
+                }
+                start = idx + firm_label.len();
+            }
+            false
+        }
+
+        let model = json!({"diagnostics": {"mqs": {"score": 70.0, "tier_label": "Хорошее"}}});
+        // verdict="Scale" → база "Увеличить" (verdict_display) - директивный
+        // канал, без которого тесту нечего стеречь.
+        let decompose = json!({"channels": [
+            {"name": "TV", "spend": 100.0, "contribution": 200.0, "roi": 2.0, "verdict": "Scale"}
+        ]});
+        // Вердикт надёжности из одних пробелов - та же ветка
+        // normalize_reliability_verdict, что и в whitespace-тесте плашки выше,
+        // но здесь стережём КОЛОНКУ, а не баннер.
+        let optimize = json!({
+            "model_reliability": {"verdict": "   "},
+            "channels": [
+                {"name": "TV", "current_spend_money": 100.0, "optimal_spend_money": 130.0}
+            ]
+        });
+
+        let md = build_markdown(&model, &decompose, &optimize);
+        assert!(
+            md.contains("Надёжность модели не подтверждена"),
+            "плашка обязана появиться при вердикте из пробелов:\n{md}"
+        );
+        assert!(
+            !has_bare_firm_directive(&md, "Увеличить"),
+            "Markdown: колонка «Вердикт» показала твёрдую директиву «Увеличить» без \
+             «(предв.)» рядом с баннером неподтверждённой надёжности:\n{md}"
+        );
+
+        let path = std::env::temp_dir().join("aurora_verdict_column_whitespace_test.xlsx");
+        build_xlsx(&model, &decompose, &optimize, &[], None, "test", &path, None)
+            .expect("build_xlsx с вердиктом из пробелов");
+        let xlsx_text = xlsx_all_text(&path);
+        assert!(
+            xlsx_text.contains("Надёжность модели не подтверждена"),
+            "XLSX: плашка обязана появиться при вердикте из пробелов"
+        );
+        assert!(
+            !has_bare_firm_directive(&xlsx_text, "Увеличить"),
+            "XLSX: колонка «Вердикт» показала твёрдую директиву «Увеличить» без \
+             «(предв.)» рядом с баннером неподтверждённой надёжности"
+        );
+        let _ = std::fs::remove_file(&path);
     }
 
     /// Структурный сторож: во всём report.rs (продуктовый код, без тестового
