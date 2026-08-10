@@ -3310,6 +3310,79 @@ mod tests {
         let _ = std::fs::remove_file(&path);
     }
 
+    /// Поведенческий сторож (находка внешнего аудита, 2026-08-10): структурный
+    /// сторож `verdict_read_happens_only_inside_normalizer` ниже считает ЛИШЬ
+    /// количество буквальных вхождений строки чтения
+    /// `["model_reliability"]["verdict"].as_str().unwrap_or("")` в файле - он
+    /// НЕ проверяет, что к результату применяется `.trim()`. Мутация, которая
+    /// оставляет саму строку чтения дословно нетронутой (occurrences всё ещё
+    /// ==1, структурный сторож зелёный), но убирает последующий `.trim()`
+    /// перед проверкой `is_empty()`/`.to_lowercase()`, проходит мимо него
+    /// незамеченной. Вердикт из одних пробелов "   " при этом перестаёт
+    /// нормализоваться в "unknown" (`"   ".is_empty() == false`) -
+    /// `mr_verdict == "unknown"` в build_markdown/build_xlsx даёт false,
+    /// RELIABILITY_UNKNOWN_TEXT не подставляется, caveat остаётся пустым, и
+    /// вся плашка (`if !mr_label.is_empty() && !mr_caveat.is_empty()`) молча
+    /// гаснет — и в Markdown, и в XLSX. Тест ниже проверяет ФАКТ в собранном
+    /// документе, а не то, вызван ли `.trim()` синтаксически - ловит дефект
+    /// независимо от конкретной формы чтения внутри normalize_reliability_verdict.
+    #[test]
+    fn reliability_unknown_warns_in_both_formats_when_verdict_is_whitespace_only() {
+        fn xlsx_contains(path: &Path, needle: &str) -> bool {
+            let bytes = std::fs::read(path).expect("read xlsx");
+            let mut archive = zip::read::ZipArchive::new(Cursor::new(bytes)).expect("open xlsx zip");
+            for i in 0..archive.len() {
+                let mut entry = archive.by_index(i).expect("zip entry");
+                let mut content = String::new();
+                if entry.read_to_string(&mut content).is_err() {
+                    continue;
+                }
+                if content.contains(needle) {
+                    return true;
+                }
+            }
+            false
+        }
+
+        let model = json!({"diagnostics": {"mqs": {"score": 70.0, "tier_label": "Хорошее"}}});
+        let decompose = json!({"channels": [
+            {"name": "TV", "spend": 100.0, "contribution": 150.0, "roi": 1.5}
+        ]});
+        // Вердикт присутствует КЛЮЧОМ, но состоит из одних пробелов - тот же
+        // класс "надёжность не проверена", что отсутствующий ключ выше, но
+        // идёт по ДРУГОЙ ветке normalize_reliability_verdict (raw.trim()
+        // .is_empty(), не unwrap_or("") на отсутствующем ключе).
+        let optimize = json!({
+            "model_reliability": {"verdict": "   "},
+            "channels": [
+                {"name": "TV", "current_spend_money": 100.0, "optimal_spend_money": 120.0}
+            ]
+        });
+
+        let md = build_markdown(&model, &decompose, &optimize);
+        assert!(
+            md.contains("Надёжность модели не подтверждена"),
+            "Markdown обязан показать заголовок плашки при вердикте из одних пробелов:\n{md}"
+        );
+        assert!(
+            md.contains(RELIABILITY_UNKNOWN_TEXT),
+            "Markdown обязан показать RELIABILITY_UNKNOWN_TEXT при вердикте из одних пробелов:\n{md}"
+        );
+
+        let path = std::env::temp_dir().join("aurora_reliability_whitespace_test.xlsx");
+        build_xlsx(&model, &decompose, &optimize, &[], None, "test", &path, None)
+            .expect("build_xlsx с вердиктом из одних пробелов");
+        assert!(
+            xlsx_contains(&path, "Надёжность модели не подтверждена"),
+            "XLSX обязан показать заголовок плашки при вердикте из одних пробелов"
+        );
+        assert!(
+            xlsx_contains(&path, RELIABILITY_UNKNOWN_TEXT),
+            "XLSX обязан показать RELIABILITY_UNKNOWN_TEXT при вердикте из одних пробелов"
+        );
+        let _ = std::fs::remove_file(&path);
+    }
+
     /// Защита от перепредупреждения: у надёжной модели (verdict == "reliable")
     /// плашка молчит - как и до правки.
     #[test]
@@ -3419,6 +3492,17 @@ mod tests {
     /// самого normalize_reliability_verdict(). Любая новая точка чтения мимо
     /// нормализатора возвращает старый дефект: отсутствие ключа снова тонет в
     /// пустой строке независимо для каждой точки.
+    ///
+    /// 🔴 Ловит только БУКВАЛЬНЫЙ образец (2026-08-10, находка внешнего
+    /// аудита): сторож считает вхождения СТРОКИ ЧТЕНИЯ, а не проверяет
+    /// применение `.trim()` к результату. Мутация, что оставляет саму строку
+    /// чтения дословно нетронутой (occurrences всё ещё ==1) и лишь убирает
+    /// последующий `.trim()` перед `is_empty()`/`.to_lowercase()`, проходит
+    /// этот тест незамеченной, хотя реально ломает нормализацию вердикта из
+    /// одних пробелов. Дополнен поведенческим тестом
+    /// `reliability_unknown_warns_in_both_formats_when_verdict_is_whitespace_only`
+    /// выше, который проверяет ФАКТ в собранном документе, а не то, вызван ли
+    /// `.trim()` синтаксически - он ловит дефект независимо от формы чтения.
     #[test]
     fn verdict_read_happens_only_inside_normalizer() {
         let src = include_str!("report.rs");

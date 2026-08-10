@@ -243,9 +243,19 @@ def test_pptx_carries_reliability_plaque_when_uncertain():
 
 def test_soften_verdict_display_preserves_direction():
     from engines.channel_action import soften_verdict_display
-    # reliable / нет вердикта → директивный label
+    # reliable → директивный label
     assert soften_verdict_display("Scale", "reliable") == ("Увеличить", "firm")
-    assert soften_verdict_display("Scale", None) == ("Увеличить", "firm")
+    # 2026-08-10: «надёжность не проверена» — НЕ «модель надёжна», тот же
+    # результат, что явный 'unknown' (см. ниже). Прежде None/''/пробелы давали
+    # директиву наравне с reliable — отчёт противоречил сам себе (баннер «не
+    # подтверждена» сверху, твёрдое «Увеличить» в таблице рядом). Все три формы
+    # «нет вердикта» обязаны смягчаться одинаково.
+    for пустое in (None, "", "   "):
+        lbl_none, mod_none = soften_verdict_display("Scale", пустое)
+        assert "Увеличить" in lbl_none and "предв" in lbl_none and mod_none == "tentative", (
+            f"soften_verdict_display('Scale', {пустое!r}) не смягчился до unknown: "
+            f"{(lbl_none, mod_none)!r}"
+        )
     # uncertain/unknown → направление сохранено + «(предв.)»
     lbl, mod = soften_verdict_display("Scale", "uncertain")
     assert "Увеличить" in lbl and "предв" in lbl and mod == "tentative"
@@ -282,10 +292,21 @@ def test_seam_channel_verdict_softened_when_uncertain():
 
 
 def test_seam_channel_verdict_firm_when_reliable():
-    """При reliable вердикты остаются директивными (без «(предв.)»)."""
+    """При reliable вердикты остаются директивными (без «(предв.)»).
+
+    2026-08-10: прежде тест гонял payload через `model_data={}` (пустая
+    диагностика → honesty_verdict вообще не выставляется) + мёртвый шов
+    `optimize_data["model_reliability"]` (см. правки выше в этом файле) - тест
+    был зелёным СЛУЧАЙНО, эксплуатируя старый баг soften_verdict_display, где
+    отсутствие вердикта (None) трактовалось наравне с reliable. После
+    honesty-фикса None → 'unknown' → «(предв.)», и тест на прежней фикстуре
+    покраснел бы, хотя своё название обещает «reliable». Переписан на
+    настоящий источник честности - model_data["diagnostics"]=FAT (ratio ≫ 4 →
+    honesty_verdict="reliable" по-настоящему)."""
     payload = _map_pipeline_to_builder_data(
-        model_data={}, decompose_data=_DEC_DIRECTIVE,
-        optimize_data={"model_reliability": MR_RELIABLE}, scenarios=[], project_id="t")
+        model_data={"diagnostics": FAT}, decompose_data=_DEC_DIRECTIVE,
+        optimize_data={}, scenarios=[], project_id="t")
+    assert payload["diagnostics"].get("honesty_verdict") == "reliable"
     for ch in payload["channels"]:
         assert ch.get("verdict_modality") == "firm"
         assert "предв" not in (ch.get("verdict_display") or "")

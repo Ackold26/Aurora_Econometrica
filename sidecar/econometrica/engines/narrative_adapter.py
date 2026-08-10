@@ -1029,8 +1029,13 @@ def _map_pipeline_to_builder_data(
             _caveat_text = _verdict.get("caveat_text")
             if _caveat_text:
                 diagnostics["honesty_caveat_text"] = str(_caveat_text)
-        except Exception:  # noqa: BLE001 - honesty-доставка не роняет экспорт
-            pass
+        except Exception as exc:  # noqa: BLE001 - honesty-доставка не роняет экспорт
+            # 2026-08-10: прежде молчало (`pass`) — если пересчёт/чтение вердикта
+            # падает, diagnostics["honesty_verdict"] не выставляется вообще, и
+            # НИКТО об этом не узнаёт (плашка unknown в отчёте спасает клиента,
+            # но инженер не видит, что честный контур сломан). Поведение
+            # экспорта не меняем - падать здесь по-прежнему нельзя.
+            logger.warning(f"narrative_adapter: honesty_verdict computation failed: {exc}")
         # Происхождение (2026-08-07): числа переброски могли быть посчитаны на
         # ДРУГОЙ модели — переобучение не удаляет optimization.json, и он
         # воскресает с диска при открытии проекта. Сверяем подписи и, если они

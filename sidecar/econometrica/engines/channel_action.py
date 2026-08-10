@@ -106,14 +106,19 @@ def soften_verdict_display(verdict_key: str, reliability_verdict: str | None) ->
     неуверенной модели ни один канал не подаётся как директива к масштабированию.
 
     Returns (label, modality):
-      • reliable / нет вердикта → директивный label («Увеличить»), modality 'firm'
+      • reliable → директивный label («Увеличить»), modality 'firm'
+      • нет вердикта (None / пустая строка) → как 'unknown', см. ниже. 2026-08-10:
+        прежде отсутствие вердикта давало ДИРЕКТИВУ наравне с «модель надёжна», и
+        отчёт противоречил сам себе — баннер сверху «Надёжность модели не
+        подтверждена», а таблица каналов рядом с твёрдым «Увеличить». Зеркалит
+        report.rs::verdict_display, где пустая строка смягчается так же
       • uncertain / unknown → label + « (предв.)» («Увеличить (предв.)»), modality
         'tentative'; нейтральные Watch/Uncertain — без суффикса (уже неуверенные)
       • unreliable → «Требует переобучения», modality 'refused' (модель не сошлась —
         направление ненадёжно, не показываем; согласуется с гейтом M2 refused)
     """
     base = VERDICT_DISPLAY_RU.get(verdict_key, verdict_key)
-    rv = (reliability_verdict or '').lower()
+    rv = (reliability_verdict or '').strip().lower() or 'unknown'
     if rv == 'unreliable':
         return ('Требует переобучения', 'refused')
     if rv in ('uncertain', 'unknown'):

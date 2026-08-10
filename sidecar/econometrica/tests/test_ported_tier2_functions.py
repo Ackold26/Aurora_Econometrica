@@ -133,9 +133,20 @@ def test_build_channel_insight_uses_clean_name_count_mode():
 # ─── Задача 3: soften_verdict_display — honesty-потолок канального вердикта ──
 
 def test_soften_verdict_display_preserves_direction():
-    # reliable / нет вердикта → директивный label
+    # reliable → директивный label
     assert soften_verdict_display("Scale", "reliable") == ("Увеличить", "firm")
-    assert soften_verdict_display("Scale", None) == ("Увеличить", "firm")
+    # 2026-08-10: нет вердикта (None/''/пробелы) — это НЕ «модель надёжна», а
+    # «надёжность не проверена» → тот же результат, что явный 'unknown'.
+    # Прежде None давал директиву наравне с reliable — отчёт противоречил сам
+    # себе (баннер «не подтверждена» сверху, твёрдое «Увеличить» в таблице
+    # рядом). См. дубль этого теста и полный разбор в
+    # test_deliverable_thinness_disclosure.py.
+    for пустое in (None, "", "   "):
+        lbl_none, mod_none = soften_verdict_display("Scale", пустое)
+        assert "Увеличить" in lbl_none and "предв" in lbl_none and mod_none == "tentative", (
+            f"soften_verdict_display('Scale', {пустое!r}) не смягчился до unknown: "
+            f"{(lbl_none, mod_none)!r}"
+        )
     # uncertain/unknown → направление сохранено + «(предв.)»
     lbl, mod = soften_verdict_display("Scale", "uncertain")
     assert "Увеличить" in lbl and "предв" in lbl and mod == "tentative"

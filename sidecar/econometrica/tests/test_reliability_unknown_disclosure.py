@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import json
 import os
+from pathlib import Path
 
 from aurora_html.sections import _reliability_disclaimer_html
 from aurora_pptx.builder import AuroraPPTXBuilder
@@ -203,3 +204,93 @@ def test_pptx_disclosure_text_sourced_from_constant(monkeypatch):
     monkeypatch.setattr(diagnostics_mod, "RELIABILITY_UNKNOWN_NOTE", "МАРКЕР-ПОДМЕНЫ-ПОПТХ")
     txt = _pptx_text(AuroraPPTXBuilder(_pptx_payload("unknown")).build())
     assert "МАРКЕР-ПОДМЕНЫ-ПОПТХ" in txt
+
+
+# ── 7. Документ целиком: баннер и таблица каналов не противоречат друг другу ─
+#
+# 2026-08-10 (сторож на правку `channel_action.soften_verdict_display`): прежде
+# отсутствие вердикта (None/''/пробелы) давало КАНАЛУ твёрдую директиву
+# («Увеличить») наравне с reliable, а баннер сверху уже честно писал
+# «Надёжность модели не подтверждена» — отчёт противоречил сам себе в ОДНОМ
+# документе. Тесты ниже проверяют именно это - класс дефекта на уровне
+# собранного файла (HTML/PPTX), а не изолированный вызов функции (см. секцию 1
+# выше и test_soften_verdict_display_preserves_direction в
+# test_deliverable_thinness_disclosure.py).
+
+# Каналы с явной директивой (не Watch/Uncertain) - без хотя бы одного
+# директивного канала тест ничего не стережёт (canonical: mroas ≥ 1.2 +
+# optimal > current → Scale, см. engines.channel_action).
+_DIRECTIVE_CHANNELS = {"channels": [
+    {"name": "TV", "spend": 100e6, "contribution": 200e6, "roi": 2.0,
+     "mroas": 1.5, "optimal_spend": 130e6, "current_spend": 100e6},
+    {"name": "Social", "spend": 50e6, "contribution": 120e6, "roi": 2.4, "mroas": 1.6},
+]}
+
+
+def test_html_report_no_firm_badge_alongside_unknown_banner(tmp_path):
+    """HTML целиком: при отсутствующем вердикте (model_data без diagnostics -
+    «пересчитать нечего», тот же класс, что явный unknown) документ обязан
+    показывать И баннер, И смягчённые вердикты каналов - не одно из двух.
+
+    Собран РЕАЛЬНЫМ производственным швом (`engines.html_export.build_html`
+    → `narrative_adapter._map_pipeline_to_builder_data` →
+    `aurora_html.build_html`), а не вручную собранным payload — иначе тест
+    проверял бы fallback-ветку `sections.py::render_action_table`
+    (`c.get("verdict_display") or soften_verdict_display(verdict, None)[0]`,
+    для channels без precomputed verdict_display/verdict_modality), а не
+    реальный путь данных, где оба поля выставляет narrative_adapter.
+    """
+    from engines.html_export import build_html as _build_html_file
+    from engines.narrative_adapter import _map_pipeline_to_builder_data
+
+    payload = _map_pipeline_to_builder_data(
+        model_data={}, decompose_data=_DIRECTIVE_CHANNELS,
+        optimize_data={}, scenarios=[], project_id="t",
+    )
+    assert payload["diagnostics"].get("honesty_verdict") is None, (
+        "фикстура должна давать «нет вердикта вовсе» - иначе тест проверяет не тот сценарий"
+    )
+    directive = [c for c in payload["channels"] if c.get("verdict") not in ("Watch", "Uncertain")]
+    assert directive, "фикстура не даёт директивных каналов - тесту нечего стеречь"
+
+    out = str(tmp_path / "report.html")
+    result = _build_html_file(
+        model_data={}, decompose_data=_DIRECTIVE_CHANNELS, optimize_data={},
+        output_path=out, project_id="t",
+    )
+    assert result.get("status") == "ok", result
+    html = Path(out).read_text(encoding="utf-8")
+
+    assert _TITLE in html, "баннер «Надёжность модели не подтверждена» обязан появиться"
+    assert "verdict-mod-firm" not in html, (
+        "хотя бы один канал показан ТВЁРДОЙ директивой (CSS-класс verdict-mod-firm) "
+        "рядом с баннером неподтверждённой надёжности - отчёт противоречит сам себе"
+    )
+
+
+def test_pptx_report_no_bare_firm_label_when_verdict_missing_or_empty():
+    """PPTX то же самое: 5 директивных каналов фикстуры (4×Scale, 1×Cut)
+    получают вердикт-метку ПРЯМО в момент сборки слайда
+    (`soften_verdict_display(verdict, self.honesty_verdict)`,
+    aurora_pptx/builder.py:2197), а не из precomputed поля - значит дефект
+    ловится тем же способом, что и в HTML: по факту в собранном файле, а не по
+    значению атрибута self.honesty_verdict."""
+    firm_labels = ("Увеличить", "Остановить")  # Scale/Cut в этой фикстуре
+    for случай, kwargs in (
+        ("None", {"honesty_verdict": None}),
+        ("пустая строка", {"honesty_verdict": ""}),
+        ("ключ отсутствует", {"drop_key": True}),
+    ):
+        txt = _pptx_text(AuroraPPTXBuilder(_pptx_payload(**kwargs)).build())
+        assert _TITLE in txt, f"{случай}: баннер unknown обязан появиться"
+        # Метка вердикта - отдельный текстовый блок (одна строка на shape), в
+        # отличие от статичного глоссария («Вердикт по каналу: Увеличить /
+        # Держать / …») - тот единой строкой перечисляет ВСЕ метки и не
+        # является per-канал бейджем. Точное совпадение целой строки отличает
+        # бейдж от глоссария и не даёт ложных срабатываний.
+        lines = {ln.strip() for ln in txt.split("\n")}
+        for label in firm_labels:
+            assert label not in lines, (
+                f"{случай}: ярлык «{label}» показан твёрдой директивой без «(предв.)» "
+                f"отдельным блоком - рядом с баннером неподтверждённой надёжности"
+            )
