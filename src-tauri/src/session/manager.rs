@@ -3,8 +3,6 @@ use log::{debug, error, info, warn};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
-#[cfg(windows)]
-use std::os::windows::process::CommandExt;
 
 use crate::crypto;
 
@@ -101,35 +99,30 @@ impl SessionManager {
         // бесплатным маркером «сканировать больше не надо».
         let sessions_root = crate::durable_store::app_state_dir(crate::durable_store::SESSIONS_SUB)?;
 
-        // Restrict directory access to current user only (prevent other users from reading decrypted vaults)
-        if let Ok(username) = std::env::var("USERNAME") {
-            let domain = std::env::var("USERDOMAIN")
-                .or_else(|_| std::env::var("COMPUTERNAME"))
-                .unwrap_or_default();
-            let qualified = if domain.is_empty() {
-                username.clone()
-            } else {
-                format!("{domain}\\{username}")
-            };
-            let mut icacls_cmd = std::process::Command::new("icacls");
-            icacls_cmd.args([
-                sessions_root.to_str().unwrap_or_default(),
-                "/inheritance:r",
-                "/grant:r",
-                &format!("{qualified}:(OI)(CI)F"),
-            ]);
-            #[cfg(windows)]
-            icacls_cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
-            match icacls_cmd
-                .output()
-            {
-                Ok(output) if !output.status.success() => {
-                    warn!("icacls failed to restrict session directory: {}", String::from_utf8_lossy(&output.stderr));
-                }
-                Err(e) => warn!("Failed to run icacls: {e}"),
-                _ => {}
-            }
-        }
+        // 🔴 2026-08-12: убрана перестановка прав каталога через порождение `icacls`.
+        //
+        // Заявленная цель прежнего кода — «чтобы другой пользователь машины не прочитал
+        // расшифрованные vault'ы» — достигается самой Windows и без нас: каталог лежит внутри
+        // `%LOCALAPPDATA%` (см. durable_store::app_state_dir), который наследует права от
+        // `C:\Users\<пользователь>`, а там нет ни группы «Пользователи», ни «Все». Проверено
+        // замером на живой машине: в наследуемых правах профиля только SYSTEM, Администраторы
+        // и сам пользователь.
+        //
+        // Что вызов делал СВЕРХ умолчания — это `/grant:r`, который ЗАМЕНЯЕТ список прав, а не
+        // дополняет его: вместе с наследованием из прав уходили SYSTEM и Администраторы. Такого
+        // намерения в коде не было (комментарий говорил про «других пользователей») — это был
+        // побочный эффект синтаксиса. Защиты он не давал: администратор возвращает себе доступ
+        // сменой владельца, а против настоящего сегодняшнего противника — вора данных,
+        // работающего под ТЕМ ЖЕ пользователем, что и приложение, — права не помогают вовсе.
+        //
+        // Цена же оказалась реальной: порождение `icacls` со снятием наследования прямо перед
+        // тем, как приложение начнёт писать в этот каталог и шифровать в нём файлы, читается
+        // поведенческой защитой антивируса как подготовка шифровальщика. 11.08.2026 Kaspersky
+        // снял оболочку продукта с диска у пользователя (PDM:Trojan.Win32.Generic).
+        //
+        // Каталоги, которым прежние версии уже урезали права, остаются как есть: восстановление
+        // наследования — отдельная задача, и делать её нужно системным вызовом
+        // (`SetNamedSecurityInfoW`), а не возвратом порождения процесса.
 
         Ok(Self {
             sessions: Mutex::new(HashMap::new()),

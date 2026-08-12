@@ -226,49 +226,52 @@ async fn is_healthy_and_ours(port: u16, expected_session: Option<&str>) -> bool 
 
 // ── Port cleanup (zombie kill) ───────────────────────────────────────────────
 
-/// Kill процессов, держащих наш port - только тех, что принадлежат текущему
-/// OS-пользователю И имеют подходящее image name.
+/// Снятие зависшего движка по ЗАПИСАННОМУ нами идентификатору процесса - только если он
+/// принадлежит текущему OS-пользователю И имеет подходящее image name.
 /// На multi-user RDP - НЕ убиваем чужих юзеров.
+///
+/// 🔴 2026-08-12: раньше идентификатор искали через `cmd /C "netstat -ano | findstr :порт"`.
+/// Поиск был ИЗБЫТОЧЕН: мы сами записываем pid движка в файл состояния при запуске
+/// (`write_initial_state`), то есть он известен во всех трёх точках вызова. Ради уже
+/// имеющегося числа порождались три скрытых консольных процесса (`cmd` → `netstat` →
+/// `findstr`), и получалась связка «разведка процессов по порту → снятие найденного», которую
+/// поведенческая защита антивируса разбирает как вредоносную (10.08 Kaspersky снял оболочку
+/// продукта с диска у пользователя, вердикт PDM:Trojan.Win32.Generic — поведенческий).
+/// Защита от чужого процесса не ослабла: `is_our_process_and_user` по-прежнему проверяет
+/// владельца и имя образа, а идентификатор теперь берётся из нашей же записи, а не из
+/// разбора чужого вывода.
 #[cfg(windows)]
-fn kill_on_port(port: u16) {
+fn kill_sidecar_pid(pid: u32) {
     use std::os::windows::process::CommandExt;
-    let output = Command::new("cmd")
-        .args(["/C", &format!("netstat -ano -p tcp | findstr :{port}")])
+    if pid == 0 {
+        return;
+    }
+    if !sidecar_runtime::is_our_process_and_user(pid, &SIDECAR_CONFIG) {
+        warn!("PID={pid} не наш процесс или другого пользователя - не трогаем");
+        return;
+    }
+    info!("Killing zombie sidecar PID={pid}");
+    let _ = Command::new("taskkill")
+        .args(["/PID", &pid.to_string(), "/T", "/F"])
         .creation_flags(0x08000000)
         .output();
-    let Ok(output) = output else { return };
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let mut pids = std::collections::HashSet::new();
-    for line in stdout.lines() {
-        if let Some(pid_str) = line.split_whitespace().last() {
-            if let Ok(pid) = pid_str.parse::<u32>() {
-                if pid != 0 {
-                    pids.insert(pid);
-                }
-            }
-        }
-    }
-    for pid in pids {
-        if !sidecar_runtime::is_our_process_and_user(pid, &SIDECAR_CONFIG) {
-            warn!(
-                "Port {port} held by PID={pid} - not ours or not our user, skipping kill"
-            );
-            continue;
-        }
-        info!("Killing zombie sidecar PID={pid} on port {port}");
-        let _ = Command::new("taskkill")
-            .args(["/PID", &pid.to_string(), "/T", "/F"])
-            .creation_flags(0x08000000)
-            .output();
-    }
 }
 
 #[cfg(not(windows))]
-fn kill_on_port(_port: u16) {
+fn kill_sidecar_pid(_pid: u32) {
     if let Some(mut child) = take_child() {
         let _ = child.kill();
         let _ = child.wait_timeout(CHILD_WAIT_TIMEOUT);
+    }
+}
+
+/// То же, но идентификатор читается из файла состояния - для точек, где состояние
+/// не держится в руках. Отсутствие файла = снимать нечего (наш дочерний процесс
+/// в памяти закрывается вызывающей стороной через `take_child`).
+fn kill_known_sidecar() {
+    match read_state_file(&SIDECAR_CONFIG) {
+        Some(state) => kill_sidecar_pid(state.pid),
+        None => debug!("Файла состояния нет - идентификатор движка неизвестен, снимать нечего"),
     }
 }
 
@@ -397,8 +400,8 @@ pub fn start_sidecar(app_handle: &AppHandle) {
             "Sidecar state file stale (session_id/product mismatch or dead). \
              Cleaning up and respawning."
         );
-        // Попытка убить старый процесс (только наш + наш юзер)
-        kill_on_port(saved_port);
+        // Попытка убить старый процесс (только наш + наш юзер) по записанному нами pid
+        kill_sidecar_pid(state.pid);
         delete_state_file(&SIDECAR_CONFIG);
     }
 
@@ -532,7 +535,7 @@ pub async fn ensure_alive() -> bool {
 
     if tcp_responsive(port) {
         warn!("Sidecar TCP accepts but HTTP unresponsive - killing deadlocked process");
-        kill_on_port(port);
+        kill_known_sidecar();
         tokio::time::sleep(Duration::from_secs(1)).await;
     }
 
@@ -602,7 +605,7 @@ pub async fn force_restart() -> Result<(), String> {
     // Graceful shutdown first (correct cleanup при активном pm.sample)
     if tcp_responsive(port) {
         let _ = request_graceful_shutdown(port).await;
-        kill_on_port(port);
+        kill_known_sidecar();
         tokio::time::sleep(Duration::from_secs(1)).await;
     }
     if let Some(mut child) = take_child() {
