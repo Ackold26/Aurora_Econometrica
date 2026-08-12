@@ -13,9 +13,9 @@ use tauri::Emitter;
 use crate::crypto;
 use super::{content_pack, vault};
 
-/// Supabase Edge Functions base URL (obfuscated at compile time).
+/// Supabase Edge Functions base URL.
 fn supabase_url() -> String {
-    obfstr::obfstr!("https://quzhkfvglqmppxcrindh.supabase.co/functions/v1").to_string()
+    "https://quzhkfvglqmppxcrindh.supabase.co/functions/v1".to_string()
 }
 
 // ── Устойчивость канала доставки (2026-07-26, разбор отказа у клиента) ──

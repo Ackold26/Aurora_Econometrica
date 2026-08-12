@@ -14,9 +14,9 @@ use std::sync::OnceLock;
 
 // ── Configuration ──────────────────────────────────────────
 
-/// Supabase Edge Functions base URL (obfuscated at compile time).
+/// Supabase Edge Functions base URL.
 fn supabase_url() -> String {
-    obfstr::obfstr!("https://quzhkfvglqmppxcrindh.supabase.co/functions/v1").to_string()
+    "https://quzhkfvglqmppxcrindh.supabase.co/functions/v1".to_string()
 }
 
 /// Cache validity period: 7 days in seconds.

@@ -47,6 +47,13 @@ PYINSTALLER_ARGS = [
     '--distpath', str(DIST),
     '--workpath', str(ROOT / 'build_tmp'),
     '--specpath', str(ROOT / 'build_tmp'),
+    # Метаданные версии exe (издатель/описание/версия) - без них бинарь безымянный
+    # для антивирусов и Windows Explorer. 🔴 Путь ОБЯЗАН быть абсолютным: PyInstaller
+    # пишет этот путь как есть в .spec-файл (--specpath = build_tmp/), а .spec
+    # исполняется с резолвом относительных путей от СВОЕГО каталога (build_tmp/),
+    # не от cwd вызова - относительный 'version_info.txt' даёт
+    # FileNotFoundError на build_tmp/version_info.txt (найдено 2026-08-10 живым прогоном).
+    f'--version-file={ROOT / "version_info.txt"}',
 
     # Hidden imports - PyMC / PyTensor lazy-import chains
     '--hidden-import=pymc',

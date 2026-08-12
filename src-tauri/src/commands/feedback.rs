@@ -6,9 +6,9 @@ use std::time::Instant;
 /// Minimum interval between feedback submissions (60 seconds).
 const RATE_LIMIT_SECS: u64 = 60;
 
-/// Endpoint for feedback submission (obfuscated).
+/// Endpoint for feedback submission.
 fn feedback_url() -> String {
-    obfstr::obfstr!("https://docs.google.com/forms/d/e/1FAIpQLSdK_JroYSnX09InTfhEYl_WFFDzmA3BQun7PWWscdBZoUR25w/formResponse").to_string()
+    "https://docs.google.com/forms/d/e/1FAIpQLSdK_JroYSnX09InTfhEYl_WFFDzmA3BQun7PWWscdBZoUR25w/formResponse".to_string()
 }
 
 static LAST_SUBMIT: Mutex<Option<Instant>> = Mutex::new(None);

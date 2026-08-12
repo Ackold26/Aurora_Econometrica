@@ -20,6 +20,26 @@
 ; на русской Windows (репорт Антона со скрином 2026-07-07). nsExec::Exec запускает
 ; СКРЫТО (без окна) и НЕ пишет вывод в лог; прогресс даём своим ASCII DetailPrint.
 ; Каждый вызов оставляет exit code на стеке → обязателен Pop $0.
+;
+; Сужение глушения (2026-08-10): убрана строка `taskkill /IM "python.exe"
+; /FI "WINDOWTITLE eq econometrica*"` из PREINSTALL и PREUNINSTALL. Причины:
+; (1) WINDOWTITLE-фильтр никогда не совпадал – python-fallback sidecar (см.
+; econ_sidecar.rs::spawn_python_dev) стартует с CREATE_NO_WINDOW, у такого
+; процесса нет заголовка окна, строка была мёртвым кодом с нулевой пользой;
+; (2) глушение по обобщённому имени образа python.exe – известный сигнал
+; эвристики антивирусов, и при ложном срабатывании фильтра рискует убить
+; чужой python пользователя, а не наш sidecar. Штатный случай (закрытие
+; приложения) уже закрыт из самого приложения: econ_sidecar::stop_sidecar()
+; убивает движок по PID, полученному от Child-хендла, независимо от того,
+; был ли он заспавнен как bundled exe или как python-fallback – см. lib.rs
+; on_window_event. Остаточный риск – только если приложение упало ДО
+; graceful shutdown и потом сразу запущен установщик поверх ещё живого
+; python-fallback: тогда NSIS может не перезаписать locked-файл и явно
+; сообщит об ошибке (не тихая порча). Точечная альтернатива – читать PID
+; из `%LOCALAPPDATA%\com.aurora.econometrica\sidecar.json` (поле "pid",
+; см. sidecar_runtime.rs::SidecarState) и killать `taskkill /PID <pid>`
+; – не реализована здесь: требует NSIS-парсинга JSON, который в этой сессии
+; негде было собрать и проверить сборкой инсталлятора.
 
 !macro NSIS_HOOK_PREINSTALL
   ; P3.1 install-lock fix: освобождаем .pyd / .dll перед extract.
@@ -41,12 +61,6 @@
   nsExec::Exec 'taskkill /IM "aurora-econometrica-gui.exe" /FI "USERNAME eq %USERNAME%" /T /F'
   Pop $0
   Sleep 1000
-  ; Доп. страховка для PyInstaller-bundle процессов (multiprocessing workers).
-  ; Sidecar python.exe spawned с CREATE_NO_WINDOW → WINDOWTITLE filter likely no-op
-  ; в normal case, но USERNAME filter дополнительно scope'ит для RDP safety.
-  nsExec::Exec 'taskkill /IM "python.exe" /FI "USERNAME eq %USERNAME%" /FI "WINDOWTITLE eq econometrica*" /T /F'
-  Pop $0
-  Sleep 500
 !macroend
 
 !macro NSIS_HOOK_POSTINSTALL
@@ -81,8 +95,6 @@ program="$INSTDIR\sidecar\econometrica\econometrica-sidecar.exe"'
   nsExec::Exec 'taskkill /IM "aurora-econometrica-gui.exe" /FI "USERNAME eq %USERNAME%" /T /F'
   Pop $0
   Sleep 1000
-  nsExec::Exec 'taskkill /IM "python.exe" /FI "USERNAME eq %USERNAME%" /FI "WINDOWTITLE eq econometrica*" /T /F'
-  Pop $0
   nsExec::Exec 'netsh advfirewall firewall delete rule \
 name="Aurora AI Econometrica (loopback)"'
   Pop $0

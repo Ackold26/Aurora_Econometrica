@@ -11,11 +11,11 @@ use std::os::windows::process::CommandExt;
 use crate::errors::{coded_err, ErrorCode};
 
 fn update_base_url() -> String {
-    obfstr::obfstr!("https://ackold26.github.io/rosst-updates").to_string()
+    "https://ackold26.github.io/rosst-updates".to_string()
 }
 
 fn supabase_update_url() -> String {
-    obfstr::obfstr!("https://quzhkfvglqmppxcrindh.supabase.co/functions/v1/app-update").to_string()
+    "https://quzhkfvglqmppxcrindh.supabase.co/functions/v1/app-update".to_string()
 }
 
 /// Публичный anon-ключ проекта: платформа Supabase требует его на каждом вызове
@@ -26,7 +26,7 @@ fn supabase_update_url() -> String {
 /// Ключ публичный по устройству (он и так уезжает в браузерные клиенты),
 /// доступ ограничивают RLS и логика функции.
 fn supabase_anon_key() -> String {
-    obfstr::obfstr!("eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InF1emhrZnZnbHFtcHB4Y3JpbmRoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ4OTc4MjMsImV4cCI6MjA5MDQ3MzgyM30.UJ8BfkwJnK6pl5KctO8YRI0PIxdTUN85jw5IvjUpGHI").to_string()
+    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InF1emhrZnZnbHFtcHB4Y3JpbmRoIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzQ4OTc4MjMsImV4cCI6MjA5MDQ3MzgyM30.UJ8BfkwJnK6pl5KctO8YRI0PIxdTUN85jw5IvjUpGHI".to_string()
 }
 
 /// Хосты, с которых мы публикуем установщики: Supabase Storage (текущий прод),
