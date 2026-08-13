@@ -595,7 +595,14 @@ async fn run_claude_inner(
                     let filename = format!("{}-{}-partial.md", slug, timestamp);
                     let exports_dir = work_dir.join("exports");
                     let _ = std::fs::create_dir_all(&exports_dir);
-                    let _ = std::fs::write(exports_dir.join(&filename), &partial_text);
+                    // CPD-70: секундная точность таймстемпа не спасает от коллизии при
+                    // нескольких повторяемых ошибках подряд (retry без задержки) — тот же
+                    // exports/ виден клиенту в списке файлов, второй partial-снимок не должен
+                    // тихо стереть диагностику первого.
+                    let partial_path = crate::commands::unique_export_path(
+                        &exports_dir.join(&filename),
+                    );
+                    let _ = std::fs::write(&partial_path, &partial_text);
                 }
             }
         }
@@ -662,7 +669,19 @@ pub(crate) fn auto_save_response(
     let filename = format!("{}-{}{}.md", slug, timestamp, suffix);
     let exports_dir = work_dir.join("exports");
     let _ = std::fs::create_dir_all(&exports_dir);
-    let export_path = exports_dir.join(&filename);
+    // CPD-70: повторный экспорт в тот же каталог (обычное дело — пользователь запустил
+    // команду дважды в ту же секунду) раньше молча затирал предыдущий результат клиента.
+    // При коллизии имя получает суффикс-счётчик, файл ложится рядом, ничего не теряется.
+    let candidate_path = exports_dir.join(&filename);
+    let export_path = crate::commands::unique_export_path(&candidate_path);
+    let renamed = export_path != candidate_path;
+    if renamed {
+        warn!(
+            "Экспорт переименован во избежание перезаписи [{cabinet_id}]: {} → {}",
+            candidate_path.display(),
+            export_path.display()
+        );
+    }
 
     match std::fs::write(&export_path, final_text) {
         Ok(_) => {
@@ -673,7 +692,7 @@ pub(crate) fn auto_save_response(
             convert_to_xlsx(&export_path);
             let _ = app_handle.emit(
                 &format!("exports-updated-{cabinet_id}"),
-                serde_json::json!({}),
+                serde_json::json!({ "renamed": renamed }),
             );
         }
         Err(e) => warn!("Failed to auto-save response: {e}"),
@@ -860,7 +879,10 @@ fn convert_to_xlsx(md_path: &std::path::Path) {
         return;
     }
 
-    let xlsx_path = md_path.with_extension("xlsx");
+    // CPD-70: имя xlsx обычно уже уникально (наследует уникальный стем export_path
+    // из auto_save_response), но защита ставится прямо на точке сохранения — не полагаемся
+    // на то, что вызывающая сторона всегда прогонит путь через unique_export_path.
+    let xlsx_path = crate::commands::unique_export_path(&md_path.with_extension("xlsx"));
     let mut workbook = rust_xlsxwriter::Workbook::new();
 
     for (i, table) in tables.iter().enumerate() {

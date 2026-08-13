@@ -2630,16 +2630,24 @@ fn export_diagnostics(app_handle: tauri::AppHandle) -> Result<String, String> {
 
     let now = chrono::Local::now();
     let filename = format!("Aurora_Diagnostics_{}.txt", now.format("%Y-%m-%d_%H%M%S"));
-    let filepath = desktop.join(&filename);
+    // CPD-70: секундная точность таймстемпа не спасает от коллизии при двух экспортах
+    // диагностики подряд (например по просьбе поддержки) — повторный экспорт не должен
+    // молча стереть предыдущий файл на Рабочем столе клиента.
+    let filepath = commands::unique_export_path(&desktop.join(&filename));
 
     std::fs::write(&filepath, &report).map_err(|e| format!("Failed to write: {e}"))?;
 
-    // Also save a copy to the logs folder (accessible via "Open Logs Folder")
+    // Also save a copy to the logs folder (accessible via "Open Logs Folder").
+    // Имя берём из итогового filepath (после возможного переименования выше), чтобы копия
+    // в logs соответствовала копии на Desktop; отдельно прогоняем через unique_export_path,
+    // т.к. коллизия в logs_dir не обязана совпадать с коллизией на Desktop.
     let logs_dir = export_logs(&app_handle).unwrap_or_default();
     if !logs_dir.is_empty() {
         let logs_path = std::path::Path::new(&logs_dir);
         let _ = std::fs::create_dir_all(logs_path);
-        let _ = std::fs::write(logs_path.join(&filename), &report);
+        let logs_filename = filepath.file_name().unwrap_or_else(|| std::ffi::OsStr::new(&filename));
+        let logs_copy_path = commands::unique_export_path(&logs_path.join(logs_filename));
+        let _ = std::fs::write(&logs_copy_path, &report);
     }
 
     info!("Diagnostics exported: {}", filepath.display());

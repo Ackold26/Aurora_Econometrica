@@ -899,7 +899,10 @@ pub async fn econ_generate_report(
     let exports = exports_dir(&project_id)?;
     let ts = Local::now().format("%Y%m%d_%H%M%S");
     let filename = format!("mmm_report_{ts}.md");
-    let path = exports.join(&filename);
+    // CPD-70: секундная точность таймстемпа не спасает от коллизии при двух экспортах
+    // подряд (обычный сценарий — повторный запуск шага «Отчёт») — повторный экспорт не
+    // должен молча стереть предыдущий отчёт клиента.
+    let path = crate::commands::unique_export_path(&exports.join(&filename));
 
     let report = build_markdown(&model_data, &decompose_data, &optimize_data);
     let summary = extract_summary(&report);
@@ -942,7 +945,11 @@ pub async fn econ_export_xlsx(
         let version = detect_version(&exports, &slug);
         format!("Aurora_Econometrica_{slug}_Model_{date}_v{version:02}.xlsx")
     };
-    let path = exports.join(&filename);
+    // CPD-70: detect_version уже разводит обычный случай по номеру версии, но не спасает
+    // пустой slug (секундный таймстемп-fallback выше) и гонку конкурентных экспортов —
+    // защита ставится здесь, ДО вызова build_xlsx, чтобы путь, который реально пишется
+    // на диск, и путь, возвращаемый клиенту в ответе, всегда совпадали.
+    let path = crate::commands::unique_export_path(&exports.join(&filename));
 
     // Сценарии - опциональные. Если папки нет / JSON невалиден - пустой vec,
     // лист «Сценарии» просто не добавится.
