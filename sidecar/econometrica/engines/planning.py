@@ -21,6 +21,8 @@ from typing import Any
 
 import pandas as pd
 
+from utils.safe_io import unique_export_path
+
 logger = logging.getLogger(__name__)
 
 # Размер блока для хэша (первые 512 КБ — дёшево, детерминированно)
@@ -468,7 +470,10 @@ def generate_media_plan_template(project_dir: str, n_future_periods: int = 12) -
        - даты продолжены от последней исторической с правильной гранулярностью,
        - медиа-колонки и KPI — пустые (NaN).
     4. Атомарная запись в <project_dir>/exports/media_plan_template.xlsx.
-    5. Возвращает {'status': 'ok', 'path': '<абс. путь к файлу>'}.
+       CPD-70: если имя уже занято (шаблон уже сформирован и, возможно,
+       заполнен клиентом) — файл ложится рядом со счётчиком
+       ("media_plan_template (2).xlsx" и т.д.), прежний не трогается.
+    5. Возвращает {'status': 'ok', 'path': '<абс. путь к файлу>', 'renamed': bool}.
 
     Ошибки: {'status': 'error', 'message': '...'}.
     """
@@ -603,7 +608,14 @@ def generate_media_plan_template(project_dir: str, n_future_periods: int = 12) -
     # Атомарная запись
     exports_dir = base / "exports"
     exports_dir.mkdir(parents=True, exist_ok=True)
-    out_path = exports_dir / "media_plan_template.xlsx"
+    # CPD-70: не затирать молча уже существующий (возможно, заполненный
+    # клиентом) шаблон — при коллизии сохраняем рядом со счётчиком.
+    out_path = unique_export_path(exports_dir / "media_plan_template.xlsx")
+    renamed = out_path.name != "media_plan_template.xlsx"
+    if renamed:
+        logger.warning(
+            "generate_media_plan_template: шаблон уже существует, сохраняю как %s", out_path
+        )
 
     tmp_fd, tmp_name = tempfile.mkstemp(dir=exports_dir, prefix=".mpt_", suffix=".tmp")
     try:
@@ -620,7 +632,7 @@ def generate_media_plan_template(project_dir: str, n_future_periods: int = 12) -
         raise
 
     logger.info("media_plan_template: записан %s (%d history + %d future)", out_path, len(history_df), n_future_periods)
-    return {"status": "ok", "path": str(out_path)}
+    return {"status": "ok", "path": str(out_path), "renamed": renamed}
 
 
 # ─── Подтверждение медиаплана ─────────────────────────────────────────────────

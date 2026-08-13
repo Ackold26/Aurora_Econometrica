@@ -15,6 +15,7 @@ from utils.safe_io import (
     safe_backup_with_checksum,
     cleanup_stale_backups,
     compute_file_sha256,
+    unique_export_path,
 )
 
 
@@ -157,6 +158,40 @@ class TestCleanupStaleBackups:
     def test_missing_dir_returns_empty(self):
         removed = cleanup_stale_backups('/nonexistent/path/12345', keep_last=3)
         assert removed == []
+
+
+class TestUniqueExportPath:
+    """CPD-70: повторная генерация клиентского документа не должна молча
+    затирать прежний результат — свободный путь возвращается как есть,
+    занятый получает счётчик "(2)", "(3)" и т.д."""
+
+    def test_free_path_returned_as_is(self, tmp_path):
+        target = tmp_path / 'report.pptx'
+        assert unique_export_path(target) == target
+
+    def test_occupied_path_gets_counter_2(self, tmp_path):
+        target = tmp_path / 'report.pptx'
+        target.write_bytes(b'existing content')
+        result = unique_export_path(target)
+        assert result == tmp_path / 'report (2).pptx'
+
+    def test_base_and_2_occupied_gets_counter_3(self, tmp_path):
+        target = tmp_path / 'report.pptx'
+        target.write_bytes(b'v1')
+        (tmp_path / 'report (2).pptx').write_bytes(b'v2')
+        result = unique_export_path(target)
+        assert result == tmp_path / 'report (3).pptx'
+
+    def test_original_file_untouched(self, tmp_path):
+        """Гейт не должен трогать/перезаписывать исходный занятый файл."""
+        target = tmp_path / 'report.pptx'
+        target.write_bytes(b'original content')
+        unique_export_path(target)
+        assert target.read_bytes() == b'original content'
+
+    def test_missing_parent_dir_treated_as_free(self, tmp_path):
+        target = tmp_path / 'nope' / 'report.pptx'
+        assert unique_export_path(target) == target
 
 
 def os_set_mtime(path: Path, mtime: float):

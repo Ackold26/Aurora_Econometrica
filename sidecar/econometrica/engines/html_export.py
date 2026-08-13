@@ -28,6 +28,7 @@ from pathlib import Path
 from typing import Any
 
 from .narrative_adapter import _map_pipeline_to_builder_data
+from utils.safe_io import unique_export_path
 
 logger = logging.getLogger('econometrica')
 
@@ -99,8 +100,12 @@ def build_html(
         initial_theme: 'light' | 'dark' | 'fun' (default 'light').
 
     Returns:
-        {"status": "ok", "path": ..., "size_kb": ...}
+        {"status": "ok", "path": ..., "size_kb": ..., "renamed": False}
         or {"status": "error", "message": ..., "type": ...} on failure.
+
+        "renamed": True если output_path уже существовал — файл сохранён
+        рядом со счётчиком ("имя (2).html" и т.д.), "path" отражает
+        фактическое итоговое имя (CPD-70).
     """
     try:
         from aurora_html import build_html as _aurora_build
@@ -144,13 +149,20 @@ def build_html(
 
         out_path = Path(output_path)
         out_path.parent.mkdir(parents=True, exist_ok=True)
-        out_path.write_text(html, encoding='utf-8')
-        size_kb = out_path.stat().st_size / 1024.0
-        logger.info(f'HTML export OK: {out_path} ({size_kb:.1f} KB)')
+        final_path = unique_export_path(out_path)
+        renamed = final_path != out_path
+        if renamed:
+            logger.warning(
+                f'build_html: {out_path} уже существует, сохраняю как {final_path}'
+            )
+        final_path.write_text(html, encoding='utf-8')
+        size_kb = final_path.stat().st_size / 1024.0
+        logger.info(f'HTML export OK: {final_path} ({size_kb:.1f} KB)')
         return {
             'status': 'ok',
-            'path': str(out_path),
+            'path': str(final_path),
             'size_kb': round(size_kb, 1),
+            'renamed': renamed,
         }
     except Exception as e:
         logger.exception('HTML export failed')

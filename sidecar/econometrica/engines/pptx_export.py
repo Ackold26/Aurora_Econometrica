@@ -30,7 +30,10 @@ callouts (MQS/R²/MAPE/R-hat/ESS).
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from typing import Any
+
+from utils.safe_io import unique_export_path
 
 # Narrative adapter functions promoted to shared module so HTML builder
 # consumes the same business-logic (leader/hero/verdict, narrative facts,
@@ -80,8 +83,13 @@ def build_pptx(
                     cover until pipeline exposes a dedicated display name.
 
     Returns:
-        {"status": "ok", "path": ..., "slides": 13}
+        {"status": "ok", "path": ..., "slides": 13, "renamed": False}
         or {"status": "error", "message": ..., "type": ...} on failure.
+
+        "renamed": True если output_path уже существовал — файл сохранён
+        рядом со счётчиком ("имя (2).pptx" и т.д.), "path" отражает
+        фактическое итоговое имя (CPD-70: повторная генерация не должна
+        молча затирать прежний клиентский документ).
     """
     try:
         from aurora_pptx import build_pptx as _aurora_build
@@ -98,13 +106,20 @@ def build_pptx(
             forecast=forecast,
         )
         prs = _aurora_build(data=data, lang="ru")
-        prs.save(output_path)
+        final_path = unique_export_path(output_path)
+        renamed = final_path != Path(output_path)
+        if renamed:
+            logger.warning(
+                f"build_pptx: {output_path} уже существует, сохраняю как {final_path}"
+            )
+        prs.save(str(final_path))
         slides_count = len(prs.slides)
-        logger.info(f"build_pptx OK: slides={slides_count} path={output_path}")
+        logger.info(f"build_pptx OK: slides={slides_count} path={final_path}")
         return {
             "status": "ok",
-            "path": output_path,
+            "path": str(final_path),
             "slides": slides_count,
+            "renamed": renamed,
         }
     except Exception as e:
         logger.exception("build_pptx FAILED")

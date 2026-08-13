@@ -153,6 +153,33 @@ def safe_backup_with_checksum(src: Path | str, *, suffix: str = '.bak') -> tuple
     return backup, sha
 
 
+def unique_export_path(path: Path | str) -> Path:
+    """Вернуть свободный путь для сохранения клиентского документа (CPD-70).
+
+    Если `path` уже занят — подбирает `<имя> (2)<расширение>`,
+    `<имя> (3)<расширение>` и т.д., пока не найдётся свободное имя. Свободный
+    путь возвращается как есть, без изменений.
+
+    Не создаёт и не блокирует файл — только вычисляет путь; вызывающая
+    сторона решает, что с ним делать (save/write/replace). Каталог `path`
+    может не существовать — .exists() тогда просто вернёт False.
+
+    Используется перед сохранением ГОТОВОГО документа клиента (pptx/xlsx/html
+    и т.п.), чтобы повторная генерация не затирала прежний результат молча —
+    класс дефекта «молчаливая потеря результата клиента» (CPD-70).
+    """
+    target = Path(path)
+    if not target.exists():
+        return target
+    stem, suffix, parent = target.stem, target.suffix, target.parent
+    n = 2
+    while True:
+        candidate = parent / f'{stem} ({n}){suffix}'
+        if not candidate.exists():
+            return candidate
+        n += 1
+
+
 def cleanup_stale_backups(
     project_dir: Path | str,
     *,
