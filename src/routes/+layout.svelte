@@ -189,8 +189,9 @@
         const cabs = /** @type {any[]} */ (await invoke('get_cabinets'));
         layoutCabinets.set(cabs);
 
-        // 2.1. Clean start: clear inbox + exports for all cabinets ONCE on app launch
-        // (not on every cabinet open - user may navigate between cabinets and settings)
+        // 2.1. Clean start: clear inbox for all cabinets ONCE on app launch
+        // (not on every cabinet open - user may navigate between cabinets and settings).
+        // Exports (client deliverables) are never touched here - CPD-69.
         for (const cab of cabs) {
           invoke('clear_workspace_files', { cabinetId: cab.id }).catch(() => {});
         }

@@ -1837,25 +1837,44 @@ fn clear_chat_history(cabinet_id: String) -> Result<(), String> {
     session::history::clear_history(&cabinet_id).map_err(|e| e.to_string())
 }
 
-/// Clear inbox and exports files in the persistent workspace (clean start).
+/// Каталоги workspace, которые чистятся при каждом запуске приложения (clean start).
+/// ТОЛЬКО inbox: это исходники одного прогона, им незачем всплывать в следующем запуске.
+/// "exports" здесь БЫТЬ НЕ ДОЛЖНО — это выдача клиента (готовые документы на его Рабочем
+/// столе), результат человеческой работы, а не временный мусор сессии (CPD-69: тихо
+/// стирались файлы клиента мимо корзины при каждом старте).
+const WORKSPACE_DIRS_CLEARED_ON_START: &[&str] = &["inbox"];
+
+/// Удаляет все файлы из перечисленных подкаталогов workspace. Возвращает число удалённых
+/// файлов. Без AppHandle — чтобы поведение можно было проверить тестом на временном каталоге.
+fn clear_workspace_dirs(workspace: &std::path::Path, dir_names: &[&str]) -> usize {
+    let mut removed = 0;
+    for dir_name in dir_names {
+        let dir = workspace.join(dir_name);
+        if dir.exists() {
+            if let Ok(entries) = std::fs::read_dir(&dir) {
+                for entry in entries.flatten() {
+                    if std::fs::remove_file(entry.path()).is_ok() {
+                        removed += 1;
+                    }
+                }
+            }
+        }
+    }
+    removed
+}
+
+/// Clear inbox files in the persistent workspace (clean start).
 /// Files on Desktop are removed from the UI - user can re-add them.
+/// Exports (client deliverables) are deliberately never touched here - see
+/// WORKSPACE_DIRS_CLEARED_ON_START.
 #[tauri::command]
 fn clear_workspace_files(cabinet_id: String, app_handle: tauri::AppHandle) -> Result<(), String> {
     cabinet::validate_cabinet_id(&cabinet_id)?;
     let config_dir = app_handle.path().app_config_dir().map_err(|e| e.to_string())?;
     let workspace = user_config::get_cabinet_workspace(&config_dir, &cabinet_id)?;
 
-    for dir_name in &["inbox", "exports"] {
-        let dir = workspace.join(dir_name);
-        if dir.exists() {
-            if let Ok(entries) = std::fs::read_dir(&dir) {
-                for entry in entries.flatten() {
-                    let _ = std::fs::remove_file(entry.path());
-                }
-            }
-        }
-    }
-    info!("Workspace cleaned for {cabinet_id}: inbox + exports");
+    let removed = clear_workspace_dirs(&workspace, WORKSPACE_DIRS_CLEARED_ON_START);
+    info!("Inbox cleared [{cabinet_id}]: {removed} file(s); exports (client deliverables) left untouched");
     Ok(())
 }
 
@@ -4189,6 +4208,53 @@ mod resolve_slash_tests {
                 "команда /{cmd} должна содержать $ARGUMENTS для доставки блока данных проекта",
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod workspace_clear_tests {
+    use super::*;
+
+    /// CPD-69: очистка при старте обязана трогать inbox и обязана НЕ трогать exports —
+    /// это готовые документы клиента, а не временный мусор сессии.
+    #[test]
+    fn start_cleanup_removes_inbox_but_keeps_export_deliverables() {
+        let dir = tempfile::tempdir().unwrap();
+        let workspace = dir.path();
+        let inbox = workspace.join("inbox");
+        let exports = workspace.join("exports");
+        std::fs::create_dir_all(&inbox).unwrap();
+        std::fs::create_dir_all(&exports).unwrap();
+
+        std::fs::write(inbox.join("source.pptx"), b"source").unwrap();
+        std::fs::write(exports.join("Заключение.docx"), b"deliverable 1").unwrap();
+        std::fs::write(exports.join("Письмо.docx"), b"deliverable 2").unwrap();
+
+        let removed = clear_workspace_dirs(workspace, WORKSPACE_DIRS_CLEARED_ON_START);
+
+        assert_eq!(removed, 1, "должен быть удалён ровно один файл (из inbox)");
+        assert!(
+            std::fs::read_dir(&inbox).unwrap().next().is_none(),
+            "inbox обязан быть пуст после очистки при старте"
+        );
+        assert!(
+            exports.join("Заключение.docx").exists(),
+            "выдача клиента не должна исчезать при запуске приложения"
+        );
+        assert!(
+            exports.join("Письмо.docx").exists(),
+            "выдача клиента не должна исчезать при запуске приложения"
+        );
+    }
+
+    /// Структурный сторож: exports не должна вернуться в список очистки по невнимательности
+    /// при будущей правке (например, при добавлении нового служебного каталога рядом).
+    #[test]
+    fn exports_must_never_be_listed_for_start_cleanup() {
+        assert!(
+            !WORKSPACE_DIRS_CLEARED_ON_START.contains(&"exports"),
+            "exports — выдача клиента, её нельзя чистить при запуске (CPD-69)"
+        );
     }
 }
 // rebuild
