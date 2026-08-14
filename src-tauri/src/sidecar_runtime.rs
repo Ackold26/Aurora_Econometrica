@@ -101,16 +101,16 @@ pub struct SidecarState {
     pub started_at: String,
 
     /// Полный путь к образу ПОРОЖДЁННОГО нами процесса, снятый сразу после запуска
-    /// (`QueryFullProcessImageNameW`). Единственный признак, который различает две
-    /// редакции продукта: `product_id` у них намеренно одинаков (рукопожатие с
-    /// Python-модулем), пользователь один, имя файла образа одно и то же —
-    /// `econometrica-sidecar.exe`. Без полного пути облачная редакция могла снять
-    /// движок локальной вместе с идущим расчётом.
+    /// (`QueryFullProcessImageNameW`).
+    ///
+    /// 🔴 2026-08-14. Поле СПРАВОЧНОЕ: журнал и разбор случая у клиента. Основанием
+    /// для снятия оно быть перестало — записанное устаревает, а решение теперь
+    /// сверяет путь запущенного процесса с путём движка В ЭТОЙ УСТАНОВКЕ
+    /// (`econ_sidecar::expected_engine_image_path`), то есть со статическим фактом,
+    /// которому устаревать нечем.
     ///
     /// Обратная совместимость: у файла состояния прежних версий поля нет, `serde`
-    /// подставит пустую строку, и сверка откатится на прежнее сравнение по имени
-    /// образа (иначе после обновления перестал бы сниматься собственный зомби,
-    /// оставшийся от прежней версии).
+    /// подставит пустую строку — на переподключение к живому движку это не влияет.
     #[serde(default)]
     pub image_path: String,
 }
@@ -147,87 +147,57 @@ pub struct ObservedProcess {
     pub created_at: Option<DateTime<Utc>>,
 }
 
-/// Допуск на расхождение между временем создания процесса и `started_at`
-/// в файле состояния, в секундах. Окно двустороннее, но НЕСИММЕТРИЧНОЕ — риск у
-/// двух границ разный, и цена у них тоже разная.
-///
-/// Порядок операций при запуске движка (`econ_sidecar::start_sidecar`):
-/// `spawn_sidecar_proc` → `child.id()` → `store_child` → `write_initial_state`.
-/// То есть процесс создаётся ЗАВЕДОМО РАНЬШЕ записи `started_at`, и зазор между
-/// ними — доли секунды: между двумя операциями нет ни ожиданий, ни ввода-вывода
-/// кроме самой записи файла.
-///
-/// * Верхняя граница ([`KILL_TIME_TOLERANCE_AFTER_SECS`], `created_at ≤ started_at
-///   + допуск`) — главная защита от переиспользования номера процесса. Честному
-///   случаю она не нужна вовсе: наш процесс создан РАНЬШЕ записи. Её единственное
-///   назначение — дрожание системных часов (коррекция NTP, ручной перевод) ровно в
-///   этот промежуток, а на это хватает секунд. Каждая лишняя секунда здесь — ровно
-///   то окно, в котором чужой процесс, получивший освободившийся номер, проходит
-///   проверку и снимается. Прежние 300 секунд открывали это окно на пять минут при
-///   надобности в единицах секунд — на два порядка шире необходимого.
-/// * Нижняя граница ([`KILL_TIME_TOLERANCE_BEFORE_SECS`], `created_at ≥ started_at
-///   − допуск`) — защита от долгоживущего чужого процесса, получившего этот номер
-///   задолго до нашей записи (запущенный вчера Jupyter и тому подобное). Она же
-///   отвечает за медленную машину: между порождением процесса и записью файла
-///   состояния может встрять и подкачка, и антивирусная проверка образа. Расширять
-///   её безопасно: чужому процессу, чтобы под неё подпасть, нужно быть созданным
-///   НЕЗАДОЛГО ДО нашего запуска — а номер он мог получить только раньше, значит и
-///   держать его дольше. Сжимать её, наоборот, опасно: перестанет сниматься
-///   собственный зомби на слабой машине.
-pub const KILL_TIME_TOLERANCE_AFTER_SECS: i64 = 5;
-
-/// Нижняя граница окна допуска, в секундах. Подробности — у
-/// [`KILL_TIME_TOLERANCE_AFTER_SECS`].
-pub const KILL_TIME_TOLERANCE_BEFORE_SECS: i64 = 300;
-
 /// Почему процесс решено НЕ снимать. Попадает в журнал и в тесты.
+///
+/// 🔴 2026-08-14. Прежний набор причин описывал сверку с ЗАПИСЬЮ в файле состояния
+/// (`pid`, `image_path`, `started_at`). Основание сменилось: держателя порта теперь
+/// называет сама операционная система, и устаревать записи больше нечему. Причины
+/// «создан вне окна вокруг started_at», «started_at не разбирается», «время создания
+/// неизвестно», «полный путь не совпал с записанным», «нулевой идентификатор»,
+/// «запись от другого продукта» и «запись от другого пользователя» отсюда ушли
+/// вместе с проверками, которые их порождали.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SkipReason {
-    /// Идентификатор нулевой — снимать нечего.
-    InvalidPid,
-    /// Файл состояния оставлен другим продуктом.
-    ProductMismatch,
-    /// Файл состояния оставлен другим пользователем ОС.
-    StateUserMismatch,
+    /// Порт никто не слушает — снимать нечего.
+    NoListener,
+    /// Порт слушают несколько РАЗНЫХ процессов (двойной стек, разные адреса на одном
+    /// номере). Кто из них наш — неизвестно, и гадать нельзя.
+    HolderAmbiguous,
+    /// Держатель порта — сама оболочка продукта. Защита от самоубийства.
+    SelfPid,
+    /// Дескриптор держателя не открылся: процесс успел завершиться либо нет прав.
+    ObserveFailed,
     /// Владельца процесса определить не удалось.
     OwnerUnknown,
     /// Владелец процесса — другой пользователь ОС.
     OwnerMismatch,
     /// Путь к образу процесса определить не удалось.
     ImageUnknown,
-    /// Образ процесса не наш.
+    /// Имя образа не наше (запасная сверка там, где ожидаемый путь неизвестен).
     ImageMismatch,
-    /// Полный путь образа не совпал с записанным при запуске — почти наверняка это
-    /// движок ДРУГОЙ редакции продукта либо чужая копия того же файла.
-    ImagePathMismatch,
-    /// Время создания процесса получить не удалось.
-    CreationTimeUnknown,
-    /// `started_at` в файле состояния не разбирается как дата.
-    StartedAtUnparsable,
-    /// Процесс создан вне допустимого окна вокруг `started_at` — почти наверняка
-    /// номер переиспользован операционной системой.
-    CreatedOutsideWindow,
+    /// Полный путь образа не совпал с движком ЭТОЙ установки — чужой процесс на
+    /// нашем номере порта либо движок другой редакции продукта.
+    ImagePathNotOurs,
+    /// Между первым опросом и удержанием дескриптора держатель порта сменился.
+    HolderChanged,
 }
 
 impl SkipReason {
     /// Пояснение на русском — для журнала приложения.
     pub fn as_str(&self) -> &'static str {
         match self {
-            SkipReason::InvalidPid => "нулевой идентификатор процесса",
-            SkipReason::ProductMismatch => "файл состояния от другого продукта",
-            SkipReason::StateUserMismatch => "файл состояния от другого пользователя",
+            SkipReason::NoListener => "порт никто не слушает",
+            SkipReason::HolderAmbiguous => "порт слушают несколько разных процессов",
+            SkipReason::SelfPid => "держатель порта — сама оболочка продукта",
+            SkipReason::ObserveFailed => "дескриптор держателя порта не открылся",
             SkipReason::OwnerUnknown => "владелец процесса неизвестен",
             SkipReason::OwnerMismatch => "процесс принадлежит другому пользователю",
             SkipReason::ImageUnknown => "путь к образу процесса неизвестен",
             SkipReason::ImageMismatch => "образ процесса не наш",
-            SkipReason::ImagePathMismatch => {
-                "полный путь образа не совпадает с записанным при запуске (другая редакция продукта)"
+            SkipReason::ImagePathNotOurs => {
+                "полный путь образа не совпадает с движком этой установки"
             }
-            SkipReason::CreationTimeUnknown => "время создания процесса неизвестно",
-            SkipReason::StartedAtUnparsable => "started_at в файле состояния не разбирается",
-            SkipReason::CreatedOutsideWindow => {
-                "процесс создан вне окна вокруг started_at (номер переиспользован)"
-            }
+            SkipReason::HolderChanged => "держатель порта сменился между опросами",
         }
     }
 }
@@ -289,80 +259,164 @@ pub fn image_matches(image_path: Option<&str>, cfg: &SidecarConfig) -> bool {
         return false;
     }
 
-    std::iter::once(cfg.process_exe_hint)
-        .chain(cfg.extra_image_hints.iter().copied())
-        .filter(|h| !h.is_empty())
-        .any(|hint| {
-            let hint_lc = hint.to_lowercase();
-            stem == hint_lc || stem.starts_with(&hint_lc)
-        })
+    // 🔴 Medium-8 внешнего аудита 2.4.9. Совпадение ПО НАЧАЛУ имени принимается только
+    // для сторонних интерпретаторов, где оно и было нужно: версия отличается суффиксом
+    // (`python` ↔ `python3`), а не префиксом. Для собственного образа продукта сверка
+    // строгая: иначе под неё подпадали `econometrica-sidecar-backup.exe`,
+    // `econometrica-sidecar-old.exe` и любая переименованная копия рядом.
+    let own_name_matches = {
+        let hint = cfg.process_exe_hint.to_lowercase();
+        !hint.is_empty() && stem == hint
+    };
+    own_name_matches
+        || cfg
+            .extra_image_hints
+            .iter()
+            .filter(|h| !h.is_empty())
+            .any(|hint| {
+                let hint_lc = hint.to_lowercase();
+                stem == hint_lc || stem.starts_with(&hint_lc)
+            })
 }
 
-/// Сверка ПОЛНОГО пути образа с путём, записанным нами при запуске движка.
+/// Сверка ПОЛНОГО пути образа с ожидаемым путём движка этой установки.
 ///
 /// 🔴 Проверка имени файла ([`image_matches`]) не различает две редакции продукта:
 /// `product_id` у них намеренно одинаков (рукопожатие с Python-модулем), образ —
 /// один и тот же файл `econometrica-sidecar.exe`, пользователь один. Отличается
 /// только каталог установки, и он же — единственный признак, который остаётся.
 ///
-/// Сравнение без учёта регистра (пути Windows регистронезависимы) и с отбрасыванием
-/// префикса `\\?\`: `QueryFullProcessImageNameW` с `PROCESS_NAME_WIN32` его не
-/// добавляет, но записанный путь мог прийти и другим путём, а расхождение в одном
-/// префиксе означало бы «не снимать своего зомби» на ровном месте.
-pub fn image_path_matches(recorded: &str, observed: &str) -> bool {
+/// Приводим обе стороны к одному написанию: разделители к `\` (обе формы
+/// равноправны в вызовах Windows, но приходят из разных источников), отбрасываем
+/// префикс `\\?\` (`QueryFullProcessImageNameW` с `PROCESS_NAME_WIN32` его не
+/// добавляет, а `std::fs::canonicalize` — добавляет всегда) и сравниваем без учёта
+/// регистра: пути Windows регистронезависимы.
+///
+/// 🔴 Расхождение написания — самое вероятное место тихого регресса «зомби перестал
+/// сниматься»: раньше обе строки происходили из ОДНОГО источника (путь снимался у
+/// живого процесса и записывался в файл состояния), теперь источника два — путь
+/// установки и путь запущенного процесса. Короткие имена 8.3 и символические ссылки
+/// эта функция снять не может: они разрешаются раньше, в
+/// [`canonical_path_for_compare`], на системном слое.
+pub fn image_path_matches(expected: &str, observed: &str) -> bool {
     fn normalize(p: &str) -> String {
-        let t = p.trim();
+        let t = p.trim().replace('/', "\\");
         let t = t
             .strip_prefix(r"\\?\UNC\")
             .map(|rest| format!(r"\\{rest}"))
-            .unwrap_or_else(|| t.strip_prefix(r"\\?\").unwrap_or(t).to_string());
+            .unwrap_or_else(|| t.strip_prefix(r"\\?\").unwrap_or(&t).to_string());
         t.to_lowercase()
     }
-    let a = normalize(recorded);
+    let a = normalize(expected);
     let b = normalize(observed);
     !a.is_empty() && a == b
 }
 
-/// Чистое решение «снимать ли процесс `state.pid`».
+/// Приводит путь к единственному написанию перед сравнением: разрешает короткие
+/// имена 8.3 (`PROGRA~1`), символические ссылки и относительные звенья.
 ///
-/// 🔴 CPD-79. До этой правки решение принималось по двум признакам — владелец
-/// процесса и «имя образа содержит python» — и этого достаточно НЕ было. Файл
-/// состояния переживает падение приложения (`delete_state_file` вызывается только
-/// на трёх штатных путях), Windows после перезагрузки раздаёт номера процессов
-/// заново, а снятие идёт деревом (`taskkill /T /F`). В итоге приложение могло
-/// молча снять чужой python того же пользователя — Jupyter, Anaconda, движок
-/// соседнего продукта Aurora — вместе со всеми его потомками.
+/// Системный вызов, поэтому вне чистой функции решения: вызывающая сторона
+/// применяет его к ОБЕИМ строкам до сравнения. Если разрешить не удалось (файла нет,
+/// нет прав) — возвращается исходная строка, и сравнение опирается только на
+/// нормализацию внутри [`image_path_matches`].
+pub fn canonical_path_for_compare(path: &str) -> String {
+    match std::fs::canonicalize(path) {
+        Ok(p) => p.to_string_lossy().into_owned(),
+        Err(_) => path.to_string(),
+    }
+}
+
+/// Факты о держателе порта, собранные системным слоем для чистого решения
+/// [`should_kill_port_holder`].
 ///
-/// Решающая проверка — время создания процесса против `started_at`, см.
-/// [`KILL_TIME_TOLERANCE_SECS`].
+/// Оба перечня держателей — снимки ответа операционной системы, взятые в РАЗНЫЕ
+/// моменты: `holders` до открытия дескриптора, `holders_after` — после. Именно их
+/// расхождение закрывает гонку, которую удержание дескриптора закрыть не может
+/// (см. [`should_kill_port_holder`]).
+pub struct PortHolderFacts<'a> {
+    /// Кто слушал порт по ПЕРВОМУ опросу. Нулевые и повторяющиеся номера
+    /// отбрасываются в [`holder_worth_observing`], чистить их заранее не нужно.
+    pub holders: &'a [u32],
+    /// Номер процесса самой оболочки — защита от самоубийства.
+    pub self_pid: u32,
+    /// Свойства держателя, снятые по УДЕРЖИВАЕМОМУ дескриптору. `None` — дескриптор
+    /// не открылся. Полный путь образа здесь ожидается уже канонизированным
+    /// ([`canonical_path_for_compare`]).
+    pub observed: Option<&'a ObservedProcess>,
+    /// Кто слушает порт по ПОВТОРНОМУ опросу, уже после удержания дескриптора.
+    pub holders_after: &'a [u32],
+    /// Полный путь образа движка в ЭТОЙ установке, канонизированный. `None` —
+    /// ожидаемый путь неизвестен (отладочная сборка, где движок запускается
+    /// интерпретатором), тогда сверка откатывается на имя образа.
+    pub expected_image_path: Option<&'a str>,
+}
+
+/// Первый рубеж: стоит ли вообще открывать дескриптор держателя порта.
+///
+/// Вынесен отдельно от [`should_kill_port_holder`], потому что наблюдение — это
+/// системный вызов, а самоубийство и «слушать некому» надо отсечь ДО него. Логика
+/// живёт в одном месте: полное решение начинается с вызова этой же функции.
+///
+/// Нулевые номера отбрасываются (`GetExtendedTcpTable` отдаёт `0` там, где владельца
+/// назвать не может), одинаковые — схлопываются: движок может держать порт двумя
+/// записями сразу, и это по-прежнему ОДИН процесс.
+pub fn holder_worth_observing(holders: &[u32], self_pid: u32) -> Result<u32, SkipReason> {
+    let mut distinct: Vec<u32> = holders.iter().copied().filter(|p| *p != 0).collect();
+    distinct.sort_unstable();
+    distinct.dedup();
+
+    match distinct.as_slice() {
+        [] => Err(SkipReason::NoListener),
+        [pid] if *pid == self_pid => Err(SkipReason::SelfPid),
+        [pid] => Ok(*pid),
+        _ => Err(SkipReason::HolderAmbiguous),
+    }
+}
+
+/// Чистое решение «снимать ли процесс, который держит наш порт».
+///
+/// 🔴 CPD-79. Прежде решение принималось по НАШЕЙ ЖЕ записи в файле состояния: номер
+/// процесса, путь образа и время старта, записанные при запуске движка. Файл
+/// переживает падение приложения, Windows после перезагрузки раздаёт номера заново,
+/// и записанный номер мог достаться постороннему процессу — у пользователя молча
+/// снимался чужой расчёт. Заплатой служило окно допуска по времени создания: оно
+/// лечило симптом, а не причину, и само по себе оставалось окном, в котором чужой
+/// процесс проходил проверку.
+///
+/// Основание сменилось целиком: держателя порта называет операционная система в
+/// ответ на вопрос «кто слушает этот порт СЕЙЧАС» (`GetExtendedTcpTable`), а
+/// ожидаемый путь образа берётся из установки, а не из записи. Устаревать больше
+/// нечему.
 ///
 /// Порядок проверок — от дешёвых к дорогим; каждая может только запретить снятие.
-/// Любая неопределённость трактуется как запрет: не снять своего зомби дешевле,
-/// чем убить чужой расчёт. Зомби максимум удержит порт, а `allocate_port` в этом
-/// случае возьмёт свободный — потеря восстановима без участия пользователя.
-pub fn should_kill(
-    state: &SidecarState,
-    observed: &ObservedProcess,
+/// Любая неопределённость трактуется как запрет: не снять своего зомби дешевле, чем
+/// убить чужой расчёт. Зомби максимум удержит порт, а `allocate_port` в этом случае
+/// возьмёт свободный — потеря восстановима без участия пользователя.
+///
+/// 🔴 Почему переспрос держателя обязателен, хотя дескриптор удерживается. Дескриптор
+/// гарантирует, что номер не будет переиспользован ПОСЛЕ открытия. Зазор между первым
+/// опросом таблицы и открытием дескриптора он не закрывает: держатель мог завершиться
+/// сразу после ответа таблицы, а номер — уйти другому, и удержан оказался бы уже не
+/// тот процесс. Повторный вопрос системе стоит те же миллисекунды и закрывает этот
+/// зазор целиком.
+pub fn should_kill_port_holder(
+    facts: &PortHolderFacts,
     cfg: &SidecarConfig,
     current_user: &str,
 ) -> KillVerdict {
-    if state.pid == 0 {
-        return KillVerdict::Skip(SkipReason::InvalidPid);
-    }
+    // 1–2. Держатель есть, он один и это не мы.
+    let holder = match holder_worth_observing(facts.holders, facts.self_pid) {
+        Ok(pid) => pid,
+        Err(reason) => return KillVerdict::Skip(reason),
+    };
 
-    // 1. Сверка продукта — бесплатно, строки уже в руках.
-    if !state.product.is_empty() && state.product != cfg.product_id {
-        return KillVerdict::Skip(SkipReason::ProductMismatch);
-    }
+    // 3. Дескриптор удержан, свойства сняты.
+    let Some(observed) = facts.observed else {
+        return KillVerdict::Skip(SkipReason::ObserveFailed);
+    };
 
-    // 2. Сверка пользователя из файла состояния — тоже бесплатно, до системных
-    //    вызовов. Отсекает запись, оставленную другим пользователем на общей
-    //    машине (RDP), даже не трогая процесс.
-    if !state.user.is_empty() && !owner_matches(&state.user, current_user) {
-        return KillVerdict::Skip(SkipReason::StateUserMismatch);
-    }
-
-    // 3. Владелец реального процесса.
+    // 4. Владелец процесса — дёшево отсекает чужого пользователя на общей машине
+    //    (инвариант RDP, ради которого этот код и писался).
     let Some(owner) = observed.owner.as_deref() else {
         return KillVerdict::Skip(SkipReason::OwnerUnknown);
     };
@@ -370,39 +424,61 @@ pub fn should_kill(
         return KillVerdict::Skip(SkipReason::OwnerMismatch);
     }
 
-    // 4. Образ реального процесса.
+    // 5. Образ процесса. Основной путь — полное совпадение с движком этой установки;
+    //    он же различает облачную и локальную редакции продукта. Запасной — сверка
+    //    имени образа: только там, где ожидаемый путь неизвестен (отладочная сборка).
     let Some(observed_image) = observed.image_path.as_deref() else {
         return KillVerdict::Skip(SkipReason::ImageUnknown);
     };
-    let recorded_image = state.image_path.trim();
-    if recorded_image.is_empty() {
-        // Файл состояния от прежней версии: полного пути в нём нет. Откат на
-        // сравнение по имени файла — слабее, но иначе после обновления перестал бы
-        // сниматься собственный зомби, оставшийся от предыдущей версии.
-        if !image_matches(Some(observed_image), cfg) {
-            return KillVerdict::Skip(SkipReason::ImageMismatch);
+    match facts.expected_image_path {
+        Some(expected) if !expected.trim().is_empty() => {
+            if !image_path_matches(expected, observed_image) {
+                return KillVerdict::Skip(SkipReason::ImagePathNotOurs);
+            }
         }
-    } else if !image_path_matches(recorded_image, observed_image) {
-        // Путь записан нами при запуске — сверяем целиком. Это единственная
-        // проверка, различающая облачную и локальную редакции продукта.
-        return KillVerdict::Skip(SkipReason::ImagePathMismatch);
+        _ => {
+            if !image_matches(Some(observed_image), cfg) {
+                return KillVerdict::Skip(SkipReason::ImageMismatch);
+            }
+        }
     }
 
-    // 5. Время создания против записанного нами started_at. Границы окна разные:
-    //    вверх — только на дрожание часов, вниз — на медленный запуск.
-    let Some(created_at) = observed.created_at else {
-        return KillVerdict::Skip(SkipReason::CreationTimeUnknown);
-    };
-    let Ok(started_at) = DateTime::parse_from_rfc3339(state.started_at.trim()) else {
-        return KillVerdict::Skip(SkipReason::StartedAtUnparsable);
-    };
-    let started_at = started_at.with_timezone(&Utc);
-    let delta = (created_at - started_at).num_seconds();
-    if delta > KILL_TIME_TOLERANCE_AFTER_SECS || delta < -KILL_TIME_TOLERANCE_BEFORE_SECS {
-        return KillVerdict::Skip(SkipReason::CreatedOutsideWindow);
+    // 6. Переспрос: держатель тот же самый и по-прежнему один.
+    match holder_worth_observing(facts.holders_after, facts.self_pid) {
+        Ok(pid) if pid == holder => KillVerdict::Kill,
+        _ => KillVerdict::Skip(SkipReason::HolderChanged),
     }
+}
 
-    KillVerdict::Kill
+// ── Кто держит порт (системный слой) ─────────────────────────────────────────
+
+/// Номера процессов, которые ПРЯМО СЕЙЧАС слушают этот TCP-порт.
+///
+/// Опрашиваются обе таблицы — IPv4 и IPv6: движок слушает `127.0.0.1`, но
+/// хардкодить это нельзя. На части машин запись оказывается в таблице другого
+/// семейства адресов, и односемейный опрос молча не нашёл бы держателя — зомби
+/// перестал бы сниматься без единого сообщения в журнале.
+///
+/// 🔴 Никаких подпроцессов. Прежде тот же вопрос задавался через
+/// `cmd /C "… -ano | … :порт"` — три скрытых консольных процесса, и получалась связка
+/// «разведка процессов по порту → снятие найденного», которую поведенческая защита
+/// антивируса разбирает как вредоносную (10.08.2026 Kaspersky снял оболочку продукта
+/// с диска у пользователя, вердикт PDM:Trojan.Win32.Generic). Прямой системный вызов
+/// не порождает процессов вовсе и стоит 7–15 мс на полный перечень.
+///
+/// Список может содержать повторы и нули — чистит их [`holder_worth_observing`].
+/// Пустой список означает «никто не слушает» ЛИБО «спросить не удалось»: разница для
+/// решения несущественна, обе трактуются как «снимать нечего».
+pub fn listening_port_owners(port: u16) -> Vec<u32> {
+    #[cfg(windows)]
+    {
+        win_impl::listening_port_owners_impl(port)
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = port;
+        Vec::new()
+    }
 }
 
 // ── User identity (Windows-specific via WinAPI) ──────────────────────────────
@@ -727,9 +803,9 @@ impl HeldProcess {
 
     /// Снятие процесса по удерживаемому дескриптору (`TerminateProcess`).
     ///
-    /// Снимает ТОЛЬКО сам процесс, без дерева потомков — в отличие от
-    /// `taskkill /T`. Обоснование, почему для этого движка так можно, — у
-    /// вызывающей стороны (`econ_sidecar::kill_sidecar_from_state`).
+    /// Снимает ТОЛЬКО сам процесс, без дерева потомков — в отличие от снятия
+    /// деревом. Обоснование, почему для этого движка так можно, — у вызывающей
+    /// стороны (`econ_sidecar::kill_port_holder`).
     pub fn terminate(&self) -> Result<(), String> {
         #[cfg(windows)]
         {
@@ -775,9 +851,9 @@ pub fn hold_and_observe(pid: u32) -> Option<HeldProcess> {
 /// security invariant для RDP.
 ///
 /// 🔴 Этой проверки НЕДОСТАТОЧНО для решения о снятии процесса: она ничего не
-/// знает о переиспользовании номера процесса операционной системой. Решение
-/// принимает [`should_kill`], которая дополнительно сверяет время создания
-/// процесса с `started_at` из файла состояния (CPD-79).
+/// знает ни о том, держит ли процесс наш порт, ни о переиспользовании номера
+/// процесса операционной системой. Решение принимает [`should_kill_port_holder`]
+/// (CPD-79).
 pub fn is_our_process_and_user(pid: u32, cfg: &SidecarConfig) -> bool {
     #[cfg(windows)]
     {
@@ -810,7 +886,14 @@ mod win_impl {
     use chrono::{DateTime, Utc};
     use log::debug;
     use windows_sys::Win32::{
-        Foundation::{CloseHandle, LocalFree, FILETIME, HANDLE, HLOCAL},
+        Foundation::{
+            CloseHandle, LocalFree, ERROR_INSUFFICIENT_BUFFER, FILETIME, HANDLE, HLOCAL,
+        },
+        NetworkManagement::IpHelper::{
+            GetExtendedTcpTable, MIB_TCP6TABLE_OWNER_PID, MIB_TCPTABLE_OWNER_PID,
+            TCP_TABLE_OWNER_PID_LISTENER,
+        },
+        Networking::WinSock::{AF_INET, AF_INET6},
         Security::{
             Authorization::ConvertSidToStringSidW, GetTokenInformation, LookupAccountSidW,
             TokenUser, SID_NAME_USE, TOKEN_QUERY, TOKEN_USER,
@@ -823,6 +906,129 @@ mod win_impl {
     };
 
     use super::ObservedProcess;
+
+    /// Держатели порта из обеих таблиц — IPv4 и IPv6.
+    pub fn listening_port_owners_impl(port: u16) -> Vec<u32> {
+        let mut owners = Vec::new();
+        if let Some(buf) = tcp_table_raw(AF_INET as u32) {
+            collect_v4(&buf, port, &mut owners);
+        }
+        if let Some(buf) = tcp_table_raw(AF_INET6 as u32) {
+            collect_v6(&buf, port, &mut owners);
+        }
+        owners
+    }
+
+    /// Двухфазный вызов `GetExtendedTcpTable`: первый вызов с нулевым размером
+    /// возвращает `ERROR_INSUFFICIENT_BUFFER` и записывает нужный размер, второй —
+    /// заполняет выделенный буфер. Повтор нужен потому, что таблица могла вырасти
+    /// между двумя вызовами; число попыток ограничено, чтобы не крутиться вечно на
+    /// машине с бурным сетевым обменом.
+    fn tcp_table_raw(af: u32) -> Option<Vec<u8>> {
+        let mut size: u32 = 0;
+        let ret = unsafe {
+            GetExtendedTcpTable(
+                std::ptr::null_mut(),
+                &mut size,
+                0, // сортировка не нужна
+                af,
+                TCP_TABLE_OWNER_PID_LISTENER,
+                0,
+            )
+        };
+        if ret != ERROR_INSUFFICIENT_BUFFER || size == 0 {
+            debug!("GetExtendedTcpTable(af={af}): запрос размера вернул код {ret}, размер {size}");
+            return None;
+        }
+
+        for _ in 0..5 {
+            let mut buf = vec![0u8; size as usize];
+            let ret = unsafe {
+                GetExtendedTcpTable(
+                    buf.as_mut_ptr() as *mut core::ffi::c_void,
+                    &mut size,
+                    0,
+                    af,
+                    TCP_TABLE_OWNER_PID_LISTENER,
+                    0,
+                )
+            };
+            if ret == 0 {
+                buf.truncate(size as usize);
+                return Some(buf);
+            }
+            if ret != ERROR_INSUFFICIENT_BUFFER {
+                debug!("GetExtendedTcpTable(af={af}): заполнение вернуло код {ret}");
+                return None;
+            }
+            // Таблица выросла, `size` уже обновлён — пробуем снова.
+        }
+        debug!("GetExtendedTcpTable(af={af}): таблица растёт быстрее, чем читается");
+        None
+    }
+
+    /// Сколько байт занимает заголовок таблицы до первой записи. В C `table` —
+    /// гибкий массив, объявленный как массив из одного элемента, поэтому размер
+    /// заголовка = размер структуры минус размер одной записи (выравнивание учтено
+    /// самим компилятором).
+    fn header_len<T, R>() -> usize {
+        std::mem::size_of::<T>().saturating_sub(std::mem::size_of::<R>())
+    }
+
+    /// Сколько записей реально помещается в полученный буфер. Число из
+    /// `dwNumEntries` берётся как заявленное, но читаем мы не больше, чем прислано:
+    /// чтение за границей буфера в `unsafe` — это порча памяти, а не ошибка разбора.
+    fn safe_entry_count<T, R>(buf: &[u8], declared: usize) -> usize {
+        let header = header_len::<T, R>();
+        let row = std::mem::size_of::<R>();
+        if row == 0 || buf.len() < header {
+            return 0;
+        }
+        declared.min((buf.len() - header) / row)
+    }
+
+    fn collect_v4(buf: &[u8], port: u16, out: &mut Vec<u32>) {
+        type Table = MIB_TCPTABLE_OWNER_PID;
+        type Row = windows_sys::Win32::NetworkManagement::IpHelper::MIB_TCPROW_OWNER_PID;
+        if buf.len() < std::mem::size_of::<u32>() {
+            return;
+        }
+        unsafe {
+            let table = buf.as_ptr() as *const Table;
+            let n = safe_entry_count::<Table, Row>(buf, (*table).dwNumEntries as usize);
+            let rows = (*table).table.as_ptr();
+            for i in 0..n {
+                let row = &*rows.add(i);
+                if local_port(row.dwLocalPort) == port {
+                    out.push(row.dwOwningPid);
+                }
+            }
+        }
+    }
+
+    fn collect_v6(buf: &[u8], port: u16, out: &mut Vec<u32>) {
+        type Table = MIB_TCP6TABLE_OWNER_PID;
+        type Row = windows_sys::Win32::NetworkManagement::IpHelper::MIB_TCP6ROW_OWNER_PID;
+        if buf.len() < std::mem::size_of::<u32>() {
+            return;
+        }
+        unsafe {
+            let table = buf.as_ptr() as *const Table;
+            let n = safe_entry_count::<Table, Row>(buf, (*table).dwNumEntries as usize);
+            let rows = (*table).table.as_ptr();
+            for i in 0..n {
+                let row = &*rows.add(i);
+                if local_port(row.dwLocalPort) == port {
+                    out.push(row.dwOwningPid);
+                }
+            }
+        }
+    }
+
+    /// `dwLocalPort` хранит номер порта в сетевом порядке байт в младших 16 битах.
+    fn local_port(raw: u32) -> u16 {
+        u16::from_be((raw & 0xFFFF) as u16)
+    }
 
     /// Дескриптор процесса во владении: закрывается ровно один раз, в `Drop`.
     ///
@@ -1362,400 +1568,293 @@ mod tests {
     const OTHER_EDITION_IMAGE: &str =
         r"C:\Program Files\Optimizer MMM Local\sidecar\econometrica\econometrica-sidecar.exe";
 
-    /// Состояние, записанное нами в момент `started_at`, с полным путём образа —
-    /// как его пишет текущая версия.
-    fn state_at(started_at: DateTime<Utc>) -> SidecarState {
-        SidecarState {
-            image_path: OUR_IMAGE.to_string(),
-            ..state_at_legacy(started_at)
-        }
-    }
+    /// Номер процесса-держателя порта во всех таблицах ниже.
+    const HOLDER: u32 = 9134;
+    /// Номер процесса самой оболочки — она себя трогать не вправе.
+    const SHELL: u32 = 4242;
 
-    /// Состояние, записанное ПРЕЖНЕЙ версией: полного пути образа в файле нет.
-    /// Сверка обязана откатиться на сравнение по имени образа.
-    fn state_at_legacy(started_at: DateTime<Utc>) -> SidecarState {
-        SidecarState {
-            port: 7461,
-            pid: 9134,
-            session_id: "abc123".to_string(),
-            product: KILL_CFG.product_id.to_string(),
-            version: "2.4.8".to_string(),
-            user: OUR_USER.to_string(),
-            started_at: started_at.to_rfc3339(),
-            image_path: String::new(),
-        }
-    }
-
-    fn observed(created_at: Option<DateTime<Utc>>, image: &str) -> ObservedProcess {
+    fn observed(image: &str) -> ObservedProcess {
         ObservedProcess {
             owner: Some(format!("AURORA-PC\\{OUR_USER}")),
             image_path: Some(image.to_string()),
-            created_at,
+            created_at: None,
         }
     }
 
-    fn epoch(secs: i64) -> DateTime<Utc> {
-        DateTime::from_timestamp(secs, 0).expect("валидная отметка времени")
+    /// Штатный набор фактов: порт держит один процесс, он не мы, дескриптор удержан,
+    /// держатель между опросами не сменился, ожидаемый путь — путь этой установки.
+    /// Каждый тест портит РОВНО ОДНО поле — так видно, какая именно проверка сработала.
+    fn facts<'a>(
+        holders: &'a [u32],
+        observed: Option<&'a ObservedProcess>,
+        holders_after: &'a [u32],
+        expected_image_path: Option<&'a str>,
+    ) -> PortHolderFacts<'a> {
+        PortHolderFacts {
+            holders,
+            self_pid: SHELL,
+            observed,
+            holders_after,
+            expected_image_path,
+        }
     }
 
-    /// Случай 1а. Реальный порядок операций в `start_sidecar`: процесс порождается,
-    /// и лишь затем пишется файл состояния. Значит наш процесс создан на доли
-    /// секунды РАНЬШЕ `started_at` - это штатное снятие зомби, оно обязано работать.
+    // ── Первый рубеж: стоит ли вообще открывать дескриптор ───────────────
+
+    /// Порт никто не слушает — снимать нечего. Отдельная причина, а не «не наш»:
+    /// в журнале это разные события, и путать их при разборе у клиента нельзя.
     #[test]
-    fn kill_our_process_created_just_before_state_write() {
-        let started = epoch(1_800_000_000);
-        let state = state_at(started);
-        let obs = observed(Some(started - chrono::Duration::milliseconds(200)), OUR_IMAGE);
-
-        let verdict = should_kill(&state, &obs, &KILL_CFG, OUR_USER);
-        assert_eq!(verdict, KillVerdict::Kill);
-        assert!(verdict.is_kill());
-    }
-
-    /// Случай 1б. Тот же процесс, но часы качнулись и время создания оказалось
-    /// чуть ПОЗЖЕ записи - в пределах допуска снимаем по-прежнему.
-    #[test]
-    fn kill_our_process_created_slightly_after_state_write() {
-        let started = epoch(1_800_000_000);
-        let state = state_at(started);
-        let obs = observed(Some(started + chrono::Duration::seconds(2)), OUR_IMAGE);
-
+    fn skip_when_nobody_listens_on_the_port() {
+        let after: [u32; 0] = [];
         assert_eq!(
-            should_kill(&state, &obs, &KILL_CFG, OUR_USER),
+            should_kill_port_holder(&facts(&[], None, &after, Some(OUR_IMAGE)), &KILL_CFG, OUR_USER),
+            KillVerdict::Skip(SkipReason::NoListener)
+        );
+    }
+
+    /// Нулевой номер система отдаёт там, где владельца назвать не может. Держателем
+    /// он не считается — иначе первая же такая запись увела бы решение в наблюдение
+    /// несуществующего процесса.
+    #[test]
+    fn zero_pid_is_not_a_holder() {
+        let after: [u32; 0] = [];
+        assert_eq!(
+            should_kill_port_holder(&facts(&[0], None, &after, Some(OUR_IMAGE)), &KILL_CFG, OUR_USER),
+            KillVerdict::Skip(SkipReason::NoListener)
+        );
+    }
+
+    /// Держатель порта — сама оболочка продукта. Снятие унесло бы приложение
+    /// пользователя целиком, поэтому проверка стоит ДО открытия дескриптора.
+    #[test]
+    fn skip_when_holder_is_our_own_shell() {
+        let after = [SHELL];
+        assert_eq!(
+            should_kill_port_holder(
+                &facts(&[SHELL], None, &after, Some(OUR_IMAGE)),
+                &KILL_CFG,
+                OUR_USER
+            ),
+            KillVerdict::Skip(SkipReason::SelfPid)
+        );
+    }
+
+    /// Один и тот же процесс может держать порт двумя записями сразу (например в
+    /// обеих таблицах адресов). Это по-прежнему ОДИН держатель — снятие обязано
+    /// работать, иначе собственный зомби на двойном стеке перестал бы сниматься.
+    #[test]
+    fn duplicate_rows_of_one_process_are_one_holder() {
+        assert_eq!(holder_worth_observing(&[HOLDER, HOLDER], SHELL), Ok(HOLDER));
+        assert_eq!(holder_worth_observing(&[HOLDER, 0, HOLDER], SHELL), Ok(HOLDER));
+    }
+
+    /// Номер порта заняли РАЗНЫЕ процессы (двойной стек, разные локальные адреса на
+    /// одном номере). Кто из них наш — неизвестно, и гадать нельзя: цена ошибки —
+    /// снятый чужой расчёт, цена отказа — незанятый порт.
+    #[test]
+    fn skip_when_several_different_processes_hold_the_port() {
+        let holders = [HOLDER, 7777];
+        assert_eq!(
+            should_kill_port_holder(
+                &facts(&holders, Some(&observed(OUR_IMAGE)), &holders, Some(OUR_IMAGE)),
+                &KILL_CFG,
+                OUR_USER
+            ),
+            KillVerdict::Skip(SkipReason::HolderAmbiguous)
+        );
+    }
+
+    // ── Наблюдение и сверка держателя ────────────────────────────────────
+
+    /// Штатное снятие зомби: порт держит наш движок этой установки, между опросами
+    /// ничего не изменилось. Главный положительный случай — если он сломается,
+    /// зомби перестанут сниматься вовсе.
+    #[test]
+    fn kill_when_holder_is_our_engine() {
+        let holders = [HOLDER];
+        assert_eq!(
+            should_kill_port_holder(
+                &facts(&holders, Some(&observed(OUR_IMAGE)), &holders, Some(OUR_IMAGE)),
+                &KILL_CFG,
+                OUR_USER
+            ),
             KillVerdict::Kill
         );
     }
 
-    /// Случай 2 — прямой контроль дефекта CPD-79. Оболочку сняли (антивирус, падение,
-    /// диспетчер задач), файл состояния остался с мёртвым номером. Машина
-    /// перезагрузилась, Windows раздала номера заново, и этот же номер достался
-    /// другому процессу - тот создан ПОЗЖЕ нашей записи. До правки такой процесс
-    /// снимался деревом.
+    /// Дескриптор держателя не открылся: процесс успел завершиться либо нет прав.
+    /// Решение консервативное — не снять своего зомби дешевле, чем убить чужое.
     #[test]
-    fn skip_when_pid_reused_after_reboot() {
-        let started = epoch(1_800_000_000);
-        let state = state_at(started);
-        // Новый владелец номера появился через 9 часов после нашей записи.
-        let obs = observed(Some(started + chrono::Duration::hours(9)), OUR_IMAGE);
-
+    fn skip_when_handle_did_not_open() {
+        let holders = [HOLDER];
         assert_eq!(
-            should_kill(&state, &obs, &KILL_CFG, OUR_USER),
-            KillVerdict::Skip(SkipReason::CreatedOutsideWindow)
+            should_kill_port_holder(
+                &facts(&holders, None, &holders, Some(OUR_IMAGE)),
+                &KILL_CFG,
+                OUR_USER
+            ),
+            KillVerdict::Skip(SkipReason::ObserveFailed)
         );
     }
 
-    /// Случай 2б. Долгоживущий чужой процесс, получивший этот номер задолго до
-    /// нашей записи, - нижняя граница окна.
-    #[test]
-    fn skip_when_process_predates_state_file() {
-        let started = epoch(1_800_000_000);
-        let state = state_at(started);
-        let obs = observed(Some(started - chrono::Duration::hours(20)), OUR_IMAGE);
-
-        assert_eq!(
-            should_kill(&state, &obs, &KILL_CFG, OUR_USER),
-            KillVerdict::Skip(SkipReason::CreatedOutsideWindow)
-        );
-    }
-
-    /// Случай 3. Чужой python того же пользователя (Jupyter, Anaconda, движок
-    /// соседнего продукта Aurora), запущенный вчера. В релизной сборке отсекается
-    /// уже по образу: безусловного «имя содержит python» больше нет.
-    ///
-    /// Состояние взято ПРЕЖНЕЙ версии (без полного пути) намеренно: проверяется
-    /// именно слой сравнения по имени образа, на который идёт откат.
-    #[test]
-    fn skip_foreign_python_by_image_in_release_config() {
-        let started = epoch(1_800_000_000);
-        let state = state_at_legacy(started);
-        let obs = observed(
-            Some(started - chrono::Duration::hours(14)),
-            r"C:\Users\anton\anaconda3\python.exe",
-        );
-
-        assert_eq!(
-            should_kill(&state, &obs, &KILL_CFG, OUR_USER),
-            KillVerdict::Skip(SkipReason::ImageMismatch)
-        );
-    }
-
-    /// Случай 3б. Тот же чужой python, но конфиг отладочной сборки, где имя образа
-    /// `python` законно. Здесь его держит уже время создания - страховка на случай,
-    /// если продукту действительно нужен интерпретатор.
-    #[test]
-    fn skip_foreign_python_by_creation_time_in_dev_config() {
-        let started = epoch(1_800_000_000);
-        let state = state_at_legacy(started);
-        let obs = observed(
-            Some(started - chrono::Duration::hours(14)),
-            r"C:\Users\anton\anaconda3\python.exe",
-        );
-
-        assert_eq!(
-            should_kill(&state, &obs, &KILL_CFG_DEV, OUR_USER),
-            KillVerdict::Skip(SkipReason::CreatedOutsideWindow)
-        );
-    }
-
-    /// Случай 3в. Отладочная сборка, свой же `python.exe`, созданный непосредственно
-    /// перед записью состояния, - снимаем.
-    #[test]
-    fn kill_dev_python_engine_within_window() {
-        let started = epoch(1_800_000_000);
-        let state = state_at_legacy(started);
-        let obs = observed(
-            Some(started - chrono::Duration::milliseconds(150)),
-            r"C:\Python312\python.exe",
-        );
-
-        assert_eq!(
-            should_kill(&state, &obs, &KILL_CFG_DEV, OUR_USER),
-            KillVerdict::Kill
-        );
-    }
-
-    /// Случай 4. Процесс принадлежит другому пользователю ОС - неприкосновенен
-    /// (инвариант RDP, ради которого этот код и писался).
+    /// Процесс принадлежит другому пользователю ОС — неприкосновенен (инвариант RDP,
+    /// ради которого этот код и писался). Порт при этом он держит наш.
     #[test]
     fn skip_when_process_owner_is_another_user() {
-        let started = epoch(1_800_000_000);
-        let state = state_at(started);
+        let holders = [HOLDER];
         let obs = ObservedProcess {
             owner: Some("AURORA-PC\\maria".to_string()),
-            ..observed(Some(started), OUR_IMAGE)
+            ..observed(OUR_IMAGE)
         };
-
         assert_eq!(
-            should_kill(&state, &obs, &KILL_CFG, OUR_USER),
+            should_kill_port_holder(
+                &facts(&holders, Some(&obs), &holders, Some(OUR_IMAGE)),
+                &KILL_CFG,
+                OUR_USER
+            ),
             KillVerdict::Skip(SkipReason::OwnerMismatch)
         );
     }
 
-    /// Случай 4б. Запись оставлена другим пользователем на общей машине -
-    /// отсекается сравнением строк, до всяких системных вызовов.
-    #[test]
-    fn skip_when_state_file_belongs_to_another_user() {
-        let started = epoch(1_800_000_000);
-        let mut state = state_at(started);
-        state.user = "maria".to_string();
-        let obs = observed(Some(started), OUR_IMAGE);
-
-        assert_eq!(
-            should_kill(&state, &obs, &KILL_CFG, OUR_USER),
-            KillVerdict::Skip(SkipReason::StateUserMismatch)
-        );
-    }
-
-    /// Случай 5. Время создания получить не удалось - решение консервативное.
-    /// Не снять своего зомби дешевле, чем убить чужой расчёт: зомби максимум
-    /// удержит порт, и `allocate_port` возьмёт свободный.
-    #[test]
-    fn skip_when_creation_time_unavailable() {
-        let started = epoch(1_800_000_000);
-        let state = state_at(started);
-        let obs = observed(None, OUR_IMAGE);
-
-        assert_eq!(
-            should_kill(&state, &obs, &KILL_CFG, OUR_USER),
-            KillVerdict::Skip(SkipReason::CreationTimeUnknown)
-        );
-    }
-
-    /// Владельца определить не удалось (процесс уже исчез либо нет прав) - тоже
-    /// консервативно.
+    /// Владельца определить не удалось (процесс исчез между вызовами либо нет прав).
     #[test]
     fn skip_when_owner_unavailable() {
-        let started = epoch(1_800_000_000);
-        let state = state_at(started);
+        let holders = [HOLDER];
         let obs = ObservedProcess {
             owner: None,
-            ..observed(Some(started), OUR_IMAGE)
+            ..observed(OUR_IMAGE)
         };
-
         assert_eq!(
-            should_kill(&state, &obs, &KILL_CFG, OUR_USER),
+            should_kill_port_holder(
+                &facts(&holders, Some(&obs), &holders, Some(OUR_IMAGE)),
+                &KILL_CFG,
+                OUR_USER
+            ),
             KillVerdict::Skip(SkipReason::OwnerUnknown)
         );
     }
 
-    /// Путь к образу недоступен - консервативно.
+    /// Путь к образу недоступен — сверять не с чем, значит не снимаем.
     #[test]
     fn skip_when_image_path_unavailable() {
-        let started = epoch(1_800_000_000);
-        let state = state_at(started);
+        let holders = [HOLDER];
         let obs = ObservedProcess {
             image_path: None,
-            ..observed(Some(started), OUR_IMAGE)
+            ..observed(OUR_IMAGE)
         };
-
         assert_eq!(
-            should_kill(&state, &obs, &KILL_CFG, OUR_USER),
+            should_kill_port_holder(
+                &facts(&holders, Some(&obs), &holders, Some(OUR_IMAGE)),
+                &KILL_CFG,
+                OUR_USER
+            ),
             KillVerdict::Skip(SkipReason::ImageUnknown)
         );
     }
 
-    /// Нулевой идентификатор - снимать нечего.
-    #[test]
-    fn skip_when_pid_is_zero() {
-        let started = epoch(1_800_000_000);
-        let mut state = state_at(started);
-        state.pid = 0;
-        let obs = observed(Some(started), OUR_IMAGE);
+    // ── 🔴 Прямой контроль дефекта CPD-79 ────────────────────────────────
 
+    /// 🔴 ГЛАВНЫЙ КОНТРОЛЬ. Порт занял ПОСТОРОННИЙ процесс того же пользователя —
+    /// Jupyter, Anaconda, движок соседнего продукта Aurora. Держателем он является
+    /// по-настоящему, владелец совпадает, между опросами ничего не менялось:
+    /// отсекает его только полный путь образа.
+    ///
+    /// Ровно этот случай уехал к клиентам: файл состояния переживал падение
+    /// приложения, Windows после перезагрузки раздавала номера процессов заново, и
+    /// записанный номер доставался постороннему — расчёт снимался молча.
+    #[test]
+    fn skip_foreign_process_holding_our_port() {
+        let holders = [HOLDER];
+        let foreign = observed(r"C:\Users\anton\anaconda3\python.exe");
         assert_eq!(
-            should_kill(&state, &obs, &KILL_CFG, OUR_USER),
-            KillVerdict::Skip(SkipReason::InvalidPid)
+            should_kill_port_holder(
+                &facts(&holders, Some(&foreign), &holders, Some(OUR_IMAGE)),
+                &KILL_CFG,
+                OUR_USER
+            ),
+            KillVerdict::Skip(SkipReason::ImagePathNotOurs)
         );
     }
 
-    /// Файл состояния оставлен другим продуктом Aurora (общий каталог, ручное
-    /// копирование) - не наш процесс.
-    #[test]
-    fn skip_when_state_belongs_to_another_product() {
-        let started = epoch(1_800_000_000);
-        let mut state = state_at(started);
-        state.product = "com.aurora.docs-lab".to_string();
-        let obs = observed(Some(started), OUR_IMAGE);
-
-        assert_eq!(
-            should_kill(&state, &obs, &KILL_CFG, OUR_USER),
-            KillVerdict::Skip(SkipReason::ProductMismatch)
-        );
-    }
-
-    /// Битый `started_at` - сверить время не с чем, значит не снимаем.
-    #[test]
-    fn skip_when_started_at_unparsable() {
-        let started = epoch(1_800_000_000);
-        let mut state = state_at(started);
-        state.started_at = "вчера вечером".to_string();
-        let obs = observed(Some(started), OUR_IMAGE);
-
-        assert_eq!(
-            should_kill(&state, &obs, &KILL_CFG, OUR_USER),
-            KillVerdict::Skip(SkipReason::StartedAtUnparsable)
-        );
-    }
-
-    /// Границы окна: ровно допуск - снимаем, на секунду дальше - нет. Обе границы,
-    /// каждая со своим допуском.
-    #[test]
-    fn kill_window_boundaries_are_inclusive() {
-        let started = epoch(1_800_000_000);
-        let state = state_at(started);
-
-        let on_edge = observed(
-            Some(started + chrono::Duration::seconds(KILL_TIME_TOLERANCE_AFTER_SECS)),
-            OUR_IMAGE,
-        );
-        assert_eq!(
-            should_kill(&state, &on_edge, &KILL_CFG, OUR_USER),
-            KillVerdict::Kill
-        );
-
-        let past_edge = observed(
-            Some(started + chrono::Duration::seconds(KILL_TIME_TOLERANCE_AFTER_SECS + 1)),
-            OUR_IMAGE,
-        );
-        assert_eq!(
-            should_kill(&state, &past_edge, &KILL_CFG, OUR_USER),
-            KillVerdict::Skip(SkipReason::CreatedOutsideWindow)
-        );
-
-        let on_lower_edge = observed(
-            Some(started - chrono::Duration::seconds(KILL_TIME_TOLERANCE_BEFORE_SECS)),
-            OUR_IMAGE,
-        );
-        assert_eq!(
-            should_kill(&state, &on_lower_edge, &KILL_CFG, OUR_USER),
-            KillVerdict::Kill
-        );
-
-        let past_lower_edge = observed(
-            Some(started - chrono::Duration::seconds(KILL_TIME_TOLERANCE_BEFORE_SECS + 1)),
-            OUR_IMAGE,
-        );
-        assert_eq!(
-            should_kill(&state, &past_lower_edge, &KILL_CFG, OUR_USER),
-            KillVerdict::Skip(SkipReason::CreatedOutsideWindow)
-        );
-    }
-
-    /// High-2. Окно НЕсимметрично, и несимметрично осознанно: вверх допуск нужен
-    /// только на дрожание часов (наш процесс создаётся РАНЬШЕ записи), вниз — на
-    /// медленный запуск. Процесс, созданный через минуту после нашей записи, — это
-    /// уже переиспользованный номер, и снимать его нельзя; созданный за минуту до
-    /// неё — штатный случай медленной машины.
-    #[test]
-    fn kill_window_is_asymmetric() {
-        assert!(
-            KILL_TIME_TOLERANCE_AFTER_SECS < KILL_TIME_TOLERANCE_BEFORE_SECS,
-            "верхняя граница обязана быть строго уже нижней: она и есть окно, \
-             в котором чужой процесс проходит проверку"
-        );
-
-        let started = epoch(1_800_000_000);
-        let state = state_at(started);
-        let minute = chrono::Duration::seconds(60);
-
-        assert_eq!(
-            should_kill(&state, &observed(Some(started + minute), OUR_IMAGE), &KILL_CFG, OUR_USER),
-            KillVerdict::Skip(SkipReason::CreatedOutsideWindow),
-            "минута ПОСЛЕ нашей записи - чужой процесс, до правки проходил как свой"
-        );
-        assert_eq!(
-            should_kill(&state, &observed(Some(started - minute), OUR_IMAGE), &KILL_CFG, OUR_USER),
-            KillVerdict::Kill,
-            "минута ДО нашей записи - штатный медленный запуск, снятие обязано работать"
-        );
-    }
-
-    /// High-1 — прямой контроль дефекта. Обе редакции продукта: один и тот же
-    /// `product_id` (рукопожатие с Python-модулем), один и тот же файл образа, один
-    /// пользователь, время создания в окне. До правки решение выносилось «снимать» —
-    /// облачная редакция снимала движок локальной вместе с идущим расчётом.
+    /// High-1. Обе редакции продукта: один и тот же `product_id` (рукопожатие с
+    /// Python-модулем), один и тот же файл образа, один пользователь. Различает их
+    /// только каталог установки — и теперь сверка идёт с каталогом ЭТОЙ установки,
+    /// а не с тем, что мы когда-то записали.
     #[test]
     fn skip_engine_of_other_product_edition() {
-        let started = epoch(1_800_000_000);
-        let state = state_at(started);
-        let obs = observed(
-            Some(started - chrono::Duration::milliseconds(200)),
-            OTHER_EDITION_IMAGE,
-        );
+        let holders = [HOLDER];
+        let other = observed(OTHER_EDITION_IMAGE);
 
-        // Имя файла образа у редакций совпадает — прежняя проверка пропускала.
+        // Имя файла образа у редакций совпадает — сверки по имени тут не хватило бы.
         assert!(image_matches(Some(OTHER_EDITION_IMAGE), &KILL_CFG));
 
         assert_eq!(
-            should_kill(&state, &obs, &KILL_CFG, OUR_USER),
-            KillVerdict::Skip(SkipReason::ImagePathMismatch)
+            should_kill_port_holder(
+                &facts(&holders, Some(&other), &holders, Some(OUR_IMAGE)),
+                &KILL_CFG,
+                OUR_USER
+            ),
+            KillVerdict::Skip(SkipReason::ImagePathNotOurs)
         );
     }
 
-    /// Обратная совместимость High-1: файл состояния прежней версии полного пути не
-    /// содержит, и сверка обязана откатиться на имя образа — иначе после обновления
-    /// собственный зомби от прежней версии перестал бы сниматься.
-    #[test]
-    fn kill_zombie_from_legacy_state_without_image_path() {
-        let started = epoch(1_800_000_000);
-        let state = state_at_legacy(started);
-        let obs = observed(Some(started - chrono::Duration::milliseconds(200)), OUR_IMAGE);
+    // ── 🔴 Риск 1 проекта: расхождение написания пути ────────────────────
 
-        assert_eq!(
-            should_kill(&state, &obs, &KILL_CFG, OUR_USER),
-            KillVerdict::Kill
-        );
+    /// 🔴 Самое вероятное место тихого регресса «зомби перестал сниматься». Прежде обе
+    /// строки происходили из ОДНОГО источника: путь снимался у живого процесса и им же
+    /// записывался в файл состояния. Теперь источника два — путь установки и путь
+    /// запущенного процесса, — и разойтись они могут в написании, оставаясь одним и тем
+    /// же файлом: префикс `\\?\` (его всегда добавляет `std::fs::canonicalize` и никогда
+    /// не добавляет `QueryFullProcessImageNameW`), регистр (пути Windows
+    /// регистронезависимы), разделители.
+    ///
+    /// Направление отказа здесь БЕЗОПАСНОЕ (зомби просто не снимется), потому и тихое —
+    /// поймать его может только этот тест.
+    #[test]
+    fn kill_our_engine_despite_path_spelling_difference() {
+        let holders = [HOLDER];
+
+        let spellings = [
+            format!(r"\\?\{OUR_IMAGE}"),
+            OUR_IMAGE.to_uppercase(),
+            OUR_IMAGE.replace('\\', "/"),
+            format!(r"\\?\{}", OUR_IMAGE.to_uppercase()),
+            format!("  {OUR_IMAGE}  "),
+        ];
+
+        for spelling in &spellings {
+            let obs = observed(spelling);
+            assert_eq!(
+                should_kill_port_holder(
+                    &facts(&holders, Some(&obs), &holders, Some(OUR_IMAGE)),
+                    &KILL_CFG,
+                    OUR_USER
+                ),
+                KillVerdict::Kill,
+                "написание «{spelling}» обязано считаться тем же файлом, что и «{OUR_IMAGE}»"
+            );
+
+            // И в обратную сторону: разойтись может ожидаемый путь, а не наблюдаемый.
+            let obs_plain = observed(OUR_IMAGE);
+            assert_eq!(
+                should_kill_port_holder(
+                    &facts(&holders, Some(&obs_plain), &holders, Some(spelling)),
+                    &KILL_CFG,
+                    OUR_USER
+                ),
+                KillVerdict::Kill,
+                "ожидаемый путь в написании «{spelling}» обязан совпасть с «{OUR_IMAGE}»"
+            );
+        }
     }
 
-    /// Сверка полного пути: регистр не важен (пути Windows регистронезависимы),
-    /// префикс `\\?\` не считается расхождением, а чужой каталог — считается.
+    /// Сверка полного пути: регистр не важен, префикс `\\?\` и разделители не считаются
+    /// расхождением, а чужой каталог — считается.
     #[test]
-    fn image_path_matches_normalizes_case_and_verbatim_prefix() {
+    fn image_path_matches_normalizes_case_separators_and_verbatim_prefix() {
         assert!(image_path_matches(OUR_IMAGE, &OUR_IMAGE.to_uppercase()));
-        assert!(image_path_matches(
-            OUR_IMAGE,
-            &format!(r"\\?\{OUR_IMAGE}")
-        ));
+        assert!(image_path_matches(OUR_IMAGE, &format!(r"\\?\{OUR_IMAGE}")));
+        assert!(image_path_matches(OUR_IMAGE, &OUR_IMAGE.replace('\\', "/")));
         assert!(image_path_matches(
             r"\\?\UNC\server\share\econometrica-sidecar.exe",
             r"\\server\share\econometrica-sidecar.exe"
@@ -1764,20 +1863,217 @@ mod tests {
         assert!(!image_path_matches("", OUR_IMAGE));
     }
 
-    /// `started_at` в файле состояния записан со смещением часового пояса -
-    /// сравнение обязано приводить обе стороны к UTC.
+    /// Короткие имена 8.3 и символические ссылки строковой нормализацией не снимаются —
+    /// их разрешает системный слой. Проверяем на самом надёжном пути, который есть на
+    /// любой машине: каталог временных файлов сборки.
     #[test]
-    fn started_at_with_timezone_offset_is_normalized() {
-        let started = epoch(1_800_000_000);
-        let mut state = state_at(started);
-        state.started_at = started
-            .with_timezone(&chrono::FixedOffset::east_opt(3 * 3600).unwrap())
-            .to_rfc3339();
-        let obs = observed(Some(started - chrono::Duration::milliseconds(200)), OUR_IMAGE);
+    fn canonical_path_for_compare_resolves_existing_path_and_survives_missing_one() {
+        let existing = std::env::current_exe().expect("путь до тестового бинарника");
+        let canonical = canonical_path_for_compare(&existing.to_string_lossy());
+        assert!(
+            image_path_matches(&canonical, &existing.to_string_lossy()),
+            "канонизация не должна ломать совпадение с исходным путём"
+        );
 
+        let missing = r"C:\каталог\которого\нет\engine.exe";
         assert_eq!(
-            should_kill(&state, &obs, &KILL_CFG, OUR_USER),
+            canonical_path_for_compare(missing),
+            missing,
+            "несуществующий путь обязан вернуться как есть, а не пропасть"
+        );
+    }
+
+    // ── 🔴 Гонка: держатель сменился между опросами ──────────────────────
+
+    /// 🔴 Зазор между первым опросом таблицы и открытием дескриптора. Держатель успел
+    /// завершиться, а номер порта достался другому процессу — удержание дескриптора
+    /// эту гонку НЕ закрывает (оно защищает только от переиспользования ПОСЛЕ
+    /// открытия). Закрывает переспрос: держатель обязан оказаться тем же самым.
+    #[test]
+    fn skip_when_holder_changed_between_probes() {
+        let before = [HOLDER];
+        let after = [7777];
+        assert_eq!(
+            should_kill_port_holder(
+                &facts(&before, Some(&observed(OUR_IMAGE)), &after, Some(OUR_IMAGE)),
+                &KILL_CFG,
+                OUR_USER
+            ),
+            KillVerdict::Skip(SkipReason::HolderChanged)
+        );
+    }
+
+    /// Тот же зазор, но держатель просто исчез: порт освободился, снимать нечего.
+    #[test]
+    fn skip_when_holder_disappeared_between_probes() {
+        let before = [HOLDER];
+        let after: [u32; 0] = [];
+        assert_eq!(
+            should_kill_port_holder(
+                &facts(&before, Some(&observed(OUR_IMAGE)), &after, Some(OUR_IMAGE)),
+                &KILL_CFG,
+                OUR_USER
+            ),
+            KillVerdict::Skip(SkipReason::HolderChanged)
+        );
+    }
+
+    /// Переспрос обязан стоять ПОСЛЕ сверки образа, а не вместо неё: чужой процесс,
+    /// стабильно державший порт оба раза, всё равно не снимается.
+    #[test]
+    fn stable_foreign_holder_is_still_not_killed() {
+        let holders = [HOLDER];
+        let foreign = observed(r"C:\Program Files\Jupyter\python.exe");
+        assert_eq!(
+            should_kill_port_holder(
+                &facts(&holders, Some(&foreign), &holders, Some(OUR_IMAGE)),
+                &KILL_CFG,
+                OUR_USER
+            ),
+            KillVerdict::Skip(SkipReason::ImagePathNotOurs)
+        );
+    }
+
+    // ── Запасная сверка по имени образа (отладочная сборка) ──────────────
+
+    /// В отладочной сборке движок запускается интерпретатором (`python -B server.py`),
+    /// ожидаемого пути установки нет, и сверка откатывается на имя образа —
+    /// `SIDECAR_IMAGE_HINTS` там как раз содержит `python`/`pythonw`.
+    #[test]
+    fn kill_dev_python_engine_by_image_name_when_expected_path_unknown() {
+        let holders = [HOLDER];
+        let obs = observed(r"C:\Python312\python.exe");
+        assert_eq!(
+            should_kill_port_holder(&facts(&holders, Some(&obs), &holders, None), &KILL_CFG_DEV, OUR_USER),
             KillVerdict::Kill
+        );
+    }
+
+    /// Тот же откат, но конфиг релизной сборки: сторонние интерпретаторы в список
+    /// допустимых имён не входят, поэтому чужой python не пройдёт и здесь.
+    #[test]
+    fn skip_foreign_python_by_image_in_release_config() {
+        let holders = [HOLDER];
+        let obs = observed(r"C:\Users\anton\anaconda3\python.exe");
+        assert_eq!(
+            should_kill_port_holder(&facts(&holders, Some(&obs), &holders, None), &KILL_CFG, OUR_USER),
+            KillVerdict::Skip(SkipReason::ImageMismatch)
+        );
+    }
+
+    /// Пустая строка в ожидаемом пути — это «путь неизвестен», а не «совпасть не с чем».
+    /// Иначе сорвавшееся разрешение пути установки молча снимало бы сверку целиком.
+    #[test]
+    fn empty_expected_path_falls_back_to_image_name_check() {
+        let holders = [HOLDER];
+        let obs = observed(r"C:\Users\anton\anaconda3\python.exe");
+        assert_eq!(
+            should_kill_port_holder(
+                &facts(&holders, Some(&obs), &holders, Some("   ")),
+                &KILL_CFG,
+                OUR_USER
+            ),
+            KillVerdict::Skip(SkipReason::ImageMismatch)
+        );
+    }
+
+    // ── Каждая причина отказа достижима ──────────────────────────────────
+
+    /// Проект требует, чтобы каждая причина отказа попадала в журнал ОТДЕЛЬНОЙ
+    /// формулировкой: направление отказа безопасное, но молчаливым быть не должно.
+    /// Тест держит два условия сразу — все причины достижимы через решение и у каждой
+    /// своё пояснение.
+    #[test]
+    fn every_skip_reason_is_reachable_and_distinctly_worded() {
+        let all = [
+            SkipReason::NoListener,
+            SkipReason::HolderAmbiguous,
+            SkipReason::SelfPid,
+            SkipReason::ObserveFailed,
+            SkipReason::OwnerUnknown,
+            SkipReason::OwnerMismatch,
+            SkipReason::ImageUnknown,
+            SkipReason::ImageMismatch,
+            SkipReason::ImagePathNotOurs,
+            SkipReason::HolderChanged,
+        ];
+        let mut texts: Vec<&str> = all.iter().map(|r| r.as_str()).collect();
+        let before = texts.len();
+        texts.sort_unstable();
+        texts.dedup();
+        assert_eq!(before, texts.len(), "две причины отказа с одинаковым пояснением");
+        assert!(all.iter().all(|r| !r.as_str().is_empty()));
+        assert_eq!(
+            format!("{}", SkipReason::ImagePathNotOurs),
+            SkipReason::ImagePathNotOurs.as_str(),
+            "Display обязан совпадать с пояснением для журнала"
+        );
+    }
+
+    // ── Системный слой на живом процессе ─────────────────────────────────
+
+    /// Системный слой вживую: открываем настоящий слушающий сокет и спрашиваем систему,
+    /// кто держит этот порт. Ответ обязан назвать нас — иначе весь новый механизм молча
+    /// не находит держателя, и зомби перестают сниматься.
+    #[cfg(windows)]
+    #[test]
+    fn listening_port_owners_finds_real_listener() {
+        let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).expect("тестовый сокет");
+        let port = listener.local_addr().expect("адрес сокета").port();
+
+        let owners = listening_port_owners(port);
+        assert!(
+            owners.contains(&std::process::id()),
+            "система обязана назвать наш процесс держателем порта {port}, вернула {owners:?}"
+        );
+        assert_eq!(
+            holder_worth_observing(&owners, 0),
+            Ok(std::process::id()),
+            "держатель обязан быть распознан как единственный"
+        );
+
+        drop(listener);
+    }
+
+    /// 🔴 Риск 3 проекта: двойной стек. Слушатель на `::1` попадает ТОЛЬКО в таблицу
+    /// IPv6 — односемейный опрос его не найдёт, и зомби перестанет сниматься молча,
+    /// без единого сообщения в журнале. Проверено мутацией: если убрать опрос второй
+    /// таблицы, красится ровно этот тест и больше ни один.
+    ///
+    /// Если IPv6 на машине отключён, привязка не удастся — тогда проверять нечего, и
+    /// тест честно ничего не утверждает (на такой машине двойного стека нет).
+    #[cfg(windows)]
+    #[test]
+    fn listening_port_owners_finds_ipv6_listener() {
+        let Ok(listener) = std::net::TcpListener::bind(("::1", 0)) else {
+            eprintln!("IPv6 на этой машине недоступен - проверять двойной стек нечем");
+            return;
+        };
+        let port = listener.local_addr().expect("адрес сокета").port();
+
+        let owners = listening_port_owners(port);
+        assert!(
+            owners.contains(&std::process::id()),
+            "слушатель IPv6 обязан находиться: опрашивать надо ОБЕ таблицы, а не только IPv4 \
+             (порт {port}, ответ {owners:?})"
+        );
+
+        drop(listener);
+    }
+
+    /// Обратная сторона: порт, который никто не слушает, держателей не имеет.
+    /// Без этой проверки предыдущий тест прошёл бы и на функции, возвращающей
+    /// «все процессы машины».
+    #[cfg(windows)]
+    #[test]
+    fn listening_port_owners_empty_for_free_port() {
+        let listener = std::net::TcpListener::bind(("127.0.0.1", 0)).expect("тестовый сокет");
+        let port = listener.local_addr().expect("адрес сокета").port();
+        drop(listener); // порт освобождён
+
+        assert!(
+            listening_port_owners(port).is_empty(),
+            "у свободного порта {port} держателей быть не должно"
         );
     }
 
@@ -1797,6 +2093,37 @@ mod tests {
         assert!(!image_matches(Some(r"C:\Windows\py.exe"), &KILL_CFG_DEV));
         assert!(image_matches(Some(r"C:\Python312\python3.exe"), &KILL_CFG_DEV));
         assert!(!image_matches(None, &KILL_CFG));
+    }
+
+    /// Medium-8 внешнего аудита 2.4.9. Совпадение по НАЧАЛУ имени образа принимается
+    /// только для сторонних интерпретаторов (`python` ↔ `python3` — версия отличается
+    /// суффиксом). Для собственного образа продукта сверка строгая: иначе под неё
+    /// подпадает любая переименованная копия рядом с движком.
+    ///
+    /// Проверка достижима: на основном пути образ сверяется целиком по полному пути,
+    /// но при неизвестном ожидаемом пути (отладочная сборка, несобранная поставка)
+    /// решение откатывается сюда — и дыра была бы живой.
+    #[test]
+    fn image_matches_does_not_accept_renamed_copies_of_our_engine() {
+        assert!(!image_matches(
+            Some(r"C:\Program Files\Aurora\econometrica-sidecar-backup.exe"),
+            &KILL_CFG
+        ));
+        assert!(!image_matches(
+            Some(r"C:\Program Files\Aurora\econometrica-sidecar-old.exe"),
+            &KILL_CFG
+        ));
+        assert!(
+            image_matches(
+                Some(r"C:\Program Files\Aurora\econometrica-sidecar.exe"),
+                &KILL_CFG
+            ),
+            "строгая сверка не должна ломать собственный образ"
+        );
+        assert!(
+            image_matches(Some(r"C:\Python312\python3.exe"), &KILL_CFG_DEV),
+            "совпадение по началу имени обязано остаться для интерпретаторов"
+        );
     }
 
     /// Владелец приходит как `DOMAIN\user`, в состоянии и в `current_user_name()`
