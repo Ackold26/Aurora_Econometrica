@@ -147,6 +147,14 @@
         const data = JSON.parse(/** @type {string} */ (event.payload));
         if (data.type === 'node-status') {
           nodeStatuses = { ...nodeStatuses, [data.node_id]: data.status };
+          // Шаг выполнен, но не полностью: часть результатов не сохранилась. Раньше об этом
+          // знал только журнал приложения, а человек видел ровно то же «готово», что и при
+          // полном успехе, — и узнавал о потере, когда файлов уже не было.
+          // Предупреждение приходит отдельным полем, а не особым значением статуса: иначе
+          // незнакомое значение не отрисовалось бы ни выполненным, ни упавшим.
+          if (data.warning) {
+            toast(`Шаг завершён, но ${data.warning}`, 'warning', 8000);
+          }
           updateStepStatus(workflow.workflow_steps, data.node_id, data.status);
           workflow = { ...workflow };
         } else if (data.type === 'execution-status') {
@@ -332,6 +340,14 @@
         const data = JSON.parse(/** @type {string} */ (event.payload));
         if (data.type === 'node-status') {
           nodeStatuses = { ...nodeStatuses, [data.node_id]: data.status };
+          // Шаг выполнен, но не полностью: часть результатов не сохранилась. Раньше об этом
+          // знал только журнал приложения, а человек видел ровно то же «готово», что и при
+          // полном успехе, — и узнавал о потере, когда файлов уже не было.
+          // Предупреждение приходит отдельным полем, а не особым значением статуса: иначе
+          // незнакомое значение не отрисовалось бы ни выполненным, ни упавшим.
+          if (data.warning) {
+            toast(`Шаг завершён, но ${data.warning}`, 'warning', 8000);
+          }
           updateStepStatus(workflow.workflow_steps, data.node_id, data.status);
           workflow = { ...workflow }; // trigger reactivity
         } else if (data.type === 'execution-status') {

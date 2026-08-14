@@ -3277,6 +3277,12 @@ fn execute_workflow_steps(
                     let _ = state.session_manager.auto_route_artifacts(cabinet_id);
 
                     // Pipeline: persist exports + summarize + forward to next step
+                    //
+                    // Признак частичной потери выгрузок шага. Раньше о ней знал только журнал
+                    // приложения — то есть на практике никто: человек видел ровно то же
+                    // «готово», что и при полном успехе. Теперь признак доезжает до интерфейса
+                    // отдельным полем события (см. `emit_wf_status_full`).
+                    let mut step_warning: Option<String> = None;
                     if let Some(ref chain) = context_chain {
                         if let Some(work_dir) = state.session_manager.get_work_dir(cabinet_id) {
                             let exports_dir = work_dir.join("exports");
@@ -3286,17 +3292,19 @@ fn execute_workflow_steps(
                             );
                             // CPD-81: раньше отказ копирования тонул в `let _ =`, а следующей
                             // строкой close_session() стирал рабочий каталог — единственная
-                            // копия файла терялась без следа, шаг рапортовал "done". Здесь нет
-                            // состояния emit_wf_status под частичный неуспех шага (есть только
-                            // running/error/done — ни одно не подходит для «шаг выполнен, но
-                            // часть выгрузок не сохранена»), поэтому минимум — громкий лог
-                            // ДО удаления рабочего каталога, чтобы потеря была видна в журнале.
+                            // копия файла терялась без следа, шаг рапортовал "done". Журнал
+                            // обязателен ДО удаления рабочего каталога, но одного журнала мало:
+                            // до человека потеря так и не доходила.
                             if !persisted.failed.is_empty() {
                                 let names: Vec<&str> = persisted.failed.iter().map(|(n, _)| n.as_str()).collect();
                                 error!(
                                     "Выгрузки шага [{id}] не сохранены и будут потеряны при удалении рабочего каталога: {}",
                                     names.join(", ")
                                 );
+                                step_warning = Some(format!(
+                                    "часть результатов шага не сохранена: {}",
+                                    names.join(", ")
+                                ));
                             }
                             // Аудит 2.4.9 (High-4): отказ, при котором поимённого списка нет
                             // вовсе — каталог назначения не создан либо каталог выгрузок не
@@ -3307,6 +3315,12 @@ fn execute_workflow_steps(
                                 error!(
                                     "Выгрузки шага [{id}] не сохранены и будут потеряны при удалении рабочего каталога: {reason}"
                                 );
+                                // Первый признак не затирается: поимённый список конкретнее
+                                // общей причины, а человеку важнее знать, ЧТО потеряно.
+                                if step_warning.is_none() {
+                                    step_warning =
+                                        Some(format!("результаты шага не сохранены: {reason}"));
+                                }
                             }
                             let summary = commands::campaign::summarize_step_exports(&exports_dir);
                             chain_lock.step_summaries.push((label.clone(), summary));
@@ -3315,7 +3329,14 @@ fn execute_workflow_steps(
 
                     let _ = state.session_manager.close_session(cabinet_id);
 
-                    emit_wf_status(&app, &exec_id, id, "done", None);
+                    emit_wf_status_full(
+                        &app,
+                        &exec_id,
+                        id,
+                        "done",
+                        None,
+                        step_warning.as_deref(),
+                    );
                     info!("Workflow step [{id}]: {label} complete");
                 }
 
@@ -3397,13 +3418,36 @@ fn emit_wf_status(
     status: &str,
     error: Option<&str>,
 ) {
+    emit_wf_status_full(app, exec_id, node_id, status, error, None);
+}
+
+/// То же событие плюс предупреждение — «шаг выполнен, но не полностью».
+///
+/// 🔴 Почему предупреждение отдельным полем, а не новым значением `status`. Договор
+/// `running`/`error`/`done` читает интерфейс: значение статуса кладётся в шаг как есть и по
+/// нему выбирается вид шага. Незнакомое значение (`partial` и тому подобное) интерфейс не
+/// нарисует ни выполненным, ни упавшим — шаг завис бы в неопределённом виде, хотя работа
+/// сделана. Отдельное поле совместимо в обе стороны: кто про него не знает, видит прежний
+/// `done`; кто знает — показывает человеку, что часть результатов не сохранена.
+///
+/// Заведено под долг, оставшийся от аудита 2.4.9: до сих пор частичная потеря выгрузок шага
+/// была видна только в журнале приложения, то есть на практике — никому.
+fn emit_wf_status_full(
+    app: &tauri::AppHandle,
+    exec_id: &str,
+    node_id: &str,
+    status: &str,
+    error: Option<&str>,
+    warning: Option<&str>,
+) {
     let _ = app.emit(
         &format!("workflow-execution-{exec_id}"),
         serde_json::json!({
             "type": "node-status",
             "node_id": node_id,
             "status": status,
-            "error": error
+            "error": error,
+            "warning": warning
         })
         .to_string(),
     );
