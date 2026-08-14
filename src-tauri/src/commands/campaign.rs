@@ -518,23 +518,48 @@ pub fn persist_step_exports(campaign_dir: &Path, step_id: &str, exports_dir: &Pa
     result
 }
 
+/// Итог `forward_exports_to_inbox`: что реально передалось и что не вышло.
+///
+/// CPD-81 (вторая функция того же класса): раньше отказ `fs::copy` отбрасывался
+/// (`let _ =`), а имя файла всё равно попадало в список «передано» — вызывающий код
+/// не мог узнать о потере. Источник (`persist_step_exports` уже сохранил его в
+/// `campaign_dir/steps/...`) при отказе здесь не пропадает — только не появится во
+/// входящих следующего шага, поэтому неполнота не необратима, но должна быть видна.
+#[derive(Debug, Default)]
+pub struct ForwardExportsResult {
+    pub forwarded: Vec<String>,
+    /// (имя файла, причина отказа)
+    pub failed: Vec<(String, String)>,
+}
+
 /// Forward exports from previous step to next step's inbox.
-pub fn forward_exports_to_inbox(prev_exports_dir: &Path, next_workspace: &Path) -> Vec<String> {
+pub fn forward_exports_to_inbox(prev_exports_dir: &Path, next_workspace: &Path) -> ForwardExportsResult {
     let inbox = next_workspace.join("inbox");
     let _ = std::fs::create_dir_all(&inbox);
-    let mut forwarded = Vec::new();
+    let mut result = ForwardExportsResult::default();
     if prev_exports_dir.exists() {
         if let Ok(entries) = std::fs::read_dir(prev_exports_dir) {
             for entry in entries.flatten() {
                 if entry.file_type().is_ok_and(|ft| ft.is_file()) {
                     let name = entry.file_name().to_string_lossy().to_string();
-                    let _ = std::fs::copy(entry.path(), inbox.join(&name));
-                    forwarded.push(name);
+                    // Совпадение имени здесь не переименовывается (в отличие от
+                    // persist_step_exports/unique_export_path): входящие следующего
+                    // шага — рабочая папка одного запуска, а не архив кампании, и
+                    // повторная передача того же файла — обычный, а не аварийный
+                    // случай (перезапуск шага, повтор пайплайна). Счётчик в имени
+                    // только запутал бы Claude, читающего inbox.
+                    match std::fs::copy(entry.path(), inbox.join(&name)) {
+                        Ok(_) => result.forwarded.push(name),
+                        Err(e) => {
+                            warn!("Выгрузка не передана во входящие: {name}: {e}");
+                            result.failed.push((name, e.to_string()));
+                        }
+                    }
                 }
             }
         }
     }
-    forwarded
+    result
 }
 
 // ── Pipeline Commands ────────────────────────────────────
@@ -868,6 +893,70 @@ mod tests {
         assert!(result.copied.is_empty());
         assert_eq!(result.failed.len(), 1);
         assert_eq!(result.failed[0].0, "report.md");
+    }
+
+    /// CPD-81 (вторая функция): успешная передача — файл во входящих, список полон.
+    #[test]
+    fn forward_exports_to_inbox_success() {
+        let tmp = tempfile::tempdir().unwrap();
+        let prev_exports = tmp.path().join("prev-exports");
+        std::fs::create_dir_all(&prev_exports).unwrap();
+        std::fs::write(prev_exports.join("summary.md"), "# Summary").unwrap();
+
+        let next_workspace = tmp.path().join("next-workspace");
+        std::fs::create_dir_all(&next_workspace).unwrap();
+
+        let result = forward_exports_to_inbox(&prev_exports, &next_workspace);
+        assert_eq!(result.forwarded, vec!["summary.md".to_string()]);
+        assert!(result.failed.is_empty());
+        assert!(next_workspace.join("inbox").join("summary.md").exists());
+    }
+
+    /// CPD-81 (вторая функция): отказ копирования — имя НЕ попадает в forwarded и
+    /// попадает в failed. Тот же приём, что в `persist_step_exports_copy_failure_
+    /// recorded_not_lost`: место каталога "inbox" занято файлом, так что
+    /// create_dir_all внутри функции молча не создаёт вложенный путь, а fs::copy
+    /// откажет, потому что родитель целевого пути — не каталог.
+    #[test]
+    fn forward_exports_to_inbox_copy_failure_recorded_not_lost() {
+        let tmp = tempfile::tempdir().unwrap();
+        let prev_exports = tmp.path().join("prev-exports");
+        std::fs::create_dir_all(&prev_exports).unwrap();
+        std::fs::write(prev_exports.join("summary.md"), "# Summary").unwrap();
+
+        let next_workspace = tmp.path().join("next-workspace");
+        std::fs::create_dir_all(&next_workspace).unwrap();
+        std::fs::write(next_workspace.join("inbox"), "занято файлом").unwrap();
+
+        let result = forward_exports_to_inbox(&prev_exports, &next_workspace);
+        assert!(result.forwarded.is_empty());
+        assert_eq!(result.failed.len(), 1);
+        assert_eq!(result.failed[0].0, "summary.md");
+
+        // Источник остаётся на месте — CPD-81 здесь не необратим, файл не потерян,
+        // просто не появится во входящих следующего шага.
+        assert!(prev_exports.join("summary.md").exists());
+    }
+
+    /// CPD-81 (вторая функция): при совпадении имени файл во входящих ПЕРЕЗАПИСЫВАЕТСЯ
+    /// намеренно (без unique_export_path) — повторная передача того же файла считается
+    /// обычным случаем (перезапуск шага), решение обосновано в комментарии над функцией.
+    #[test]
+    fn forward_exports_to_inbox_name_collision_overwrites_by_design() {
+        let tmp = tempfile::tempdir().unwrap();
+        let prev_exports = tmp.path().join("prev-exports");
+        std::fs::create_dir_all(&prev_exports).unwrap();
+        std::fs::write(prev_exports.join("summary.md"), "НОВЫЙ").unwrap();
+
+        let next_workspace = tmp.path().join("next-workspace");
+        let inbox = next_workspace.join("inbox");
+        std::fs::create_dir_all(&inbox).unwrap();
+        std::fs::write(inbox.join("summary.md"), "СТАРЫЙ").unwrap();
+
+        let result = forward_exports_to_inbox(&prev_exports, &next_workspace);
+        assert_eq!(result.forwarded, vec!["summary.md".to_string()]);
+        assert!(result.failed.is_empty());
+        assert_eq!(std::fs::read_to_string(inbox.join("summary.md")).unwrap(), "НОВЫЙ");
     }
 
     #[test]

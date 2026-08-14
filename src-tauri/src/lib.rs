@@ -3191,8 +3191,21 @@ fn execute_workflow_steps(
                                     if let Ok(entries) = std::fs::read_dir(&steps_dir) {
                                         if let Some(last) = entries.filter_map(|e| e.ok()).last() {
                                             let fwd = commands::campaign::forward_exports_to_inbox(&last.path(), &work_dir);
-                                            if !fwd.is_empty() {
-                                                info!("Forwarded {} files to {}", fwd.len(), cabinet_id);
+                                            if !fwd.forwarded.is_empty() {
+                                                info!("Forwarded {} files to {}", fwd.forwarded.len(), cabinet_id);
+                                            }
+                                            if !fwd.failed.is_empty() {
+                                                // CPD-81: не необратимо (источник остаётся в
+                                                // campaign_dir/steps — persist_step_exports уже его
+                                                // сохранил), но шаг стартует без части контекста
+                                                // предыдущего — стоит громкой записи.
+                                                warn!(
+                                                    "Не переданы во входящие {} из {} выгрузок для {}: {:?}",
+                                                    fwd.failed.len(),
+                                                    fwd.failed.len() + fwd.forwarded.len(),
+                                                    cabinet_id,
+                                                    fwd.failed
+                                                );
                                             }
                                         }
                                     }
