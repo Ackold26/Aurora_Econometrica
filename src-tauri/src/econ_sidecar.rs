@@ -273,31 +273,73 @@ async fn is_healthy_and_ours(port: u16, expected_session: Option<&str>) -> bool 
 #[cfg(windows)]
 fn kill_sidecar_from_state(state: &SidecarState) {
     use crate::sidecar_runtime::KillVerdict;
-    use std::os::windows::process::CommandExt;
     let pid = state.pid;
     if pid == 0 {
         return;
     }
-    // Защита от самоубийства: если номер вдруг совпал с нашим собственным, `taskkill /T /F`
-    // снял бы оболочку вместе со всем деревом.
+    // Защита от самоубийства: если номер вдруг совпал с нашим собственным, снятие
+    // унесло бы оболочку.
     if pid == std::process::id() {
         warn!("PID={pid} совпал с идентификатором самой оболочки - не трогаем");
         return;
     }
 
-    let observed = sidecar_runtime::observe_process(pid);
-    match sidecar_runtime::should_kill(state, &observed, &SIDECAR_CONFIG, &current_user_name()) {
+    // 🔴 2026-08-14 (High-3 аудита блока 2.4.9). Дескриптор процесса удерживается от
+    // наблюдения ДО снятия и снятие идёт по нему же. Прежде дескриптор закрывался
+    // сразу после снятия свойств, а снимали порождением `taskkill /PID n`: между этими
+    // двумя моментами процесс мог завершиться сам, номер — освободиться и достаться
+    // другому процессу, и снималось бы уже оно. Пока дескриптор жив, Windows номер не
+    // переиспользует — гонка закрывается без единой дополнительной проверки.
+    let Some(held) = sidecar_runtime::hold_and_observe(pid) else {
+        debug!("PID={pid}: дескриптор не открылся (процесс уже завершился либо нет прав) - снимать нечего");
+        return;
+    };
+
+    match sidecar_runtime::should_kill(state, held.observed(), &SIDECAR_CONFIG, &current_user_name())
+    {
         KillVerdict::Kill => {
             info!("Killing zombie sidecar PID={pid}");
-            let _ = Command::new("taskkill")
-                .args(["/PID", &pid.to_string(), "/T", "/F"])
-                .creation_flags(0x08000000)
-                .output();
+            match held.terminate() {
+                Ok(()) => {
+                    if held.wait_exit(3000) {
+                        debug!("Зомби-движок PID={pid} снят");
+                    } else {
+                        warn!("Зомби-движок PID={pid} не завершился за 3 с после снятия");
+                    }
+                }
+                Err(e) => {
+                    warn!("Снятие PID={pid} по дескриптору не прошло ({e}) - запасной путь");
+                    kill_process_tree_fallback(pid);
+                }
+            }
         }
         KillVerdict::Skip(reason) => {
             warn!("PID={pid} не снимаем: {reason}");
         }
     }
+}
+
+/// Запасной путь снятия — порождением системной утилиты, деревом (`/T`).
+///
+/// 🔴 Держится ТОЛЬКО на случай отказа `TerminateProcess` (дескриптор без права на
+/// снятие: защита процесса сторонним средством, необычная политика). Основной путь
+/// процессов не порождает вовсе — это и был смысл блока CPD-77: связка «скрытая
+/// разведка процессов → принудительное снятие дерева» разбирается поведенческой
+/// защитой антивируса как вредоносная.
+///
+/// Разница в семантике осознанная: `TerminateProcess` снимает только сам процесс,
+/// `/T` — вместе с деревом потомков. Для этого движка потомки не долгоживущие:
+/// выборка идёт либо NumPyro/JAX внутри одного процесса, либо PyMC с `cores=1`
+/// (`engines/modeler.py`), а сборка движка — PyInstaller onedir, то есть отдельного
+/// процесса-загрузчика нет. Порождается только компилятор PyTensor на время сборки
+/// модели — короткий синхронный вызов, который завершается сам.
+#[cfg(windows)]
+fn kill_process_tree_fallback(pid: u32) {
+    use std::os::windows::process::CommandExt;
+    let _ = Command::new("taskkill")
+        .args(["/PID", &pid.to_string(), "/T", "/F"])
+        .creation_flags(0x08000000)
+        .output();
 }
 
 #[cfg(not(windows))]
@@ -492,6 +534,18 @@ pub fn start_sidecar(app_handle: &AppHandle) {
 /// Пишет state с pid + port до handshake (как hint). После ready получаем
 /// реальный session_id от sidecar'а и обновляем.
 fn write_initial_state(port: u16, pid: u32, session_id: &str) -> Result<(), String> {
+    // Полный путь образа снимаем У ЖИВОГО процесса, которого только что породили, а не
+    // берём путь, по которому его запускали: сверять придётся ровно с тем, что вернёт
+    // `QueryFullProcessImageNameW` при следующем наблюдении, и одинаковый источник строки
+    // избавляет от расхождений в написании пути. Номер процесса в этот момент занят
+    // гарантированно — дескриптор порождённого процесса держит `store_child`.
+    // Пусто (не удалось снять) → сверка при снятии откатится на сравнение по имени образа.
+    let image_path = sidecar_runtime::observe_process(pid)
+        .image_path
+        .unwrap_or_default();
+    if image_path.is_empty() {
+        debug!("Путь образа движка (PID={pid}) снять не удалось - сверка редакций ослаблена");
+    }
     let state = SidecarState {
         port,
         pid,
@@ -500,6 +554,7 @@ fn write_initial_state(port: u16, pid: u32, session_id: &str) -> Result<(), Stri
         version: SIDECAR_CONFIG.version.to_string(),
         user: current_user_name(),
         started_at: chrono::Utc::now().to_rfc3339(),
+        image_path,
     };
     write_state_file(&SIDECAR_CONFIG, &state).map_err(|e| e.to_string())
 }

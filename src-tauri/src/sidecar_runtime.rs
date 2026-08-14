@@ -99,6 +99,20 @@ pub struct SidecarState {
     pub version: String,
     pub user: String,
     pub started_at: String,
+
+    /// Полный путь к образу ПОРОЖДЁННОГО нами процесса, снятый сразу после запуска
+    /// (`QueryFullProcessImageNameW`). Единственный признак, который различает две
+    /// редакции продукта: `product_id` у них намеренно одинаков (рукопожатие с
+    /// Python-модулем), пользователь один, имя файла образа одно и то же —
+    /// `econometrica-sidecar.exe`. Без полного пути облачная редакция могла снять
+    /// движок локальной вместе с идущим расчётом.
+    ///
+    /// Обратная совместимость: у файла состояния прежних версий поля нет, `serde`
+    /// подставит пустую строку, и сверка откатится на прежнее сравнение по имени
+    /// образа (иначе после обновления перестал бы сниматься собственный зомби,
+    /// оставшийся от прежней версии).
+    #[serde(default)]
+    pub image_path: String,
 }
 
 /// Ответ `/health` endpoint'а. Схема расширена в v1.0.9.
@@ -134,25 +148,37 @@ pub struct ObservedProcess {
 }
 
 /// Допуск на расхождение между временем создания процесса и `started_at`
-/// в файле состояния, в секундах.
+/// в файле состояния, в секундах. Окно двустороннее, но НЕСИММЕТРИЧНОЕ — риск у
+/// двух границ разный, и цена у них тоже разная.
 ///
 /// Порядок операций при запуске движка (`econ_sidecar::start_sidecar`):
 /// `spawn_sidecar_proc` → `child.id()` → `store_child` → `write_initial_state`.
 /// То есть процесс создаётся ЗАВЕДОМО РАНЬШЕ записи `started_at`, и зазор между
 /// ними — доли секунды: между двумя операциями нет ни ожиданий, ни ввода-вывода
-/// кроме самой записи файла. Реальный разброс может дать только скачок системных
-/// часов (коррекция NTP, ручной перевод) ровно в этом промежутке, поэтому пяти
-/// минут с запасом хватает на честный случай.
+/// кроме самой записи файла.
 ///
-/// Окно двустороннее и обе границы содержательны:
-/// * верхняя (`created_at ≤ started_at + допуск`) — главная защита от
-///   переиспользования номера процесса: после перезагрузки Windows раздаёт номера
-///   заново, и чужой процесс с тем же номером создан ПОЗЖЕ нашей записи, обычно на
-///   часы;
-/// * нижняя (`created_at ≥ started_at − допуск`) — защита от долгоживущего чужого
-///   процесса, который получил этот номер задолго до нашей записи (запущенный
-///   вчера Jupyter и тому подобное).
-pub const KILL_TIME_TOLERANCE_SECS: i64 = 300;
+/// * Верхняя граница ([`KILL_TIME_TOLERANCE_AFTER_SECS`], `created_at ≤ started_at
+///   + допуск`) — главная защита от переиспользования номера процесса. Честному
+///   случаю она не нужна вовсе: наш процесс создан РАНЬШЕ записи. Её единственное
+///   назначение — дрожание системных часов (коррекция NTP, ручной перевод) ровно в
+///   этот промежуток, а на это хватает секунд. Каждая лишняя секунда здесь — ровно
+///   то окно, в котором чужой процесс, получивший освободившийся номер, проходит
+///   проверку и снимается. Прежние 300 секунд открывали это окно на пять минут при
+///   надобности в единицах секунд — на два порядка шире необходимого.
+/// * Нижняя граница ([`KILL_TIME_TOLERANCE_BEFORE_SECS`], `created_at ≥ started_at
+///   − допуск`) — защита от долгоживущего чужого процесса, получившего этот номер
+///   задолго до нашей записи (запущенный вчера Jupyter и тому подобное). Она же
+///   отвечает за медленную машину: между порождением процесса и записью файла
+///   состояния может встрять и подкачка, и антивирусная проверка образа. Расширять
+///   её безопасно: чужому процессу, чтобы под неё подпасть, нужно быть созданным
+///   НЕЗАДОЛГО ДО нашего запуска — а номер он мог получить только раньше, значит и
+///   держать его дольше. Сжимать её, наоборот, опасно: перестанет сниматься
+///   собственный зомби на слабой машине.
+pub const KILL_TIME_TOLERANCE_AFTER_SECS: i64 = 5;
+
+/// Нижняя граница окна допуска, в секундах. Подробности — у
+/// [`KILL_TIME_TOLERANCE_AFTER_SECS`].
+pub const KILL_TIME_TOLERANCE_BEFORE_SECS: i64 = 300;
 
 /// Почему процесс решено НЕ снимать. Попадает в журнал и в тесты.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -171,6 +197,9 @@ pub enum SkipReason {
     ImageUnknown,
     /// Образ процесса не наш.
     ImageMismatch,
+    /// Полный путь образа не совпал с записанным при запуске — почти наверняка это
+    /// движок ДРУГОЙ редакции продукта либо чужая копия того же файла.
+    ImagePathMismatch,
     /// Время создания процесса получить не удалось.
     CreationTimeUnknown,
     /// `started_at` в файле состояния не разбирается как дата.
@@ -191,6 +220,9 @@ impl SkipReason {
             SkipReason::OwnerMismatch => "процесс принадлежит другому пользователю",
             SkipReason::ImageUnknown => "путь к образу процесса неизвестен",
             SkipReason::ImageMismatch => "образ процесса не наш",
+            SkipReason::ImagePathMismatch => {
+                "полный путь образа не совпадает с записанным при запуске (другая редакция продукта)"
+            }
             SkipReason::CreationTimeUnknown => "время создания процесса неизвестно",
             SkipReason::StartedAtUnparsable => "started_at в файле состояния не разбирается",
             SkipReason::CreatedOutsideWindow => {
@@ -266,6 +298,31 @@ pub fn image_matches(image_path: Option<&str>, cfg: &SidecarConfig) -> bool {
         })
 }
 
+/// Сверка ПОЛНОГО пути образа с путём, записанным нами при запуске движка.
+///
+/// 🔴 Проверка имени файла ([`image_matches`]) не различает две редакции продукта:
+/// `product_id` у них намеренно одинаков (рукопожатие с Python-модулем), образ —
+/// один и тот же файл `econometrica-sidecar.exe`, пользователь один. Отличается
+/// только каталог установки, и он же — единственный признак, который остаётся.
+///
+/// Сравнение без учёта регистра (пути Windows регистронезависимы) и с отбрасыванием
+/// префикса `\\?\`: `QueryFullProcessImageNameW` с `PROCESS_NAME_WIN32` его не
+/// добавляет, но записанный путь мог прийти и другим путём, а расхождение в одном
+/// префиксе означало бы «не снимать своего зомби» на ровном месте.
+pub fn image_path_matches(recorded: &str, observed: &str) -> bool {
+    fn normalize(p: &str) -> String {
+        let t = p.trim();
+        let t = t
+            .strip_prefix(r"\\?\UNC\")
+            .map(|rest| format!(r"\\{rest}"))
+            .unwrap_or_else(|| t.strip_prefix(r"\\?\").unwrap_or(t).to_string());
+        t.to_lowercase()
+    }
+    let a = normalize(recorded);
+    let b = normalize(observed);
+    !a.is_empty() && a == b
+}
+
 /// Чистое решение «снимать ли процесс `state.pid`».
 ///
 /// 🔴 CPD-79. До этой правки решение принималось по двум признакам — владелец
@@ -314,14 +371,25 @@ pub fn should_kill(
     }
 
     // 4. Образ реального процесса.
-    if observed.image_path.is_none() {
+    let Some(observed_image) = observed.image_path.as_deref() else {
         return KillVerdict::Skip(SkipReason::ImageUnknown);
-    }
-    if !image_matches(observed.image_path.as_deref(), cfg) {
-        return KillVerdict::Skip(SkipReason::ImageMismatch);
+    };
+    let recorded_image = state.image_path.trim();
+    if recorded_image.is_empty() {
+        // Файл состояния от прежней версии: полного пути в нём нет. Откат на
+        // сравнение по имени файла — слабее, но иначе после обновления перестал бы
+        // сниматься собственный зомби, оставшийся от предыдущей версии.
+        if !image_matches(Some(observed_image), cfg) {
+            return KillVerdict::Skip(SkipReason::ImageMismatch);
+        }
+    } else if !image_path_matches(recorded_image, observed_image) {
+        // Путь записан нами при запуске — сверяем целиком. Это единственная
+        // проверка, различающая облачную и локальную редакции продукта.
+        return KillVerdict::Skip(SkipReason::ImagePathMismatch);
     }
 
-    // 5. Время создания против записанного нами started_at.
+    // 5. Время создания против записанного нами started_at. Границы окна разные:
+    //    вверх — только на дрожание часов, вниз — на медленный запуск.
     let Some(created_at) = observed.created_at else {
         return KillVerdict::Skip(SkipReason::CreationTimeUnknown);
     };
@@ -330,7 +398,7 @@ pub fn should_kill(
     };
     let started_at = started_at.with_timezone(&Utc);
     let delta = (created_at - started_at).num_seconds();
-    if delta.abs() > KILL_TIME_TOLERANCE_SECS {
+    if delta > KILL_TIME_TOLERANCE_AFTER_SECS || delta < -KILL_TIME_TOLERANCE_BEFORE_SECS {
         return KillVerdict::Skip(SkipReason::CreatedOutsideWindow);
     }
 
@@ -602,6 +670,102 @@ pub fn observe_process(pid: u32) -> ObservedProcess {
     }
 }
 
+/// Наблюдаемый процесс с УДЕРЖИВАЕМЫМ дескриптором: свойства сняты, дескриптор
+/// открыт и живёт до снятия либо до выхода значения из области видимости.
+///
+/// 🔴 Зачем удерживать. [`observe_process`] открывает дескриптор, снимает свойства и
+/// закрывает его; решение принимается уже по закрытому. Пока между решением и
+/// снятием стоял `taskkill /PID n`, между этими двумя моментами лежало порождение
+/// целого процесса — десятки миллисекунд, на загруженной машине больше. Если
+/// наблюдаемый процесс за это время завершился сам, его номер немедленно доступен
+/// к переиспользованию, и снималось бы то, что этот номер успело получить: вся
+/// проверка в этот момент не действует вовсе. Windows не переиспользует номер, пока
+/// жив хотя бы один дескриптор процесса, — удержание закрывает гонку бесплатно.
+pub struct HeldProcess {
+    pid: u32,
+    observed: ObservedProcess,
+    #[cfg(windows)]
+    handle: win_impl::OwnedProcessHandle,
+}
+
+impl HeldProcess {
+    pub fn pid(&self) -> u32 {
+        self.pid
+    }
+
+    /// Свойства, снятые в момент открытия дескриптора.
+    pub fn observed(&self) -> &ObservedProcess {
+        &self.observed
+    }
+
+    /// Есть ли право на снятие. Если дескриптор удалось открыть только на чтение
+    /// свойств, снимать придётся вызывающей стороне другим способом.
+    pub fn can_terminate(&self) -> bool {
+        #[cfg(windows)]
+        {
+            self.handle.can_terminate()
+        }
+        #[cfg(not(windows))]
+        {
+            false
+        }
+    }
+
+    /// Ждёт фактического завершения процесса после [`Self::terminate`].
+    /// `true` — завершился в отведённое время.
+    pub fn wait_exit(&self, timeout_ms: u32) -> bool {
+        #[cfg(windows)]
+        {
+            self.handle.wait_exit(timeout_ms)
+        }
+        #[cfg(not(windows))]
+        {
+            let _ = timeout_ms;
+            false
+        }
+    }
+
+    /// Снятие процесса по удерживаемому дескриптору (`TerminateProcess`).
+    ///
+    /// Снимает ТОЛЬКО сам процесс, без дерева потомков — в отличие от
+    /// `taskkill /T`. Обоснование, почему для этого движка так можно, — у
+    /// вызывающей стороны (`econ_sidecar::kill_sidecar_from_state`).
+    pub fn terminate(&self) -> Result<(), String> {
+        #[cfg(windows)]
+        {
+            self.handle.terminate()
+        }
+        #[cfg(not(windows))]
+        {
+            Err("снятие по дескриптору доступно только на Windows".to_string())
+        }
+    }
+}
+
+/// Открывает дескриптор процесса, снимает свойства и ОСТАВЛЯЕТ дескриптор открытым.
+/// `None` — процесса нет либо дескриптор открыть не удалось (тогда снимать нечего:
+/// решение и так обязано быть консервативным).
+pub fn hold_and_observe(pid: u32) -> Option<HeldProcess> {
+    #[cfg(windows)]
+    {
+        if pid == 0 {
+            return None;
+        }
+        let handle = win_impl::open_process_for_kill(pid)?;
+        let observed = handle.observe();
+        Some(HeldProcess {
+            pid,
+            observed,
+            handle,
+        })
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = pid;
+        None
+    }
+}
+
 /// Проверяет что процесс PID:
 /// 1. Принадлежит текущему OS-пользователю (multi-tenant safety)
 /// 2. Имя образа входит в список ожидаемых имён продукта
@@ -653,11 +817,124 @@ mod win_impl {
         },
         System::Threading::{
             GetCurrentProcess, GetProcessTimes, OpenProcess, OpenProcessToken,
-            QueryFullProcessImageNameW, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
+            GetExitCodeProcess, QueryFullProcessImageNameW, TerminateProcess, PROCESS_NAME_WIN32,
+            PROCESS_QUERY_LIMITED_INFORMATION, PROCESS_TERMINATE,
         },
     };
 
     use super::ObservedProcess;
+
+    /// Дескриптор процесса во владении: закрывается ровно один раз, в `Drop`.
+    ///
+    /// Пока значение живо, номер процесса не может быть переиспользован
+    /// операционной системой — на этом и держится вся проверка «наш ли процесс»
+    /// в момент снятия.
+    pub struct OwnedProcessHandle {
+        handle: HANDLE,
+        can_terminate: bool,
+    }
+
+    impl OwnedProcessHandle {
+        pub fn can_terminate(&self) -> bool {
+            self.can_terminate
+        }
+
+        /// Свойства процесса по уже открытому дескриптору — без второго открытия.
+        pub fn observe(&self) -> ObservedProcess {
+            unsafe {
+                ObservedProcess {
+                    owner: owner_from_process_handle(self.handle),
+                    image_path: image_path_from_process_handle(self.handle),
+                    created_at: creation_time_from_process_handle(self.handle),
+                }
+            }
+        }
+
+        pub fn terminate(&self) -> Result<(), String> {
+            if !self.can_terminate {
+                return Err("дескриптор открыт без права на снятие".to_string());
+            }
+            let ok = unsafe { TerminateProcess(self.handle, 1) };
+            if ok == 0 {
+                Err(format!(
+                    "TerminateProcess отказал (код {})",
+                    std::io::Error::last_os_error()
+                ))
+            } else {
+                Ok(())
+            }
+        }
+
+        /// Ждёт фактического завершения процесса. `TerminateProcess` только ЗАПРАШИВАЕТ
+        /// снятие и возвращает управление сразу; прежний `taskkill` через `.output()`
+        /// давал эту паузу неявно — порождением и ожиданием целой утилиты. Без
+        /// ожидания следующий шаг (`allocate_port`) мог увидеть порт ещё занятым.
+        /// `true` — процесс завершился в отведённое время.
+        ///
+        /// Опрос через `GetExitCodeProcess`, а не ожидание объекта: последнее требует
+        /// права `SYNCHRONIZE`, ради которого пришлось бы расширять запрос прав при
+        /// открытии дескриптора. `PROCESS_QUERY_LIMITED_INFORMATION` для опроса уже
+        /// есть, а снимаем мы кодом 1 — путаницы с `STILL_ACTIVE` (259) не возникает.
+        pub fn wait_exit(&self, timeout_ms: u32) -> bool {
+            const STILL_ACTIVE: u32 = 259;
+            const STEP_MS: u32 = 50;
+            let mut waited = 0u32;
+            loop {
+                let mut code: u32 = 0;
+                let ok = unsafe { GetExitCodeProcess(self.handle, &mut code) };
+                if ok == 0 {
+                    // Свойства процесса больше не читаются — считаем завершившимся.
+                    return true;
+                }
+                if code != STILL_ACTIVE {
+                    return true;
+                }
+                if waited >= timeout_ms {
+                    return false;
+                }
+                std::thread::sleep(std::time::Duration::from_millis(STEP_MS as u64));
+                waited += STEP_MS;
+            }
+        }
+    }
+
+    impl Drop for OwnedProcessHandle {
+        fn drop(&mut self) {
+            if !self.handle.is_null() {
+                unsafe { CloseHandle(self.handle) };
+            }
+        }
+    }
+
+    /// Открывает дескриптор с правом на снятие. Если такого права нет (редкость для
+    /// собственного процесса того же пользователя, но возможно при защите со стороны
+    /// сторонних средств), откатывается на дескриптор только для чтения свойств —
+    /// удержание номера процесса работает и в этом случае.
+    pub fn open_process_for_kill(pid: u32) -> Option<OwnedProcessHandle> {
+        unsafe {
+            let full = OpenProcess(
+                PROCESS_QUERY_LIMITED_INFORMATION | PROCESS_TERMINATE,
+                0,
+                pid,
+            );
+            if !full.is_null() {
+                return Some(OwnedProcessHandle {
+                    handle: full,
+                    can_terminate: true,
+                });
+            }
+            debug!("OpenProcess({pid}) с правом на снятие не удался, пробуем только чтение");
+            let ro = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
+            if ro.is_null() {
+                debug!("OpenProcess({pid}) failed (process gone or permission denied)");
+                return None;
+            }
+            Some(OwnedProcessHandle {
+                handle: ro,
+                can_terminate: false,
+            })
+        }
+    }
 
     /// Возвращает SID текущего пользователя как S-1-5-... строку.
     pub fn current_user_sid_impl() -> Option<String> {
@@ -945,6 +1222,7 @@ mod tests {
             version: "1.0.9".to_string(),
             user: "tester".to_string(),
             started_at: "2026-04-20T14:32:01Z".to_string(),
+            image_path: r"C:\Program Files\Aurora\test-sidecar.exe".to_string(),
         };
 
         let cfg = SidecarConfig {
@@ -962,6 +1240,33 @@ mod tests {
         assert_eq!(read.pid, state.pid);
         assert_eq!(read.session_id, state.session_id);
         assert_eq!(read.product, state.product);
+        assert_eq!(read.image_path, state.image_path);
+
+        delete_state_file(&cfg);
+    }
+
+    /// Обратная совместимость: файл состояния прежней версии полного пути образа не
+    /// содержит. Он обязан читаться, а поле — оказаться пустым, чтобы сверка при
+    /// снятии откатилась на сравнение по имени образа. Иначе после обновления
+    /// собственный зомби от прежней версии перестал бы сниматься.
+    #[test]
+    fn state_file_without_image_path_reads_with_empty_field() {
+        let cfg = SidecarConfig {
+            identifier_dir: "com.aurora.test-legacy-state",
+            ..TEST_CFG
+        };
+        let path = state_file_path(&cfg);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(
+            &path,
+            r#"{"port":7461,"pid":9134,"session_id":"abc","product":"com.aurora.test",
+                "version":"2.4.8","user":"tester","started_at":"2026-04-20T14:32:01Z"}"#,
+        )
+        .unwrap();
+
+        let read = read_state_file(&cfg).expect("файл прежней версии обязан читаться");
+        assert_eq!(read.pid, 9134);
+        assert!(read.image_path.is_empty());
 
         delete_state_file(&cfg);
     }
@@ -1052,8 +1357,23 @@ mod tests {
     const OUR_USER: &str = "anton";
     const OUR_IMAGE: &str = r"C:\Program Files\Aurora Econometrica\sidecar\econometrica\econometrica-sidecar.exe";
 
-    /// Состояние, записанное нами в момент `started_at`.
+    /// Путь установки ДРУГОЙ редакции продукта: тот же файл образа, тот же
+    /// `product_id`, тот же пользователь — различает только каталог.
+    const OTHER_EDITION_IMAGE: &str =
+        r"C:\Program Files\Optimizer MMM Local\sidecar\econometrica\econometrica-sidecar.exe";
+
+    /// Состояние, записанное нами в момент `started_at`, с полным путём образа —
+    /// как его пишет текущая версия.
     fn state_at(started_at: DateTime<Utc>) -> SidecarState {
+        SidecarState {
+            image_path: OUR_IMAGE.to_string(),
+            ..state_at_legacy(started_at)
+        }
+    }
+
+    /// Состояние, записанное ПРЕЖНЕЙ версией: полного пути образа в файле нет.
+    /// Сверка обязана откатиться на сравнение по имени образа.
+    fn state_at_legacy(started_at: DateTime<Utc>) -> SidecarState {
         SidecarState {
             port: 7461,
             pid: 9134,
@@ -1062,6 +1382,7 @@ mod tests {
             version: "2.4.8".to_string(),
             user: OUR_USER.to_string(),
             started_at: started_at.to_rfc3339(),
+            image_path: String::new(),
         }
     }
 
@@ -1140,10 +1461,13 @@ mod tests {
     /// Случай 3. Чужой python того же пользователя (Jupyter, Anaconda, движок
     /// соседнего продукта Aurora), запущенный вчера. В релизной сборке отсекается
     /// уже по образу: безусловного «имя содержит python» больше нет.
+    ///
+    /// Состояние взято ПРЕЖНЕЙ версии (без полного пути) намеренно: проверяется
+    /// именно слой сравнения по имени образа, на который идёт откат.
     #[test]
     fn skip_foreign_python_by_image_in_release_config() {
         let started = epoch(1_800_000_000);
-        let state = state_at(started);
+        let state = state_at_legacy(started);
         let obs = observed(
             Some(started - chrono::Duration::hours(14)),
             r"C:\Users\anton\anaconda3\python.exe",
@@ -1161,7 +1485,7 @@ mod tests {
     #[test]
     fn skip_foreign_python_by_creation_time_in_dev_config() {
         let started = epoch(1_800_000_000);
-        let state = state_at(started);
+        let state = state_at_legacy(started);
         let obs = observed(
             Some(started - chrono::Duration::hours(14)),
             r"C:\Users\anton\anaconda3\python.exe",
@@ -1178,7 +1502,7 @@ mod tests {
     #[test]
     fn kill_dev_python_engine_within_window() {
         let started = epoch(1_800_000_000);
-        let state = state_at(started);
+        let state = state_at_legacy(started);
         let obs = observed(
             Some(started - chrono::Duration::milliseconds(150)),
             r"C:\Python312\python.exe",
@@ -1313,14 +1637,15 @@ mod tests {
         );
     }
 
-    /// Границы окна: ровно допуск - снимаем, на секунду дальше - нет.
+    /// Границы окна: ровно допуск - снимаем, на секунду дальше - нет. Обе границы,
+    /// каждая со своим допуском.
     #[test]
     fn kill_window_boundaries_are_inclusive() {
         let started = epoch(1_800_000_000);
         let state = state_at(started);
 
         let on_edge = observed(
-            Some(started + chrono::Duration::seconds(KILL_TIME_TOLERANCE_SECS)),
+            Some(started + chrono::Duration::seconds(KILL_TIME_TOLERANCE_AFTER_SECS)),
             OUR_IMAGE,
         );
         assert_eq!(
@@ -1329,13 +1654,114 @@ mod tests {
         );
 
         let past_edge = observed(
-            Some(started + chrono::Duration::seconds(KILL_TIME_TOLERANCE_SECS + 1)),
+            Some(started + chrono::Duration::seconds(KILL_TIME_TOLERANCE_AFTER_SECS + 1)),
             OUR_IMAGE,
         );
         assert_eq!(
             should_kill(&state, &past_edge, &KILL_CFG, OUR_USER),
             KillVerdict::Skip(SkipReason::CreatedOutsideWindow)
         );
+
+        let on_lower_edge = observed(
+            Some(started - chrono::Duration::seconds(KILL_TIME_TOLERANCE_BEFORE_SECS)),
+            OUR_IMAGE,
+        );
+        assert_eq!(
+            should_kill(&state, &on_lower_edge, &KILL_CFG, OUR_USER),
+            KillVerdict::Kill
+        );
+
+        let past_lower_edge = observed(
+            Some(started - chrono::Duration::seconds(KILL_TIME_TOLERANCE_BEFORE_SECS + 1)),
+            OUR_IMAGE,
+        );
+        assert_eq!(
+            should_kill(&state, &past_lower_edge, &KILL_CFG, OUR_USER),
+            KillVerdict::Skip(SkipReason::CreatedOutsideWindow)
+        );
+    }
+
+    /// High-2. Окно НЕсимметрично, и несимметрично осознанно: вверх допуск нужен
+    /// только на дрожание часов (наш процесс создаётся РАНЬШЕ записи), вниз — на
+    /// медленный запуск. Процесс, созданный через минуту после нашей записи, — это
+    /// уже переиспользованный номер, и снимать его нельзя; созданный за минуту до
+    /// неё — штатный случай медленной машины.
+    #[test]
+    fn kill_window_is_asymmetric() {
+        assert!(
+            KILL_TIME_TOLERANCE_AFTER_SECS < KILL_TIME_TOLERANCE_BEFORE_SECS,
+            "верхняя граница обязана быть строго уже нижней: она и есть окно, \
+             в котором чужой процесс проходит проверку"
+        );
+
+        let started = epoch(1_800_000_000);
+        let state = state_at(started);
+        let minute = chrono::Duration::seconds(60);
+
+        assert_eq!(
+            should_kill(&state, &observed(Some(started + minute), OUR_IMAGE), &KILL_CFG, OUR_USER),
+            KillVerdict::Skip(SkipReason::CreatedOutsideWindow),
+            "минута ПОСЛЕ нашей записи - чужой процесс, до правки проходил как свой"
+        );
+        assert_eq!(
+            should_kill(&state, &observed(Some(started - minute), OUR_IMAGE), &KILL_CFG, OUR_USER),
+            KillVerdict::Kill,
+            "минута ДО нашей записи - штатный медленный запуск, снятие обязано работать"
+        );
+    }
+
+    /// High-1 — прямой контроль дефекта. Обе редакции продукта: один и тот же
+    /// `product_id` (рукопожатие с Python-модулем), один и тот же файл образа, один
+    /// пользователь, время создания в окне. До правки решение выносилось «снимать» —
+    /// облачная редакция снимала движок локальной вместе с идущим расчётом.
+    #[test]
+    fn skip_engine_of_other_product_edition() {
+        let started = epoch(1_800_000_000);
+        let state = state_at(started);
+        let obs = observed(
+            Some(started - chrono::Duration::milliseconds(200)),
+            OTHER_EDITION_IMAGE,
+        );
+
+        // Имя файла образа у редакций совпадает — прежняя проверка пропускала.
+        assert!(image_matches(Some(OTHER_EDITION_IMAGE), &KILL_CFG));
+
+        assert_eq!(
+            should_kill(&state, &obs, &KILL_CFG, OUR_USER),
+            KillVerdict::Skip(SkipReason::ImagePathMismatch)
+        );
+    }
+
+    /// Обратная совместимость High-1: файл состояния прежней версии полного пути не
+    /// содержит, и сверка обязана откатиться на имя образа — иначе после обновления
+    /// собственный зомби от прежней версии перестал бы сниматься.
+    #[test]
+    fn kill_zombie_from_legacy_state_without_image_path() {
+        let started = epoch(1_800_000_000);
+        let state = state_at_legacy(started);
+        let obs = observed(Some(started - chrono::Duration::milliseconds(200)), OUR_IMAGE);
+
+        assert_eq!(
+            should_kill(&state, &obs, &KILL_CFG, OUR_USER),
+            KillVerdict::Kill
+        );
+    }
+
+    /// Сверка полного пути: регистр не важен (пути Windows регистронезависимы),
+    /// префикс `\\?\` не считается расхождением, а чужой каталог — считается.
+    #[test]
+    fn image_path_matches_normalizes_case_and_verbatim_prefix() {
+        assert!(image_path_matches(OUR_IMAGE, &OUR_IMAGE.to_uppercase()));
+        assert!(image_path_matches(
+            OUR_IMAGE,
+            &format!(r"\\?\{OUR_IMAGE}")
+        ));
+        assert!(image_path_matches(
+            r"\\?\UNC\server\share\econometrica-sidecar.exe",
+            r"\\server\share\econometrica-sidecar.exe"
+        ));
+        assert!(!image_path_matches(OUR_IMAGE, OTHER_EDITION_IMAGE));
+        assert!(!image_path_matches("", OUR_IMAGE));
     }
 
     /// `started_at` в файле состояния записан со смещением часового пояса -
@@ -1375,6 +1801,40 @@ mod tests {
 
     /// Владелец приходит как `DOMAIN\user`, в состоянии и в `current_user_name()`
     /// домена нет - сверяем хвост, но не путаем разных пользователей.
+    /// High-3 на живом процессе: дескриптор открывается с правом на снятие, свойства
+    /// снимаются по нему же (без второго открытия), снятие проходит по дескриптору —
+    /// без порождения внешней утилиты, — и процесс действительно завершается.
+    #[cfg(windows)]
+    #[test]
+    fn held_process_observes_and_terminates_real_process() {
+        use std::process::{Command, Stdio};
+
+        let mut child = Command::new("ping")
+            .args(["127.0.0.1", "-n", "30"])
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("порождение долгоживущего процесса для проверки");
+        let pid = child.id();
+
+        let held = hold_and_observe(pid).expect("дескриптор живого процесса обязан открыться");
+        assert_eq!(held.pid(), pid);
+        let image = held
+            .observed()
+            .image_path
+            .as_deref()
+            .expect("полный путь образа")
+            .to_lowercase();
+        assert!(image.contains("ping"), "неожиданный образ: {image}");
+        assert!(held.observed().created_at.is_some(), "время создания");
+        assert!(held.observed().owner.is_some(), "владелец");
+        assert!(held.can_terminate(), "право на снятие своего же процесса");
+
+        held.terminate().expect("снятие по дескриптору");
+        assert!(held.wait_exit(5000), "процесс обязан завершиться после снятия");
+        let _ = child.wait();
+    }
+
     #[test]
     fn owner_matches_handles_domain_prefix() {
         assert!(owner_matches("AURORA-PC\\anton", "anton"));

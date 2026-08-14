@@ -3191,8 +3191,26 @@ fn execute_workflow_steps(
                                     if let Ok(entries) = std::fs::read_dir(&steps_dir) {
                                         if let Some(last) = entries.filter_map(|e| e.ok()).last() {
                                             let fwd = commands::campaign::forward_exports_to_inbox(&last.path(), &work_dir);
-                                            if !fwd.is_empty() {
-                                                info!("Forwarded {} files to {}", fwd.len(), cabinet_id);
+                                            if !fwd.forwarded.is_empty() {
+                                                info!("Forwarded {} files to {}", fwd.forwarded.len(), cabinet_id);
+                                            }
+                                            // Аудит 2.4.9 (High-4): отказ передачи во входящие
+                                            // больше не молчит. Уровень warn!, не error!: файлы
+                                            // остаются в архиве кампании (`steps/<шаг>`), их
+                                            // здесь никто не удаляет — теряется контекст шага,
+                                            // не данные клиента.
+                                            if !fwd.failed.is_empty() {
+                                                let names: Vec<&str> = fwd.failed.iter().map(|(n, _)| n.as_str()).collect();
+                                                warn!(
+                                                    "Не переданы во входящие [{cabinet_id}] {} выгрузок: {}",
+                                                    fwd.failed.len(),
+                                                    names.join(", ")
+                                                );
+                                            }
+                                            if let Some(reason) = &fwd.fatal {
+                                                warn!(
+                                                    "Передача выгрузок во входящие [{cabinet_id}] не состоялась: {reason}"
+                                                );
                                             }
                                         }
                                     }
@@ -3278,6 +3296,16 @@ fn execute_workflow_steps(
                                 error!(
                                     "Выгрузки шага [{id}] не сохранены и будут потеряны при удалении рабочего каталога: {}",
                                     names.join(", ")
+                                );
+                            }
+                            // Аудит 2.4.9 (High-4): отказ, при котором поимённого списка нет
+                            // вовсе — каталог назначения не создан либо каталог выгрузок не
+                            // прочитан. Раньше такой отказ давал «0 сохранено, 0 отказов», а
+                            // следующей строкой close_session() стирал единственную копию.
+                            // Печатать обязательно ДО удаления рабочего каталога.
+                            if let Some(reason) = &persisted.fatal {
+                                error!(
+                                    "Выгрузки шага [{id}] не сохранены и будут потеряны при удалении рабочего каталога: {reason}"
                                 );
                             }
                             let summary = commands::campaign::summarize_step_exports(&exports_dir);

@@ -471,70 +471,206 @@ pub struct PersistExportsResult {
     pub copied: Vec<String>,
     /// (имя файла, причина отказа)
     pub failed: Vec<(String, String)>,
+    /// Отказ, при котором список `failed` НИЧЕГО не говорит о потере: до перебора
+    /// файлов дело не дошло либо перебор оборвался.
+    ///
+    /// 🔴 Аудит 2.4.9, High-4. Отказ `fs::copy` был единственным обработанным из
+    /// четырёх путей. Оставались проглоченными: `create_dir_all` каталога назначения,
+    /// `read_dir` каталога выгрузок и определение типа записи. На всех трёх `failed`
+    /// оставался пустым, `lib.rs` тревогу не печатал, в журнал шло успокаивающее
+    /// «Persisted 0 exports for step X (0 failed)» — а следующей строкой
+    /// `close_session` стирал рабочий каталог с единственной копией файлов. Живой
+    /// источник такого отказа на Windows обыденный: антивирус или служба
+    /// индексирования держит каталог `exports` ровно в момент завершения шага.
+    pub fatal: Option<String>,
+}
+
+impl PersistExportsResult {
+    /// Первый фатальный отказ побеждает: последующие — его следствия, и подменять
+    /// ими исходную причину нельзя.
+    fn set_fatal(&mut self, reason: String) {
+        if self.fatal.is_none() {
+            self.fatal = Some(reason);
+        }
+    }
 }
 
 /// Copy exports to persistent campaign directory BEFORE close_session.
 pub fn persist_step_exports(campaign_dir: &Path, step_id: &str, exports_dir: &Path) -> PersistExportsResult {
     let dest = campaign_dir.join("steps").join(step_id);
-    let _ = std::fs::create_dir_all(&dest);
     let mut result = PersistExportsResult::default();
+    if let Err(e) = std::fs::create_dir_all(&dest) {
+        // Копирование дальше почти наверняка тоже откажет, но перебор не обрываем:
+        // отдельные файлы могут лечь, если каталог всё же существует (гонка), а
+        // отказы попадут в `failed` поимённо.
+        warn!(
+            "Каталог для выгрузок шага не создан [шаг {step_id}]: {}: {e}",
+            dest.display()
+        );
+        result.set_fatal(format!(
+            "каталог назначения {} не создан: {e}",
+            dest.display()
+        ));
+    }
     if exports_dir.exists() {
-        if let Ok(entries) = std::fs::read_dir(exports_dir) {
+        let entries = match std::fs::read_dir(exports_dir) {
+            Ok(entries) => Some(entries),
+            Err(e) => {
+                warn!(
+                    "Каталог выгрузок не прочитан [шаг {step_id}]: {}: {e}",
+                    exports_dir.display()
+                );
+                result.set_fatal(format!(
+                    "каталог выгрузок {} не прочитан: {e} — сохранять было нечего не потому, что файлов нет",
+                    exports_dir.display()
+                ));
+                None
+            }
+        };
+        if let Some(entries) = entries {
             for entry in entries.flatten() {
-                if entry.file_type().is_ok_and(|ft| ft.is_file()) {
-                    let name = entry.file_name().to_string_lossy().to_string();
-                    // CPD-81 defense-in-depth: единственный сегодняшний писатель в этот
-                    // каталог (auto_save_response) уже прогоняет имена через
-                    // unique_export_path сам, так что коллизия здесь практически
-                    // недостижима. Но раз функция копирует В каталог кампании, а не
-                    // только читает — собственная гарантия дешевле, чем доверие
-                    // чужому модулю не измениться.
-                    let candidate = dest.join(&name);
-                    let dest_path = crate::commands::unique_export_path(&candidate);
-                    if dest_path != candidate {
-                        warn!(
-                            "Выгрузка переименована во избежание перезаписи [шаг {step_id}]: {} → {}",
-                            candidate.display(),
-                            dest_path.display()
-                        );
+                let name = entry.file_name().to_string_lossy().to_string();
+                match entry.file_type() {
+                    Ok(ft) if !ft.is_file() => continue,
+                    Ok(_) => {}
+                    Err(e) => {
+                        // Тип записи неизвестен — молча пропустить нельзя: это может
+                        // быть ровно тот файл, ради которого шаг и выполнялся.
+                        warn!("Тип записи не определён [шаг {step_id}]: {name}: {e}");
+                        result.failed.push((name, format!("тип записи не определён: {e}")));
+                        continue;
                     }
-                    match std::fs::copy(entry.path(), &dest_path) {
-                        Ok(_) => result.copied.push(name),
-                        Err(e) => {
-                            warn!("Выгрузка не сохранена [шаг {step_id}]: {name}: {e}");
-                            result.failed.push((name, e.to_string()));
-                        }
+                }
+                // 🔴 Аудит 2.4.9, Medium-5. Здесь НЕ должно быть переименования через
+                // `unique_export_path` — свежий файл шага обязан ЗАМЕЩАТЬ свой прежний
+                // результат в том же `steps/<step_id>`.
+                //
+                // Каталог кампании строится из идентификатора СЦЕНАРИЯ, а не запуска
+                // (`lib.rs`: `campaigns_dir(brand).join(&workflow_id)`), поэтому
+                // повторный прогон того же сценария пишет в тот же каталог шага. С
+                // переименованием там оставались обе версии — `report.md` устаревшая и
+                // `report (2).md` свежая, — а `forward_exports_to_inbox` копирует
+                // каталог ЦЕЛИКОМ во входящие следующего шага. Следующий кабинет
+                // получал обе версии и рассуждал по обеим: молчаливая подача
+                // противоречивых данных в клиентский результат — хуже перезаписи, от
+                // которой защищались.
+                //
+                // Коллизии, ради которой вводилась защита, на живом пути нет:
+                // единственный писатель в каталог выгрузок (`auto_save_response`) даёт
+                // имена с секундной меткой и сам прогоняет их через
+                // `unique_export_path`. То есть защищались от несуществующего, а
+                // создавали существующую неоднозначность.
+                //
+                // Защита от ПОТЕРИ данных при этом не страдает — её обеспечивает
+                // обработка отказа копирования ниже (`failed`) и признак `fatal`, а не
+                // переименование. Эти две вещи легко перепутать, но они разные.
+                let dest_path = dest.join(&name);
+                match std::fs::copy(entry.path(), &dest_path) {
+                    Ok(_) => result.copied.push(name),
+                    Err(e) => {
+                        warn!("Выгрузка не сохранена [шаг {step_id}]: {name}: {e}");
+                        result.failed.push((name, e.to_string()));
                     }
                 }
             }
         }
     }
-    info!(
-        "Persisted {} exports for step {} ({} failed)",
-        result.copied.len(),
-        step_id,
-        result.failed.len()
-    );
+    // Признак фатального отказа печатаем прямо здесь: «0 сохранено, 0 отказов»
+    // выглядит как «файлов не было», а это неотличимо от «файлы были, но каталог
+    // не прочитался» — ровно та подмена, из-за которой потеря шла молча.
+    match &result.fatal {
+        Some(reason) => info!(
+            "Persisted {} exports for step {} ({} failed, ОТКАЗ: {reason})",
+            result.copied.len(),
+            step_id,
+            result.failed.len()
+        ),
+        None => info!(
+            "Persisted {} exports for step {} ({} failed)",
+            result.copied.len(),
+            step_id,
+            result.failed.len()
+        ),
+    }
     result
 }
 
+/// Итог `forward_exports_to_inbox` — зеркало [`PersistExportsResult`] по смыслу этой
+/// функции: она не сохраняет в архив, а передаёт во входящие следующего шага.
+///
+/// 🔴 Аудит 2.4.9, High-4: те же три проглоченных пути, что и в `persist_step_exports`
+/// (`create_dir_all` каталога входящих, `read_dir` каталога-источника, определение типа
+/// записи). Цена ошибки здесь ниже — файлы остаются в архиве кампании, теряется не
+/// файл, а контекст очередного шага, — но молчание одинаково вредно: шаг рассуждает
+/// на неполных входящих, и в журнале об этом нет ни строки.
+#[derive(Debug, Default)]
+pub struct ForwardExportsResult {
+    pub forwarded: Vec<String>,
+    /// (имя файла, причина отказа)
+    pub failed: Vec<(String, String)>,
+    /// Отказ, при котором пустой `forwarded` НЕ означает «передавать было нечего».
+    pub fatal: Option<String>,
+}
+
+impl ForwardExportsResult {
+    fn set_fatal(&mut self, reason: String) {
+        if self.fatal.is_none() {
+            self.fatal = Some(reason);
+        }
+    }
+}
+
 /// Forward exports from previous step to next step's inbox.
-pub fn forward_exports_to_inbox(prev_exports_dir: &Path, next_workspace: &Path) -> Vec<String> {
+pub fn forward_exports_to_inbox(
+    prev_exports_dir: &Path,
+    next_workspace: &Path,
+) -> ForwardExportsResult {
     let inbox = next_workspace.join("inbox");
-    let _ = std::fs::create_dir_all(&inbox);
-    let mut forwarded = Vec::new();
+    let mut result = ForwardExportsResult::default();
+    if let Err(e) = std::fs::create_dir_all(&inbox) {
+        warn!("Каталог входящих не создан: {}: {e}", inbox.display());
+        result.set_fatal(format!("каталог входящих {} не создан: {e}", inbox.display()));
+    }
     if prev_exports_dir.exists() {
-        if let Ok(entries) = std::fs::read_dir(prev_exports_dir) {
+        let entries = match std::fs::read_dir(prev_exports_dir) {
+            Ok(entries) => Some(entries),
+            Err(e) => {
+                warn!(
+                    "Каталог выгрузок предыдущего шага не прочитан: {}: {e}",
+                    prev_exports_dir.display()
+                );
+                result.set_fatal(format!(
+                    "каталог выгрузок предыдущего шага {} не прочитан: {e}",
+                    prev_exports_dir.display()
+                ));
+                None
+            }
+        };
+        if let Some(entries) = entries {
             for entry in entries.flatten() {
-                if entry.file_type().is_ok_and(|ft| ft.is_file()) {
-                    let name = entry.file_name().to_string_lossy().to_string();
-                    let _ = std::fs::copy(entry.path(), inbox.join(&name));
-                    forwarded.push(name);
+                let name = entry.file_name().to_string_lossy().to_string();
+                match entry.file_type() {
+                    Ok(ft) if !ft.is_file() => continue,
+                    Ok(_) => {}
+                    Err(e) => {
+                        warn!("Тип записи не определён: {name}: {e}");
+                        result
+                            .failed
+                            .push((name, format!("тип записи не определён: {e}")));
+                        continue;
+                    }
+                }
+                match std::fs::copy(entry.path(), inbox.join(&name)) {
+                    Ok(_) => result.forwarded.push(name),
+                    Err(e) => {
+                        warn!("Выгрузка не передана во входящие: {name}: {e}");
+                        result.failed.push((name, e.to_string()));
+                    }
                 }
             }
         }
     }
-    forwarded
+    result
 }
 
 // ── Pipeline Commands ────────────────────────────────────
@@ -821,9 +957,15 @@ mod tests {
         assert!(campaign_dir.join("steps").join("step-1").join("report.md").exists());
     }
 
-    /// CPD-81: совпадение имени — файл ложится рядом со счётчиком, прежний не затёрт.
+    /// Аудит 2.4.9, Medium-5: повторный прогон шага ЗАМЕЩАЕТ свой прежний результат,
+    /// а не копит версии рядом.
+    ///
+    /// Прежний тест закреплял обратное — файл ложился как `report (2).md`, прежний
+    /// оставался, — и это было неверное ожидание: каталог кампании строится из
+    /// идентификатора сценария, а `forward_exports_to_inbox` копирует его целиком,
+    /// поэтому следующий шаг получал во входящие обе версии сразу.
     #[test]
-    fn persist_step_exports_name_collision_renamed_not_overwritten() {
+    fn persist_step_exports_rerun_replaces_previous_file_not_versions_it() {
         let tmp = tempfile::tempdir().unwrap();
         let campaign_dir = tmp.path().join("campaign-1");
         let dest = campaign_dir.join("steps").join("step-1");
@@ -835,21 +977,36 @@ mod tests {
         std::fs::write(exports.join("report.md"), "НОВЫЙ").unwrap();
 
         let result = persist_step_exports(&campaign_dir, "step-1", &exports);
-        assert_eq!(result.copied.len(), 1);
+        assert_eq!(
+            result.copied,
+            vec!["report.md".to_string()],
+            "в списке успешных ровно одно имя — и ровно то, что лежит на диске"
+        );
         assert!(result.failed.is_empty());
+        assert!(result.fatal.is_none());
 
-        // Прежний файл не тронут.
-        assert_eq!(std::fs::read_to_string(dest.join("report.md")).unwrap(), "СТАРЫЙ");
-        // Новый лёг рядом со счётчиком, а не поверх.
-        assert_eq!(std::fs::read_to_string(dest.join("report (2).md")).unwrap(), "НОВЫЙ");
+        // Свежий результат замещает устаревший.
+        assert_eq!(
+            std::fs::read_to_string(dest.join("report.md")).unwrap(),
+            "НОВЫЙ"
+        );
+        // Второй версии рядом не появилось — иначе следующий шаг получил бы во
+        // входящие обе и рассуждал по противоречивым данным.
+        assert!(
+            !dest.join("report (2).md").exists(),
+            "версия со счётчиком рядом с замещённым файлом появляться не должна"
+        );
+        assert_eq!(
+            std::fs::read_dir(&dest).unwrap().count(),
+            1,
+            "в каталоге шага обязан остаться ровно один файл"
+        );
     }
 
     /// CPD-81: отказ копирования — имя НЕ попадает в copied и попадает в failed.
     ///
-    /// Занять место каталогом с тем же именем, что предлагалось в задаче, здесь не
-    /// работает: unique_export_path (п.3 правки) видит существующий путь и переименует
-    /// файл в сторону, копирование пройдёт успешно. Поэтому отказ воспроизведён иначе —
-    /// каталог "step-1" подменён файлом, так что fs::create_dir_all внутри функции
+    /// Отказ воспроизведён так: каталог "step-1" подменён файлом, поэтому
+    /// fs::create_dir_all внутри функции
     /// молча не создаст вложенный путь, а fs::copy откажет, потому что родитель
     /// целевого пути — не каталог. Портируемо между Windows и Unix.
     #[test]
@@ -868,6 +1025,129 @@ mod tests {
         assert!(result.copied.is_empty());
         assert_eq!(result.failed.len(), 1);
         assert_eq!(result.failed[0].0, "report.md");
+    }
+
+    /// Аудит 2.4.9 (High-4), обязательный контроль: каталог выгрузок подменён файлом →
+    /// `read_dir` падает → признак фатального отказа непуст.
+    ///
+    /// До правки этот путь давал `copied=[]`, `failed=[]` и запись в журнале
+    /// «Persisted 0 exports for step X (0 failed)», после которой `close_session`
+    /// стирал рабочий каталог с единственной копией файлов шага.
+    #[test]
+    fn persist_step_exports_read_dir_failure_is_fatal_not_silent() {
+        let tmp = tempfile::tempdir().unwrap();
+        let campaign_dir = tmp.path().join("campaign-1");
+        // Место каталога выгрузок занято обычным файлом: `exists()` истинно,
+        // `read_dir` откажет. Портируемо между Windows и Unix.
+        let exports = tmp.path().join("exports");
+        std::fs::write(&exports, "не каталог").unwrap();
+
+        let result = persist_step_exports(&campaign_dir, "step-1", &exports);
+
+        assert!(result.copied.is_empty());
+        assert!(result.failed.is_empty(), "поимённого списка здесь быть и не может");
+        assert!(
+            result.fatal.is_some(),
+            "отказ чтения каталога выгрузок обязан быть виден вызывающему"
+        );
+        assert!(result.fatal.unwrap().contains("не прочитан"));
+    }
+
+    /// Тот же класс: каталог назначения создать не удалось (место занято файлом).
+    /// Признак фатального отказа непуст ещё до перебора файлов.
+    #[test]
+    fn persist_step_exports_create_dir_failure_is_fatal() {
+        let tmp = tempfile::tempdir().unwrap();
+        let campaign_dir = tmp.path().join("campaign-1");
+        let steps_dir = campaign_dir.join("steps");
+        std::fs::create_dir_all(&steps_dir).unwrap();
+        std::fs::write(steps_dir.join("step-1"), "занято файлом").unwrap();
+
+        let exports = tmp.path().join("exports");
+        std::fs::create_dir_all(&exports).unwrap();
+        std::fs::write(exports.join("report.md"), "# Report").unwrap();
+
+        let result = persist_step_exports(&campaign_dir, "step-1", &exports);
+
+        assert!(result.copied.is_empty());
+        assert!(
+            result.fatal.is_some(),
+            "отказ создания каталога назначения обязан быть виден вызывающему"
+        );
+        // Поимённый отказ копирования при этом никуда не делся — оба сигнала на месте.
+        assert_eq!(result.failed.len(), 1);
+    }
+
+    /// Штатный путь фатального признака не выставляет — иначе тревога обесценится.
+    #[test]
+    fn persist_step_exports_success_has_no_fatal() {
+        let tmp = tempfile::tempdir().unwrap();
+        let campaign_dir = tmp.path().join("campaign-1");
+        let exports = tmp.path().join("exports");
+        std::fs::create_dir_all(&exports).unwrap();
+        std::fs::write(exports.join("report.md"), "# Report").unwrap();
+
+        let result = persist_step_exports(&campaign_dir, "step-1", &exports);
+        assert_eq!(result.copied, vec!["report.md".to_string()]);
+        assert!(result.fatal.is_none());
+    }
+
+    /// Та же проверка для второй функции того же класса: каталог-источник подменён
+    /// файлом → `read_dir` падает → признак отказа непуст, пустой `forwarded` больше
+    /// не читается как «передавать было нечего».
+    #[test]
+    fn forward_exports_to_inbox_read_dir_failure_is_fatal_not_silent() {
+        let tmp = tempfile::tempdir().unwrap();
+        let prev_exports = tmp.path().join("prev-exports");
+        std::fs::write(&prev_exports, "не каталог").unwrap();
+        let next_workspace = tmp.path().join("next-workspace");
+
+        let result = forward_exports_to_inbox(&prev_exports, &next_workspace);
+
+        assert!(result.forwarded.is_empty());
+        assert!(result.failed.is_empty());
+        assert!(result.fatal.is_some(), "отказ чтения источника обязан быть виден");
+    }
+
+    /// Штатная передача: файл доезжает во входящие, признаков отказа нет.
+    #[test]
+    fn forward_exports_to_inbox_success() {
+        let tmp = tempfile::tempdir().unwrap();
+        let prev_exports = tmp.path().join("prev-exports");
+        std::fs::create_dir_all(&prev_exports).unwrap();
+        std::fs::write(prev_exports.join("summary.md"), "итог шага").unwrap();
+        let next_workspace = tmp.path().join("next-workspace");
+
+        let result = forward_exports_to_inbox(&prev_exports, &next_workspace);
+
+        assert_eq!(result.forwarded, vec!["summary.md".to_string()]);
+        assert!(result.failed.is_empty());
+        assert!(result.fatal.is_none());
+        assert!(next_workspace.join("inbox").join("summary.md").exists());
+    }
+
+    /// Отказ копирования во входящие: место каталога входящих занято файлом, поэтому
+    /// `create_dir_all` откажет, а следом откажет и копирование — имя НЕ попадает в
+    /// «передано», отказ виден и поимённо, и фатальным признаком.
+    #[test]
+    fn forward_exports_to_inbox_copy_failure_recorded_not_lost() {
+        let tmp = tempfile::tempdir().unwrap();
+        let prev_exports = tmp.path().join("prev-exports");
+        std::fs::create_dir_all(&prev_exports).unwrap();
+        std::fs::write(prev_exports.join("summary.md"), "итог шага").unwrap();
+
+        let next_workspace = tmp.path().join("next-workspace");
+        std::fs::create_dir_all(&next_workspace).unwrap();
+        std::fs::write(next_workspace.join("inbox"), "занято файлом").unwrap();
+
+        let result = forward_exports_to_inbox(&prev_exports, &next_workspace);
+
+        assert!(result.forwarded.is_empty());
+        assert_eq!(result.failed.len(), 1);
+        assert_eq!(result.failed[0].0, "summary.md");
+        assert!(result.fatal.is_some());
+        // Источник цел: здесь потери данных нет, теряется контекст шага.
+        assert!(prev_exports.join("summary.md").exists());
     }
 
     #[test]
