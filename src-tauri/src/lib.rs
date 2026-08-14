@@ -3262,9 +3262,23 @@ fn execute_workflow_steps(
                         if let Some(work_dir) = state.session_manager.get_work_dir(cabinet_id) {
                             let exports_dir = work_dir.join("exports");
                             let mut chain_lock = chain.lock().unwrap();
-                            let _files = commands::campaign::persist_step_exports(
+                            let persisted = commands::campaign::persist_step_exports(
                                 &chain_lock.campaign_dir, id, &exports_dir,
                             );
+                            // CPD-81: раньше отказ копирования тонул в `let _ =`, а следующей
+                            // строкой close_session() стирал рабочий каталог — единственная
+                            // копия файла терялась без следа, шаг рапортовал "done". Здесь нет
+                            // состояния emit_wf_status под частичный неуспех шага (есть только
+                            // running/error/done — ни одно не подходит для «шаг выполнен, но
+                            // часть выгрузок не сохранена»), поэтому минимум — громкий лог
+                            // ДО удаления рабочего каталога, чтобы потеря была видна в журнале.
+                            if !persisted.failed.is_empty() {
+                                let names: Vec<&str> = persisted.failed.iter().map(|(n, _)| n.as_str()).collect();
+                                error!(
+                                    "Выгрузки шага [{id}] не сохранены и будут потеряны при удалении рабочего каталога: {}",
+                                    names.join(", ")
+                                );
+                            }
                             let summary = commands::campaign::summarize_step_exports(&exports_dir);
                             chain_lock.step_summaries.push((label.clone(), summary));
                         }

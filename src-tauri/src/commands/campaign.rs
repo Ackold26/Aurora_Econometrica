@@ -1,4 +1,4 @@
-use log::info;
+use log::{info, warn};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
@@ -461,24 +461,61 @@ pub fn summarize_step_exports(exports_dir: &Path) -> String {
     }
 }
 
+/// Итог `persist_step_exports`: что реально скопировалось и что не вышло.
+///
+/// CPD-81: раньше отказ `fs::copy` отбрасывался (`let _ =`), а имя файла всё равно
+/// попадало в список «скопировано» — вызывающий код (`lib.rs`) не мог узнать о потере
+/// и следующим шагом удалял рабочий каталог вместе с единственной копией файла.
+#[derive(Debug, Default)]
+pub struct PersistExportsResult {
+    pub copied: Vec<String>,
+    /// (имя файла, причина отказа)
+    pub failed: Vec<(String, String)>,
+}
+
 /// Copy exports to persistent campaign directory BEFORE close_session.
-pub fn persist_step_exports(campaign_dir: &Path, step_id: &str, exports_dir: &Path) -> Vec<String> {
+pub fn persist_step_exports(campaign_dir: &Path, step_id: &str, exports_dir: &Path) -> PersistExportsResult {
     let dest = campaign_dir.join("steps").join(step_id);
     let _ = std::fs::create_dir_all(&dest);
-    let mut copied = Vec::new();
+    let mut result = PersistExportsResult::default();
     if exports_dir.exists() {
         if let Ok(entries) = std::fs::read_dir(exports_dir) {
             for entry in entries.flatten() {
                 if entry.file_type().is_ok_and(|ft| ft.is_file()) {
                     let name = entry.file_name().to_string_lossy().to_string();
-                    let _ = std::fs::copy(entry.path(), dest.join(&name));
-                    copied.push(name);
+                    // CPD-81 defense-in-depth: единственный сегодняшний писатель в этот
+                    // каталог (auto_save_response) уже прогоняет имена через
+                    // unique_export_path сам, так что коллизия здесь практически
+                    // недостижима. Но раз функция копирует В каталог кампании, а не
+                    // только читает — собственная гарантия дешевле, чем доверие
+                    // чужому модулю не измениться.
+                    let candidate = dest.join(&name);
+                    let dest_path = crate::commands::unique_export_path(&candidate);
+                    if dest_path != candidate {
+                        warn!(
+                            "Выгрузка переименована во избежание перезаписи [шаг {step_id}]: {} → {}",
+                            candidate.display(),
+                            dest_path.display()
+                        );
+                    }
+                    match std::fs::copy(entry.path(), &dest_path) {
+                        Ok(_) => result.copied.push(name),
+                        Err(e) => {
+                            warn!("Выгрузка не сохранена [шаг {step_id}]: {name}: {e}");
+                            result.failed.push((name, e.to_string()));
+                        }
+                    }
                 }
             }
         }
     }
-    info!("Persisted {} exports for step {}", copied.len(), step_id);
-    copied
+    info!(
+        "Persisted {} exports for step {} ({} failed)",
+        result.copied.len(),
+        step_id,
+        result.failed.len()
+    );
+    result
 }
 
 /// Forward exports from previous step to next step's inbox.
@@ -778,9 +815,59 @@ mod tests {
         std::fs::create_dir_all(&exports).unwrap();
         std::fs::write(exports.join("report.md"), "# Report").unwrap();
 
-        let files = persist_step_exports(&campaign_dir, "step-1", &exports);
-        assert_eq!(files.len(), 1);
+        let result = persist_step_exports(&campaign_dir, "step-1", &exports);
+        assert_eq!(result.copied, vec!["report.md".to_string()]);
+        assert!(result.failed.is_empty());
         assert!(campaign_dir.join("steps").join("step-1").join("report.md").exists());
+    }
+
+    /// CPD-81: совпадение имени — файл ложится рядом со счётчиком, прежний не затёрт.
+    #[test]
+    fn persist_step_exports_name_collision_renamed_not_overwritten() {
+        let tmp = tempfile::tempdir().unwrap();
+        let campaign_dir = tmp.path().join("campaign-1");
+        let dest = campaign_dir.join("steps").join("step-1");
+        std::fs::create_dir_all(&dest).unwrap();
+        std::fs::write(dest.join("report.md"), "СТАРЫЙ").unwrap();
+
+        let exports = tmp.path().join("exports");
+        std::fs::create_dir_all(&exports).unwrap();
+        std::fs::write(exports.join("report.md"), "НОВЫЙ").unwrap();
+
+        let result = persist_step_exports(&campaign_dir, "step-1", &exports);
+        assert_eq!(result.copied.len(), 1);
+        assert!(result.failed.is_empty());
+
+        // Прежний файл не тронут.
+        assert_eq!(std::fs::read_to_string(dest.join("report.md")).unwrap(), "СТАРЫЙ");
+        // Новый лёг рядом со счётчиком, а не поверх.
+        assert_eq!(std::fs::read_to_string(dest.join("report (2).md")).unwrap(), "НОВЫЙ");
+    }
+
+    /// CPD-81: отказ копирования — имя НЕ попадает в copied и попадает в failed.
+    ///
+    /// Занять место каталогом с тем же именем, что предлагалось в задаче, здесь не
+    /// работает: unique_export_path (п.3 правки) видит существующий путь и переименует
+    /// файл в сторону, копирование пройдёт успешно. Поэтому отказ воспроизведён иначе —
+    /// каталог "step-1" подменён файлом, так что fs::create_dir_all внутри функции
+    /// молча не создаст вложенный путь, а fs::copy откажет, потому что родитель
+    /// целевого пути — не каталог. Портируемо между Windows и Unix.
+    #[test]
+    fn persist_step_exports_copy_failure_recorded_not_lost() {
+        let tmp = tempfile::tempdir().unwrap();
+        let campaign_dir = tmp.path().join("campaign-1");
+        let steps_dir = campaign_dir.join("steps");
+        std::fs::create_dir_all(&steps_dir).unwrap();
+        std::fs::write(steps_dir.join("step-1"), "занято файлом").unwrap();
+
+        let exports = tmp.path().join("exports");
+        std::fs::create_dir_all(&exports).unwrap();
+        std::fs::write(exports.join("report.md"), "# Report").unwrap();
+
+        let result = persist_step_exports(&campaign_dir, "step-1", &exports);
+        assert!(result.copied.is_empty());
+        assert_eq!(result.failed.len(), 1);
+        assert_eq!(result.failed[0].0, "report.md");
     }
 
     #[test]
