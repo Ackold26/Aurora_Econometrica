@@ -63,7 +63,28 @@ const SIDECAR_CONFIG: SidecarConfig = SidecarConfig {
     legacy_port: 7430,
     identifier_dir: env!("AURORA_APP_IDENTIFIER"),
     process_exe_hint: "econometrica-sidecar",
+    extra_image_hints: SIDECAR_IMAGE_HINTS,
 };
+
+/// Дополнительные допустимые имена образа движка.
+///
+/// В отладочной сборке `spawn_sidecar_proc` идёт сразу в `spawn_python_dev` —
+/// движок там действительно запускается интерпретатором (`python -B server.py`),
+/// поэтому имя образа процесса — `python.exe`.
+///
+/// 🔴 В релизной сборке движок — собранный `econometrica-sidecar.exe`, и список
+/// пуст намеренно. Прежде `python`/`pythonw` принимались безусловно и в релизе:
+/// этого хватало, чтобы под проверку подпал любой Jupyter, Anaconda, языковой
+/// модуль редактора или движок соседнего продукта Aurora (у Docs Lab и Smart
+/// Analytica движок RAG — буквально `python.exe`), запущенный тем же
+/// пользователем. Аварийный откат релиза на `spawn_python_dev` существует, но
+/// требует `server.py` рядом с приложением, чего в поставке нет; если такой
+/// откат всё же сработал (запуск из рабочей копии), зомби-движок просто не будет
+/// снят, а порт возьмётся свободный через `allocate_port`.
+#[cfg(debug_assertions)]
+const SIDECAR_IMAGE_HINTS: &[&str] = &["python", "pythonw"];
+#[cfg(not(debug_assertions))]
+const SIDECAR_IMAGE_HINTS: &[&str] = &[];
 
 const MAX_CONSECUTIVE_FAILS: u32 = 5;
 const BANNED_COOLDOWN_SECS: u64 = 300;
@@ -226,51 +247,73 @@ async fn is_healthy_and_ours(port: u16, expected_session: Option<&str>) -> bool 
 
 // ── Port cleanup (zombie kill) ───────────────────────────────────────────────
 
-/// Снятие зависшего движка по ЗАПИСАННОМУ нами идентификатору процесса - только если он
-/// принадлежит текущему OS-пользователю И имеет подходящее image name.
-/// На multi-user RDP - НЕ убиваем чужих юзеров.
+/// Снятие зависшего движка по ЗАПИСАННОМУ нами файлу состояния - только если процесс
+/// действительно наш: тот же пользователь, тот же образ И создан в окне вокруг записанного
+/// нами `started_at`.
 ///
-/// 🔴 2026-08-12: раньше идентификатор искали через `cmd /C "netstat -ano | findstr :порт"`.
-/// Поиск был ИЗБЫТОЧЕН: мы сами записываем pid движка в файл состояния при запуске
-/// (`write_initial_state`), то есть он известен во всех трёх точках вызова. Ради уже
-/// имеющегося числа порождались три скрытых консольных процесса (`cmd` → `netstat` →
-/// `findstr`), и получалась связка «разведка процессов по порту → снятие найденного», которую
-/// поведенческая защита антивируса разбирает как вредоносную (10.08 Kaspersky снял оболочку
-/// продукта с диска у пользователя, вердикт PDM:Trojan.Win32.Generic — поведенческий).
-/// Защита от чужого процесса не ослабла: `is_our_process_and_user` по-прежнему проверяет
-/// владельца и имя образа, а идентификатор теперь берётся из нашей же записи, а не из
-/// разбора чужого вывода.
+/// 🔴 2026-08-12 (CPD-77): раньше идентификатор искали через
+/// `cmd /C "netstat -ano | findstr :порт"`. Поиск был ИЗБЫТОЧЕН: мы сами записываем pid движка
+/// в файл состояния при запуске (`write_initial_state`), то есть он известен во всех трёх точках
+/// вызова. Ради уже имеющегося числа порождались три скрытых консольных процесса (`cmd` →
+/// `netstat` → `findstr`), и получалась связка «разведка процессов по порту → снятие
+/// найденного», которую поведенческая защита антивируса разбирает как вредоносную (10.08
+/// Kaspersky снял оболочку продукта с диска у пользователя, вердикт PDM:Trojan.Win32.Generic —
+/// поведенческий).
+///
+/// 🔴 2026-08-14 (CPD-79, регресс той правки): вместе с разбором вывода `netstat` пропала
+/// нигде не записанная гарантия — найденный процесс был ДЕРЖАТЕЛЕМ НАШЕГО ПОРТА, то есть почти
+/// наверняка наш. Именно на неё молча опиралась слабая последующая проверка, а вместе с ней
+/// исчезла и она; в комментарии при этом было заявлено, что защита не ослабла — это неверно.
+/// Файл состояния переживает завершение процесса (`delete_state_file` вызывается только на трёх
+/// штатных путях: протухшая запись, принудительный перезапуск, штатное закрытие), после
+/// перезагрузки Windows раздаёт номера процессов заново, а снятие идёт деревом
+/// (`taskkill /T /F`). Пользователь с открытым Jupyter, Anaconda или соседним продуктом Aurora
+/// мог получить молча убитый расчёт. Решение теперь принимает `sidecar_runtime::should_kill`,
+/// где решающая проверка — время создания процесса против `started_at`.
 #[cfg(windows)]
-fn kill_sidecar_pid(pid: u32) {
+fn kill_sidecar_from_state(state: &SidecarState) {
+    use crate::sidecar_runtime::KillVerdict;
     use std::os::windows::process::CommandExt;
+    let pid = state.pid;
     if pid == 0 {
         return;
     }
-    if !sidecar_runtime::is_our_process_and_user(pid, &SIDECAR_CONFIG) {
-        warn!("PID={pid} не наш процесс или другого пользователя - не трогаем");
+    // Защита от самоубийства: если номер вдруг совпал с нашим собственным, `taskkill /T /F`
+    // снял бы оболочку вместе со всем деревом.
+    if pid == std::process::id() {
+        warn!("PID={pid} совпал с идентификатором самой оболочки - не трогаем");
         return;
     }
-    info!("Killing zombie sidecar PID={pid}");
-    let _ = Command::new("taskkill")
-        .args(["/PID", &pid.to_string(), "/T", "/F"])
-        .creation_flags(0x08000000)
-        .output();
+
+    let observed = sidecar_runtime::observe_process(pid);
+    match sidecar_runtime::should_kill(state, &observed, &SIDECAR_CONFIG, &current_user_name()) {
+        KillVerdict::Kill => {
+            info!("Killing zombie sidecar PID={pid}");
+            let _ = Command::new("taskkill")
+                .args(["/PID", &pid.to_string(), "/T", "/F"])
+                .creation_flags(0x08000000)
+                .output();
+        }
+        KillVerdict::Skip(reason) => {
+            warn!("PID={pid} не снимаем: {reason}");
+        }
+    }
 }
 
 #[cfg(not(windows))]
-fn kill_sidecar_pid(_pid: u32) {
+fn kill_sidecar_from_state(_state: &SidecarState) {
     if let Some(mut child) = take_child() {
         let _ = child.kill();
         let _ = child.wait_timeout(CHILD_WAIT_TIMEOUT);
     }
 }
 
-/// То же, но идентификатор читается из файла состояния - для точек, где состояние
-/// не держится в руках. Отсутствие файла = снимать нечего (наш дочерний процесс
-/// в памяти закрывается вызывающей стороной через `take_child`).
+/// То же, но состояние читается из файла - для точек, где оно не держится в руках.
+/// Отсутствие файла = снимать нечего (наш дочерний процесс в памяти закрывается
+/// вызывающей стороной через `take_child`).
 fn kill_known_sidecar() {
     match read_state_file(&SIDECAR_CONFIG) {
-        Some(state) => kill_sidecar_pid(state.pid),
+        Some(state) => kill_sidecar_from_state(&state),
         None => debug!("Файла состояния нет - идентификатор движка неизвестен, снимать нечего"),
     }
 }
@@ -400,8 +443,9 @@ pub fn start_sidecar(app_handle: &AppHandle) {
             "Sidecar state file stale (session_id/product mismatch or dead). \
              Cleaning up and respawning."
         );
-        // Попытка убить старый процесс (только наш + наш юзер) по записанному нами pid
-        kill_sidecar_pid(state.pid);
+        // Попытка убить старый процесс по нашей же записи - только если он выдержит все
+        // проверки `should_kill` (пользователь, образ, время создания против started_at).
+        kill_sidecar_from_state(&state);
         delete_state_file(&SIDECAR_CONFIG);
     }
 
