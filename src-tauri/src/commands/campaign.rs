@@ -598,6 +598,12 @@ pub fn persist_step_exports(campaign_dir: &Path, step_id: &str, exports_dir: &Pa
 /// Итог `forward_exports_to_inbox` — зеркало [`PersistExportsResult`] по смыслу этой
 /// функции: она не сохраняет в архив, а передаёт во входящие следующего шага.
 ///
+/// CPD-81 (вторая функция того же класса): раньше отказ `fs::copy` отбрасывался
+/// (`let _ =`), а имя файла всё равно попадало в список «передано» — вызывающий код
+/// не мог узнать о потере. Источник (`persist_step_exports` уже сохранил его в
+/// `campaign_dir/steps/...`) при отказе здесь не пропадает — только не появится во
+/// входящих следующего шага, поэтому неполнота не необратима, но должна быть видна.
+///
 /// 🔴 Аудит 2.4.9, High-4: те же три проглоченных пути, что и в `persist_step_exports`
 /// (`create_dir_all` каталога входящих, `read_dir` каталога-источника, определение типа
 /// записи). Цена ошибки здесь ниже — файлы остаются в архиве кампании, теряется не
@@ -660,6 +666,12 @@ pub fn forward_exports_to_inbox(
                         continue;
                     }
                 }
+                // Совпадение имени здесь не переименовывается (в отличие от
+                // persist_step_exports/unique_export_path): входящие следующего
+                // шага — рабочая папка одного запуска, а не архив кампании, и
+                // повторная передача того же файла — обычный, а не аварийный
+                // случай (перезапуск шага, повтор пайплайна). Счётчик в имени
+                // только запутал бы Claude, читающего inbox.
                 match std::fs::copy(entry.path(), inbox.join(&name)) {
                     Ok(_) => result.forwarded.push(name),
                     Err(e) => {
@@ -1148,6 +1160,27 @@ mod tests {
         assert!(result.fatal.is_some());
         // Источник цел: здесь потери данных нет, теряется контекст шага.
         assert!(prev_exports.join("summary.md").exists());
+    }
+
+    /// CPD-81 (вторая функция): при совпадении имени файл во входящих ПЕРЕЗАПИСЫВАЕТСЯ
+    /// намеренно (без unique_export_path) — повторная передача того же файла считается
+    /// обычным случаем (перезапуск шага), решение обосновано в комментарии над функцией.
+    #[test]
+    fn forward_exports_to_inbox_name_collision_overwrites_by_design() {
+        let tmp = tempfile::tempdir().unwrap();
+        let prev_exports = tmp.path().join("prev-exports");
+        std::fs::create_dir_all(&prev_exports).unwrap();
+        std::fs::write(prev_exports.join("summary.md"), "НОВЫЙ").unwrap();
+
+        let next_workspace = tmp.path().join("next-workspace");
+        let inbox = next_workspace.join("inbox");
+        std::fs::create_dir_all(&inbox).unwrap();
+        std::fs::write(inbox.join("summary.md"), "СТАРЫЙ").unwrap();
+
+        let result = forward_exports_to_inbox(&prev_exports, &next_workspace);
+        assert_eq!(result.forwarded, vec!["summary.md".to_string()]);
+        assert!(result.failed.is_empty());
+        assert_eq!(std::fs::read_to_string(inbox.join("summary.md")).unwrap(), "НОВЫЙ");
     }
 
     #[test]
