@@ -6,6 +6,7 @@ pub mod errors;
 pub mod metrics;
 pub mod session;
 pub mod sidecar_runtime;
+pub mod win_acl;
 
 use commands::{brand, cabinet, claude, content_pack, content_updater, feedback, license, online_auth, parser, rag_client, updater, user_config, vault};
 use session::manager::SessionManager;
