@@ -1,661 +1,1956 @@
-diff --git a/CHANGELOG.md b/CHANGELOG.md
-index 976bb9c..51db42b 100644
---- a/CHANGELOG.md
-+++ b/CHANGELOG.md
-@@ -2,6 +2,15 @@
+diff --git a/src-tauri/src/commands/campaign.rs b/src-tauri/src/commands/campaign.rs
+index bc82247..1051806 100644
+--- a/src-tauri/src/commands/campaign.rs
++++ b/src-tauri/src/commands/campaign.rs
+@@ -1,4 +1,4 @@
+-use log::info;
++use log::{info, warn};
+ use serde::{Deserialize, Serialize};
+ use std::path::{Path, PathBuf};
  
- ---
- 
-+## v2.4.8 — устранена молчаливая потеря результата клиента (CPD-69, CPD-70) + снижение антивирусной поверхности (2026-08-13)
-+
-+- **Папка выдачи больше не стирается при запуске (CPD-69):** очистка рабочей папки кабинета при старте программы задевала не только временные входящие файлы, но и уже готовые документы клиента (папка `exports`) — без предупреждения, без корзины. Перечень очищаемых каталогов сведён к одному только `inbox`.
-+- **Повторный экспорт больше не перезаписывает готовый документ молча (CPD-70):** сохранение отчёта (md/docx/xlsx/pptx/html) по вычисленному имени без проверки существования файла приводило к тихой потере прежнего результата при повторной генерации. Занятое имя теперь получает счётчик рядом («имя (2)», «имя (3)» и так далее), прежний файл не трогается.
-+- **Антивирусная поверхность снижена:** убран пакет, маскировавший публичный по конструкции ключ (ложный сигнал антивируса при нулевой пользе), мёртвый код в установщике, заполнены метаданные версии исполняемого файла.
-+- Версии 2.4.6/2.4.7 не выпускались клиентам — подвешены владельцем 12.08 из-за живого поведенческого детекта антивируса на той сборке (причина не в коде продукта, разбирается отдельно с вендором); выпуск продолжен под новым номером.
-+
-+---
-+
- ## v2.4.5 — канон честности MMM-методологии + починка облачного контура + единый источник вердикта надёжности + советник «Аврора» (2026-08-09)
- 
- Крупная консолидация: слияние долгоживущей линии `feat/econ-canon-p0` (девять блоков P0.1–P0.9, около семи недель работы) в основную ветку записью `49c09b2`. Между этой записью и предыдущей (v2.1.0, 2026-06-14) в этом файле образовался разрыв — версии 2.2.0–2.4.4 сюда не попали, хотя реально выходили (в них — переход на общий облачный контракт узла-шлюза, feature `thin`, локальная редакция collection). Восстанавливать их задним числом не стали (отдельная работа) — эта запись описывает то, что накопилось с 2026-06-20 по дату слияния.
-diff --git a/package.json b/package.json
-index 74121b9..fc6b8a8 100644
---- a/package.json
-+++ b/package.json
-@@ -1,6 +1,6 @@
- {
-   "name": "aurora-ai-agency",
--  "version": "2.4.7",
-+  "version": "2.4.8",
-   "description": "",
-   "type": "module",
-   "scripts": {
-diff --git a/sidecar/econometrica/engines/html_export.py b/sidecar/econometrica/engines/html_export.py
-index 6b521ec..8187225 100644
---- a/sidecar/econometrica/engines/html_export.py
-+++ b/sidecar/econometrica/engines/html_export.py
-@@ -28,6 +28,7 @@ from pathlib import Path
- from typing import Any
- 
- from .narrative_adapter import _map_pipeline_to_builder_data
-+from utils.safe_io import unique_export_path
- 
- logger = logging.getLogger('econometrica')
- 
-@@ -99,8 +100,12 @@ def build_html(
-         initial_theme: 'light' | 'dark' | 'fun' (default 'light').
- 
-     Returns:
--        {"status": "ok", "path": ..., "size_kb": ...}
-+        {"status": "ok", "path": ..., "size_kb": ..., "renamed": False}
-         or {"status": "error", "message": ..., "type": ...} on failure.
-+
-+        "renamed": True если output_path уже существовал — файл сохранён
-+        рядом со счётчиком ("имя (2).html" и т.д.), "path" отражает
-+        фактическое итоговое имя (CPD-70).
-     """
-     try:
-         from aurora_html import build_html as _aurora_build
-@@ -144,13 +149,20 @@ def build_html(
- 
-         out_path = Path(output_path)
-         out_path.parent.mkdir(parents=True, exist_ok=True)
--        out_path.write_text(html, encoding='utf-8')
--        size_kb = out_path.stat().st_size / 1024.0
--        logger.info(f'HTML export OK: {out_path} ({size_kb:.1f} KB)')
-+        final_path = unique_export_path(out_path)
-+        renamed = final_path != out_path
-+        if renamed:
-+            logger.warning(
-+                f'build_html: {out_path} уже существует, сохраняю как {final_path}'
-+            )
-+        final_path.write_text(html, encoding='utf-8')
-+        size_kb = final_path.stat().st_size / 1024.0
-+        logger.info(f'HTML export OK: {final_path} ({size_kb:.1f} KB)')
-         return {
-             'status': 'ok',
--            'path': str(out_path),
-+            'path': str(final_path),
-             'size_kb': round(size_kb, 1),
-+            'renamed': renamed,
-         }
-     except Exception as e:
-         logger.exception('HTML export failed')
-diff --git a/sidecar/econometrica/engines/planning.py b/sidecar/econometrica/engines/planning.py
-index 50daae1..b8bd9ad 100644
---- a/sidecar/econometrica/engines/planning.py
-+++ b/sidecar/econometrica/engines/planning.py
-@@ -21,6 +21,8 @@ from typing import Any
- 
- import pandas as pd
- 
-+from utils.safe_io import unique_export_path
-+
- logger = logging.getLogger(__name__)
- 
- # Размер блока для хэша (первые 512 КБ — дёшево, детерминированно)
-@@ -468,7 +470,10 @@ def generate_media_plan_template(project_dir: str, n_future_periods: int = 12) -
-        - даты продолжены от последней исторической с правильной гранулярностью,
-        - медиа-колонки и KPI — пустые (NaN).
-     4. Атомарная запись в <project_dir>/exports/media_plan_template.xlsx.
--    5. Возвращает {'status': 'ok', 'path': '<абс. путь к файлу>'}.
-+       CPD-70: если имя уже занято (шаблон уже сформирован и, возможно,
-+       заполнен клиентом) — файл ложится рядом со счётчиком
-+       ("media_plan_template (2).xlsx" и т.д.), прежний не трогается.
-+    5. Возвращает {'status': 'ok', 'path': '<абс. путь к файлу>', 'renamed': bool}.
- 
-     Ошибки: {'status': 'error', 'message': '...'}.
-     """
-@@ -603,7 +608,14 @@ def generate_media_plan_template(project_dir: str, n_future_periods: int = 12) -
-     # Атомарная запись
-     exports_dir = base / "exports"
-     exports_dir.mkdir(parents=True, exist_ok=True)
--    out_path = exports_dir / "media_plan_template.xlsx"
-+    # CPD-70: не затирать молча уже существующий (возможно, заполненный
-+    # клиентом) шаблон — при коллизии сохраняем рядом со счётчиком.
-+    out_path = unique_export_path(exports_dir / "media_plan_template.xlsx")
-+    renamed = out_path.name != "media_plan_template.xlsx"
-+    if renamed:
-+        logger.warning(
-+            "generate_media_plan_template: шаблон уже существует, сохраняю как %s", out_path
-+        )
- 
-     tmp_fd, tmp_name = tempfile.mkstemp(dir=exports_dir, prefix=".mpt_", suffix=".tmp")
-     try:
-@@ -620,7 +632,7 @@ def generate_media_plan_template(project_dir: str, n_future_periods: int = 12) -
-         raise
- 
-     logger.info("media_plan_template: записан %s (%d history + %d future)", out_path, len(history_df), n_future_periods)
--    return {"status": "ok", "path": str(out_path)}
-+    return {"status": "ok", "path": str(out_path), "renamed": renamed}
- 
- 
- # ─── Подтверждение медиаплана ─────────────────────────────────────────────────
-diff --git a/sidecar/econometrica/engines/pptx_export.py b/sidecar/econometrica/engines/pptx_export.py
-index bb9dc0a..abbbaee 100644
---- a/sidecar/econometrica/engines/pptx_export.py
-+++ b/sidecar/econometrica/engines/pptx_export.py
-@@ -30,8 +30,11 @@ callouts (MQS/R²/MAPE/R-hat/ESS).
- from __future__ import annotations
- 
- import logging
-+from pathlib import Path
- from typing import Any
- 
-+from utils.safe_io import unique_export_path
-+
- # Narrative adapter functions promoted to shared module so HTML builder
- # consumes the same business-logic (leader/hero/verdict, narrative facts,
- # pipeline mapping). Re-exported here for backward compat with callers that
-@@ -80,8 +83,13 @@ def build_pptx(
-                     cover until pipeline exposes a dedicated display name.
- 
-     Returns:
--        {"status": "ok", "path": ..., "slides": 13}
-+        {"status": "ok", "path": ..., "slides": 13, "renamed": False}
-         or {"status": "error", "message": ..., "type": ...} on failure.
-+
-+        "renamed": True если output_path уже существовал — файл сохранён
-+        рядом со счётчиком ("имя (2).pptx" и т.д.), "path" отражает
-+        фактическое итоговое имя (CPD-70: повторная генерация не должна
-+        молча затирать прежний клиентский документ).
-     """
-     try:
-         from aurora_pptx import build_pptx as _aurora_build
-@@ -98,13 +106,20 @@ def build_pptx(
-             forecast=forecast,
-         )
-         prs = _aurora_build(data=data, lang="ru")
--        prs.save(output_path)
-+        final_path = unique_export_path(output_path)
-+        renamed = final_path != Path(output_path)
-+        if renamed:
-+            logger.warning(
-+                f"build_pptx: {output_path} уже существует, сохраняю как {final_path}"
-+            )
-+        prs.save(str(final_path))
-         slides_count = len(prs.slides)
--        logger.info(f"build_pptx OK: slides={slides_count} path={output_path}")
-+        logger.info(f"build_pptx OK: slides={slides_count} path={final_path}")
-         return {
-             "status": "ok",
--            "path": output_path,
-+            "path": str(final_path),
-             "slides": slides_count,
-+            "renamed": renamed,
-         }
-     except Exception as e:
-         logger.exception("build_pptx FAILED")
-diff --git a/sidecar/econometrica/tests/test_safe_io.py b/sidecar/econometrica/tests/test_safe_io.py
-index 024b9db..97ffff8 100644
---- a/sidecar/econometrica/tests/test_safe_io.py
-+++ b/sidecar/econometrica/tests/test_safe_io.py
-@@ -15,6 +15,7 @@ from utils.safe_io import (
-     safe_backup_with_checksum,
-     cleanup_stale_backups,
-     compute_file_sha256,
-+    unique_export_path,
- )
- 
- 
-@@ -159,6 +160,40 @@ class TestCleanupStaleBackups:
-         assert removed == []
- 
- 
-+class TestUniqueExportPath:
-+    """CPD-70: повторная генерация клиентского документа не должна молча
-+    затирать прежний результат — свободный путь возвращается как есть,
-+    занятый получает счётчик "(2)", "(3)" и т.д."""
-+
-+    def test_free_path_returned_as_is(self, tmp_path):
-+        target = tmp_path / 'report.pptx'
-+        assert unique_export_path(target) == target
-+
-+    def test_occupied_path_gets_counter_2(self, tmp_path):
-+        target = tmp_path / 'report.pptx'
-+        target.write_bytes(b'existing content')
-+        result = unique_export_path(target)
-+        assert result == tmp_path / 'report (2).pptx'
-+
-+    def test_base_and_2_occupied_gets_counter_3(self, tmp_path):
-+        target = tmp_path / 'report.pptx'
-+        target.write_bytes(b'v1')
-+        (tmp_path / 'report (2).pptx').write_bytes(b'v2')
-+        result = unique_export_path(target)
-+        assert result == tmp_path / 'report (3).pptx'
-+
-+    def test_original_file_untouched(self, tmp_path):
-+        """Гейт не должен трогать/перезаписывать исходный занятый файл."""
-+        target = tmp_path / 'report.pptx'
-+        target.write_bytes(b'original content')
-+        unique_export_path(target)
-+        assert target.read_bytes() == b'original content'
-+
-+    def test_missing_parent_dir_treated_as_free(self, tmp_path):
-+        target = tmp_path / 'nope' / 'report.pptx'
-+        assert unique_export_path(target) == target
-+
-+
- def os_set_mtime(path: Path, mtime: float):
-     """Helper для setting file mtime for sort tests."""
-     import os
-diff --git a/sidecar/econometrica/utils/safe_io.py b/sidecar/econometrica/utils/safe_io.py
-index 8830e90..f9297ee 100644
---- a/sidecar/econometrica/utils/safe_io.py
-+++ b/sidecar/econometrica/utils/safe_io.py
-@@ -153,6 +153,33 @@ def safe_backup_with_checksum(src: Path | str, *, suffix: str = '.bak') -> tuple
-     return backup, sha
- 
- 
-+def unique_export_path(path: Path | str) -> Path:
-+    """Вернуть свободный путь для сохранения клиентского документа (CPD-70).
-+
-+    Если `path` уже занят — подбирает `<имя> (2)<расширение>`,
-+    `<имя> (3)<расширение>` и т.д., пока не найдётся свободное имя. Свободный
-+    путь возвращается как есть, без изменений.
-+
-+    Не создаёт и не блокирует файл — только вычисляет путь; вызывающая
-+    сторона решает, что с ним делать (save/write/replace). Каталог `path`
-+    может не существовать — .exists() тогда просто вернёт False.
-+
-+    Используется перед сохранением ГОТОВОГО документа клиента (pptx/xlsx/html
-+    и т.п.), чтобы повторная генерация не затирала прежний результат молча —
-+    класс дефекта «молчаливая потеря результата клиента» (CPD-70).
-+    """
-+    target = Path(path)
-+    if not target.exists():
-+        return target
-+    stem, suffix, parent = target.stem, target.suffix, target.parent
-+    n = 2
-+    while True:
-+        candidate = parent / f'{stem} ({n}){suffix}'
-+        if not candidate.exists():
-+            return candidate
-+        n += 1
-+
-+
- def cleanup_stale_backups(
-     project_dir: Path | str,
-     *,
-diff --git a/sidecar/econometrica/version_info.txt b/sidecar/econometrica/version_info.txt
-index c517d4f..aadd3ab 100644
---- a/sidecar/econometrica/version_info.txt
-+++ b/sidecar/econometrica/version_info.txt
-@@ -14,7 +14,7 @@
- #
- # Издатель и copyright — как в оболочке Tauri (src-tauri/tauri.conf.json:
- # "publisher": "Aurora Platform LLC", "copyright": "© 2026 Aurora Platform LLC").
--# Версия — как в src-tauri/Cargo.toml / tauri.conf.json (2.4.6).
-+# Версия — как в src-tauri/Cargo.toml / tauri.conf.json (2.4.8).
- #
- # 🔴 Версия здесь СТАТИЧЕСКАЯ строка — при каждом бампе версии продукта обновлять
- # И filevers/prodvers, И обе строки FileVersion/ProductVersion ниже вручную.
-@@ -28,8 +28,8 @@
- # те же числа в десятичном виде.
- VSVersionInfo(
-   ffi=FixedFileInfo(
--    filevers=(2, 4, 7, 0),
--    prodvers=(2, 4, 7, 0),
-+    filevers=(2, 4, 8, 0),
-+    prodvers=(2, 4, 8, 0),
-     mask=0x3f,
-     flags=0x0,
-     OS=0x40004,       # VOS_NT_WINDOWS32
-@@ -45,12 +45,12 @@ VSVersionInfo(
-           [
-             StringStruct('CompanyName', 'Aurora Platform LLC'),
-             StringStruct('FileDescription', 'Aurora AI Econometrica — расчётный движок (Marketing Mix Modeling)'),
--            StringStruct('FileVersion', '2.4.7.0'),
-+            StringStruct('FileVersion', '2.4.8.0'),
-             StringStruct('InternalName', 'econometrica-sidecar'),
-             StringStruct('LegalCopyright', '© 2026 Aurora Platform LLC'),
-             StringStruct('OriginalFilename', 'econometrica-sidecar.exe'),
-             StringStruct('ProductName', 'Aurora AI Econometrica Optimizer MMM'),
--            StringStruct('ProductVersion', '2.4.7.0'),
-+            StringStruct('ProductVersion', '2.4.8.0'),
-           ],
-         )
-       ]
-diff --git a/src-tauri/Cargo.toml b/src-tauri/Cargo.toml
-index 5678720..377f0e6 100644
---- a/src-tauri/Cargo.toml
-+++ b/src-tauri/Cargo.toml
-@@ -1,6 +1,6 @@
- [package]
- name = "aurora-econometrica-gui"
--version = "2.4.7"
-+version = "2.4.8"
- description = "Aurora AI Econometrica - Marketing Mix Modeling with Claude AI"
- authors = ["Ackold"]
- edition = "2021"
-diff --git a/src-tauri/src/commands/claude.rs b/src-tauri/src/commands/claude.rs
-index a2714cb..6fcad01 100644
---- a/src-tauri/src/commands/claude.rs
-+++ b/src-tauri/src/commands/claude.rs
-@@ -595,7 +595,14 @@ async fn run_claude_inner(
-                     let filename = format!("{}-{}-partial.md", slug, timestamp);
-                     let exports_dir = work_dir.join("exports");
-                     let _ = std::fs::create_dir_all(&exports_dir);
--                    let _ = std::fs::write(exports_dir.join(&filename), &partial_text);
-+                    // CPD-70: секундная точность таймстемпа не спасает от коллизии при
-+                    // нескольких повторяемых ошибках подряд (retry без задержки) — тот же
-+                    // exports/ виден клиенту в списке файлов, второй partial-снимок не должен
-+                    // тихо стереть диагностику первого.
-+                    let partial_path = crate::commands::unique_export_path(
-+                        &exports_dir.join(&filename),
-+                    );
-+                    let _ = std::fs::write(&partial_path, &partial_text);
-                 }
-             }
-         }
-@@ -662,7 +669,19 @@ pub(crate) fn auto_save_response(
-     let filename = format!("{}-{}{}.md", slug, timestamp, suffix);
-     let exports_dir = work_dir.join("exports");
-     let _ = std::fs::create_dir_all(&exports_dir);
--    let export_path = exports_dir.join(&filename);
-+    // CPD-70: повторный экспорт в тот же каталог (обычное дело — пользователь запустил
-+    // команду дважды в ту же секунду) раньше молча затирал предыдущий результат клиента.
-+    // При коллизии имя получает суффикс-счётчик, файл ложится рядом, ничего не теряется.
-+    let candidate_path = exports_dir.join(&filename);
-+    let export_path = crate::commands::unique_export_path(&candidate_path);
-+    let renamed = export_path != candidate_path;
-+    if renamed {
-+        warn!(
-+            "Экспорт переименован во избежание перезаписи [{cabinet_id}]: {} → {}",
-+            candidate_path.display(),
-+            export_path.display()
-+        );
-+    }
- 
-     match std::fs::write(&export_path, final_text) {
-         Ok(_) => {
-@@ -673,7 +692,7 @@ pub(crate) fn auto_save_response(
-             convert_to_xlsx(&export_path);
-             let _ = app_handle.emit(
-                 &format!("exports-updated-{cabinet_id}"),
--                serde_json::json!({}),
-+                serde_json::json!({ "renamed": renamed }),
-             );
-         }
-         Err(e) => warn!("Failed to auto-save response: {e}"),
-@@ -860,7 +879,10 @@ fn convert_to_xlsx(md_path: &std::path::Path) {
-         return;
+@@ -461,24 +461,61 @@ pub fn summarize_step_exports(exports_dir: &Path) -> String {
      }
- 
--    let xlsx_path = md_path.with_extension("xlsx");
-+    // CPD-70: имя xlsx обычно уже уникально (наследует уникальный стем export_path
-+    // из auto_save_response), но защита ставится прямо на точке сохранения — не полагаемся
-+    // на то, что вызывающая сторона всегда прогонит путь через unique_export_path.
-+    let xlsx_path = crate::commands::unique_export_path(&md_path.with_extension("xlsx"));
-     let mut workbook = rust_xlsxwriter::Workbook::new();
- 
-     for (i, table) in tables.iter().enumerate() {
-diff --git a/src-tauri/src/commands/mod.rs b/src-tauri/src/commands/mod.rs
-index c03cbcd..7dd15ec 100644
---- a/src-tauri/src/commands/mod.rs
-+++ b/src-tauri/src/commands/mod.rs
-@@ -26,3 +26,65 @@ pub mod report;
- pub mod updater;
- pub mod user_config;
- pub mod vault;
-+
-+use std::path::{Path, PathBuf};
-+
-+/// Свободное имя файла рядом с `path` — CPD-70: готовый документ клиента (docx/xlsx/md-отчёт)
-+/// не должен молча затираться повторным экспортом в тот же каталог под тем же именем.
-+/// Свободное имя возвращается как есть. Занятое — получает суффикс-счётчик перед
-+/// расширением: `отчёт.docx` занято → `отчёт (2).docx` → `отчёт (3).docx` и так далее, пока
-+/// не найдётся свободное. Файл на диск не создаётся — только вычисляется путь, запись
-+/// остаётся на вызывающей стороне (TOCTOU-окно между вызовом и записью неизбежно при таком
-+/// API, но устраняет РЕГУЛЯРНЫЙ случай — повторный ручной экспорт, а не гонку потоков).
-+pub fn unique_export_path(path: &Path) -> PathBuf {
-+    if !path.exists() {
-+        return path.to_path_buf();
-+    }
-+    let parent = path.parent().unwrap_or_else(|| Path::new(""));
-+    let stem = path.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
-+    let ext = path.extension().map(|e| e.to_string_lossy().to_string());
-+    let mut n: u32 = 2;
-+    loop {
-+        let candidate_name = match &ext {
-+            Some(ext) => format!("{stem} ({n}).{ext}"),
-+            None => format!("{stem} ({n})"),
-+        };
-+        let candidate = parent.join(candidate_name);
-+        if !candidate.exists() {
-+            return candidate;
-+        }
-+        n += 1;
-+    }
-+}
-+
-+#[cfg(test)]
-+mod unique_export_path_tests {
-+    use super::unique_export_path;
-+    use std::fs;
-+
-+    #[test]
-+    fn free_name_returned_as_is() {
-+        let tmp = tempfile::tempdir().unwrap();
-+        let path = tmp.path().join("отчёт.docx");
-+        assert_eq!(unique_export_path(&path), path);
-+    }
-+
-+    #[test]
-+    fn one_collision_gets_counter_two() {
-+        let tmp = tempfile::tempdir().unwrap();
-+        let path = tmp.path().join("отчёт.docx");
-+        fs::write(&path, b"existing").unwrap();
-+        let expected = tmp.path().join("отчёт (2).docx");
-+        assert_eq!(unique_export_path(&path), expected);
-+    }
-+
-+    #[test]
-+    fn two_collisions_get_counter_three() {
-+        let tmp = tempfile::tempdir().unwrap();
-+        let path = tmp.path().join("отчёт.docx");
-+        fs::write(&path, b"existing").unwrap();
-+        fs::write(tmp.path().join("отчёт (2).docx"), b"existing2").unwrap();
-+        let expected = tmp.path().join("отчёт (3).docx");
-+        assert_eq!(unique_export_path(&path), expected);
-+    }
-+}
-diff --git a/src-tauri/src/commands/report.rs b/src-tauri/src/commands/report.rs
-index 8ff5b6b..363c1f4 100644
---- a/src-tauri/src/commands/report.rs
-+++ b/src-tauri/src/commands/report.rs
-@@ -899,7 +899,10 @@ pub async fn econ_generate_report(
-     let exports = exports_dir(&project_id)?;
-     let ts = Local::now().format("%Y%m%d_%H%M%S");
-     let filename = format!("mmm_report_{ts}.md");
--    let path = exports.join(&filename);
-+    // CPD-70: секундная точность таймстемпа не спасает от коллизии при двух экспортах
-+    // подряд (обычный сценарий — повторный запуск шага «Отчёт») — повторный экспорт не
-+    // должен молча стереть предыдущий отчёт клиента.
-+    let path = crate::commands::unique_export_path(&exports.join(&filename));
- 
-     let report = build_markdown(&model_data, &decompose_data, &optimize_data);
-     let summary = extract_summary(&report);
-@@ -942,7 +945,11 @@ pub async fn econ_export_xlsx(
-         let version = detect_version(&exports, &slug);
-         format!("Aurora_Econometrica_{slug}_Model_{date}_v{version:02}.xlsx")
-     };
--    let path = exports.join(&filename);
-+    // CPD-70: detect_version уже разводит обычный случай по номеру версии, но не спасает
-+    // пустой slug (секундный таймстемп-fallback выше) и гонку конкурентных экспортов —
-+    // защита ставится здесь, ДО вызова build_xlsx, чтобы путь, который реально пишется
-+    // на диск, и путь, возвращаемый клиенту в ответе, всегда совпадали.
-+    let path = crate::commands::unique_export_path(&exports.join(&filename));
- 
-     // Сценарии - опциональные. Если папки нет / JSON невалиден - пустой vec,
-     // лист «Сценарии» просто не добавится.
-diff --git a/src-tauri/src/lib.rs b/src-tauri/src/lib.rs
-index 20c50fe..927e50d 100644
---- a/src-tauri/src/lib.rs
-+++ b/src-tauri/src/lib.rs
-@@ -1837,25 +1837,44 @@ fn clear_chat_history(cabinet_id: String) -> Result<(), String> {
-     session::history::clear_history(&cabinet_id).map_err(|e| e.to_string())
  }
  
--/// Clear inbox and exports files in the persistent workspace (clean start).
--/// Files on Desktop are removed from the UI - user can re-add them.
--#[tauri::command]
--fn clear_workspace_files(cabinet_id: String, app_handle: tauri::AppHandle) -> Result<(), String> {
--    cabinet::validate_cabinet_id(&cabinet_id)?;
--    let config_dir = app_handle.path().app_config_dir().map_err(|e| e.to_string())?;
--    let workspace = user_config::get_cabinet_workspace(&config_dir, &cabinet_id)?;
--
--    for dir_name in &["inbox", "exports"] {
-+/// Каталоги workspace, которые чистятся при каждом запуске приложения (clean start).
-+/// ТОЛЬКО inbox: это исходники одного прогона, им незачем всплывать в следующем запуске.
-+/// "exports" здесь БЫТЬ НЕ ДОЛЖНО — это выдача клиента (готовые документы на его Рабочем
-+/// столе), результат человеческой работы, а не временный мусор сессии (CPD-69: тихо
-+/// стирались файлы клиента мимо корзины при каждом старте).
-+const WORKSPACE_DIRS_CLEARED_ON_START: &[&str] = &["inbox"];
++/// Итог `persist_step_exports`: что реально скопировалось и что не вышло.
++///
++/// CPD-81: раньше отказ `fs::copy` отбрасывался (`let _ =`), а имя файла всё равно
++/// попадало в список «скопировано» — вызывающий код (`lib.rs`) не мог узнать о потере
++/// и следующим шагом удалял рабочий каталог вместе с единственной копией файла.
++#[derive(Debug, Default)]
++pub struct PersistExportsResult {
++    pub copied: Vec<String>,
++    /// (имя файла, причина отказа)
++    pub failed: Vec<(String, String)>,
++}
 +
-+/// Удаляет все файлы из перечисленных подкаталогов workspace. Возвращает число удалённых
-+/// файлов. Без AppHandle — чтобы поведение можно было проверить тестом на временном каталоге.
-+fn clear_workspace_dirs(workspace: &std::path::Path, dir_names: &[&str]) -> usize {
-+    let mut removed = 0;
-+    for dir_name in dir_names {
-         let dir = workspace.join(dir_name);
-         if dir.exists() {
-             if let Ok(entries) = std::fs::read_dir(&dir) {
-                 for entry in entries.flatten() {
--                    let _ = std::fs::remove_file(entry.path());
-+                    if std::fs::remove_file(entry.path()).is_ok() {
-+                        removed += 1;
+ /// Copy exports to persistent campaign directory BEFORE close_session.
+-pub fn persist_step_exports(campaign_dir: &Path, step_id: &str, exports_dir: &Path) -> Vec<String> {
++pub fn persist_step_exports(campaign_dir: &Path, step_id: &str, exports_dir: &Path) -> PersistExportsResult {
+     let dest = campaign_dir.join("steps").join(step_id);
+     let _ = std::fs::create_dir_all(&dest);
+-    let mut copied = Vec::new();
++    let mut result = PersistExportsResult::default();
+     if exports_dir.exists() {
+         if let Ok(entries) = std::fs::read_dir(exports_dir) {
+             for entry in entries.flatten() {
+                 if entry.file_type().is_ok_and(|ft| ft.is_file()) {
+                     let name = entry.file_name().to_string_lossy().to_string();
+-                    let _ = std::fs::copy(entry.path(), dest.join(&name));
+-                    copied.push(name);
++                    // CPD-81 defense-in-depth: единственный сегодняшний писатель в этот
++                    // каталог (auto_save_response) уже прогоняет имена через
++                    // unique_export_path сам, так что коллизия здесь практически
++                    // недостижима. Но раз функция копирует В каталог кампании, а не
++                    // только читает — собственная гарантия дешевле, чем доверие
++                    // чужому модулю не измениться.
++                    let candidate = dest.join(&name);
++                    let dest_path = crate::commands::unique_export_path(&candidate);
++                    if dest_path != candidate {
++                        warn!(
++                            "Выгрузка переименована во избежание перезаписи [шаг {step_id}]: {} → {}",
++                            candidate.display(),
++                            dest_path.display()
++                        );
++                    }
++                    match std::fs::copy(entry.path(), &dest_path) {
++                        Ok(_) => result.copied.push(name),
++                        Err(e) => {
++                            warn!("Выгрузка не сохранена [шаг {step_id}]: {name}: {e}");
++                            result.failed.push((name, e.to_string()));
++                        }
 +                    }
                  }
              }
          }
      }
--    info!("Workspace cleaned for {cabinet_id}: inbox + exports");
-+    removed
-+}
-+
-+/// Clear inbox files in the persistent workspace (clean start).
-+/// Files on Desktop are removed from the UI - user can re-add them.
-+/// Exports (client deliverables) are deliberately never touched here - see
-+/// WORKSPACE_DIRS_CLEARED_ON_START.
-+#[tauri::command]
-+fn clear_workspace_files(cabinet_id: String, app_handle: tauri::AppHandle) -> Result<(), String> {
-+    cabinet::validate_cabinet_id(&cabinet_id)?;
-+    let config_dir = app_handle.path().app_config_dir().map_err(|e| e.to_string())?;
-+    let workspace = user_config::get_cabinet_workspace(&config_dir, &cabinet_id)?;
-+
-+    let removed = clear_workspace_dirs(&workspace, WORKSPACE_DIRS_CLEARED_ON_START);
-+    info!("Inbox cleared [{cabinet_id}]: {removed} file(s); exports (client deliverables) left untouched");
-     Ok(())
+-    info!("Persisted {} exports for step {}", copied.len(), step_id);
+-    copied
++    info!(
++        "Persisted {} exports for step {} ({} failed)",
++        result.copied.len(),
++        step_id,
++        result.failed.len()
++    );
++    result
  }
  
-@@ -2611,16 +2630,24 @@ fn export_diagnostics(app_handle: tauri::AppHandle) -> Result<String, String> {
+ /// Forward exports from previous step to next step's inbox.
+@@ -778,11 +815,61 @@ mod tests {
+         std::fs::create_dir_all(&exports).unwrap();
+         std::fs::write(exports.join("report.md"), "# Report").unwrap();
  
-     let now = chrono::Local::now();
-     let filename = format!("Aurora_Diagnostics_{}.txt", now.format("%Y-%m-%d_%H%M%S"));
--    let filepath = desktop.join(&filename);
-+    // CPD-70: секундная точность таймстемпа не спасает от коллизии при двух экспортах
-+    // диагностики подряд (например по просьбе поддержки) — повторный экспорт не должен
-+    // молча стереть предыдущий файл на Рабочем столе клиента.
-+    let filepath = commands::unique_export_path(&desktop.join(&filename));
- 
-     std::fs::write(&filepath, &report).map_err(|e| format!("Failed to write: {e}"))?;
- 
--    // Also save a copy to the logs folder (accessible via "Open Logs Folder")
-+    // Also save a copy to the logs folder (accessible via "Open Logs Folder").
-+    // Имя берём из итогового filepath (после возможного переименования выше), чтобы копия
-+    // в logs соответствовала копии на Desktop; отдельно прогоняем через unique_export_path,
-+    // т.к. коллизия в logs_dir не обязана совпадать с коллизией на Desktop.
-     let logs_dir = export_logs(&app_handle).unwrap_or_default();
-     if !logs_dir.is_empty() {
-         let logs_path = std::path::Path::new(&logs_dir);
-         let _ = std::fs::create_dir_all(logs_path);
--        let _ = std::fs::write(logs_path.join(&filename), &report);
-+        let logs_filename = filepath.file_name().unwrap_or_else(|| std::ffi::OsStr::new(&filename));
-+        let logs_copy_path = commands::unique_export_path(&logs_path.join(logs_filename));
-+        let _ = std::fs::write(&logs_copy_path, &report);
+-        let files = persist_step_exports(&campaign_dir, "step-1", &exports);
+-        assert_eq!(files.len(), 1);
++        let result = persist_step_exports(&campaign_dir, "step-1", &exports);
++        assert_eq!(result.copied, vec!["report.md".to_string()]);
++        assert!(result.failed.is_empty());
+         assert!(campaign_dir.join("steps").join("step-1").join("report.md").exists());
      }
  
-     info!("Diagnostics exported: {}", filepath.display());
-@@ -4191,5 +4218,52 @@ mod resolve_slash_tests {
++    /// CPD-81: совпадение имени — файл ложится рядом со счётчиком, прежний не затёрт.
++    #[test]
++    fn persist_step_exports_name_collision_renamed_not_overwritten() {
++        let tmp = tempfile::tempdir().unwrap();
++        let campaign_dir = tmp.path().join("campaign-1");
++        let dest = campaign_dir.join("steps").join("step-1");
++        std::fs::create_dir_all(&dest).unwrap();
++        std::fs::write(dest.join("report.md"), "СТАРЫЙ").unwrap();
++
++        let exports = tmp.path().join("exports");
++        std::fs::create_dir_all(&exports).unwrap();
++        std::fs::write(exports.join("report.md"), "НОВЫЙ").unwrap();
++
++        let result = persist_step_exports(&campaign_dir, "step-1", &exports);
++        assert_eq!(result.copied.len(), 1);
++        assert!(result.failed.is_empty());
++
++        // Прежний файл не тронут.
++        assert_eq!(std::fs::read_to_string(dest.join("report.md")).unwrap(), "СТАРЫЙ");
++        // Новый лёг рядом со счётчиком, а не поверх.
++        assert_eq!(std::fs::read_to_string(dest.join("report (2).md")).unwrap(), "НОВЫЙ");
++    }
++
++    /// CPD-81: отказ копирования — имя НЕ попадает в copied и попадает в failed.
++    ///
++    /// Занять место каталогом с тем же именем, что предлагалось в задаче, здесь не
++    /// работает: unique_export_path (п.3 правки) видит существующий путь и переименует
++    /// файл в сторону, копирование пройдёт успешно. Поэтому отказ воспроизведён иначе —
++    /// каталог "step-1" подменён файлом, так что fs::create_dir_all внутри функции
++    /// молча не создаст вложенный путь, а fs::copy откажет, потому что родитель
++    /// целевого пути — не каталог. Портируемо между Windows и Unix.
++    #[test]
++    fn persist_step_exports_copy_failure_recorded_not_lost() {
++        let tmp = tempfile::tempdir().unwrap();
++        let campaign_dir = tmp.path().join("campaign-1");
++        let steps_dir = campaign_dir.join("steps");
++        std::fs::create_dir_all(&steps_dir).unwrap();
++        std::fs::write(steps_dir.join("step-1"), "занято файлом").unwrap();
++
++        let exports = tmp.path().join("exports");
++        std::fs::create_dir_all(&exports).unwrap();
++        std::fs::write(exports.join("report.md"), "# Report").unwrap();
++
++        let result = persist_step_exports(&campaign_dir, "step-1", &exports);
++        assert!(result.copied.is_empty());
++        assert_eq!(result.failed.len(), 1);
++        assert_eq!(result.failed[0].0, "report.md");
++    }
++
+     #[test]
+     fn summarize_step_exports_caps() {
+         let tmp = tempfile::tempdir().unwrap();
+diff --git a/src-tauri/src/econ_sidecar.rs b/src-tauri/src/econ_sidecar.rs
+index 0ee788d..6538323 100644
+--- a/src-tauri/src/econ_sidecar.rs
++++ b/src-tauri/src/econ_sidecar.rs
+@@ -63,8 +63,29 @@ const SIDECAR_CONFIG: SidecarConfig = SidecarConfig {
+     legacy_port: 7430,
+     identifier_dir: env!("AURORA_APP_IDENTIFIER"),
+     process_exe_hint: "econometrica-sidecar",
++    extra_image_hints: SIDECAR_IMAGE_HINTS,
+ };
+ 
++/// Дополнительные допустимые имена образа движка.
++///
++/// В отладочной сборке `spawn_sidecar_proc` идёт сразу в `spawn_python_dev` —
++/// движок там действительно запускается интерпретатором (`python -B server.py`),
++/// поэтому имя образа процесса — `python.exe`.
++///
++/// 🔴 В релизной сборке движок — собранный `econometrica-sidecar.exe`, и список
++/// пуст намеренно. Прежде `python`/`pythonw` принимались безусловно и в релизе:
++/// этого хватало, чтобы под проверку подпал любой Jupyter, Anaconda, языковой
++/// модуль редактора или движок соседнего продукта Aurora (у Docs Lab и Smart
++/// Analytica движок RAG — буквально `python.exe`), запущенный тем же
++/// пользователем. Аварийный откат релиза на `spawn_python_dev` существует, но
++/// требует `server.py` рядом с приложением, чего в поставке нет; если такой
++/// откат всё же сработал (запуск из рабочей копии), зомби-движок просто не будет
++/// снят, а порт возьмётся свободный через `allocate_port`.
++#[cfg(debug_assertions)]
++const SIDECAR_IMAGE_HINTS: &[&str] = &["python", "pythonw"];
++#[cfg(not(debug_assertions))]
++const SIDECAR_IMAGE_HINTS: &[&str] = &[];
++
+ const MAX_CONSECUTIVE_FAILS: u32 = 5;
+ const BANNED_COOLDOWN_SECS: u64 = 300;
+ const WATCHDOG_INTERVAL_SECS: u64 = 15;
+@@ -226,51 +247,73 @@ async fn is_healthy_and_ours(port: u16, expected_session: Option<&str>) -> bool
+ 
+ // ── Port cleanup (zombie kill) ───────────────────────────────────────────────
+ 
+-/// Снятие зависшего движка по ЗАПИСАННОМУ нами идентификатору процесса - только если он
+-/// принадлежит текущему OS-пользователю И имеет подходящее image name.
+-/// На multi-user RDP - НЕ убиваем чужих юзеров.
++/// Снятие зависшего движка по ЗАПИСАННОМУ нами файлу состояния - только если процесс
++/// действительно наш: тот же пользователь, тот же образ И создан в окне вокруг записанного
++/// нами `started_at`.
+ ///
+-/// 🔴 2026-08-12: раньше идентификатор искали через `cmd /C "netstat -ano | findstr :порт"`.
+-/// Поиск был ИЗБЫТОЧЕН: мы сами записываем pid движка в файл состояния при запуске
+-/// (`write_initial_state`), то есть он известен во всех трёх точках вызова. Ради уже
+-/// имеющегося числа порождались три скрытых консольных процесса (`cmd` → `netstat` →
+-/// `findstr`), и получалась связка «разведка процессов по порту → снятие найденного», которую
+-/// поведенческая защита антивируса разбирает как вредоносную (10.08 Kaspersky снял оболочку
+-/// продукта с диска у пользователя, вердикт PDM:Trojan.Win32.Generic — поведенческий).
+-/// Защита от чужого процесса не ослабла: `is_our_process_and_user` по-прежнему проверяет
+-/// владельца и имя образа, а идентификатор теперь берётся из нашей же записи, а не из
+-/// разбора чужого вывода.
++/// 🔴 2026-08-12 (CPD-77): раньше идентификатор искали через
++/// `cmd /C "netstat -ano | findstr :порт"`. Поиск был ИЗБЫТОЧЕН: мы сами записываем pid движка
++/// в файл состояния при запуске (`write_initial_state`), то есть он известен во всех трёх точках
++/// вызова. Ради уже имеющегося числа порождались три скрытых консольных процесса (`cmd` →
++/// `netstat` → `findstr`), и получалась связка «разведка процессов по порту → снятие
++/// найденного», которую поведенческая защита антивируса разбирает как вредоносную (10.08
++/// Kaspersky снял оболочку продукта с диска у пользователя, вердикт PDM:Trojan.Win32.Generic —
++/// поведенческий).
++///
++/// 🔴 2026-08-14 (CPD-79, регресс той правки): вместе с разбором вывода `netstat` пропала
++/// нигде не записанная гарантия — найденный процесс был ДЕРЖАТЕЛЕМ НАШЕГО ПОРТА, то есть почти
++/// наверняка наш. Именно на неё молча опиралась слабая последующая проверка, а вместе с ней
++/// исчезла и она; в комментарии при этом было заявлено, что защита не ослабла — это неверно.
++/// Файл состояния переживает завершение процесса (`delete_state_file` вызывается только на трёх
++/// штатных путях: протухшая запись, принудительный перезапуск, штатное закрытие), после
++/// перезагрузки Windows раздаёт номера процессов заново, а снятие идёт деревом
++/// (`taskkill /T /F`). Пользователь с открытым Jupyter, Anaconda или соседним продуктом Aurora
++/// мог получить молча убитый расчёт. Решение теперь принимает `sidecar_runtime::should_kill`,
++/// где решающая проверка — время создания процесса против `started_at`.
+ #[cfg(windows)]
+-fn kill_sidecar_pid(pid: u32) {
++fn kill_sidecar_from_state(state: &SidecarState) {
++    use crate::sidecar_runtime::KillVerdict;
+     use std::os::windows::process::CommandExt;
++    let pid = state.pid;
+     if pid == 0 {
+         return;
+     }
+-    if !sidecar_runtime::is_our_process_and_user(pid, &SIDECAR_CONFIG) {
+-        warn!("PID={pid} не наш процесс или другого пользователя - не трогаем");
++    // Защита от самоубийства: если номер вдруг совпал с нашим собственным, `taskkill /T /F`
++    // снял бы оболочку вместе со всем деревом.
++    if pid == std::process::id() {
++        warn!("PID={pid} совпал с идентификатором самой оболочки - не трогаем");
+         return;
+     }
+-    info!("Killing zombie sidecar PID={pid}");
+-    let _ = Command::new("taskkill")
+-        .args(["/PID", &pid.to_string(), "/T", "/F"])
+-        .creation_flags(0x08000000)
+-        .output();
++
++    let observed = sidecar_runtime::observe_process(pid);
++    match sidecar_runtime::should_kill(state, &observed, &SIDECAR_CONFIG, &current_user_name()) {
++        KillVerdict::Kill => {
++            info!("Killing zombie sidecar PID={pid}");
++            let _ = Command::new("taskkill")
++                .args(["/PID", &pid.to_string(), "/T", "/F"])
++                .creation_flags(0x08000000)
++                .output();
++        }
++        KillVerdict::Skip(reason) => {
++            warn!("PID={pid} не снимаем: {reason}");
++        }
++    }
+ }
+ 
+ #[cfg(not(windows))]
+-fn kill_sidecar_pid(_pid: u32) {
++fn kill_sidecar_from_state(_state: &SidecarState) {
+     if let Some(mut child) = take_child() {
+         let _ = child.kill();
+         let _ = child.wait_timeout(CHILD_WAIT_TIMEOUT);
+     }
+ }
+ 
+-/// То же, но идентификатор читается из файла состояния - для точек, где состояние
+-/// не держится в руках. Отсутствие файла = снимать нечего (наш дочерний процесс
+-/// в памяти закрывается вызывающей стороной через `take_child`).
++/// То же, но состояние читается из файла - для точек, где оно не держится в руках.
++/// Отсутствие файла = снимать нечего (наш дочерний процесс в памяти закрывается
++/// вызывающей стороной через `take_child`).
+ fn kill_known_sidecar() {
+     match read_state_file(&SIDECAR_CONFIG) {
+-        Some(state) => kill_sidecar_pid(state.pid),
++        Some(state) => kill_sidecar_from_state(&state),
+         None => debug!("Файла состояния нет - идентификатор движка неизвестен, снимать нечего"),
+     }
+ }
+@@ -400,8 +443,9 @@ pub fn start_sidecar(app_handle: &AppHandle) {
+             "Sidecar state file stale (session_id/product mismatch or dead). \
+              Cleaning up and respawning."
+         );
+-        // Попытка убить старый процесс (только наш + наш юзер) по записанному нами pid
+-        kill_sidecar_pid(state.pid);
++        // Попытка убить старый процесс по нашей же записи - только если он выдержит все
++        // проверки `should_kill` (пользователь, образ, время создания против started_at).
++        kill_sidecar_from_state(&state);
+         delete_state_file(&SIDECAR_CONFIG);
+     }
+ 
+diff --git a/src-tauri/src/lib.rs b/src-tauri/src/lib.rs
+index 927e50d..8a61709 100644
+--- a/src-tauri/src/lib.rs
++++ b/src-tauri/src/lib.rs
+@@ -6,6 +6,7 @@ pub mod errors;
+ pub mod metrics;
+ pub mod session;
+ pub mod sidecar_runtime;
++pub mod win_acl;
+ 
+ use commands::{brand, cabinet, claude, content_pack, content_updater, feedback, license, online_auth, parser, rag_client, updater, user_config, vault};
+ use session::manager::SessionManager;
+@@ -3262,9 +3263,23 @@ fn execute_workflow_steps(
+                         if let Some(work_dir) = state.session_manager.get_work_dir(cabinet_id) {
+                             let exports_dir = work_dir.join("exports");
+                             let mut chain_lock = chain.lock().unwrap();
+-                            let _files = commands::campaign::persist_step_exports(
++                            let persisted = commands::campaign::persist_step_exports(
+                                 &chain_lock.campaign_dir, id, &exports_dir,
+                             );
++                            // CPD-81: раньше отказ копирования тонул в `let _ =`, а следующей
++                            // строкой close_session() стирал рабочий каталог — единственная
++                            // копия файла терялась без следа, шаг рапортовал "done". Здесь нет
++                            // состояния emit_wf_status под частичный неуспех шага (есть только
++                            // running/error/done — ни одно не подходит для «шаг выполнен, но
++                            // часть выгрузок не сохранена»), поэтому минимум — громкий лог
++                            // ДО удаления рабочего каталога, чтобы потеря была видна в журнале.
++                            if !persisted.failed.is_empty() {
++                                let names: Vec<&str> = persisted.failed.iter().map(|(n, _)| n.as_str()).collect();
++                                error!(
++                                    "Выгрузки шага [{id}] не сохранены и будут потеряны при удалении рабочего каталога: {}",
++                                    names.join(", ")
++                                );
++                            }
+                             let summary = commands::campaign::summarize_step_exports(&exports_dir);
+                             chain_lock.step_summaries.push((label.clone(), summary));
+                         }
+diff --git a/src-tauri/src/session/manager.rs b/src-tauri/src/session/manager.rs
+index aafd294..c62bb0a 100644
+--- a/src-tauri/src/session/manager.rs
++++ b/src-tauri/src/session/manager.rs
+@@ -120,9 +120,23 @@ impl SessionManager {
+         // поведенческой защитой антивируса как подготовка шифровальщика. 11.08.2026 Kaspersky
+         // снял оболочку продукта с диска у пользователя (PDM:Trojan.Win32.Generic).
+         //
+-        // Каталоги, которым прежние версии уже урезали права, остаются как есть: восстановление
+-        // наследования — отдельная задача, и делать её нужно системным вызовом
+-        // (`SetNamedSecurityInfoW`), а не возвратом порождения процесса.
++        // 🔴 2026-08-14, хвост той же истории: удаление вызова защитило новых клиентов, но НЕ
++        // вернуло права тем, у кого прежние версии уже успели их урезать — права живут в файловой
++        // системе и сами не чинятся. Возвращаем наследование системным вызовом (без порождения
++        // процессов), разбор набора флагов и живой пробник — в `crate::win_acl`.
++        //
++        // Идемпотентность держится на самой файловой системе: у клиента со здоровым каталогом
++        // (никогда не запускал прежнюю версию либо уже починен) чтение состояния показывает
++        // включённое наследование, и запись прав не выполняется вовсе. Любой отказ — только в
++        // журнал: открытие кабинетов от прав каталога не зависит.
++        if let Some(local) = std::env::var_os("LOCALAPPDATA") {
++            crate::win_acl::restore_inheritance(
++                &sessions_root,
++                &crate::durable_store::resolve_path(""),
++                Path::new(&local),
++                crate::durable_store::SESSIONS_SUB,
++            );
++        }
+ 
+         Ok(Self {
+             sessions: Mutex::new(HashMap::new()),
+diff --git a/src-tauri/src/session/mod.rs b/src-tauri/src/session/mod.rs
+index 282c128..b7b3776 100644
+--- a/src-tauri/src/session/mod.rs
++++ b/src-tauri/src/session/mod.rs
+@@ -80,4 +80,22 @@ mod tests {
+             );
          }
      }
++
++    /// 🔴 Сторож СВЯЗИ (тот же урок Ф-04, что и у раскладки выдач): модуль `win_acl` покрыт
++    /// собственными тестами, но починка прав существует ТОЛЬКО пока её кто-то зовёт. Если вызов
++    /// из `SessionManager::new()` уберут — все тесты `win_acl` останутся зелёными, а каталоги
++    /// клиентов, испорченные прежними версиями, снова перестанут чиниться, и никто этого не
++    /// заметит. Проверка идёт по `code_only`: упоминание в комментарии сторожа не удовлетворяет
++    /// (ровно та дыра, которую мутация приёмщика нашла у соседнего сторожа 29.07.2026).
++    #[test]
++    fn session_manager_still_repairs_directory_permissions_on_start() {
++        let manager_src = code_only(&read_src("manager.rs"));
++
++        assert!(
++            manager_src.contains("win_acl::restore_inheritance"),
++            "session/manager.rs обязан звать win_acl::restore_inheritance при инициализации — \
++             иначе каталог сессий, у которого прежние версии сняли наследование прав, так и \
++             останется без доступа SYSTEM и Администраторов (хвост CPD-77)"
++        );
++    }
  }
+diff --git a/src-tauri/src/sidecar_runtime.rs b/src-tauri/src/sidecar_runtime.rs
+index 6d1dc21..88875a7 100644
+--- a/src-tauri/src/sidecar_runtime.rs
++++ b/src-tauri/src/sidecar_runtime.rs
+@@ -43,6 +43,7 @@ use std::net::TcpListener;
+ use std::path::PathBuf;
+ use std::time::Duration;
+ 
++use chrono::{DateTime, Utc};
+ use log::{debug, info, warn};
+ use serde::{Deserialize, Serialize};
+ 
+@@ -70,6 +71,17 @@ pub struct SidecarConfig {
+     /// Подстрока для определения «наш» ли процесс (case-insensitive).
+     /// Пример: `"econometrica-sidecar"` или `"rag-server"`.
+     pub process_exe_hint: &'static str,
++
++    /// Дополнительные допустимые имена образа — ТОЛЬКО для продуктов, чей движок
++    /// действительно запускается сторонним интерпретатором (например, dev-режим
++    /// через `python server.py`).
++    ///
++    /// 🔴 Раньше `python`/`pythonw` принимались безусловно для ЛЮБОГО продукта, вне
++    /// зависимости от того, python-овый ли у него движок. Это делало проверку имени
++    /// образа почти бессодержательной: под неё подпадал любой Jupyter, Anaconda,
++    /// языковой модуль редактора и движок соседнего продукта Aurora. Теперь список
++    /// задаёт сам продукт и, как правило, он пуст в релизной сборке.
++    pub extra_image_hints: &'static [&'static str],
+ }
+ 
+ // ── Types ────────────────────────────────────────────────────────────────────
+@@ -106,6 +118,225 @@ pub struct HealthInfo {
+     pub started_at: String,
+ }
+ 
++// ── Решение о снятии процесса (чистая логика, без системных вызовов) ─────────
++
++/// Свойства реально существующего процесса, снятые системным слоем
++/// (`observe_process`). Все поля необязательные: если системный вызов не удался,
++/// значение остаётся `None`, и решение обязано быть консервативным.
++#[derive(Debug, Clone, Default, PartialEq, Eq)]
++pub struct ObservedProcess {
++    /// Владелец в виде `DOMAIN\user` либо `user`.
++    pub owner: Option<String>,
++    /// Полный путь к образу процесса (`QueryFullProcessImageNameW`).
++    pub image_path: Option<String>,
++    /// Момент создания процесса по системным часам, в UTC (`GetProcessTimes`).
++    pub created_at: Option<DateTime<Utc>>,
++}
++
++/// Допуск на расхождение между временем создания процесса и `started_at`
++/// в файле состояния, в секундах.
++///
++/// Порядок операций при запуске движка (`econ_sidecar::start_sidecar`):
++/// `spawn_sidecar_proc` → `child.id()` → `store_child` → `write_initial_state`.
++/// То есть процесс создаётся ЗАВЕДОМО РАНЬШЕ записи `started_at`, и зазор между
++/// ними — доли секунды: между двумя операциями нет ни ожиданий, ни ввода-вывода
++/// кроме самой записи файла. Реальный разброс может дать только скачок системных
++/// часов (коррекция NTP, ручной перевод) ровно в этом промежутке, поэтому пяти
++/// минут с запасом хватает на честный случай.
++///
++/// Окно двустороннее и обе границы содержательны:
++/// * верхняя (`created_at ≤ started_at + допуск`) — главная защита от
++///   переиспользования номера процесса: после перезагрузки Windows раздаёт номера
++///   заново, и чужой процесс с тем же номером создан ПОЗЖЕ нашей записи, обычно на
++///   часы;
++/// * нижняя (`created_at ≥ started_at − допуск`) — защита от долгоживущего чужого
++///   процесса, который получил этот номер задолго до нашей записи (запущенный
++///   вчера Jupyter и тому подобное).
++pub const KILL_TIME_TOLERANCE_SECS: i64 = 300;
++
++/// Почему процесс решено НЕ снимать. Попадает в журнал и в тесты.
++#[derive(Debug, Clone, Copy, PartialEq, Eq)]
++pub enum SkipReason {
++    /// Идентификатор нулевой — снимать нечего.
++    InvalidPid,
++    /// Файл состояния оставлен другим продуктом.
++    ProductMismatch,
++    /// Файл состояния оставлен другим пользователем ОС.
++    StateUserMismatch,
++    /// Владельца процесса определить не удалось.
++    OwnerUnknown,
++    /// Владелец процесса — другой пользователь ОС.
++    OwnerMismatch,
++    /// Путь к образу процесса определить не удалось.
++    ImageUnknown,
++    /// Образ процесса не наш.
++    ImageMismatch,
++    /// Время создания процесса получить не удалось.
++    CreationTimeUnknown,
++    /// `started_at` в файле состояния не разбирается как дата.
++    StartedAtUnparsable,
++    /// Процесс создан вне допустимого окна вокруг `started_at` — почти наверняка
++    /// номер переиспользован операционной системой.
++    CreatedOutsideWindow,
++}
++
++impl SkipReason {
++    /// Пояснение на русском — для журнала приложения.
++    pub fn as_str(&self) -> &'static str {
++        match self {
++            SkipReason::InvalidPid => "нулевой идентификатор процесса",
++            SkipReason::ProductMismatch => "файл состояния от другого продукта",
++            SkipReason::StateUserMismatch => "файл состояния от другого пользователя",
++            SkipReason::OwnerUnknown => "владелец процесса неизвестен",
++            SkipReason::OwnerMismatch => "процесс принадлежит другому пользователю",
++            SkipReason::ImageUnknown => "путь к образу процесса неизвестен",
++            SkipReason::ImageMismatch => "образ процесса не наш",
++            SkipReason::CreationTimeUnknown => "время создания процесса неизвестно",
++            SkipReason::StartedAtUnparsable => "started_at в файле состояния не разбирается",
++            SkipReason::CreatedOutsideWindow => {
++                "процесс создан вне окна вокруг started_at (номер переиспользован)"
++            }
++        }
++    }
++}
++
++impl std::fmt::Display for SkipReason {
++    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
++        f.write_str(self.as_str())
++    }
++}
++
++/// Итог проверки: снимать процесс или нет (и почему нет).
++#[derive(Debug, Clone, Copy, PartialEq, Eq)]
++pub enum KillVerdict {
++    Kill,
++    Skip(SkipReason),
++}
++
++impl KillVerdict {
++    pub fn is_kill(&self) -> bool {
++        matches!(self, KillVerdict::Kill)
++    }
++}
++
++/// Сравнение владельца процесса с текущим пользователем.
++/// `owner` приходит как `DOMAIN\user` либо `user`; в файле состояния и в
++/// `current_user_name()` домена нет, поэтому сверяем хвост.
++fn owner_matches(owner: &str, current_user: &str) -> bool {
++    let owner_lc = owner.trim().to_lowercase();
++    let me_lc = current_user.trim().to_lowercase();
++    if me_lc.is_empty() || me_lc == "unknown" {
++        return false;
++    }
++    owner_lc == me_lc || owner_lc.ends_with(&format!("\\{me_lc}"))
++}
++
++/// Сверка образа процесса с ожидаемыми именами продукта.
++///
++/// Работаем с ПОЛНЫМ путём (`QueryFullProcessImageNameW`), берём имя файла без
++/// расширения и сверяем его с `process_exe_hint` и `extra_image_hints`. Это строже
++/// прежнего «вывод `tasklist` содержит подстроку»: подстрока могла совпасть с чем
++/// угодно в строке вывода, а имя файла — ровно то, что запущено.
++///
++/// Допускается совпадение по началу имени (`python` ↔ `python3`): версии
++/// интерпретатора различаются суффиксом, а не префиксом.
++pub fn image_matches(image_path: Option<&str>, cfg: &SidecarConfig) -> bool {
++    let Some(path) = image_path else {
++        return false;
++    };
++    let file_name = path
++        .rsplit(['\\', '/'])
++        .next()
++        .unwrap_or(path)
++        .to_lowercase();
++    let stem = file_name
++        .strip_suffix(".exe")
++        .unwrap_or(&file_name)
++        .to_string();
++    if stem.is_empty() {
++        return false;
++    }
++
++    std::iter::once(cfg.process_exe_hint)
++        .chain(cfg.extra_image_hints.iter().copied())
++        .filter(|h| !h.is_empty())
++        .any(|hint| {
++            let hint_lc = hint.to_lowercase();
++            stem == hint_lc || stem.starts_with(&hint_lc)
++        })
++}
++
++/// Чистое решение «снимать ли процесс `state.pid`».
++///
++/// 🔴 CPD-79. До этой правки решение принималось по двум признакам — владелец
++/// процесса и «имя образа содержит python» — и этого достаточно НЕ было. Файл
++/// состояния переживает падение приложения (`delete_state_file` вызывается только
++/// на трёх штатных путях), Windows после перезагрузки раздаёт номера процессов
++/// заново, а снятие идёт деревом (`taskkill /T /F`). В итоге приложение могло
++/// молча снять чужой python того же пользователя — Jupyter, Anaconda, движок
++/// соседнего продукта Aurora — вместе со всеми его потомками.
++///
++/// Решающая проверка — время создания процесса против `started_at`, см.
++/// [`KILL_TIME_TOLERANCE_SECS`].
++///
++/// Порядок проверок — от дешёвых к дорогим; каждая может только запретить снятие.
++/// Любая неопределённость трактуется как запрет: не снять своего зомби дешевле,
++/// чем убить чужой расчёт. Зомби максимум удержит порт, а `allocate_port` в этом
++/// случае возьмёт свободный — потеря восстановима без участия пользователя.
++pub fn should_kill(
++    state: &SidecarState,
++    observed: &ObservedProcess,
++    cfg: &SidecarConfig,
++    current_user: &str,
++) -> KillVerdict {
++    if state.pid == 0 {
++        return KillVerdict::Skip(SkipReason::InvalidPid);
++    }
++
++    // 1. Сверка продукта — бесплатно, строки уже в руках.
++    if !state.product.is_empty() && state.product != cfg.product_id {
++        return KillVerdict::Skip(SkipReason::ProductMismatch);
++    }
++
++    // 2. Сверка пользователя из файла состояния — тоже бесплатно, до системных
++    //    вызовов. Отсекает запись, оставленную другим пользователем на общей
++    //    машине (RDP), даже не трогая процесс.
++    if !state.user.is_empty() && !owner_matches(&state.user, current_user) {
++        return KillVerdict::Skip(SkipReason::StateUserMismatch);
++    }
++
++    // 3. Владелец реального процесса.
++    let Some(owner) = observed.owner.as_deref() else {
++        return KillVerdict::Skip(SkipReason::OwnerUnknown);
++    };
++    if !owner_matches(owner, current_user) {
++        return KillVerdict::Skip(SkipReason::OwnerMismatch);
++    }
++
++    // 4. Образ реального процесса.
++    if observed.image_path.is_none() {
++        return KillVerdict::Skip(SkipReason::ImageUnknown);
++    }
++    if !image_matches(observed.image_path.as_deref(), cfg) {
++        return KillVerdict::Skip(SkipReason::ImageMismatch);
++    }
++
++    // 5. Время создания против записанного нами started_at.
++    let Some(created_at) = observed.created_at else {
++        return KillVerdict::Skip(SkipReason::CreationTimeUnknown);
++    };
++    let Ok(started_at) = DateTime::parse_from_rfc3339(state.started_at.trim()) else {
++        return KillVerdict::Skip(SkipReason::StartedAtUnparsable);
++    };
++    let started_at = started_at.with_timezone(&Utc);
++    let delta = (created_at - started_at).num_seconds();
++    if delta.abs() > KILL_TIME_TOLERANCE_SECS {
++        return KillVerdict::Skip(SkipReason::CreatedOutsideWindow);
++    }
++
++    KillVerdict::Kill
++}
++
+ // ── User identity (Windows-specific via WinAPI) ──────────────────────────────
+ 
+ /// Возвращает SID текущего пользователя как строку S-1-5-21-... или None.
+@@ -353,32 +584,53 @@ pub fn get_process_owner(pid: u32) -> Option<String> {
+     }
+ }
+ 
++/// Снимает свойства процесса одним открытием дескриптора: владелец, полный путь
++/// к образу, время создания. Любое поле остаётся `None`, если системный вызов
++/// не удался — вызывающая сторона обязана трактовать это как «не трогаем».
++///
++/// Один `OpenProcess` на все три запроса: и дешевле, и без гонки, при которой
++/// между двумя открытиями номер процесса успевает смениться.
++pub fn observe_process(pid: u32) -> ObservedProcess {
++    #[cfg(windows)]
++    {
++        win_impl::observe_process_impl(pid)
++    }
++    #[cfg(not(windows))]
++    {
++        let _ = pid;
++        ObservedProcess::default()
++    }
++}
++
+ /// Проверяет что процесс PID:
+ /// 1. Принадлежит текущему OS-пользователю (multi-tenant safety)
+-/// 2. Image name совпадает с `cfg.process_exe_hint` или содержит `python`/`pythonw`
++/// 2. Имя образа входит в список ожидаемых имён продукта
++///    (`cfg.process_exe_hint` + `cfg.extra_image_hints`)
+ ///
+ /// Никогда не возвращает true для процесса другого пользователя -
+ /// security invariant для RDP.
++///
++/// 🔴 Этой проверки НЕДОСТАТОЧНО для решения о снятии процесса: она ничего не
++/// знает о переиспользовании номера процесса операционной системой. Решение
++/// принимает [`should_kill`], которая дополнительно сверяет время создания
++/// процесса с `started_at` из файла состояния (CPD-79).
+ pub fn is_our_process_and_user(pid: u32, cfg: &SidecarConfig) -> bool {
+     #[cfg(windows)]
+     {
+-        let Some(owner) = get_process_owner(pid) else {
++        let observed = observe_process(pid);
++        let Some(owner) = observed.owner.as_deref() else {
+             debug!("is_our_process_and_user: owner unknown for PID={pid}, NOT killing (safe default)");
+             return false;
+         };
+-        let me = current_user_name().to_lowercase();
+-        let owner_lower = owner.to_lowercase();
+-        let user_match = owner_lower.ends_with(&format!("\\{me}")) || owner_lower == me;
+-
+-        if !user_match {
++        let me = current_user_name();
++        if !owner_matches(owner, &me) {
+             debug!(
+                 "is_our_process_and_user: PID={pid} owner={owner} ≠ current user {me}, NOT killing"
+             );
+             return false;
+         }
+ 
+-        // Owner матчит - теперь проверяем image name через tasklist (позитивная проверка, без риска)
+-        win_impl::process_image_contains(pid, cfg.process_exe_hint)
++        image_matches(observed.image_path.as_deref(), cfg)
+     }
+     #[cfg(not(windows))]
+     {
+@@ -391,20 +643,22 @@ pub fn is_our_process_and_user(pid: u32, cfg: &SidecarConfig) -> bool {
+ 
+ #[cfg(windows)]
+ mod win_impl {
++    use chrono::{DateTime, Utc};
+     use log::debug;
+-    use std::os::windows::process::CommandExt;
+-    use std::process::Command;
+     use windows_sys::Win32::{
+-        Foundation::{CloseHandle, LocalFree, HANDLE, HLOCAL},
++        Foundation::{CloseHandle, LocalFree, FILETIME, HANDLE, HLOCAL},
+         Security::{
+             Authorization::ConvertSidToStringSidW, GetTokenInformation, LookupAccountSidW,
+             TokenUser, SID_NAME_USE, TOKEN_QUERY, TOKEN_USER,
+         },
+         System::Threading::{
+-            GetCurrentProcess, OpenProcess, OpenProcessToken, PROCESS_QUERY_LIMITED_INFORMATION,
++            GetCurrentProcess, GetProcessTimes, OpenProcess, OpenProcessToken,
++            QueryFullProcessImageNameW, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION,
+         },
+     };
+ 
++    use super::ObservedProcess;
++
+     /// Возвращает SID текущего пользователя как S-1-5-... строку.
+     pub fn current_user_sid_impl() -> Option<String> {
+         unsafe {
+@@ -433,35 +687,111 @@ mod win_impl {
+                 debug!("OpenProcess({pid}) failed (process gone or permission denied)");
+                 return None;
+             }
+-
+-            let mut token: HANDLE = std::ptr::null_mut();
+-            let ok = OpenProcessToken(proc_handle, TOKEN_QUERY, &mut token);
++            let owner = owner_from_process_handle(proc_handle);
+             CloseHandle(proc_handle);
+-            if ok == 0 || token.is_null() {
+-                return None;
++            owner
++        }
++    }
++
++    /// Владелец, полный путь к образу и время создания — за одно открытие
++    /// дескриптора. `PROCESS_QUERY_LIMITED_INFORMATION` достаточно для всех трёх
++    /// запросов и не требует повышения прав.
++    ///
++    /// 🔴 Прежде имя образа выяснялось порождением `tasklist` со скрытым окном, а
++    /// следом шёл `taskkill` — тоже со скрытым окном. Связка «скрытая разведка
++    /// процессов → принудительное снятие дерева» разбирается поведенческой защитой
++    /// антивируса как вредоносная (10.08 Kaspersky снял оболочку продукта с диска,
++    /// вердикт PDM:Trojan.Win32.Generic). Прямой системный вызов не порождает
++    /// процессов вовсе и заодно даёт ПОЛНЫЙ путь вместо строки вывода утилиты.
++    pub fn observe_process_impl(pid: u32) -> ObservedProcess {
++        if pid == 0 {
++            return ObservedProcess::default();
++        }
++        unsafe {
++            let proc_handle = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid);
++            if proc_handle.is_null() {
++                debug!("OpenProcess({pid}) failed (process gone or permission denied)");
++                return ObservedProcess::default();
+             }
+ 
+-            let owner = domain_user_from_token(token);
+-            CloseHandle(token);
+-            owner
++            let observed = ObservedProcess {
++                owner: owner_from_process_handle(proc_handle),
++                image_path: image_path_from_process_handle(proc_handle),
++                created_at: creation_time_from_process_handle(proc_handle),
++            };
++
++            CloseHandle(proc_handle);
++            observed
+         }
+     }
+ 
+-    /// Позитивная проверка имени процесса через tasklist (не для trusted decisions).
+-    /// Использование только когда owner уже совпал с current user.
+-    pub fn process_image_contains(pid: u32, hint: &str) -> bool {
+-        let out = Command::new("tasklist")
+-            .args(["/FI", &format!("PID eq {pid}"), "/FO", "CSV", "/NH"])
+-            .creation_flags(0x08000000)
+-            .output();
+-        let Ok(out) = out else { return false };
+-        let s = String::from_utf8_lossy(&out.stdout).to_lowercase();
+-        let hint_lc = hint.to_lowercase();
+-        s.contains(&hint_lc) || s.contains("python") || s.contains("pythonw")
++    /// Полный путь к образу процесса. `MAX_PATH` недостаточно — пути с длинными
++    /// именами и включённым `LongPathsEnabled` доходят до 32 767 символов.
++    unsafe fn image_path_from_process_handle(proc_handle: HANDLE) -> Option<String> {
++        let mut buf = vec![0u16; 32768];
++        let mut size = buf.len() as u32;
++        if QueryFullProcessImageNameW(proc_handle, PROCESS_NAME_WIN32, buf.as_mut_ptr(), &mut size)
++            == 0
++            || size == 0
++        {
++            return None;
++        }
++        String::from_utf16(&buf[..size as usize]).ok()
++    }
++
++    /// Время создания процесса. `GetProcessTimes` отдаёт `FILETIME` в UTC —
++    /// часовой пояс машины на результат не влияет.
++    unsafe fn creation_time_from_process_handle(proc_handle: HANDLE) -> Option<DateTime<Utc>> {
++        let mut creation = FILETIME {
++            dwLowDateTime: 0,
++            dwHighDateTime: 0,
++        };
++        let mut exit = creation;
++        let mut kernel = creation;
++        let mut user = creation;
++        if GetProcessTimes(
++            proc_handle,
++            &mut creation,
++            &mut exit,
++            &mut kernel,
++            &mut user,
++        ) == 0
++        {
++            return None;
++        }
++        filetime_to_utc(creation)
++    }
++
++    /// `FILETIME` — число интервалов по 100 нс от 1601-01-01 UTC.
++    fn filetime_to_utc(ft: FILETIME) -> Option<DateTime<Utc>> {
++        /// Интервалов по 100 нс между 1601-01-01 и 1970-01-01.
++        const UNIX_EPOCH_TICKS: u64 = 116_444_736_000_000_000;
++
++        let ticks = ((ft.dwHighDateTime as u64) << 32) | ft.dwLowDateTime as u64;
++        if ticks < UNIX_EPOCH_TICKS {
++            // Ноль либо дата до 1970 — доверять такому значению нельзя.
++            return None;
++        }
++        let since_epoch = ticks - UNIX_EPOCH_TICKS;
++        let secs = (since_epoch / 10_000_000) as i64;
++        let nanos = ((since_epoch % 10_000_000) * 100) as u32;
++        DateTime::from_timestamp(secs, nanos)
+     }
+ 
+     // ── Internal token helpers ───────────────────────────────────────────
+ 
++    /// Владелец процесса по уже открытому дескриптору. Дескриптор процесса
++    /// закрывает вызывающая сторона, токен закрывается здесь.
++    unsafe fn owner_from_process_handle(proc_handle: HANDLE) -> Option<String> {
++        let mut token: HANDLE = std::ptr::null_mut();
++        if OpenProcessToken(proc_handle, TOKEN_QUERY, &mut token) == 0 || token.is_null() {
++            return None;
++        }
++        let owner = domain_user_from_token(token);
++        CloseHandle(token);
++        owner
++    }
++
+     /// Читает SID из token, возвращает как S-1-5-... строку.
+     unsafe fn sid_string_from_token(token: HANDLE) -> Option<String> {
+         let mut needed: u32 = 0;
+@@ -583,6 +913,7 @@ mod tests {
+         legacy_port: 7430,
+         identifier_dir: "com.aurora.test",
+         process_exe_hint: "test-sidecar",
++        extra_image_hints: &[],
+     };
+ 
+     #[test]
+@@ -698,4 +1029,358 @@ mod tests {
+         let sid = current_user_sid().expect("SID on Windows");
+         assert!(sid.starts_with("S-1-"), "SID format S-1-... got '{sid}'");
+     }
++
++    // ── CPD-79: решение о снятии процесса ────────────────────────────────
++    //
++    // Решение вынесено в чистую функцию именно ради этих тестов: ни Windows,
++    // ни живых процессов они не требуют. До правки таких тестов не было вовсе -
++    // решение было сварено с системными вызовами, и вызывать было нечего.
++
++    /// Конфиг «как в релизе»: движок — собранный exe, сторонние интерпретаторы
++    /// в список допустимых имён образа не входят.
++    const KILL_CFG: SidecarConfig = SidecarConfig {
++        process_exe_hint: "econometrica-sidecar",
++        ..TEST_CFG
++    };
++
++    /// Конфиг «как в отладочной сборке»: движок запускается интерпретатором.
++    const KILL_CFG_DEV: SidecarConfig = SidecarConfig {
++        extra_image_hints: &["python", "pythonw"],
++        ..KILL_CFG
++    };
++
++    const OUR_USER: &str = "anton";
++    const OUR_IMAGE: &str = r"C:\Program Files\Aurora Econometrica\sidecar\econometrica\econometrica-sidecar.exe";
++
++    /// Состояние, записанное нами в момент `started_at`.
++    fn state_at(started_at: DateTime<Utc>) -> SidecarState {
++        SidecarState {
++            port: 7461,
++            pid: 9134,
++            session_id: "abc123".to_string(),
++            product: KILL_CFG.product_id.to_string(),
++            version: "2.4.8".to_string(),
++            user: OUR_USER.to_string(),
++            started_at: started_at.to_rfc3339(),
++        }
++    }
++
++    fn observed(created_at: Option<DateTime<Utc>>, image: &str) -> ObservedProcess {
++        ObservedProcess {
++            owner: Some(format!("AURORA-PC\\{OUR_USER}")),
++            image_path: Some(image.to_string()),
++            created_at,
++        }
++    }
++
++    fn epoch(secs: i64) -> DateTime<Utc> {
++        DateTime::from_timestamp(secs, 0).expect("валидная отметка времени")
++    }
++
++    /// Случай 1а. Реальный порядок операций в `start_sidecar`: процесс порождается,
++    /// и лишь затем пишется файл состояния. Значит наш процесс создан на доли
++    /// секунды РАНЬШЕ `started_at` - это штатное снятие зомби, оно обязано работать.
++    #[test]
++    fn kill_our_process_created_just_before_state_write() {
++        let started = epoch(1_800_000_000);
++        let state = state_at(started);
++        let obs = observed(Some(started - chrono::Duration::milliseconds(200)), OUR_IMAGE);
++
++        let verdict = should_kill(&state, &obs, &KILL_CFG, OUR_USER);
++        assert_eq!(verdict, KillVerdict::Kill);
++        assert!(verdict.is_kill());
++    }
++
++    /// Случай 1б. Тот же процесс, но часы качнулись и время создания оказалось
++    /// чуть ПОЗЖЕ записи - в пределах допуска снимаем по-прежнему.
++    #[test]
++    fn kill_our_process_created_slightly_after_state_write() {
++        let started = epoch(1_800_000_000);
++        let state = state_at(started);
++        let obs = observed(Some(started + chrono::Duration::seconds(2)), OUR_IMAGE);
++
++        assert_eq!(
++            should_kill(&state, &obs, &KILL_CFG, OUR_USER),
++            KillVerdict::Kill
++        );
++    }
++
++    /// Случай 2 — прямой контроль дефекта CPD-79. Оболочку сняли (антивирус, падение,
++    /// диспетчер задач), файл состояния остался с мёртвым номером. Машина
++    /// перезагрузилась, Windows раздала номера заново, и этот же номер достался
++    /// другому процессу - тот создан ПОЗЖЕ нашей записи. До правки такой процесс
++    /// снимался деревом.
++    #[test]
++    fn skip_when_pid_reused_after_reboot() {
++        let started = epoch(1_800_000_000);
++        let state = state_at(started);
++        // Новый владелец номера появился через 9 часов после нашей записи.
++        let obs = observed(Some(started + chrono::Duration::hours(9)), OUR_IMAGE);
++
++        assert_eq!(
++            should_kill(&state, &obs, &KILL_CFG, OUR_USER),
++            KillVerdict::Skip(SkipReason::CreatedOutsideWindow)
++        );
++    }
++
++    /// Случай 2б. Долгоживущий чужой процесс, получивший этот номер задолго до
++    /// нашей записи, - нижняя граница окна.
++    #[test]
++    fn skip_when_process_predates_state_file() {
++        let started = epoch(1_800_000_000);
++        let state = state_at(started);
++        let obs = observed(Some(started - chrono::Duration::hours(20)), OUR_IMAGE);
++
++        assert_eq!(
++            should_kill(&state, &obs, &KILL_CFG, OUR_USER),
++            KillVerdict::Skip(SkipReason::CreatedOutsideWindow)
++        );
++    }
++
++    /// Случай 3. Чужой python того же пользователя (Jupyter, Anaconda, движок
++    /// соседнего продукта Aurora), запущенный вчера. В релизной сборке отсекается
++    /// уже по образу: безусловного «имя содержит python» больше нет.
++    #[test]
++    fn skip_foreign_python_by_image_in_release_config() {
++        let started = epoch(1_800_000_000);
++        let state = state_at(started);
++        let obs = observed(
++            Some(started - chrono::Duration::hours(14)),
++            r"C:\Users\anton\anaconda3\python.exe",
++        );
++
++        assert_eq!(
++            should_kill(&state, &obs, &KILL_CFG, OUR_USER),
++            KillVerdict::Skip(SkipReason::ImageMismatch)
++        );
++    }
++
++    /// Случай 3б. Тот же чужой python, но конфиг отладочной сборки, где имя образа
++    /// `python` законно. Здесь его держит уже время создания - страховка на случай,
++    /// если продукту действительно нужен интерпретатор.
++    #[test]
++    fn skip_foreign_python_by_creation_time_in_dev_config() {
++        let started = epoch(1_800_000_000);
++        let state = state_at(started);
++        let obs = observed(
++            Some(started - chrono::Duration::hours(14)),
++            r"C:\Users\anton\anaconda3\python.exe",
++        );
++
++        assert_eq!(
++            should_kill(&state, &obs, &KILL_CFG_DEV, OUR_USER),
++            KillVerdict::Skip(SkipReason::CreatedOutsideWindow)
++        );
++    }
++
++    /// Случай 3в. Отладочная сборка, свой же `python.exe`, созданный непосредственно
++    /// перед записью состояния, - снимаем.
++    #[test]
++    fn kill_dev_python_engine_within_window() {
++        let started = epoch(1_800_000_000);
++        let state = state_at(started);
++        let obs = observed(
++            Some(started - chrono::Duration::milliseconds(150)),
++            r"C:\Python312\python.exe",
++        );
++
++        assert_eq!(
++            should_kill(&state, &obs, &KILL_CFG_DEV, OUR_USER),
++            KillVerdict::Kill
++        );
++    }
++
++    /// Случай 4. Процесс принадлежит другому пользователю ОС - неприкосновенен
++    /// (инвариант RDP, ради которого этот код и писался).
++    #[test]
++    fn skip_when_process_owner_is_another_user() {
++        let started = epoch(1_800_000_000);
++        let state = state_at(started);
++        let obs = ObservedProcess {
++            owner: Some("AURORA-PC\\maria".to_string()),
++            ..observed(Some(started), OUR_IMAGE)
++        };
++
++        assert_eq!(
++            should_kill(&state, &obs, &KILL_CFG, OUR_USER),
++            KillVerdict::Skip(SkipReason::OwnerMismatch)
++        );
++    }
++
++    /// Случай 4б. Запись оставлена другим пользователем на общей машине -
++    /// отсекается сравнением строк, до всяких системных вызовов.
++    #[test]
++    fn skip_when_state_file_belongs_to_another_user() {
++        let started = epoch(1_800_000_000);
++        let mut state = state_at(started);
++        state.user = "maria".to_string();
++        let obs = observed(Some(started), OUR_IMAGE);
++
++        assert_eq!(
++            should_kill(&state, &obs, &KILL_CFG, OUR_USER),
++            KillVerdict::Skip(SkipReason::StateUserMismatch)
++        );
++    }
++
++    /// Случай 5. Время создания получить не удалось - решение консервативное.
++    /// Не снять своего зомби дешевле, чем убить чужой расчёт: зомби максимум
++    /// удержит порт, и `allocate_port` возьмёт свободный.
++    #[test]
++    fn skip_when_creation_time_unavailable() {
++        let started = epoch(1_800_000_000);
++        let state = state_at(started);
++        let obs = observed(None, OUR_IMAGE);
++
++        assert_eq!(
++            should_kill(&state, &obs, &KILL_CFG, OUR_USER),
++            KillVerdict::Skip(SkipReason::CreationTimeUnknown)
++        );
++    }
++
++    /// Владельца определить не удалось (процесс уже исчез либо нет прав) - тоже
++    /// консервативно.
++    #[test]
++    fn skip_when_owner_unavailable() {
++        let started = epoch(1_800_000_000);
++        let state = state_at(started);
++        let obs = ObservedProcess {
++            owner: None,
++            ..observed(Some(started), OUR_IMAGE)
++        };
++
++        assert_eq!(
++            should_kill(&state, &obs, &KILL_CFG, OUR_USER),
++            KillVerdict::Skip(SkipReason::OwnerUnknown)
++        );
++    }
++
++    /// Путь к образу недоступен - консервативно.
++    #[test]
++    fn skip_when_image_path_unavailable() {
++        let started = epoch(1_800_000_000);
++        let state = state_at(started);
++        let obs = ObservedProcess {
++            image_path: None,
++            ..observed(Some(started), OUR_IMAGE)
++        };
++
++        assert_eq!(
++            should_kill(&state, &obs, &KILL_CFG, OUR_USER),
++            KillVerdict::Skip(SkipReason::ImageUnknown)
++        );
++    }
++
++    /// Нулевой идентификатор - снимать нечего.
++    #[test]
++    fn skip_when_pid_is_zero() {
++        let started = epoch(1_800_000_000);
++        let mut state = state_at(started);
++        state.pid = 0;
++        let obs = observed(Some(started), OUR_IMAGE);
++
++        assert_eq!(
++            should_kill(&state, &obs, &KILL_CFG, OUR_USER),
++            KillVerdict::Skip(SkipReason::InvalidPid)
++        );
++    }
++
++    /// Файл состояния оставлен другим продуктом Aurora (общий каталог, ручное
++    /// копирование) - не наш процесс.
++    #[test]
++    fn skip_when_state_belongs_to_another_product() {
++        let started = epoch(1_800_000_000);
++        let mut state = state_at(started);
++        state.product = "com.aurora.docs-lab".to_string();
++        let obs = observed(Some(started), OUR_IMAGE);
++
++        assert_eq!(
++            should_kill(&state, &obs, &KILL_CFG, OUR_USER),
++            KillVerdict::Skip(SkipReason::ProductMismatch)
++        );
++    }
++
++    /// Битый `started_at` - сверить время не с чем, значит не снимаем.
++    #[test]
++    fn skip_when_started_at_unparsable() {
++        let started = epoch(1_800_000_000);
++        let mut state = state_at(started);
++        state.started_at = "вчера вечером".to_string();
++        let obs = observed(Some(started), OUR_IMAGE);
++
++        assert_eq!(
++            should_kill(&state, &obs, &KILL_CFG, OUR_USER),
++            KillVerdict::Skip(SkipReason::StartedAtUnparsable)
++        );
++    }
++
++    /// Границы окна: ровно допуск - снимаем, на секунду дальше - нет.
++    #[test]
++    fn kill_window_boundaries_are_inclusive() {
++        let started = epoch(1_800_000_000);
++        let state = state_at(started);
++
++        let on_edge = observed(
++            Some(started + chrono::Duration::seconds(KILL_TIME_TOLERANCE_SECS)),
++            OUR_IMAGE,
++        );
++        assert_eq!(
++            should_kill(&state, &on_edge, &KILL_CFG, OUR_USER),
++            KillVerdict::Kill
++        );
++
++        let past_edge = observed(
++            Some(started + chrono::Duration::seconds(KILL_TIME_TOLERANCE_SECS + 1)),
++            OUR_IMAGE,
++        );
++        assert_eq!(
++            should_kill(&state, &past_edge, &KILL_CFG, OUR_USER),
++            KillVerdict::Skip(SkipReason::CreatedOutsideWindow)
++        );
++    }
++
++    /// `started_at` в файле состояния записан со смещением часового пояса -
++    /// сравнение обязано приводить обе стороны к UTC.
++    #[test]
++    fn started_at_with_timezone_offset_is_normalized() {
++        let started = epoch(1_800_000_000);
++        let mut state = state_at(started);
++        state.started_at = started
++            .with_timezone(&chrono::FixedOffset::east_opt(3 * 3600).unwrap())
++            .to_rfc3339();
++        let obs = observed(Some(started - chrono::Duration::milliseconds(200)), OUR_IMAGE);
++
++        assert_eq!(
++            should_kill(&state, &obs, &KILL_CFG, OUR_USER),
++            KillVerdict::Kill
++        );
++    }
++
++    /// Сверка образа идёт по имени файла из полного пути, а не по подстроке в
++    /// строке вывода утилиты: чужой каталог с похожим названием не проходит.
++    #[test]
++    fn image_matches_uses_file_name_not_substring() {
++        assert!(image_matches(Some(OUR_IMAGE), &KILL_CFG));
++        assert!(image_matches(
++            Some(r"D:\build\econometrica-sidecar.exe"),
++            &KILL_CFG
++        ));
++        assert!(!image_matches(
++            Some(r"C:\econometrica-sidecar\notepad.exe"),
++            &KILL_CFG
++        ));
++        assert!(!image_matches(Some(r"C:\Windows\py.exe"), &KILL_CFG_DEV));
++        assert!(image_matches(Some(r"C:\Python312\python3.exe"), &KILL_CFG_DEV));
++        assert!(!image_matches(None, &KILL_CFG));
++    }
++
++    /// Владелец приходит как `DOMAIN\user`, в состоянии и в `current_user_name()`
++    /// домена нет - сверяем хвост, но не путаем разных пользователей.
++    #[test]
++    fn owner_matches_handles_domain_prefix() {
++        assert!(owner_matches("AURORA-PC\\anton", "anton"));
++        assert!(owner_matches("anton", "ANTON"));
++        assert!(!owner_matches("AURORA-PC\\anton2", "anton"));
++        assert!(!owner_matches("AURORA-PC\\anton", "unknown"));
++        assert!(!owner_matches("AURORA-PC\\anton", ""));
++    }
+ }
+diff --git a/src-tauri/src/win_acl.rs b/src-tauri/src/win_acl.rs
+new file mode 100644
+index 0000000..7c50049
+--- /dev/null
++++ b/src-tauri/src/win_acl.rs
+@@ -0,0 +1,438 @@
++//! Возврат наследования прав доступа на каталоге сессий — лечение следа, оставленного прежними
++//! версиями (хвост CPD-77).
++//!
++//! Что было. До правки `ea560be` продукт на каждом старте порождал
++//! `icacls <каталог сессий> /inheritance:r /grant:r <ДОМЕН\пользователь>:(OI)(CI)F`.
++//! `/inheritance:r` снимает с каталога наследование от родителя, а `/grant:r` ЗАМЕНЯЕТ список
++//! прав целиком. В итоге на каталоге оставался ровно один элемент — текущий пользователь, а
++//! SYSTEM и «Администраторы», приходившие по наследству из профиля, молча исчезали. Замер на
++//! живой машине: `EVO-X1\ackol:(OI)(CI)(F)` против эталонных трёх элементов у соседнего каталога.
++//!
++//! Почему удаления вызова мало. Права — durable-состояние файловой системы: у всех, кто хоть раз
++//! запускал прежнюю версию, каталог остался урезанным и сам не починится. Служебное копирование,
++//! поиск и проверка антивирусом такой каталог обходят стороной, а администратор машины доступа к
++//! нему не имеет.
++//!
++//! Почему системный вызов, а не возврат `icacls`. Порождение процесса, переставляющего права
++//! прямо перед тем, как приложение начнёт писать и шифровать в этом каталоге, и есть тот образец
++//! поведения, из-за которого 11.08.2026 Kaspersky снял оболочку продукта с диска у пользователя
++//! (PDM:Trojan.Win32.Generic). Лечение обязано обойтись без порождения процессов.
++//!
++//! 🔴 Набор флагов проверен живым пробником на реальных каталогах 14.08.2026, а не выведен из
++//! чтения документации, — два «очевидных» варианта оказались негодны:
++//! - только `UNPROTECTED_DACL_SECURITY_INFORMATION` с пустым указателем на список → вызов
++//!   возвращает отказ 5 (доступ запрещён) и не делает ничего, хотя вызывающий — владелец каталога;
++//! - `DACL_SECURITY_INFORMATION | UNPROTECTED_DACL_SECURITY_INFORMATION` с пустым указателем на
++//!   список → вызов УСПЕШЕН и ставит пустой (NULL) список прав, то есть «доступ разрешён всем»,
++//!   а защита при этом остаётся включённой. Для каталога с расшифрованными данными клиента это
++//!   было бы хуже исходной поломки.
++//!
++//! Рабочий набор — `DACL_SECURITY_INFORMATION | UNPROTECTED_DACL_SECURITY_INFORMATION` вместе с
++//! ТЕМ ЖЕ списком прав, который только что прочитан с каталога: явные элементы остаются дословно,
++//! флаг защиты снимается, и Windows сама возвращает унаследованные элементы от родителя, а заодно
++//! раздаёт их существующим вложенным каталогам и файлам.
++
++use std::path::{Component, Path};
++
++/// Состояние списка прав каталога — ровно то, что нужно для решения «чинить или нет».
++#[derive(Debug, Clone, Copy, PartialEq, Eq)]
++pub enum DaclState {
++    /// Наследование от родителя снято (`SE_DACL_PROTECTED`) — это и есть след прежних версий.
++    Protected,
++    /// Наследование включено — каталог здоров, трогать нечего.
++    Inherited,
++    /// Состояние прочитать не удалось (нет прав на чтение, каталог исчез, ошибка системы).
++    Unreadable,
++}
++
++/// Чем закончилась попытка. Возвращается наружу только ради тестов и журнала: вызывающий код
++/// продолжает работу при ЛЮБОМ исходе.
++#[derive(Debug, Clone, Copy, PartialEq, Eq)]
++pub enum Outcome {
++    /// Не Windows — на других целях прав в этом смысле нет.
++    NotWindows,
++    /// Путь не прошёл проверку «это наш каталог сессий внутри каталога приложения».
++    Rejected,
++    /// Каталога нет на диске.
++    Missing,
++    /// Состояние прочитать не удалось — не чиним (чинить вслепую нельзя).
++    Unreadable,
++    /// Наследование и так включено — не делаем ничего (обычный случай нового клиента).
++    AlreadyInherited,
++    /// Наследование возвращено.
++    Restored,
++    /// Починка не удалась (обычно нехватка прав) — код ошибки Windows.
++    Failed(u32),
++}
++
++/// Решение по прочитанному состоянию. Чиним ТОЛЬКО при подтверждённой защите: непрочитанное
++/// состояние — не повод трогать чужие права.
++pub fn needs_restore(state: DaclState) -> bool {
++    matches!(state, DaclState::Protected)
++}
++
++/// `child` лежит СТРОГО внутри `parent` (сам `parent` — не считается).
++///
++/// Сравнение покомпонентное и без учёта регистра: на Windows `C:\Users\X\AppData\Local` и
++/// `C:\Users\x\appdata\local` — один каталог, а строковый `starts_with` этого не знает.
++/// Компоненты `..` и `.` в любом из путей — сразу отказ: по дереву вверх не ходим.
++pub fn is_inside(child: &Path, parent: &Path) -> bool {
++    let norm = |p: &Path| -> Option<Vec<String>> {
++        let mut out = Vec::new();
++        for c in p.components() {
++            match c {
++                Component::ParentDir | Component::CurDir => return None,
++                other => out.push(other.as_os_str().to_string_lossy().to_lowercase()),
++            }
++        }
++        if out.is_empty() {
++            None
++        } else {
++            Some(out)
++        }
++    };
++    let (Some(child), Some(parent)) = (norm(child), norm(parent)) else {
++        return false;
++    };
++    child.len() > parent.len() && child[..parent.len()] == parent[..]
++}
++
++/// Путь годится для починки: он лежит строго внутри каталога приложения и называется ровно так,
++/// как называется подкаталог сессий. Обе проверки нужны, чтобы правка физически не могла
++/// дотянуться ни до родителя, ни до чужого каталога, даже если путь однажды начнут строить иначе.
++pub fn is_safe_target(dir: &Path, app_dir: &Path, expected_leaf: &str) -> bool {
++    if !is_inside(dir, app_dir) {
++        return false;
++    }
++    match dir.file_name() {
++        Some(name) => name.to_string_lossy().eq_ignore_ascii_case(expected_leaf),
++        None => false,
++    }
++}
++
++#[cfg(windows)]
++mod sys {
++    //! Системная часть: чтение управляющего слова дескриптора и снятие флага защиты списка.
++
++    use std::os::windows::ffi::OsStrExt;
++    use std::path::Path;
++    use std::ptr;
++
++    use windows_sys::Win32::Foundation::{GetLastError, LocalFree, ERROR_SUCCESS};
++    use windows_sys::Win32::Security::Authorization::{
++        GetNamedSecurityInfoW, SetNamedSecurityInfoW, SE_FILE_OBJECT,
++    };
++    use windows_sys::Win32::Security::{
++        GetSecurityDescriptorControl, ACL, DACL_SECURITY_INFORMATION,
++        PROTECTED_DACL_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR, SE_DACL_PROTECTED,
++        UNPROTECTED_DACL_SECURITY_INFORMATION,
++    };
++
++    use super::DaclState;
++
++    fn wide(path: &Path) -> Vec<u16> {
++        path.as_os_str().encode_wide().chain(Some(0)).collect()
++    }
++
++    /// Прочитать, снято ли наследование. Дескриптор, который выдаёт система, освобождаем сами —
++    /// иначе каждый старт продукта подтекал бы на размер дескриптора.
++    pub fn read_dacl_state(dir: &Path) -> DaclState {
++        let path = wide(dir);
++        let mut descriptor: PSECURITY_DESCRIPTOR = ptr::null_mut();
++        let rc = unsafe {
++            GetNamedSecurityInfoW(
++                path.as_ptr(),
++                SE_FILE_OBJECT,
++                DACL_SECURITY_INFORMATION,
++                ptr::null_mut(),
++                ptr::null_mut(),
++                ptr::null_mut(),
++                ptr::null_mut(),
++                &mut descriptor,
++            )
++        };
++        if rc != ERROR_SUCCESS {
++            log::warn!(
++                "Права каталога сессий {} не прочитаны (код {rc}) — наследование не проверяем",
++                dir.display()
++            );
++            return DaclState::Unreadable;
++        }
++        let mut control: u16 = 0;
++        let mut revision: u32 = 0;
++        let ok = unsafe { GetSecurityDescriptorControl(descriptor, &mut control, &mut revision) };
++        let err = if ok == 0 { unsafe { GetLastError() } } else { 0 };
++        unsafe { LocalFree(descriptor as _) };
++        if ok == 0 {
++            log::warn!(
++                "Управляющее слово прав каталога сессий {} не прочитано (код {err})",
++                dir.display()
++            );
++            return DaclState::Unreadable;
++        }
++        if control & SE_DACL_PROTECTED != 0 {
++            DaclState::Protected
++        } else {
++            DaclState::Inherited
++        }
++    }
++
++    /// Переставить флаг защиты списка прав, оставив сам список дословно прежним.
++    ///
++    /// Список НЕ конструируется заново: он читается с каталога и передаётся обратно тем же
++    /// указателем. Это и есть требование «не добавлять и не удалять явные элементы» — и
++    /// одновременно единственный набор аргументов, который на живой проверке отработал верно
++    /// (см. шапку модуля про два негодных варианта).
++    fn set_dacl_protection(dir: &Path, protect: bool) -> Result<(), u32> {
++        let path = wide(dir);
++        let mut descriptor: PSECURITY_DESCRIPTOR = ptr::null_mut();
++        let mut dacl: *mut ACL = ptr::null_mut();
++        let rc = unsafe {
++            GetNamedSecurityInfoW(
++                path.as_ptr(),
++                SE_FILE_OBJECT,
++                DACL_SECURITY_INFORMATION,
++                ptr::null_mut(),
++                ptr::null_mut(),
++                &mut dacl,
++                ptr::null_mut(),
++                &mut descriptor,
++            )
++        };
++        if rc != ERROR_SUCCESS {
++            return Err(rc);
++        }
++        // 🔴 Пустого списка прав быть не должно, но если система вернула именно его, чинить
++        // нельзя: тот же вызов с пустым указателем ставит каталогу «доступ разрешён всем»
++        // (проверено пробником). Каталог с расшифрованными данными клиента открытым не делаем —
++        // выходим с ошибкой, дальше её подхватит журнал.
++        if dacl.is_null() {
++            unsafe { LocalFree(descriptor as _) };
++            return Err(ERROR_INVALID_ACL);
++        }
++        let flag = if protect {
++            PROTECTED_DACL_SECURITY_INFORMATION
++        } else {
++            UNPROTECTED_DACL_SECURITY_INFORMATION
++        };
++        let rc = unsafe {
++            SetNamedSecurityInfoW(
++                path.as_ptr(),
++                SE_FILE_OBJECT,
++                DACL_SECURITY_INFORMATION | flag,
++                ptr::null_mut(),
++                ptr::null_mut(),
++                dacl,
++                ptr::null(),
++            )
++        };
++        // `dacl` указывает ВНУТРЬ дескриптора, поэтому освобождается он ровно один раз и только
++        // после того, как система дочитала список.
++        unsafe { LocalFree(descriptor as _) };
++        if rc == ERROR_SUCCESS {
++            Ok(())
++        } else {
++            Err(rc)
++        }
++    }
++
++    /// `ERROR_INVALID_ACL` — списка прав на каталоге нет вовсе.
++    const ERROR_INVALID_ACL: u32 = 1336;
++
++    pub(super) fn restore(dir: &Path) -> Result<(), u32> {
++        set_dacl_protection(dir, false)
++    }
++
++    /// Только для теста: воспроизвести поломку, которую оставляли прежние версии.
++    #[cfg(test)]
++    pub(super) fn protect(dir: &Path) -> Result<(), u32> {
++        set_dacl_protection(dir, true)
++    }
++}
++
++#[cfg(windows)]
++pub use sys::read_dacl_state;
++
++/// Вернуть наследование прав каталогу сессий, если и только если прежние версии его сняли.
++///
++/// Контракт вызывающего: ни один исход не влияет на запуск приложения. Нехватка прав (каталог
++/// сменил владельца, политика машины запрещает менять права) — обычная ситуация: пишем в журнал
++/// и работаем дальше.
++///
++/// Отдельного файла-маркера «уже чинили» нет намеренно: признаком служит сама файловая система —
++/// после успешной починки наследование включено, и следующий запуск уходит по ветке
++/// `AlreadyInherited`, не доходя до записи прав. Маркер мог бы разойтись с реальностью, состояние
++/// каталога разойтись с собой не может.
++#[cfg(windows)]
++pub fn restore_inheritance(
++    dir: &Path,
++    app_dir: &Path,
++    local_app_data: &Path,
++    expected_leaf: &str,
++) -> Outcome {
++    if !is_safe_target(dir, app_dir, expected_leaf) || !is_inside(app_dir, local_app_data) {
++        log::warn!(
++            "Каталог {} не опознан как каталог сессий продукта внутри {} — права не трогаем",
++            dir.display(),
++            local_app_data.display()
++        );
++        return Outcome::Rejected;
++    }
++    if !dir.is_dir() {
++        return Outcome::Missing;
++    }
++    let state = read_dacl_state(dir);
++    if !needs_restore(state) {
++        return match state {
++            DaclState::Unreadable => Outcome::Unreadable,
++            _ => Outcome::AlreadyInherited,
++        };
++    }
++    match sys::restore(dir) {
++        Ok(()) => {
++            log::info!(
++                "Каталогу сессий {} возвращено наследование прав: прежние версии сняли его вместе \
++                 с доступом SYSTEM и Администраторов",
++                dir.display()
++            );
++            Outcome::Restored
++        }
++        Err(code) => {
++            log::warn!(
++                "Наследование прав каталога сессий {} вернуть не удалось (код {code}) — \
++                 приложение продолжает работу, каталог останется с урезанными правами",
++                dir.display()
++            );
++            Outcome::Failed(code)
++        }
++    }
++}
++
++/// Не-Windows: прав в этом смысле нет, делать нечего. Продукт поставляется только под Windows,
++/// ветка нужна, чтобы крейт собирался на других целях.
++#[cfg(not(windows))]
++pub fn restore_inheritance(
++    _dir: &Path,
++    _app_dir: &Path,
++    _local_app_data: &Path,
++    _expected_leaf: &str,
++) -> Outcome {
++    Outcome::NotWindows
++}
 +
 +#[cfg(test)]
-+mod workspace_clear_tests {
++mod tests {
 +    use super::*;
++    use std::path::PathBuf;
 +
-+    /// CPD-69: очистка при старте обязана трогать inbox и обязана НЕ трогать exports —
-+    /// это готовые документы клиента, а не временный мусор сессии.
++    // ── Чистая логика решения: никаких системных вызовов ──────────────────────────────────
++
 +    #[test]
-+    fn start_cleanup_removes_inbox_but_keeps_export_deliverables() {
-+        let dir = tempfile::tempdir().unwrap();
-+        let workspace = dir.path();
-+        let inbox = workspace.join("inbox");
-+        let exports = workspace.join("exports");
-+        std::fs::create_dir_all(&inbox).unwrap();
-+        std::fs::create_dir_all(&exports).unwrap();
-+
-+        std::fs::write(inbox.join("source.pptx"), b"source").unwrap();
-+        std::fs::write(exports.join("Заключение.docx"), b"deliverable 1").unwrap();
-+        std::fs::write(exports.join("Письмо.docx"), b"deliverable 2").unwrap();
-+
-+        let removed = clear_workspace_dirs(workspace, WORKSPACE_DIRS_CLEARED_ON_START);
-+
-+        assert_eq!(removed, 1, "должен быть удалён ровно один файл (из inbox)");
++    fn protected_dir_is_repaired_and_healthy_one_is_left_alone() {
++        assert!(needs_restore(DaclState::Protected), "снятое наследование обязано чиниться");
 +        assert!(
-+            std::fs::read_dir(&inbox).unwrap().next().is_none(),
-+            "inbox обязан быть пуст после очистки при старте"
++            !needs_restore(DaclState::Inherited),
++            "здоровый каталог трогать нельзя — это и есть идемпотентность"
 +        );
 +        assert!(
-+            exports.join("Заключение.docx").exists(),
-+            "выдача клиента не должна исчезать при запуске приложения"
-+        );
-+        assert!(
-+            exports.join("Письмо.docx").exists(),
-+            "выдача клиента не должна исчезать при запуске приложения"
++            !needs_restore(DaclState::Unreadable),
++            "непрочитанное состояние — не повод переписывать права вслепую"
 +        );
 +    }
 +
-+    /// Структурный сторож: exports не должна вернуться в список очистки по невнимательности
-+    /// при будущей правке (например, при добавлении нового служебного каталога рядом).
 +    #[test]
-+    fn exports_must_never_be_listed_for_start_cleanup() {
++    fn only_the_products_own_sessions_dir_passes_the_guard() {
++        let app = PathBuf::from(r"C:\Users\u\AppData\Local\com.aurora.econometrica");
++        let sessions = app.join("sessions");
++
++        assert!(is_safe_target(&sessions, &app, "sessions"));
++        // Регистр на Windows незначим — путь из переменной среды может прийти в любом.
++        assert!(is_safe_target(
++            &PathBuf::from(r"c:\users\u\appdata\local\COM.AURORA.ECONOMETRICA\Sessions"),
++            &app,
++            "sessions"
++        ));
++
++        assert!(!is_safe_target(&app, &app, "sessions"), "сам каталог приложения — не цель");
 +        assert!(
-+            !WORKSPACE_DIRS_CLEARED_ON_START.contains(&"exports"),
-+            "exports — выдача клиента, её нельзя чистить при запуске (CPD-69)"
++            !is_safe_target(app.parent().unwrap(), &app, "sessions"),
++            "родителя не трогаем никогда"
 +        );
++        assert!(
++            !is_safe_target(&app.join("history"), &app, "sessions"),
++            "соседний каталог состояния — не цель"
++        );
++        assert!(
++            !is_safe_target(&PathBuf::from(r"C:\Windows\System32"), &app, "sessions"),
++            "чужой каталог не проходит"
++        );
++        assert!(
++            !is_safe_target(&app.join("..").join("sessions"), &app, "sessions"),
++            "путь с переходом вверх отвергается целиком"
++        );
++    }
++
++    #[test]
++    fn app_dir_must_itself_live_under_local_app_data() {
++        let local = PathBuf::from(r"C:\Users\u\AppData\Local");
++        assert!(is_inside(&local.join("com.aurora.econometrica"), &local));
++        assert!(!is_inside(&local, &local), "сам каталог — не «внутри себя»");
++        assert!(
++            !is_inside(&PathBuf::from(r"C:\ProgramData\com.aurora.econometrica"), &local),
++            "каталог вне профиля пользователя не проходит"
++        );
++        assert!(
++            !is_inside(&PathBuf::from(r"C:\Users\u\AppData\Local\..\Roaming\x"), &local),
++            "«..» в середине пути — отказ"
++        );
++    }
++
++    // ── Честная проверка на настоящем каталоге ────────────────────────────────────────────
++
++    /// Полный круг на реальном каталоге: воспроизводим поломку прежних версий, чиним, читаем
++    /// состояние обратно. Никаких заглушек — те же системные вызовы, что у клиента.
++    ///
++    /// Прав администратора тест не требует: владелец каталога всегда имеет `WRITE_DAC`.
++    #[cfg(windows)]
++    #[test]
++    fn real_directory_loses_and_regains_inheritance() {
++        let dir = std::env::temp_dir().join(format!(
++            "aurora-acl-{}-{}",
++            std::process::id(),
++            std::time::SystemTime::now()
++                .duration_since(std::time::UNIX_EPOCH)
++                .unwrap()
++                .as_nanos()
++        ));
++        std::fs::create_dir_all(&dir).expect("временный каталог не создан");
++        let app_dir = dir.parent().unwrap().to_path_buf();
++        let leaf = dir.file_name().unwrap().to_string_lossy().to_string();
++        let local = app_dir.parent().expect("у временного каталога есть родитель").to_path_buf();
++
++        // Свежий каталог наследует права — чинить нечего, вызов обязан быть пустым.
++        assert_eq!(read_dacl_state(&dir), DaclState::Inherited);
++        assert_eq!(
++            restore_inheritance(&dir, &app_dir, &local, &leaf),
++            Outcome::AlreadyInherited
++        );
++
++        // Воспроизводим ровно то, что оставляли прежние версии.
++        sys::protect(&dir).expect("защиту списка прав поставить не удалось");
++        assert_eq!(read_dacl_state(&dir), DaclState::Protected);
++
++        assert_eq!(restore_inheritance(&dir, &app_dir, &local, &leaf), Outcome::Restored);
++        assert_eq!(
++            read_dacl_state(&dir),
++            DaclState::Inherited,
++            "после починки наследование обязано быть включено"
++        );
++
++        // Второй заход по тому же каталогу уже ничего не делает.
++        assert_eq!(
++            restore_inheritance(&dir, &app_dir, &local, &leaf),
++            Outcome::AlreadyInherited
++        );
++
++        let _ = std::fs::remove_dir_all(&dir);
 +    }
 +}
- // rebuild
- // icon refresh
-diff --git a/src-tauri/tauri.conf.json b/src-tauri/tauri.conf.json
-index 7cc490f..9ff8086 100644
---- a/src-tauri/tauri.conf.json
-+++ b/src-tauri/tauri.conf.json
-@@ -1,7 +1,7 @@
- {
-     "$schema": "https://schema.tauri.app/config/2",
-     "productName": "Optimizer MMM",
--    "version": "2.4.7",
-+    "version": "2.4.8",
-     "identifier": "com.aurora.econometrica",
-     "build": {
-         "beforeDevCommand": "npm run dev",
+diff --git a/src-tauri/tests/guard_no_regressed_cpd77_cpd79.rs b/src-tauri/tests/guard_no_regressed_cpd77_cpd79.rs
+new file mode 100644
+index 0000000..cb0a98e
+--- /dev/null
++++ b/src-tauri/tests/guard_no_regressed_cpd77_cpd79.rs
+@@ -0,0 +1,260 @@
++//! Структурный сторож против возврата CPD-77 / CPD-79.
++//!
++//! Из продукта убраны два порождения внешних процессов, которые поведенческая защита
++//! антивируса (Kaspersky, 10.08 и 11.08.2026) распознавала как вредоносные и снимала оболочку
++//! продукта с диска у пользователя:
++//! - `icacls <каталог> /inheritance:r /grant:r …` — переустановка прав каталога сессий
++//!   (`/grant:r` ЗАМЕНЯЕТ список прав целиком, из-за чего SYSTEM и «Администраторы» молча
++//!   исчезали); подробности и замена без порождения процесса — `src/win_acl.rs`;
++//! - `cmd /C "netstat -ano | findstr :порт"` — разведка процессов по порту перед снятием
++//!   зависшего движка (CPD-77), и следом регресс той же правки, потерявший гарантию, что
++//!   найденный процесс — держатель НАШЕГО порта (CPD-79); подробности —
++//!   `src/econ_sidecar.rs::kill_sidecar_from_state` и `src/sidecar_runtime.rs`.
++//!
++//! Опасность не в том, что кто-то напишет эти вызовы заново, а в том, что они молча вернутся
++//! при слиянии старой ветки: на 14.08.2026 обе части дефекта живы как минимум в
++//! `feat/econ-canon-p0` и `fix/econ-gw-sign-prefix`. Слияние любой из них должно быть поймано
++//! здесь, а не у клиента.
++//!
++//! Почему тест лежит в `src-tauri/tests/`, а не рядом с кодом в `src-tauri/src/`: интеграционные
++//! тесты Cargo — отдельная директория, которую этот же сторож не сканирует (он смотрит только
++//! `src/`). Самоисключение получается по расположению файла, а не по имени внутри списка
++//! проверяемых файлов — не нужно помнить вычеркнуть себя при переименовании.
++
++use std::fs;
++use std::path::{Path, PathBuf};
++
++/// Образцы, запрещённые в исполняемом коде продукта (после отбрасывания комментариев).
++/// Поиск без учёта регистра — см. `scan_file`.
++const FORBIDDEN_PATTERNS: &[&str] = &["icacls", "/grant:r", "netstat", "findstr", "tasklist"];
++
++/// Один найденный запрещённый образец — файл, строка, что именно нашлось и сама строка.
++struct Hit {
++    file: PathBuf,
++    line: usize,
++    pattern: &'static str,
++    text: String,
++}
++
++/// Отбрасывает построчные (`//`, `///`, `//!`) и блочные (`/* … */`, в т.ч. вложенные,
++/// Rust это допускает) комментарии.
++///
++/// Содержимое строковых литералов — обычных, byte- и raw-строк — СОХРАНЯЕТСЯ дословно и
++/// экранирование (`\`) внутри них учитывается, чтобы кавычка-escape не оборвала строку раньше
++/// времени. Строки — не шум для отбрасывания, а именно то место, где стоят опасные вызовы вида
++/// `Command::new("icacls")`.
++///
++/// Символьные литералы (`'x'`) и лайфтаймы (`'a`) в отдельное состояние намеренно не выделены:
++/// они физически не могут вместить многобуквенный запрещённый образец («icacls», «netstat» и
++/// т.д.), поэтому отсутствие такого разбора не создаёт ни ложных срабатываний, ни пропусков.
++///
++/// Переносы строк не удаляются нигде, включая многострочные блочные комментарии, — номер
++/// строки в отчёте об отказе обязан совпадать с номером строки в исходном файле.
++fn strip_comments(src: &str) -> String {
++    let chars: Vec<char> = src.chars().collect();
++    let n = chars.len();
++    let mut out = String::with_capacity(src.len());
++    let mut i = 0;
++
++    while i < n {
++        // Построчный комментарий: `//`, `///`, `//!`.
++        if chars[i] == '/' && i + 1 < n && chars[i + 1] == '/' {
++            while i < n && chars[i] != '\n' {
++                i += 1;
++            }
++            continue; // сам '\n' допишется обычной веткой на следующем шаге цикла
++        }
++
++        // Блочный комментарий `/* … */` — Rust допускает вложенность.
++        if chars[i] == '/' && i + 1 < n && chars[i + 1] == '*' {
++            let mut depth = 1;
++            i += 2;
++            while i < n && depth > 0 {
++                if chars[i] == '/' && i + 1 < n && chars[i + 1] == '*' {
++                    depth += 1;
++                    i += 2;
++                } else if chars[i] == '*' && i + 1 < n && chars[i + 1] == '/' {
++                    depth -= 1;
++                    i += 2;
++                } else {
++                    if chars[i] == '\n' {
++                        out.push('\n');
++                    }
++                    i += 1;
++                }
++            }
++            continue;
++        }
++
++        // Raw-строка: необязательный `b`, `r`, N решёток, открывающая кавычка.
++        if let Some((content_start, hashes)) = raw_string_prefix(&chars, i) {
++            for &pc in &chars[i..content_start] {
++                out.push(pc);
++            }
++            let mut j = content_start;
++            while j < n {
++                if chars[j] == '"' && closes_raw_string(&chars, j, hashes) {
++                    for k in 0..=hashes {
++                        out.push(chars[j + k]);
++                    }
++                    j += hashes + 1;
++                    break;
++                }
++                out.push(chars[j]);
++                j += 1;
++            }
++            i = j;
++            continue;
++        }
++
++        // Обычная (в т.ч. byte-) строка `"…"` — экранирование `\` учитывается.
++        if chars[i] == '"' {
++            out.push('"');
++            i += 1;
++            while i < n {
++                let c = chars[i];
++                out.push(c);
++                i += 1;
++                if c == '\\' && i < n {
++                    out.push(chars[i]);
++                    i += 1;
++                    continue;
++                }
++                if c == '"' {
++                    break;
++                }
++            }
++            continue;
++        }
++
++        out.push(chars[i]);
++        i += 1;
++    }
++
++    out
++}
++
++/// Если позиция `i` — начало raw-строки (`r"…"`, `r#"…"#`, `br##"…"##`, …), возвращает индекс
++/// первого символа содержимого и число решёток. Иначе `None`.
++fn raw_string_prefix(chars: &[char], i: usize) -> Option<(usize, usize)> {
++    let n = chars.len();
++    let mut j = i;
++    if j < n && chars[j] == 'b' {
++        j += 1;
++    }
++    if j >= n || chars[j] != 'r' {
++        return None;
++    }
++    j += 1;
++    let mut hashes = 0;
++    while j < n && chars[j] == '#' {
++        hashes += 1;
++        j += 1;
++    }
++    if j < n && chars[j] == '"' {
++        Some((j + 1, hashes))
++    } else {
++        None
++    }
++}
++
++/// Проверяет, что кавычка в позиции `j` закрывает raw-строку с данным числом решёток
++/// (`chars[j+1..=j+hashes]` — ровно `hashes` символов `#`).
++fn closes_raw_string(chars: &[char], j: usize, hashes: usize) -> bool {
++    let n = chars.len();
++    if j + hashes >= n {
++        return false;
++    }
++    (1..=hashes).all(|k| chars[j + k] == '#')
++}
++
++/// Сканирует один файл на запрещённые образцы после отбрасывания комментариев.
++/// Поиск без учёта регистра — тривиальный обход вида `ICACLS`/`NetStat` тоже должен упасть.
++fn scan_file(path: &Path) -> Vec<Hit> {
++    let raw = fs::read_to_string(path)
++        .unwrap_or_else(|e| panic!("не удалось прочитать {}: {e}", path.display()));
++    let cleaned = strip_comments(&raw);
++    let mut hits = Vec::new();
++    for (idx, line) in cleaned.lines().enumerate() {
++        let lower = line.to_lowercase();
++        for pat in FORBIDDEN_PATTERNS {
++            if lower.contains(pat) {
++                hits.push(Hit {
++                    file: path.to_path_buf(),
++                    line: idx + 1,
++                    pattern: pat,
++                    text: line.trim().to_string(),
++                });
++            }
++        }
++    }
++    hits
++}
++
++/// Обходит все `.rs`-файлы `src-tauri/src` (сам сторож в `src-tauri/tests/` не входит в этот
++/// каталог, см. шапку модуля) и падает, если после отбрасывания комментариев в исполняемом
++/// коде находится хотя бы один запрещённый образец CPD-77/CPD-79.
++#[test]
++fn no_regressed_cpd77_cpd79_calls_in_product_sources() {
++    let manifest_dir =
++        std::env::var("CARGO_MANIFEST_DIR").expect("CARGO_MANIFEST_DIR не задан тестовым раннером");
++    let src_dir = Path::new(&manifest_dir).join("src");
++    assert!(
++        src_dir.is_dir(),
++        "каталог исходников не найден: {} — сторож проверять нечего",
++        src_dir.display()
++    );
++
++    let mut hits = Vec::new();
++    for entry in walkdir::WalkDir::new(&src_dir)
++        .into_iter()
++        .filter_map(|e| e.ok())
++        .filter(|e| e.file_type().is_file())
++        .filter(|e| e.path().extension().and_then(|ext| ext.to_str()) == Some("rs"))
++    {
++        hits.extend(scan_file(entry.path()));
++    }
++
++    if !hits.is_empty() {
++        let mut msg = String::from(
++            "Сторож CPD-77/CPD-79 нашёл запрещённый образец в исполняемом коде (комментарии уже \
++             отброшены) — возврат опасного вызова из старой ветки:\n",
++        );
++        for h in &hits {
++            msg.push_str(&format!(
++                "  {}:{} — образец «{}» → {}\n",
++                h.file.display(),
++                h.line,
++                h.pattern,
++                h.text
++            ));
++        }
++        msg.push_str(
++            "См. src-tauri/tests/guard_no_regressed_cpd77_cpd79.rs и src/win_acl.rs / \
++             src/econ_sidecar.rs / src/sidecar_runtime.rs за объяснением, чем заменены эти вызовы.",
++        );
++        panic!("{msg}");
++    }
++}
++
++// ── Проверка самого сторожа: strip_comments не должен ни съедать код, ни путать строки ───────
++
++#[test]
++fn strip_comments_removes_line_and_nested_block_comments_but_keeps_line_count() {
++    let src = "a\n// icacls comment\nb /* netstat\nnested /* inner */ still comment */ c\nd";
++    let cleaned = strip_comments(src);
++    assert_eq!(cleaned.lines().count(), src.lines().count(), "число строк обязано совпасть");
++    assert!(!cleaned.to_lowercase().contains("icacls"), "построчный комментарий не отброшен");
++    assert!(!cleaned.to_lowercase().contains("netstat"), "блочный комментарий не отброшен");
++    assert!(cleaned.contains('a') && cleaned.contains('b') && cleaned.contains('c'));
++    assert!(cleaned.contains('d'), "код после комментария потерян");
++}
++
++#[test]
++fn strip_comments_keeps_string_and_raw_string_literal_content() {
++    let src = "let a = \"icacls\"; // не трогать вызов внутри строки\nlet b = r\"netstat #tasklist\";";
++    let cleaned = strip_comments(src);
++    assert!(cleaned.contains("\"icacls\""), "обычный строковый литерал не должен исчезнуть");
++    assert!(cleaned.contains("netstat #tasklist"), "raw-строка не должна исчезнуть");
++    assert!(!cleaned.contains("не трогать"), "текст комментария обязан быть отброшен");
++}
 diff --git a/src/routes/+layout.svelte b/src/routes/+layout.svelte
-index bcbcd75..77e1ccb 100644
+index 77e1ccb..b096df3 100644
 --- a/src/routes/+layout.svelte
 +++ b/src/routes/+layout.svelte
-@@ -189,8 +189,9 @@
-         const cabs = /** @type {any[]} */ (await invoke('get_cabinets'));
-         layoutCabinets.set(cabs);
+@@ -79,7 +79,13 @@
+   }
  
--        // 2.1. Clean start: clear inbox + exports for all cabinets ONCE on app launch
--        // (not on every cabinet open - user may navigate between cabinets and settings)
-+        // 2.1. Clean start: clear inbox for all cabinets ONCE on app launch
-+        // (not on every cabinet open - user may navigate between cabinets and settings).
-+        // Exports (client deliverables) are never touched here - CPD-69.
-         for (const cab of cabs) {
-           invoke('clear_workspace_files', { cabinetId: cab.id }).catch(() => {});
-         }
+   const HEARTBEAT_INTERVAL = 4 * 60 * 60 * 1000; // 4 hours
+-  const APP_VERSION = '1.2.0';
++  // 🔴 2026-08-14: константа отстала от продукта на всю мажорную ветку (была '1.2.0' при
++  // выпущенной 2.4.8) и сравнивается с серверным порогом `app_min_version` в сердцебиении.
++  // Пока порог на сервере 1.0.0, расхождение спит; поднимут порог до 2.x — и КАЖДЫЙ клиент,
++  // включая только что установившего свежую сборку, решит, что устарел, и уйдёт в требование
++  // обновиться. Корень — литерал вместо версии сборки; заведён отдельной записью реестра.
++  // При смене версии продукта эту строку править ВРУЧНУЮ, пока корень не закрыт.
++  const APP_VERSION = '2.4.9';
+ 
+   /** Compare semver strings: returns true if remote > current
+    * @param {string} remote
