@@ -247,74 +247,127 @@ async fn is_healthy_and_ours(port: u16, expected_session: Option<&str>) -> bool 
 
 // ── Port cleanup (zombie kill) ───────────────────────────────────────────────
 
-/// Снятие зависшего движка по ЗАПИСАННОМУ нами файлу состояния - только если процесс
-/// действительно наш: тот же пользователь, тот же образ И создан в окне вокруг записанного
-/// нами `started_at`.
+/// Полный путь образа движка, каким он стоит В ЭТОЙ УСТАНОВКЕ, — то, с чем сверяется
+/// образ процесса, занявшего наш порт.
 ///
-/// 🔴 2026-08-12 (CPD-77): раньше идентификатор искали через
-/// `cmd /C "netstat -ano | findstr :порт"`. Поиск был ИЗБЫТОЧЕН: мы сами записываем pid движка
-/// в файл состояния при запуске (`write_initial_state`), то есть он известен во всех трёх точках
-/// вызова. Ради уже имеющегося числа порождались три скрытых консольных процесса (`cmd` →
-/// `netstat` → `findstr`), и получалась связка «разведка процессов по порту → снятие
-/// найденного», которую поведенческая защита антивируса разбирает как вредоносную (10.08
-/// Kaspersky снял оболочку продукта с диска у пользователя, вердикт PDM:Trojan.Win32.Generic —
-/// поведенческий).
+/// Берётся оттуда же, откуда движок запускается (`resolve_bundled_exe`), то есть это
+/// статический факт установки, а не запись, которая может устареть. Он же различает
+/// облачную и локальную редакции продукта: `product_id` у них намеренно одинаков
+/// (рукопожатие с Python-модулем), пользователь один, имя файла образа одно и то же —
+/// отличается только каталог установки.
 ///
-/// 🔴 2026-08-14 (CPD-79, регресс той правки): вместе с разбором вывода `netstat` пропала
-/// нигде не записанная гарантия — найденный процесс был ДЕРЖАТЕЛЕМ НАШЕГО ПОРТА, то есть почти
-/// наверняка наш. Именно на неё молча опиралась слабая последующая проверка, а вместе с ней
-/// исчезла и она; в комментарии при этом было заявлено, что защита не ослабла — это неверно.
-/// Файл состояния переживает завершение процесса (`delete_state_file` вызывается только на трёх
-/// штатных путях: протухшая запись, принудительный перезапуск, штатное закрытие), после
-/// перезагрузки Windows раздаёт номера процессов заново, а снятие идёт деревом
-/// (`taskkill /T /F`). Пользователь с открытым Jupyter, Anaconda или соседним продуктом Aurora
-/// мог получить молча убитый расчёт. Решение теперь принимает `sidecar_runtime::should_kill`,
-/// где решающая проверка — время создания процесса против `started_at`.
+/// В ОТЛАДОЧНОЙ сборке — `None`: `spawn_sidecar_proc` идёт там сразу в
+/// `spawn_python_dev`, движок запускается интерпретатором, и ожидаемым путём оказался
+/// бы путь до `python.exe`. Сверка в этом случае откатывается на прежнее сравнение по
+/// имени образа, где `SIDECAR_IMAGE_HINTS` как раз содержит `python`/`pythonw`.
 #[cfg(windows)]
-fn kill_sidecar_from_state(state: &SidecarState) {
-    use crate::sidecar_runtime::KillVerdict;
-    let pid = state.pid;
-    if pid == 0 {
-        return;
+fn expected_engine_image_path() -> Option<String> {
+    if cfg!(debug_assertions) {
+        return None;
     }
-    // Защита от самоубийства: если номер вдруг совпал с нашим собственным, снятие
-    // унесло бы оболочку.
-    if pid == std::process::id() {
-        warn!("PID={pid} совпал с идентификатором самой оболочки - не трогаем");
-        return;
-    }
+    let app_handle = APP_HANDLE.get()?;
+    let path = resolve_bundled_exe(app_handle)?;
+    Some(sidecar_runtime::canonical_path_for_compare(
+        &path.to_string_lossy(),
+    ))
+}
 
-    // 🔴 2026-08-14 (High-3 аудита блока 2.4.9). Дескриптор процесса удерживается от
-    // наблюдения ДО снятия и снятие идёт по нему же. Прежде дескриптор закрывался
-    // сразу после снятия свойств, а снимали порождением `taskkill /PID n`: между этими
-    // двумя моментами процесс мог завершиться сам, номер — освободиться и достаться
-    // другому процессу, и снималось бы уже оно. Пока дескриптор жив, Windows номер не
-    // переиспользует — гонка закрывается без единой дополнительной проверки.
-    let Some(held) = sidecar_runtime::hold_and_observe(pid) else {
-        debug!("PID={pid}: дескриптор не открылся (процесс уже завершился либо нет прав) - снимать нечего");
-        return;
+/// Снятие зависшего движка, ЗАНЯВШЕГО наш порт: держателя называет операционная
+/// система, а не наша собственная запись.
+///
+/// 🔴 2026-08-12 (CPD-77): раньше держателя порта искали через
+/// `cmd /C "… -ano | … :порт"` — три скрытых консольных процесса, и получалась связка
+/// «разведка процессов по порту → снятие найденного», которую поведенческая защита
+/// антивируса разбирает как вредоносную (10.08 Kaspersky снял оболочку продукта с диска у
+/// пользователя, вердикт PDM:Trojan.Win32.Generic — поведенческий). Правка убрала
+/// порождение процессов, перейдя на номер из нашего файла состояния.
+///
+/// 🔴 2026-08-14 (CPD-79, регресс той правки): вместе с разбором вывода утилиты пропала
+/// нигде не записанная гарантия — найденный процесс был ДЕРЖАТЕЛЕМ НАШЕГО ПОРТА, то есть
+/// почти наверняка наш. Файл состояния переживает завершение процесса, после перезагрузки
+/// Windows раздаёт номера процессов заново, и записанный номер мог достаться постороннему —
+/// пользователь с открытым Jupyter, Anaconda или соседним продуктом Aurora получал молча
+/// убитый расчёт.
+///
+/// 🔴 2026-08-14 (эта правка): гарантия возвращена, но БЕЗ подпроцессов. Держателя порта
+/// называет `GetExtendedTcpTable` — прямой системный вызов, 7–15 мс, обе таблицы адресов.
+/// Заплата по времени создания процесса (окно вокруг `started_at`) больше не нужна и
+/// упразднена: она лечила устаревание записи, а устаревать больше нечему.
+///
+/// Порядок ровно такой, как в решении [`sidecar_runtime::should_kill_port_holder`]:
+/// спросить систему → отсечь самоубийство ДО наблюдения → удержать дескриптор →
+/// переспросить систему → сверить владельца и образ → снять по удерживаемому дескриптору.
+#[cfg(windows)]
+fn kill_port_holder(port: u16) {
+    use crate::sidecar_runtime::{KillVerdict, PortHolderFacts};
+
+    let self_pid = std::process::id();
+    let holders = sidecar_runtime::listening_port_owners(port);
+
+    // Отсекаем «слушать некому», «держателей несколько» и самоубийство ДО открытия
+    // дескриптора — наблюдение это системный вызов, а трогать себя нельзя вовсе.
+    let holder = match sidecar_runtime::holder_worth_observing(&holders, self_pid) {
+        Ok(pid) => pid,
+        Err(reason) => {
+            debug!("Порт {port}: снимать нечего - {reason}");
+            return;
+        }
     };
 
-    match sidecar_runtime::should_kill(state, held.observed(), &SIDECAR_CONFIG, &current_user_name())
-    {
+    // 🔴 High-3 аудита блока 2.4.9. Дескриптор удерживается от наблюдения ДО снятия и
+    // снятие идёт по нему же: пока дескриптор жив, Windows номер процесса не
+    // переиспользует.
+    let held = sidecar_runtime::hold_and_observe(holder);
+
+    // Переспрос ПОСЛЕ удержания: закрывает зазор между ответом таблицы и открытием
+    // дескриптора, который само удержание закрыть не может.
+    let holders_after = sidecar_runtime::listening_port_owners(port);
+
+    // Обе стороны сравнения приводим к одному написанию до чистого решения: короткие
+    // имена 8.3 и символические ссылки снимаются только здесь, системным вызовом.
+    let observed = held.as_ref().map(|h| {
+        let mut o = h.observed().clone();
+        o.image_path = o
+            .image_path
+            .as_deref()
+            .map(sidecar_runtime::canonical_path_for_compare);
+        o
+    });
+    let expected = expected_engine_image_path();
+
+    let facts = PortHolderFacts {
+        holders: &holders,
+        self_pid,
+        observed: observed.as_ref(),
+        holders_after: &holders_after,
+        expected_image_path: expected.as_deref(),
+    };
+
+    match sidecar_runtime::should_kill_port_holder(&facts, &SIDECAR_CONFIG, &current_user_name()) {
+        KillVerdict::Skip(reason) => {
+            warn!("Держателя порта {port} (PID={holder}) не снимаем: {reason}");
+        }
         KillVerdict::Kill => {
-            info!("Killing zombie sidecar PID={pid}");
+            // Решение «снимать» достижимо только когда дескриптор удержан - иначе была
+            // бы причина отказа ObserveFailed.
+            let Some(held) = held else {
+                error!("Порт {port}: решение снимать при неудержанном дескрипторе - не снимаем");
+                return;
+            };
+            info!("Снимаем зависший движок на порту {port} (PID={holder})");
             match held.terminate() {
                 Ok(()) => {
                     if held.wait_exit(3000) {
-                        debug!("Зомби-движок PID={pid} снят");
+                        debug!("Зомби-движок PID={holder} снят");
                     } else {
-                        warn!("Зомби-движок PID={pid} не завершился за 3 с после снятия");
+                        warn!("Зомби-движок PID={holder} не завершился за 3 с после снятия");
                     }
                 }
                 Err(e) => {
-                    warn!("Снятие PID={pid} по дескриптору не прошло ({e}) - запасной путь");
-                    kill_process_tree_fallback(pid);
+                    warn!("Снятие PID={holder} по дескриптору не прошло ({e}) - запасной путь");
+                    kill_process_tree_fallback(holder);
                 }
             }
-        }
-        KillVerdict::Skip(reason) => {
-            warn!("PID={pid} не снимаем: {reason}");
         }
     }
 }
@@ -342,41 +395,40 @@ fn kill_process_tree_fallback(pid: u32) {
         .output();
 }
 
+/// На не-Windows системного вопроса «кто слушает порт» нет — снимаем только
+/// собственный дочерний процесс, как и прежде.
 #[cfg(not(windows))]
-fn kill_sidecar_from_state(_state: &SidecarState) {
+fn kill_port_holder(_port: u16) {
     if let Some(mut child) = take_child() {
         let _ = child.kill();
         let _ = child.wait_timeout(CHILD_WAIT_TIMEOUT);
     }
 }
 
-/// То же, но состояние читается из файла - для точек, где оно не держится в руках.
-/// Отсутствие файла = снимать нечего (наш дочерний процесс в памяти закрывается
-/// вызывающей стороной через `take_child`).
-fn kill_known_sidecar() {
-    match read_state_file(&SIDECAR_CONFIG) {
-        Some(state) => kill_sidecar_from_state(&state),
-        None => debug!("Файла состояния нет - идентификатор движка неизвестен, снимать нечего"),
-    }
-}
-
 // ── Spawn paths ──────────────────────────────────────────────────────────────
 
-fn spawn_bundled_exe(app_handle: &AppHandle, port: u16) -> Result<Child, String> {
-    let resolve = |p: &str| {
-        app_handle
-            .path()
-            .resolve(p, tauri::path::BaseDirectory::Resource)
-            .ok()
-    };
-    let exe_path = [
+/// Путь к собранному движку в этой установке — ОДИН источник и для запуска
+/// (`spawn_bundled_exe`), и для ожидаемого пути образа при снятии зомби
+/// (`expected_engine_image_path`). Разъехаться этим двум местам нельзя: тогда
+/// собственный зомби перестал бы сниматься молча.
+fn resolve_bundled_exe(app_handle: &AppHandle) -> Option<std::path::PathBuf> {
+    [
         "sidecar/econometrica/econometrica-sidecar.exe",
         "_up_/sidecar/econometrica/econometrica-sidecar.exe",
     ]
     .iter()
-    .filter_map(|p| resolve(p))
+    .filter_map(|p| {
+        app_handle
+            .path()
+            .resolve(p, tauri::path::BaseDirectory::Resource)
+            .ok()
+    })
     .find(|p| p.exists())
-    .ok_or_else(|| "Bundled sidecar not found in sidecar/ or _up_/sidecar/".to_string())?;
+}
+
+fn spawn_bundled_exe(app_handle: &AppHandle, port: u16) -> Result<Child, String> {
+    let exe_path = resolve_bundled_exe(app_handle)
+        .ok_or_else(|| "Bundled sidecar not found in sidecar/ or _up_/sidecar/".to_string())?;
 
     let mut cmd = Command::new(&exe_path);
     cmd.arg(port.to_string())
@@ -485,9 +537,10 @@ pub fn start_sidecar(app_handle: &AppHandle) {
             "Sidecar state file stale (session_id/product mismatch or dead). \
              Cleaning up and respawning."
         );
-        // Попытка убить старый процесс по нашей же записи - только если он выдержит все
-        // проверки `should_kill` (пользователь, образ, время создания против started_at).
-        kill_sidecar_from_state(&state);
+        // Спрашиваем систему, кто держит этот порт СЕЙЧАС, и снимаем держателя только
+        // если он выдержит все проверки `should_kill_port_holder` (один держатель, не мы,
+        // тот же пользователь, образ = движок этой установки, держатель не сменился).
+        kill_port_holder(saved_port);
         delete_state_file(&SIDECAR_CONFIG);
     }
 
@@ -534,17 +587,15 @@ pub fn start_sidecar(app_handle: &AppHandle) {
 /// Пишет state с pid + port до handshake (как hint). После ready получаем
 /// реальный session_id от sidecar'а и обновляем.
 fn write_initial_state(port: u16, pid: u32, session_id: &str) -> Result<(), String> {
-    // Полный путь образа снимаем У ЖИВОГО процесса, которого только что породили, а не
-    // берём путь, по которому его запускали: сверять придётся ровно с тем, что вернёт
-    // `QueryFullProcessImageNameW` при следующем наблюдении, и одинаковый источник строки
-    // избавляет от расхождений в написании пути. Номер процесса в этот момент занят
-    // гарантированно — дескриптор порождённого процесса держит `store_child`.
-    // Пусто (не удалось снять) → сверка при снятии откатится на сравнение по имени образа.
+    // Полный путь образа снимаем у живого процесса, которого только что породили. Поле
+    // СПРАВОЧНОЕ: журнал и разбор случая у клиента. Основанием для снятия зомби оно быть
+    // перестало — решение сверяет образ держателя порта с путём движка в этой установке
+    // (`expected_engine_image_path`), а не с записью, которая может устареть.
     let image_path = sidecar_runtime::observe_process(pid)
         .image_path
         .unwrap_or_default();
     if image_path.is_empty() {
-        debug!("Путь образа движка (PID={pid}) снять не удалось - сверка редакций ослаблена");
+        debug!("Путь образа движка (PID={pid}) снять не удалось - запись будет без него");
     }
     let state = SidecarState {
         port,
@@ -634,7 +685,7 @@ pub async fn ensure_alive() -> bool {
 
     if tcp_responsive(port) {
         warn!("Sidecar TCP accepts but HTTP unresponsive - killing deadlocked process");
-        kill_known_sidecar();
+        kill_port_holder(port);
         tokio::time::sleep(Duration::from_secs(1)).await;
     }
 
@@ -704,7 +755,7 @@ pub async fn force_restart() -> Result<(), String> {
     // Graceful shutdown first (correct cleanup при активном pm.sample)
     if tcp_responsive(port) {
         let _ = request_graceful_shutdown(port).await;
-        kill_known_sidecar();
+        kill_port_holder(port);
         tokio::time::sleep(Duration::from_secs(1)).await;
     }
     if let Some(mut child) = take_child() {
