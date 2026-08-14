@@ -703,22 +703,82 @@ pub fn campaign_set_brief(
 
     // Copy brief files to campaign directory
     let brief_dir = campaigns_dir(&brand).join(&campaign_id).join("brief-files");
-    let _ = std::fs::create_dir_all(&brief_dir);
-    let mut saved_files = Vec::new();
-    for src_path in &brief_file_paths {
-        let src = Path::new(src_path);
-        if src.exists() {
-            if let Some(name) = src.file_name() {
-                let _ = std::fs::copy(src, brief_dir.join(name));
-                saved_files.push(name.to_string_lossy().to_string());
-            }
-        }
+    let result = copy_brief_files(&brief_dir, &brief_file_paths);
+    if !result.failed.is_empty() {
+        let names: Vec<&str> = result.failed.iter().map(|(n, _)| n.as_str()).collect();
+        warn!(
+            "Кампания {campaign_id}: {} файлов брифа не сохранено: {}",
+            result.failed.len(),
+            names.join(", ")
+        );
     }
-    campaign.brief_files = saved_files;
+    campaign.brief_files = result.saved;
 
     let json = serde_json::to_string_pretty(&campaign).map_err(|e| e.to_string())?;
     std::fs::write(&path, json).map_err(|e| e.to_string())?;
     Ok(campaign)
+}
+
+/// Итог копирования файлов брифа в каталог кампании.
+///
+/// 🔴 CPD-81, третий носитель класса (найден 14.08.2026 линией Legal Center — в ИХ дереве и
+/// сразу же проверен в нашем, где он тоже был жив, хотя дефект уже числился закрытым).
+/// Прежний код отбрасывал результат `fs::copy` и добавлял имя в список сохранённых
+/// безусловно, а исходный путь, которого не оказалось на диске, пропускал вовсе — без следа
+/// ни в списке сохранённых, ни в журнале.
+///
+/// Необратимости здесь нет, и потому уровень правки проще, чем у `persist_step_exports`:
+/// источник — файл на диске пользователя, выбранный им в окне выбора, и после отказа он
+/// никуда не девается; `campaign.brief_files` сегодня никем не читается обратно
+/// (`lib.rs` держит `_brief_files_dir` неиспользуемым). Признака фатального отказа тут не
+/// заводится сознательно: тревога, у которой нет потребителя, обесценивает те, у которых он
+/// есть. Закрывается ровно ложь списка — и она закрывается полностью.
+#[derive(Debug, Default, PartialEq, Eq)]
+pub struct BriefFilesResult {
+    /// Имена файлов, которые действительно лежат в каталоге брифа.
+    pub saved: Vec<String>,
+    /// (имя либо исходный путь, причина отказа)
+    pub failed: Vec<(String, String)>,
+}
+
+/// Копирует файлы брифа в каталог кампании, честно разделяя удавшееся и нет.
+///
+/// Вынесено из `campaign_set_brief` отдельной функцией ради проверяемости: сама команда
+/// строит путь через `campaigns_dir` → корень результатов пользователя, то есть в тесте
+/// писала бы в настоящую папку на рабочем столе. Приём заимствован у линии Legal Center,
+/// закрывшей этот же носитель в тот же день.
+pub fn copy_brief_files(brief_dir: &Path, brief_file_paths: &[String]) -> BriefFilesResult {
+    let mut result = BriefFilesResult::default();
+    if let Err(e) = std::fs::create_dir_all(brief_dir) {
+        // Каталог не создан — копировать некуда, и это касается ВСЕХ путей сразу.
+        for src_path in brief_file_paths {
+            result
+                .failed
+                .push((src_path.clone(), format!("каталог брифа не создан: {e}")));
+        }
+        return result;
+    }
+    for src_path in brief_file_paths {
+        let src = Path::new(src_path);
+        if !src.exists() {
+            result
+                .failed
+                .push((src_path.clone(), "исходный файл не найден".to_string()));
+            continue;
+        }
+        let Some(name) = src.file_name() else {
+            result
+                .failed
+                .push((src_path.clone(), "в пути нет имени файла".to_string()));
+            continue;
+        };
+        let name = name.to_string_lossy().to_string();
+        match std::fs::copy(src, brief_dir.join(&name)) {
+            Ok(_) => result.saved.push(name),
+            Err(e) => result.failed.push((name, e.to_string())),
+        }
+    }
+    result
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1181,6 +1241,75 @@ mod tests {
         assert_eq!(result.forwarded, vec!["summary.md".to_string()]);
         assert!(result.failed.is_empty());
         assert_eq!(std::fs::read_to_string(inbox.join("summary.md")).unwrap(), "НОВЫЙ");
+    }
+
+    /// CPD-81, третий носитель: файл, который не удалось скопировать, НЕ попадает в список
+    /// сохранённых.
+    ///
+    /// Ось мутации: вернуть `let _ = std::fs::copy(...)` с безусловным
+    /// `saved.push(name)` — тест обязан покраснеть.
+    ///
+    /// Отказ подстроен честно: на месте будущего файла заранее создан КАТАЛОГ с тем же
+    /// именем, поэтому `fs::copy` отказывает по-настоящему, а не имитацией. Соседний файл
+    /// при этом копируется штатно — один отказ не должен топить остальные.
+    #[test]
+    fn copy_brief_files_failed_copy_never_gets_into_saved() {
+        let tmp = tempfile::tempdir().unwrap();
+        let src_dir = tmp.path().join("источник");
+        std::fs::create_dir_all(&src_dir).unwrap();
+        let занятый = src_dir.join("занятый.docx");
+        let обычный = src_dir.join("обычный.md");
+        std::fs::write(&занятый, "бриф").unwrap();
+        std::fs::write(&обычный, "бриф").unwrap();
+
+        let brief_dir = tmp.path().join("brief-files");
+        std::fs::create_dir_all(brief_dir.join("занятый.docx")).unwrap();
+
+        let result = copy_brief_files(
+            &brief_dir,
+            &[
+                занятый.to_string_lossy().to_string(),
+                обычный.to_string_lossy().to_string(),
+            ],
+        );
+
+        assert_eq!(
+            result.saved,
+            vec!["обычный.md".to_string()],
+            "в списке сохранённых обязан остаться только тот файл, что реально скопирован"
+        );
+        assert_eq!(result.failed.len(), 1);
+        assert_eq!(result.failed[0].0, "занятый.docx");
+    }
+
+    /// Исходного файла нет на диске: раньше он пропускался молча — ни в сохранённых, ни в
+    /// отказах, ни в журнале. Теперь виден поимённо.
+    #[test]
+    fn copy_brief_files_missing_source_is_reported_not_skipped_silently() {
+        let tmp = tempfile::tempdir().unwrap();
+        let brief_dir = tmp.path().join("brief-files");
+        let нет_такого = tmp.path().join("нет-такого.docx");
+
+        let result = copy_brief_files(&brief_dir, &[нет_такого.to_string_lossy().to_string()]);
+
+        assert!(result.saved.is_empty());
+        assert_eq!(result.failed.len(), 1, "пропуск обязан быть виден");
+        assert!(result.failed[0].1.contains("не найден"));
+    }
+
+    /// Штатный путь отказов не выдумывает — иначе предупреждение обесценится.
+    #[test]
+    fn copy_brief_files_success_has_no_failures() {
+        let tmp = tempfile::tempdir().unwrap();
+        let src = tmp.path().join("бриф.md");
+        std::fs::write(&src, "текст брифа").unwrap();
+        let brief_dir = tmp.path().join("brief-files");
+
+        let result = copy_brief_files(&brief_dir, &[src.to_string_lossy().to_string()]);
+
+        assert_eq!(result.saved, vec!["бриф.md".to_string()]);
+        assert!(result.failed.is_empty());
+        assert!(brief_dir.join("бриф.md").exists());
     }
 
     #[test]
