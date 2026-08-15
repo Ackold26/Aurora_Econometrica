@@ -1,16 +1,23 @@
 /**
  * audio.js - Web Audio API звуковая обратная связь.
  * 0 байт в бандле (программная генерация, без файлов).
- * По умолчанию ВЫКЛЮЧЕНО. Состояние сохраняется в localStorage.
+ *
+ * 🔴 15.08.2026, решение владельца: звуковых эффектов в программе нет. Переключатель убран из
+ * настроек, и звук выключен НАСОВСЕМ — здесь, а не только в настройках.
+ *
+ * Почему одного удаления переключателя было мало: прежнее состояние хранится в памяти браузера
+ * (`localStorage`), и у клиента, включившего звук раньше, он остался бы включённым навсегда —
+ * выключить стало бы негде. Поэтому сохранённое значение больше не читается вовсе.
+ *
+ * Сами функции воспроизведения оставлены нетронутыми и просто ничего не делают: они вызываются
+ * из `ChatPanel.svelte`, и вырезать вызовы значило бы править чат ради выключенной возможности.
+ * Если звук когда-нибудь вернут — снять жёсткое `false` и вернуть переключатель в настройки.
  */
 
 const STORAGE_KEY = 'ai-agency-audio-enabled';
 
-/** @type {boolean} */
-let enabled = false;
-try {
-  enabled = typeof localStorage !== 'undefined' && localStorage.getItem(STORAGE_KEY) === 'true';
-} catch { /* SSR / private mode */ }
+/** @type {boolean} Всегда false: звук отключён решением владельца (15.08.2026). */
+const enabled = false;
 
 /** @type {AudioContext|null} */
 let audioCtx = null;
@@ -24,15 +31,17 @@ function getAudioContext() {
 }
 
 /**
- * Включить/выключить звуки.
- * @param {boolean} value
+ * Забыть прежнее сохранённое состояние звука.
+ *
+ * Вызывается один раз при запуске: у клиента, включавшего звук до 15.08.2026, в памяти браузера
+ * осталось `true`. Само по себе это уже безвредно (значение больше не читается), но запись
+ * лучше убрать — иначе она переживёт возможный возврат переключателя и включит звук без спроса.
  */
-export function setAudioEnabled(value) {
-  enabled = value;
-  try { localStorage.setItem(STORAGE_KEY, String(value)); } catch { /* quota / private mode */ }
+export function forgetAudioPreference() {
+  try { localStorage.removeItem(STORAGE_KEY); } catch { /* quota / private mode */ }
 }
 
-/** @returns {boolean} */
+/** @returns {boolean} Всегда false — звук отключён решением владельца. */
 export function isAudioEnabled() {
   return enabled;
 }
