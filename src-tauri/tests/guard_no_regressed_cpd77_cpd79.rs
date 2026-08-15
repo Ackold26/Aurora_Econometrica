@@ -259,15 +259,43 @@ fn no_regressed_cpd77_cpd79_calls_in_product_sources() {
         src_dir.display()
     );
 
+    // 🔴 CPD-89 (гигиена сторожей, 15.08.2026): «разбор ничего не нашёл» — это ОТКАЗ, а не успех.
+    // Пустой обход прошёл бы как «всё чисто»: каталог на месте, ошибок нет, запрещённых образцов
+    // ноль — и сторож зелёный, проверив ноль файлов. Поэтому считаем и файлы, и отказы обхода:
+    // молча пропущенный из-за прав или длинного пути файл — это непроверенный файл, а не «чисто».
     let mut hits = Vec::new();
-    for entry in walkdir::WalkDir::new(&src_dir)
-        .into_iter()
-        .filter_map(|e| e.ok())
-        .filter(|e| e.file_type().is_file())
-        .filter(|e| e.path().extension().and_then(|ext| ext.to_str()) == Some("rs"))
-    {
-        hits.extend(scan_file(entry.path()));
+    let mut scanned = 0usize;
+    let mut walk_errors = Vec::new();
+    for entry in walkdir::WalkDir::new(&src_dir).into_iter() {
+        match entry {
+            Ok(e) => {
+                if e.file_type().is_file()
+                    && e.path().extension().and_then(|ext| ext.to_str()) == Some("rs")
+                {
+                    scanned += 1;
+                    hits.extend(scan_file(e.path()));
+                }
+            }
+            Err(err) => walk_errors.push(err.to_string()),
+        }
     }
+
+    assert!(
+        walk_errors.is_empty(),
+        "обход исходников дал отказы — часть файлов НЕ проверена, а значит вывод сторожа \
+         недействителен:\n{}",
+        walk_errors.join("\n")
+    );
+
+    // Нижняя граница намеренно грубая: она ловит обвал обхода (переименовали каталог, съехал
+    // путь, сломался фильтр расширения), а не колебания числа файлов в обычной работе.
+    const MIN_EXPECTED_FILES: usize = 30;
+    assert!(
+        scanned >= MIN_EXPECTED_FILES,
+        "сторож просмотрел всего {scanned} файлов в {} — это не «чисто», это обвал обхода \
+         (ожидалось хотя бы {MIN_EXPECTED_FILES})",
+        src_dir.display()
+    );
 
     if !hits.is_empty() {
         let mut msg = String::from(
