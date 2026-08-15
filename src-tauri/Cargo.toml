@@ -45,8 +45,7 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 # 🔴 Трассирующий срез общего ядра (15.08.2026, CRATE_DESIGN_2026-08-15.md). Временное подключение
 # путём — только для проверки сборки на этой машине, боевое будет git-зависимостью по метке:
-#   aurora_core = { git = "https://github.com/Ackold26/aurora-platform-core.git", tag = "aurora_core-v0.1.0" }
-# aurora_core = { path = "D:/Docs/Aurora_Ai/_wt_core_tracer/aurora_core" }
+aurora_core = { git = "https://github.com/Ackold26/aurora-platform-core.git", tag = "aurora_core-v0.1.0" }
 tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-opener = "2"
 tauri-plugin-dialog = "2"

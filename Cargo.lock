@@ -341,6 +341,7 @@ version = "2.4.9"
 dependencies = [
  "aes-gcm",
  "anyhow",
+ "aurora_core",
  "base64 0.22.1",
  "chrono",
  "ed25519-dalek",
@@ -376,6 +377,16 @@ dependencies = [
  "wmi",
  "xxhash-rust",
  "zip",
+]
+
+[[package]]
+name = "aurora_core"
+version = "0.1.0"
+source = "git+https://github.com/Ackold26/aurora-platform-core.git?tag=aurora_core-v0.1.0#35d8345c4f20f66efc1012be4190b90f620f1ddb"
+dependencies = [
+ "anyhow",
+ "log",
+ "reqwest 0.12.28",
 ]
 
 [[package]]
