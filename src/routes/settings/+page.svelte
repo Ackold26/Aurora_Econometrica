@@ -9,12 +9,16 @@
   // Номер версии один на поставку (ADR-049 §2): буква редакции убрана вместе со вторым
   // каналом обновлений. Где исполняется работа — показывает признак режима, не номер.
   invoke('display_version').then(v => { APP_VERSION = v; }).catch(() => { APP_VERSION = '?'; });
-  import { isAudioEnabled, setAudioEnabled } from '$lib/audio.js';
+  // 🔴 15.08.2026, решение владельца: звуковых эффектов в программе нет, переключатель убран.
+  // Прежнее сохранённое состояние стираем при открытии настроек: у клиента, включавшего звук
+  // раньше, в памяти браузера осталось «включено», и без очистки эта запись пережила бы
+  // возможный возврат переключателя, включив звук без спроса. Сам звук выключен в audio.js.
+  import { forgetAudioPreference } from '$lib/audio.js';
   import { onboardingEnabled } from '$lib/onboarding-state.js';
   import { hideEducationalHints, showGlossaryPanel, showIntroTutorial } from '$lib/project-state.js';
   import { resolveLicenseTier } from '$lib/license-display.js';
 
-  let audioEnabled = $state(isAudioEnabled());
+  forgetAudioPreference();
 
   // Cloud-consent (облачная редакция): отзыв — прямое действие тумблера; выдача — через
   // экран согласия с чекбоксом-подтверждением (не молчаливый grant). Секция видна только
@@ -438,26 +442,6 @@
               <line x1="14" y1="1" x2="14" y2="4"/>
             </svg>
             <span>Весёлая</span>
-          {/if}
-        </button>
-      </div>
-      <div class="theme-toggle-row">
-        <span class="theme-label">Звуковые уведомления</span>
-        <button class="theme-toggle" onclick={() => { audioEnabled = !audioEnabled; setAudioEnabled(audioEnabled); }}>
-          {#if audioEnabled}
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-              <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
-              <path d="M19.07 4.93a10 10 0 0 1 0 14.14"/>
-              <path d="M15.54 8.46a5 5 0 0 1 0 7.07"/>
-            </svg>
-            <span>Включены</span>
-          {:else}
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-              <polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/>
-              <line x1="23" y1="9" x2="17" y2="15"/>
-              <line x1="17" y1="9" x2="23" y2="15"/>
-            </svg>
-            <span>Выключены</span>
           {/if}
         </button>
       </div>
