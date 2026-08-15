@@ -1,6 +1,6 @@
 [package]
 name = "aurora-econometrica-gui"
-version = "2.4.9"
+version = "2.4.10"
 description = "Aurora AI Econometrica - Marketing Mix Modeling with Claude AI"
 authors = ["Ackold"]
 edition = "2021"
