@@ -773,6 +773,19 @@ pub fn copy_brief_files(brief_dir: &Path, brief_file_paths: &[String]) -> BriefF
             continue;
         };
         let name = name.to_string_lossy().to_string();
+        // 🔴 Внешний аудит блока 2.4.10: два разных исходных пути с ОДИНАКОВЫМ именем файла
+        // (например `C:\Проект\бриф.docx` и `C:\Архив\бриф.docx`) давали один файл на диске и
+        // две записи в списке сохранённых — первый молча затирался вторым. То есть список
+        // продолжал лгать ровно тем способом, ради которого правка и делалась, просто в другом
+        // сценарии. Совпадение имени здесь — отказ поимённо, а не тихая перезапись: бриф
+        // выбирает человек, и подменённый файл он найдёт только по содержимому.
+        if result.saved.contains(&name) {
+            result.failed.push((
+                src_path.clone(),
+                format!("файл с именем «{name}» уже сохранён из другого места"),
+            ));
+            continue;
+        }
         match std::fs::copy(src, brief_dir.join(&name)) {
             Ok(_) => result.saved.push(name),
             Err(e) => result.failed.push((name, e.to_string())),
@@ -1295,6 +1308,44 @@ mod tests {
         assert!(result.saved.is_empty());
         assert_eq!(result.failed.len(), 1, "пропуск обязан быть виден");
         assert!(result.failed[0].1.contains("не найден"));
+    }
+
+    /// 🔴 Находка внешнего аудита блока 2.4.10: два файла с ОДИНАКОВЫМ именем из разных
+    /// каталогов. Раньше второй молча затирал первый, а список сохранённых показывал оба —
+    /// то есть лгал ровно тем способом, который правка обещала закрыть.
+    ///
+    /// Ось мутации: убрать проверку `result.saved.contains(&name)` — тест обязан покраснеть.
+    #[test]
+    fn copy_brief_files_same_name_from_two_places_is_reported_not_silently_overwritten() {
+        let tmp = tempfile::tempdir().unwrap();
+        let первый = tmp.path().join("Проект");
+        let второй = tmp.path().join("Архив");
+        std::fs::create_dir_all(&первый).unwrap();
+        std::fs::create_dir_all(&второй).unwrap();
+        std::fs::write(первый.join("бриф.docx"), "ПЕРВЫЙ").unwrap();
+        std::fs::write(второй.join("бриф.docx"), "ВТОРОЙ").unwrap();
+
+        let brief_dir = tmp.path().join("brief-files");
+        let result = copy_brief_files(
+            &brief_dir,
+            &[
+                первый.join("бриф.docx").to_string_lossy().to_string(),
+                второй.join("бриф.docx").to_string_lossy().to_string(),
+            ],
+        );
+
+        assert_eq!(
+            result.saved,
+            vec!["бриф.docx".to_string()],
+            "в списке сохранённых обязано быть ровно одно имя — столько файлов и лежит на диске"
+        );
+        assert_eq!(result.failed.len(), 1, "второй файл обязан быть виден как несохранённый");
+        assert!(result.failed[0].1.contains("уже сохранён"));
+        assert_eq!(
+            std::fs::read_to_string(brief_dir.join("бриф.docx")).unwrap(),
+            "ПЕРВЫЙ",
+            "первый файл не должен затираться молча"
+        );
     }
 
     /// Штатный путь отказов не выдумывает — иначе предупреждение обесценится.
