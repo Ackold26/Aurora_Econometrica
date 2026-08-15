@@ -260,16 +260,68 @@ async fn is_healthy_and_ours(port: u16, expected_session: Option<&str>) -> bool 
 /// `spawn_python_dev`, движок запускается интерпретатором, и ожидаемым путём оказался
 /// бы путь до `python.exe`. Сверка в этом случае откатывается на прежнее сравнение по
 /// имени образа, где `SIDECAR_IMAGE_HINTS` как раз содержит `python`/`pythonw`.
-#[cfg(windows)]
-fn expected_engine_image_path() -> Option<String> {
-    if cfg!(debug_assertions) {
-        return None;
+/// Само РЕШЕНИЕ, отделённое от добывания пути, — чтобы его можно было проверить.
+///
+/// 🔴 Вынесено после того, как мутация «в релизе неразрешённый путь снова разрешает откат на
+/// имя» пережила весь набор тестов: проверки били по чистой функции решения, которой значение
+/// передают уже готовым, а вычисляется оно здесь — в коде, привязанном к признаку сборки и к
+/// глобальному дескриптору приложения. Проверить такое на месте нельзя, поэтому решение
+/// принимает свои входы параметрами, а добывание остаётся в вызывающем.
+fn classify_expected_image(is_release: bool, resolved: Option<String>) -> ExpectedImageOwned {
+    if !is_release {
+        // Отладочная сборка: движок запускают интерпретатором, своего образа у нас нет по
+        // построению — откат на сверку по имени здесь законен.
+        return ExpectedImageOwned::NameFallbackAllowed;
     }
-    let app_handle = APP_HANDLE.get()?;
-    let path = resolve_bundled_exe(app_handle)?;
-    Some(sidecar_runtime::canonical_path_for_compare(
-        &path.to_string_lossy(),
-    ))
+    match resolved {
+        Some(path) => ExpectedImageOwned::Known(path),
+        // Релиз, а путь не разрешён: образ изъят антивирусом либо установка повреждена.
+        // Снимать нельзя — своего образа мы не знаем.
+        None => ExpectedImageOwned::Unknown,
+    }
+}
+
+#[cfg(windows)]
+fn expected_engine_image_path() -> ExpectedImageOwned {
+    if cfg!(debug_assertions) {
+        return classify_expected_image(false, None);
+    }
+    // 🔴 Ниже — РЕЛИЗ. Здесь «не смогли разрешить путь» НЕ равнозначно «пути не бывает»:
+    // образ мог быть изъят антивирусом или установка повреждена. Прежняя редакция
+    // возвращала в обоих случаях пусто, решение откатывалось на сверку по имени, а имя у
+    // облачной и локальной редакций одинаково — и продукт снимал чужой идущий расчёт
+    // (High-1 прошлого аудита, найден заново внешним аудитом блока 2.4.10).
+    let resolved = APP_HANDLE
+        .get()
+        .and_then(resolve_bundled_exe)
+        .map(|path| sidecar_runtime::canonical_path_for_compare(&path.to_string_lossy()));
+    if resolved.is_none() {
+        warn!(
+            "Ожидаемый путь образа движка не разрешён (дескриптор приложения не выставлен, образ \
+             изъят антивирусом либо установка повреждена) — снятие держателя порта отменяется: \
+             без своего пути мы не отличим собственный движок от движка другой редакции"
+        );
+    }
+    classify_expected_image(true, resolved)
+}
+
+/// Владеющий двойник [`sidecar_runtime::ExpectedImage`]: та же тройка случаев, но со своей
+/// строкой — заимствовать её из временного значения на месте вызова неудобно.
+#[derive(Debug)]
+enum ExpectedImageOwned {
+    Known(String),
+    NameFallbackAllowed,
+    Unknown,
+}
+
+impl ExpectedImageOwned {
+    fn as_ref(&self) -> sidecar_runtime::ExpectedImage<'_> {
+        match self {
+            Self::Known(p) => sidecar_runtime::ExpectedImage::Known(p),
+            Self::NameFallbackAllowed => sidecar_runtime::ExpectedImage::NameFallbackAllowed,
+            Self::Unknown => sidecar_runtime::ExpectedImage::Unknown,
+        }
+    }
 }
 
 /// Снятие зависшего движка, ЗАНЯВШЕГО наш порт: держателя называет операционная
@@ -340,7 +392,7 @@ fn kill_port_holder(port: u16) {
         self_pid,
         observed: observed.as_ref(),
         holders_after: &holders_after,
-        expected_image_path: expected.as_deref(),
+        expected_image: expected.as_ref(),
     };
 
     match sidecar_runtime::should_kill_port_holder(&facts, &SIDECAR_CONFIG, &current_user_name()) {
@@ -870,6 +922,58 @@ pub fn stop_sidecar() {
     let _ = child.wait();
     delete_state_file(&SIDECAR_CONFIG);
     info!("Econometrica sidecar stopped (was PID={pid})");
+}
+
+#[cfg(test)]
+mod expected_image_tests {
+    use super::{classify_expected_image, ExpectedImageOwned};
+
+    /// 🔴 Контроль находки внешнего аудита блока 2.4.10 (High), на стороне ПРОВОДКИ.
+    ///
+    /// Тест решения в `sidecar_runtime` проверяет, что при `Unknown` снимать нельзя. Но само
+    /// значение `Unknown` вычисляется здесь — и первая попытка доказать правку мутацией это
+    /// вскрыла: подмена «в релизе неразрешённый путь снова разрешает откат на имя» пережила
+    /// весь набор, потому что проверялась чистая функция, а не место, где величина берётся.
+    ///
+    /// Ось мутации: вернуть в релизной ветке `NameFallbackAllowed` вместо `Unknown` —
+    /// этот тест обязан покраснеть.
+    #[test]
+    fn release_without_resolved_path_forbids_killing() {
+        assert!(
+            matches!(
+                classify_expected_image(true, None),
+                ExpectedImageOwned::Unknown
+            ),
+            "релиз без разрешённого пути установки обязан давать Unknown: откат на сверку по \
+             имени снимает движок другой редакции — имя у них одинаково"
+        );
+    }
+
+    /// Отладочная сборка — единственный случай, где откат на имя законен: движок там
+    /// запускает интерпретатор, своего образа у продукта нет по построению.
+    #[test]
+    fn debug_build_allows_name_fallback() {
+        assert!(matches!(
+            classify_expected_image(false, None),
+            ExpectedImageOwned::NameFallbackAllowed
+        ));
+        // И даже если путь каким-то образом разрешился — в отладке всё равно откат по имени.
+        assert!(matches!(
+            classify_expected_image(false, Some("C:\\что-угодно.exe".to_string())),
+            ExpectedImageOwned::NameFallbackAllowed
+        ));
+    }
+
+    /// Положительный случай: путь разрешён — строгая сверка по нему.
+    /// Без него тест умел бы только запрещать и зеленел бы на функции, запрещающей всё.
+    #[test]
+    fn release_with_resolved_path_is_known() {
+        let путь = r"C:\Program Files\Aurora\econometrica-sidecar.exe".to_string();
+        match classify_expected_image(true, Some(путь.clone())) {
+            ExpectedImageOwned::Known(p) => assert_eq!(p, путь),
+            иное => panic!("ожидался Known, получено {иное:?}"),
+        }
+    }
 }
 
 #[cfg(test)]

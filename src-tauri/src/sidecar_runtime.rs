@@ -345,10 +345,33 @@ pub struct PortHolderFacts<'a> {
     pub observed: Option<&'a ObservedProcess>,
     /// Кто слушает порт по ПОВТОРНОМУ опросу, уже после удержания дескриптора.
     pub holders_after: &'a [u32],
-    /// Полный путь образа движка в ЭТОЙ установке, канонизированный. `None` —
-    /// ожидаемый путь неизвестен (отладочная сборка, где движок запускается
-    /// интерпретатором), тогда сверка откатывается на имя образа.
-    pub expected_image_path: Option<&'a str>,
+    /// Полный путь образа движка в ЭТОЙ установке, канонизированный, — либо причина,
+    /// по которой он неизвестен. См. [`ExpectedImage`].
+    pub expected_image: ExpectedImage<'a>,
+}
+
+/// Что известно об образе движка ЭТОЙ установки к моменту решения.
+///
+/// 🔴 Внешний аудит блока 2.4.10: раньше здесь был `Option<&str>`, и `None` означал сразу
+/// три разных вещи — «отладочная сборка, движок запускает интерпретатор», «глобальный
+/// дескриптор приложения ещё не выставлен» и «путь установки разрешить не удалось». Первое
+/// безобидно, а второе и третье в РЕЛИЗЕ означают, что мы не знаем своего образа — и откат
+/// на сверку по имени возвращал High-1 прошлого аудита: имя `econometrica-sidecar` одинаково
+/// у облачной и локальной редакций, и продукт снимал чужой идущий расчёт.
+///
+/// Сценарий, которым это ловится: обе редакции стоят на машине (штатно), антивирус кладёт
+/// образ облачной редакции в карантин, пользователь запускает её, `resolve_bundled_exe`
+/// возвращает пусто — и вместо отказа продукт снимает движок локальной редакции.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExpectedImage<'a> {
+    /// Путь установки известен — сверяем его целиком, это единственная строгая проверка.
+    Known(&'a str),
+    /// Отладочная сборка: движок запускается интерпретатором, своего образа у нас нет по
+    /// построению. Откат на сверку по имени допустим — отладочные сборки клиентам не уезжают.
+    NameFallbackAllowed,
+    /// Релиз, но путь установки разрешить не удалось. Снимать НЕЛЬЗЯ: мы не знаем, наш ли
+    /// это процесс, а цена ошибки — чужой убитый расчёт.
+    Unknown,
 }
 
 /// Первый рубеж: стоит ли вообще открывать дескриптор держателя порта.
@@ -430,13 +453,18 @@ pub fn should_kill_port_holder(
     let Some(observed_image) = observed.image_path.as_deref() else {
         return KillVerdict::Skip(SkipReason::ImageUnknown);
     };
-    match facts.expected_image_path {
-        Some(expected) if !expected.trim().is_empty() => {
+    match facts.expected_image {
+        ExpectedImage::Known(expected) if !expected.trim().is_empty() => {
             if !image_path_matches(expected, observed_image) {
                 return KillVerdict::Skip(SkipReason::ImagePathNotOurs);
             }
         }
-        _ => {
+        // Пустая строка при «путь известен» — тот же случай, что и неизвестный путь:
+        // сверять не с чем, а значит снимать нельзя.
+        ExpectedImage::Known(_) | ExpectedImage::Unknown => {
+            return KillVerdict::Skip(SkipReason::ImageUnknown);
+        }
+        ExpectedImage::NameFallbackAllowed => {
             if !image_matches(Some(observed_image), cfg) {
                 return KillVerdict::Skip(SkipReason::ImageMismatch);
             }
@@ -1584,18 +1612,40 @@ mod tests {
     /// Штатный набор фактов: порт держит один процесс, он не мы, дескриптор удержан,
     /// держатель между опросами не сменился, ожидаемый путь — путь этой установки.
     /// Каждый тест портит РОВНО ОДНО поле — так видно, какая именно проверка сработала.
+    ///
+    /// `expected_image_path: None` здесь означает «путь неизвестен И откат на имя разрешён»,
+    /// то есть отладочную сборку — именно этот случай проверяли прежние тесты. Релизный
+    /// случай «путь неизвестен, снимать нельзя» отдельный, для него — [`facts_expecting`].
     fn facts<'a>(
         holders: &'a [u32],
         observed: Option<&'a ObservedProcess>,
         holders_after: &'a [u32],
         expected_image_path: Option<&'a str>,
     ) -> PortHolderFacts<'a> {
+        facts_expecting(
+            holders,
+            observed,
+            holders_after,
+            match expected_image_path {
+                Some(p) => ExpectedImage::Known(p),
+                None => ExpectedImage::NameFallbackAllowed,
+            },
+        )
+    }
+
+    /// То же, но случай ожидаемого образа задаётся явно — включая релизный `Unknown`.
+    fn facts_expecting<'a>(
+        holders: &'a [u32],
+        observed: Option<&'a ObservedProcess>,
+        holders_after: &'a [u32],
+        expected_image: ExpectedImage<'a>,
+    ) -> PortHolderFacts<'a> {
         PortHolderFacts {
             holders,
             self_pid: SHELL,
             observed,
             holders_after,
-            expected_image_path,
+            expected_image,
         }
     }
 
@@ -1773,6 +1823,52 @@ mod tests {
                 OUR_USER
             ),
             KillVerdict::Skip(SkipReason::ImagePathNotOurs)
+        );
+    }
+
+    /// 🔴 Контроль находки внешнего аудита блока 2.4.10 (High): в РЕЛИЗЕ путь установки
+    /// разрешить не удалось — снимать нельзя.
+    ///
+    /// Прежде это состояние было неотличимо от отладочной сборки: и там и там приходило
+    /// пусто, решение откатывалось на сверку по ИМЕНИ образа, а имя у облачной и локальной
+    /// редакций одинаково. Сценарий отказа: обе редакции стоят на машине, антивирус кладёт
+    /// образ облачной в карантин, пользователь запускает её — и продукт снимает движок
+    /// локальной редакции вместе с идущим расчётом.
+    ///
+    /// Ось мутации: заменить `ExpectedImage::Unknown` на `NameFallbackAllowed` в
+    /// `expected_engine_image_path` — тест обязан покраснеть.
+    #[test]
+    fn skip_when_expected_image_unknown_in_release() {
+        let holders = [HOLDER];
+        // Держатель — движок ДРУГОЙ редакции: имя то же, каталог другой.
+        let obs = observed(OTHER_EDITION_IMAGE);
+
+        assert!(
+            image_matches(Some(OTHER_EDITION_IMAGE), &KILL_CFG),
+            "предпосылка: по ИМЕНИ образ другой редакции проходит — на этом и держался дефект"
+        );
+
+        assert_eq!(
+            should_kill_port_holder(
+                &facts_expecting(&holders, Some(&obs), &holders, ExpectedImage::Unknown),
+                &KILL_CFG,
+                OUR_USER
+            ),
+            KillVerdict::Skip(SkipReason::ImageUnknown),
+            "релиз без разрешённого пути установки обязан отказываться снимать, а не \
+             откатываться на сверку по имени"
+        );
+
+        // И собственный движок в этом состоянии тоже не снимается: без своего пути мы не
+        // можем отличить его от чужого. Отказ безопасный — порт удержан, возьмётся свободный.
+        let свой = observed(OUR_IMAGE);
+        assert_eq!(
+            should_kill_port_holder(
+                &facts_expecting(&holders, Some(&свой), &holders, ExpectedImage::Unknown),
+                &KILL_CFG,
+                OUR_USER
+            ),
+            KillVerdict::Skip(SkipReason::ImageUnknown)
         );
     }
 
@@ -1961,19 +2057,26 @@ mod tests {
         );
     }
 
-    /// Пустая строка в ожидаемом пути — это «путь неизвестен», а не «совпасть не с чем».
-    /// Иначе сорвавшееся разрешение пути установки молча снимало бы сверку целиком.
+    /// Пустая строка в «известном» пути — это «сверять не с чем», а значит НЕ СНИМАТЬ.
+    ///
+    /// 🔴 Ожидание изменено после внешнего аудита блока 2.4.10. Прежняя редакция теста
+    /// закрепляла откат на сверку по имени, и это было ошибкой: имя образа одинаково у
+    /// облачной и локальной редакций, поэтому откат означал «снять чужой идущий расчёт».
+    /// Откат по имени законен ровно в одном случае — отладочная сборка, где своего образа
+    /// нет по построению; для него есть отдельное состояние `NameFallbackAllowed`, и его
+    /// проверяет соседний тест.
     #[test]
-    fn empty_expected_path_falls_back_to_image_name_check() {
+    fn empty_expected_path_is_not_a_reason_to_kill() {
         let holders = [HOLDER];
-        let obs = observed(r"C:\Users\anton\anaconda3\python.exe");
+        // Даже наш собственный образ: пустой ожидаемый путь сверить не с чем.
+        let obs = observed(OUR_IMAGE);
         assert_eq!(
             should_kill_port_holder(
-                &facts(&holders, Some(&obs), &holders, Some("   ")),
+                &facts_expecting(&holders, Some(&obs), &holders, ExpectedImage::Known("   ")),
                 &KILL_CFG,
                 OUR_USER
             ),
-            KillVerdict::Skip(SkipReason::ImageMismatch)
+            KillVerdict::Skip(SkipReason::ImageUnknown)
         );
     }
 
