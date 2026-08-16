@@ -38,6 +38,7 @@ engines/channel_action.py).
 from __future__ import annotations
 
 import json
+import math
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -78,6 +79,53 @@ def _money_ru(value: float) -> str:
     return f'{float(value):,.0f}'.replace(',', ' ')
 
 
+def _round_to_resolution(value: float, resolution: float) -> float:
+    """Округление КЛИЕНТСКОЙ оценки до разряда, соотнесённого с её разрешением.
+
+    Аудит 2026-08-16 (F-17): положение максимума берётся аргмаксимумом ПО СЕТКЕ,
+    то есть это координата узла с разрешением в шаг сетки. Печатать её до рубля —
+    девять значащих цифр там, где точность 30 млн: клиент ставит число в медиаплан
+    и обсуждает разницу в единицы миллионов, которой в расчёте нет.
+
+    Разряд округления — на порядок мельче разрешения (шаг 30 354 761 → округляем
+    до 1 000 000): грубее самого шага не округляем, чтобы не потерять различимость
+    соседних узлов, но и не показываем разрядов мельче.
+
+    Технические поля ответа остаются точными — округляется только то, что читает
+    человек.
+    """
+    v = float(value)
+    try:
+        r = abs(float(resolution))
+    except (TypeError, ValueError):
+        return v
+    if not math.isfinite(v) or not math.isfinite(r) or r <= 0:
+        return v
+    unit = 10.0 ** math.floor(math.log10(r / 10.0))
+    if unit < 1.0:
+        return v
+    return float(round(v / unit) * unit)
+
+
+def _round_significant(value: float, digits: int = 3) -> float:
+    """Округление до N значащих цифр — для величин без своего шага сетки
+    (потерянная/выигранная прибыль): она посчитана как разность в двух узлах
+    сетки, и её точность заведомо не рублёвая."""
+    v = float(value)
+    if not math.isfinite(v) or v == 0.0:
+        return v
+    unit = 10.0 ** (math.floor(math.log10(abs(v))) - int(digits) + 1)
+    if unit < 1.0:
+        return v
+    return float(round(v / unit) * unit)
+
+
+def _multiplier_ru(value: float) -> str:
+    """«3×» / «2,5×» — множитель сетки в клиентском тексте (запятая, не точка)."""
+    text = f'{float(value):g}'
+    return text.replace('.', ',') + '×'
+
+
 def _ru_periods(n: int) -> str:
     """«31 период» / «2 периода» / «15 периодов» — согласование в клиентском тексте."""
     n = abs(int(n))
@@ -89,6 +137,16 @@ def _ru_periods(n: int) -> str:
     if 2 <= last <= 4:
         return f'{n} периода'
     return f'{n} периодов'
+
+
+def _is_finite_number(value: Any) -> bool:
+    """Значение годится как число (не None, не строка-мусор, не NaN/inf)."""
+    if value is None or isinstance(value, bool):
+        return False
+    try:
+        return math.isfinite(float(value))
+    except (TypeError, ValueError):
+        return False
 
 
 def _read_json(path: Path) -> Dict[str, Any]:
@@ -372,7 +430,31 @@ def compute_profit_frontier(
     forward, meta = build_proportional_forward(
         project_dir, unit_costs_override=unit_costs_override)
 
-    current_total = float(meta.get('current_total_money') or 0.0)
+    # 🔴 Обязательные ключи прямого прохода требуем ЯВНО (аудит 2026-08-16, F-10).
+    # Мягкое чтение `meta.get('baseline_total') or 0.0` было тихой подстановкой нуля:
+    # при исчезновении ключа базовые продажи попадали бы в «прибыль от медиа» и
+    # завышали её в разы (на реальной модели 8,85 млрд против 0,42 млрд), кривая
+    # становилась монотонно растущей, а исход переключался на «за границей
+    # наблюдений» — всё это молча, с зелёными тестами. Числа, которого нет,
+    # не выдумываем (INV-50): отказ с причиной.
+    missing_meta = [
+        key for key in ('current_total_money', 'baseline_total')
+        if not _is_finite_number(meta.get(key))
+    ]
+    if missing_meta:
+        return {
+            'status': 'error',
+            'error_code': 'FORWARD_META_INCOMPLETE',
+            'missing_meta_keys': missing_meta,
+            'message': (
+                'Служебный расчёт модели вернул неполные данные: не хватает '
+                + ('базового уровня продаж' if 'baseline_total' in missing_meta
+                   else 'текущего суммарного бюджета')
+                + '. Без него прибыль была бы посчитана неверно, поэтому расчёт '
+                'мы не выполняем. Переобучите модель и повторите.'
+            ),
+        }
+    current_total = float(meta['current_total_money'])
     if current_total <= 0:
         return {
             'status': 'error',
@@ -383,7 +465,7 @@ def compute_profit_frontier(
                 'по каналам и данные о тратах.'
             ),
         }
-    baseline_total = float(meta.get('baseline_total') or 0.0)
+    baseline_total = float(meta['baseline_total'])
 
     grid = build_budget_grid(current_total, n_points, lo_multiplier, hi_multiplier)
     budgets: List[float] = grid['budgets']
@@ -478,9 +560,42 @@ def compute_profit_frontier(
             'sales_total': of['sales_total'],
             'profit': of['profit'],
             'basis': PERIOD_BASIS,
+            # Аудит 2026-08-16 (F-15): клиентское утверждение «за этой границей
+            # данных нет» не должно быть сильнее метода, которым граница получена.
+            # Признак экстраполяции сравнивает СРЕДНЮЮ трату за период (сумма по
+            # всем периодам) с перцентилями трат по АКТИВНЫМ периодам канала.
+            # У канала, который закупается волнами, средняя размазана по всем
+            # периодам, а порог взят по активным — признак срабатывает позже, чем
+            # следовало бы, и граница оказывается выше фактически наблюдавшихся
+            # трат. Корень — в `extrapolation_reporter` (код от 2026-07-02, вне
+            # этого модуля); здесь оговариваем ограничение там, где границу
+            # объявляем клиенту.
+            'method': 'max_grid_budget_with_zero_extrapolation_severity',
+            'method_limitation': 'per_period_average_vs_active_period_history',
+            'method_note': (
+                'Граница определена сравнением средней траты за период с историей '
+                'трат по каждому каналу. У каналов, которые закупаются волнами '
+                '(активны не во всех периодах), средняя за период размывается по '
+                'всем периодам, а история берётся по активным – для таких каналов '
+                'граница может оказаться выше фактически наблюдавшихся трат.'
+            ),
         }
         if 'marginal_return' in of:
             observed_frontier['marginal_return'] = of['marginal_return']
+        # F-09: если severity 0 держится до последней точки сетки, «граница»
+        # определяется краем РАСЧЁТА, а не краем данных: фактические траты могли
+        # заходить и выше. Потребитель обязан различать эти два случая.
+        if observed_idx == len(curve) - 1:
+            observed_frontier['at_grid_ceiling'] = True
+            observed_frontier['limited_by'] = 'grid'
+            observed_frontier['note'] = (
+                'Это верхняя точка расчёта, а не край ваших данных: в пределах '
+                'расчёта выхода за наблюдавшиеся траты не было, поэтому граница '
+                'наблюдений может лежать и выше.'
+            )
+        else:
+            observed_frontier['at_grid_ceiling'] = False
+            observed_frontier['limited_by'] = 'data'
 
     # ── максимум прибыли: один из трёх исходов ───────────────────────────────
     max_idx = int(_np.argmax(profits))
@@ -506,22 +621,29 @@ def compute_profit_frontier(
         'at_observed_frontier': at_observed_frontier,
         'basis': PERIOD_BASIS,
     }
-    if beyond_observed or at_grid_ceiling:
+    if beyond_observed:
         # 🔴 Оптимума, которого не видели в данных, не рисуем: за правым краем
         # наблюдений кривая данными не идентифицируется (Chan & Perry 2017).
+        # Аудит 2026-08-16 (F-09): случай «кончились ДАННЫЕ» отделён от случая
+        # «кончилась наша СЕТКА» (ниже) — раньше они были слиты одним условием,
+        # и во втором продукт называл границей наблюдавшихся трат потолок
+        # расчёта (3× текущего бюджета).
         maximum['outcome'] = 'beyond_observed'
         maximum['reportable'] = False
+        maximum['limited_by'] = 'data'
         maximum['still_profitable_within_data'] = True
         if max_severity is not None:
             maximum['severity_at_grid_argmax'] = max_severity
         if observed_frontier.get('available'):
             maximum['message'] = (
                 'В пределах ваших данных увеличение бюджета остаётся выгодным: '
-                'прибыль растёт до самой границы наблюдавшихся трат '
-                f'({_money_ru(observed_frontier["budget"])} ₽ суммарно за период '
-                'обучения). Где проходит потолок, эти данные не показывают – модель '
-                'за границей наблюдений не проверяется данными, и точку максимума '
-                'мы не называем.'
+                'прибыль растёт до самой границы наблюдавшихся трат – около '
+                f'{_money_ru(_round_to_resolution(observed_frontier["budget"], grid["step"]))} ₽ '
+                'суммарно за период обучения. Где проходит потолок, эти данные '
+                'не показывают – модель за границей наблюдений не проверяется '
+                'данными, и точку максимума мы не называем. Саму границу мы '
+                'определяем по средней трате за период, поэтому у каналов '
+                'с закупкой волнами она может быть завышена.'
             )
         else:
             maximum['message'] = (
@@ -529,6 +651,27 @@ def compute_profit_frontier(
                 'наблюдавшихся трат определить не удалось – точку максимума '
                 'мы не называем.'
             )
+    elif at_grid_ceiling:
+        # Данные НЕ кончились (severity 0 в самой верхней точке) — кончился
+        # рассмотренный диапазон. Это другое утверждение, и границей наблюдений
+        # потолок расчёта называть нельзя: у канала с закупкой волнами даже
+        # 3× текущего бюджета может не выходить за наблюдавшиеся траты.
+        maximum['outcome'] = 'at_grid_ceiling'
+        maximum['reportable'] = False
+        maximum['limited_by'] = 'grid'
+        maximum['still_profitable_within_data'] = True
+        maximum['grid_ceiling_budget'] = budgets[-1]
+        maximum['grid_ceiling_multiplier'] = hi_multiplier
+        if max_severity is not None:
+            maximum['severity_at_grid_argmax'] = max_severity
+        maximum['message'] = (
+            'Прибыль растёт до верхней границы расчёта – '
+            f'{_money_ru(budgets[-1])} ₽ суммарно за период обучения, это '
+            f'{_multiplier_ru(hi_multiplier)} текущего бюджета. Выше расчёт '
+            'не заходил, поэтому точку максимума мы не называем: она лежит за '
+            'пределами рассмотренного диапазона. Ваши данные её не ограничивают – '
+            'в пределах расчёта выхода за наблюдавшиеся траты не было.'
+        )
     elif at_grid_floor:
         # Red-team №5: максимум упёрся в левый край сетки – значит он лежит ниже
         # рассмотренного диапазона, а не «равен 0,2× текущего».
@@ -553,23 +696,37 @@ def compute_profit_frontier(
         maximum['grid_step'] = grid['step']
         if 'marginal_return' in max_point:
             maximum['marginal_return'] = max_point['marginal_return']
+        # F-17: положение максимума — координата УЗЛА сетки, его разрешение равно
+        # шагу сетки. В клиентском тексте печатаем округлённое число (и то же
+        # число отдаём отдельным полем для экрана), точное остаётся в `budget`.
+        budget_display = _round_to_resolution(max_point['budget'], grid['step'])
+        step_display = _round_significant(grid['step'], 2)
+        maximum['budget_display'] = budget_display
+        maximum['display_resolution'] = step_display
+        maximum['display_note'] = (
+            'Число округлено до разряда, соотнесённого с шагом расчётной сетки.'
+        )
         if maximum['outcome'] == 'below_current':
             maximum['profit_at_current'] = profit_at_current
             maximum['profit_lost_at_current'] = max_point['profit'] - profit_at_current
             maximum['message'] = (
                 'Вы уже за точкой максимальной прибыли: она примерно при '
-                f'{_money_ru(max_point["budget"])} ₽ суммарно за период обучения. '
+                f'{_money_ru(budget_display)} ₽ суммарно за период обучения. '
                 'На текущем бюджете теряется около '
-                f'{_money_ru(max_point["profit"] - profit_at_current)} ₽ прибыли '
-                'за тот же период.'
+                f'{_money_ru(_round_significant(max_point["profit"] - profit_at_current))} ₽ '
+                'прибыли за тот же период. Числа округлены: расчёт идёт по сетке '
+                f'с шагом около {_money_ru(step_display)} ₽, точнее этого шага '
+                'положение максимума не определяется.'
             )
         else:
             maximum['profit_at_current'] = profit_at_current
             maximum['profit_gain_vs_current'] = max_point['profit'] - profit_at_current
             maximum['message'] = (
                 'Максимум прибыли лежит внутри наблюдавшегося диапазона – около '
-                f'{_money_ru(max_point["budget"])} ₽ суммарно за период обучения '
-                f'(шаг сетки {_money_ru(grid["step"])} ₽).'
+                f'{_money_ru(budget_display)} ₽ суммарно за период обучения. '
+                'Число округлено: расчёт идёт по сетке с шагом около '
+                f'{_money_ru(step_display)} ₽, точнее этого шага положение '
+                'максимума не определяется.'
             )
         if at_observed_frontier:
             # Число оставляем – оно честное (severity 0). Но говорим, что дальше
@@ -582,11 +739,19 @@ def compute_profit_frontier(
     # ── 90% интервал на ПОЛОЖЕНИЕ максимума по апостериорным выборкам ─────────
     posterior_interval = _posterior_maximum_interval(
         meta=meta,
+        project_dir=project_dir,
         budgets=budgets,
         severities=severities,
         unit_value=unit_value,
         max_samples=max_samples,
     )
+    # 🔴 F-01: где мы отказались назвать положение максимума, там не выдаём и
+    # ЧИСЕЛ этого положения. Интервал `low`/`high`/`mean` — те же рубли про ту же
+    # точку: клиент прочитает их как ответ на вопрос «сколько тратить», хотя мы
+    # только что сказали, что не называем его. Отказ обязан покрывать все числа
+    # положения максимума, а не одну ветку ответа.
+    posterior_interval = _withhold_interval_when_maximum_not_reportable(
+        posterior_interval, maximum)
 
     period = {
         'basis': PERIOD_BASIS,
@@ -632,7 +797,18 @@ def compute_profit_frontier(
             **({'marginal_return': curve[current_index]['marginal_return']}
                if 'marginal_return' in curve[current_index] else {}),
         },
-        'baseline_sales_total': baseline_total,
+        # F-16: базовый уровень отдаём блоком с признаком основания, как все
+        # остальные числа фронтира. Голое число на верхнем уровне читалось как
+        # величина за один период — тот же класс дефекта, что «260 млн против
+        # 2,46 млрд».
+        'baseline_sales': {
+            'total': baseline_total,
+            'basis': PERIOD_BASIS,
+            'note': (
+                'Продажи без рекламы – суммарно за весь период обучения, '
+                'не за один период.'
+            ),
+        },
         'curve': curve,
         'observed_frontier': observed_frontier,
         'maximum': maximum,
@@ -650,8 +826,152 @@ def compute_profit_frontier(
     }
 
 
+def _classify_posterior_absence_from_model(model_data: Dict[str, Any]) -> Dict[str, Any]:
+    """Почему апостериорных выборок нет: природа модели или техническая причина.
+
+    Аудит 2026-08-16 (F-02). `posterior_sampler` отдаёт `None` минимум по пяти
+    причинам (нет выборок, канал вне выборок, негодная форма массивов,
+    не-конечные значения, любое исключение), а продукт на все пять печатал одно
+    утверждение — «модель обучена без байесовского вывода, метод наименьших
+    квадратов». Три причины из пяти к методу обучения отношения не имеют, и
+    клиенту сообщалось о ЕГО модели то, чего никто не проверял (INV-50).
+
+    Здесь проверяем то, что реально можно проверить – содержимое сохранённой
+    модели, – и различаем «выборок нет по природе модели» и «выборки есть,
+    интервал не посчитан по технической причине».
+
+    Разбор состава выборок повторяет чтение `posterior_sampler`
+    (`optimize/inverse.py`) и служит ТОЛЬКО диагностикой: если он разойдётся
+    с оригиналом, ответом станет общая техническая причина – мы всё равно
+    не скажем о модели того, чего не проверяли.
+    """
+    ps = model_data.get('posterior_samples') or {}
+    betas = ps.get('media_betas')
+    alphas = ps.get('alphas')
+    gammas = ps.get('gammas')
+    if not ps or betas is None or alphas is None or gammas is None:
+        return {
+            'reason': 'no_posterior_samples',
+            'message': (
+                'У этой модели нет сохранённых апостериорных выборок: она обучена '
+                'без байесовского вывода – так бывает у моделей на малых данных '
+                '(метод наименьших квадратов) и у моделей, обученных ранними '
+                'версиями программы. Кривая прибыли и положение максимума '
+                'рассчитаны, правдоподобный диапазон положения максимума – нет.'
+            ),
+        }
+
+    import numpy as _np
+    try:
+        betas_arr = _np.asarray(betas, dtype=float)
+    except Exception:  # noqa: BLE001 - диагностика не должна ронять расчёт
+        betas_arr = None
+    if betas_arr is None or betas_arr.ndim != 2 or betas_arr.shape[1] < 2:
+        return {
+            'reason': 'posterior_shape_unusable',
+            'message': (
+                'Апостериорные выборки у модели есть, но их форма для расчёта '
+                'не подходит – правдоподобный диапазон положения максимума '
+                'по ним не считаем. Кривая прибыли и положение максимума '
+                'рассчитаны. Помогает переобучение модели.'
+            ),
+        }
+
+    cfg = model_data.get('config') or {}
+    norm = model_data.get('normalization') or {}
+    untrained = set(norm.get('untrained_channels') or [])
+    media_cols = [c for c in (cfg.get('media_columns') or []) if c not in untrained]
+    ps_cols = list(ps.get('media_columns') or media_cols)
+    if media_cols and any(c not in ps_cols for c in media_cols):
+        return {
+            'reason': 'channel_absent_in_posterior',
+            'message': (
+                'Состав каналов модели разошёлся с сохранёнными апостериорными '
+                'выборками – правдоподобный диапазон положения максимума по ним '
+                'не считается. Кривая прибыли и положение максимума рассчитаны. '
+                'Помогает переобучение модели на текущих данных.'
+            ),
+        }
+
+    return {
+        'reason': 'posterior_compute_failed',
+        'message': (
+            'Апостериорные выборки у модели есть, но рассчитать по ним '
+            'правдоподобный диапазон положения максимума не удалось: расчёт дал '
+            'недопустимые значения или прервался. Кривая прибыли и положение '
+            'максимума рассчитаны.'
+        ),
+    }
+
+
+def _classify_posterior_absence(project_dir: str) -> Dict[str, Any]:
+    """Обёртка над разбором модели: цену чтения pickle платим ТОЛЬКО в ветке
+    отказа (обычный путь до неё не доходит)."""
+    try:
+        from engines.persistence import load_model_with_compat
+        model_data = load_model_with_compat(Path(project_dir) / 'models' / 'latest.pkl')
+        if not isinstance(model_data, dict):
+            raise TypeError('model_data is not a dict')
+    except Exception:  # noqa: BLE001 - причина отказа не должна ронять расчёт
+        return {
+            'reason': 'posterior_unavailable_unknown',
+            'message': (
+                'Правдоподобный диапазон положения максимума рассчитать '
+                'не удалось, и причину установить тоже – модель для проверки '
+                'прочитать не получилось. Кривая прибыли и положение максимума '
+                'рассчитаны.'
+            ),
+        }
+    return _classify_posterior_absence_from_model(model_data)
+
+
+def _withhold_interval_when_maximum_not_reportable(
+    interval: Dict[str, Any],
+    maximum: Dict[str, Any],
+) -> Dict[str, Any]:
+    """F-01: отказ назвать максимум распространяется на ВСЕ числа его положения.
+
+    `low` / `high` / `mean` интервала — рубли про ту же самую точку, которую мы
+    отказались называть. Оставлять их рядом с отказом значит выдать вместо
+    одного числа три. Числа убираем совсем (не подменяем нулём, INV-50),
+    а безразмерные доли выборок оставляем: они подпирают сам отказ, а не
+    называют положение.
+    """
+    if maximum.get('reportable'):
+        return interval
+    if not interval.get('available'):
+        return interval  # чисел там и так нет
+
+    kept = {
+        key: interval[key]
+        for key in ('n_samples', 'share_at_grid_floor', 'share_at_grid_ceiling',
+                    'share_beyond_observed', 'truncated_by_grid', 'grid_censored')
+        if key in interval
+    }
+    share_beyond = interval.get('share_beyond_observed')
+    tail = ''
+    if isinstance(share_beyond, (int, float)) and share_beyond > 0:
+        tail = (' По апостериорным выборкам максимум оказывается за границей '
+                f'наблюдавшихся трат у {round(float(share_beyond) * 100)}% выборок.')
+    withheld: Dict[str, Any] = {
+        'available': False,
+        'status': 'withheld',
+        'reason': 'maximum_not_reportable',
+        'withheld_for_outcome': maximum.get('outcome'),
+        'basis': PERIOD_BASIS,
+        'message': (
+            'Положение максимума по этим данным мы не называем (причина – в '
+            'пояснении к максимуму), поэтому не выдаём и правдоподобный диапазон '
+            'его положения: его границы указывали бы на ту же точку.' + tail
+        ),
+    }
+    withheld.update(kept)
+    return withheld
+
+
 def _posterior_maximum_interval(
     meta: Dict[str, Any],
+    project_dir: str,
     budgets: List[float],
     severities: List[Optional[int]],
     unit_value: float,
@@ -670,8 +990,10 @@ def _posterior_maximum_interval(
     Базовый уровень берём из той же апостериорной выборки при нулевом бюджете
     (`sampler(0)`), чтобы прибыль от медиа считалась внутри одной выборки.
 
-    `None` от сэмплера (модель малых данных, МНК/legacy) — законный случай:
-    кривая и максимум есть, интервала нет, и об этом сказано полем, а не нулём.
+    `None` от сэмплера — законный случай, но причин у него минимум пять, и они
+    разные по смыслу: «выборок нет по природе модели» против «интервал не
+    посчитан по технической причине». Причину устанавливаем разбором самой
+    модели (`_classify_posterior_absence`), а не догадкой (F-02, INV-50).
     """
     import numpy as _np
 
@@ -681,24 +1003,33 @@ def _posterior_maximum_interval(
             'available': False,
             'reason': 'no_posterior_sampler',
             'message': ('Апостериорные выборки для этой модели недоступны – '
-                        'интервал на положение максимума не рассчитывается.'),
+                        'правдоподобный диапазон положения максимума '
+                        'не рассчитывается.'),
         }
-
-    unavailable = {
-        'available': False,
-        'reason': 'no_posterior_samples',
-        'message': (
-            'Модель обучена без байесовского вывода (малые данные, метод '
-            'наименьших квадратов) – апостериорных выборок нет. Кривая прибыли '
-            'и положение максимума рассчитаны, интервал на положение максимума – '
-            'нет.'
-        ),
-    }
 
     try:
         base_arr = sampler(0.0, max_samples=max_samples)
-        if base_arr is None or len(base_arr) < 4:
-            return unavailable
+        if base_arr is None:
+            # Причину знает только модель: спрашиваем её, а не приписываем
+            # клиенту метод обучения, которого не проверяли.
+            absence = _classify_posterior_absence(project_dir)
+            return {'available': False, **absence}
+        if len(base_arr) < 4:
+            # Отдельная причина: выборки ЕСТЬ, но их слишком мало для интервала
+            # (`compute_ci_hdi` на выборке меньше 4 вырождается в точку).
+            # Раньше этот случай печатал утверждение про метод наименьших
+            # квадратов — про модель, которая на самом деле байесовская.
+            return {
+                'available': False,
+                'reason': 'too_few_posterior_samples',
+                'n_samples': int(len(base_arr)),
+                'message': (
+                    f'Апостериорных выборок у модели слишком мало ({len(base_arr)}), '
+                    'правдоподобный диапазон положения максимума по ним был бы '
+                    'недостоверным – мы его не считаем. Кривая прибыли '
+                    'и положение максимума рассчитаны.'
+                ),
+            }
         n_samples = len(base_arr)
         base_arr = _np.asarray(base_arr, dtype=float)
 
@@ -706,7 +1037,19 @@ def _posterior_maximum_interval(
         for j, budget in enumerate(budgets):
             arr = sampler(budget, max_samples=max_samples)
             if arr is None:
-                return unavailable
+                # На нулевом бюджете выборки получились, здесь — нет: причина
+                # заведомо техническая, к методу обучения отношения не имеет.
+                return {
+                    'available': False,
+                    'reason': 'posterior_failed_at_grid_point',
+                    'failed_at_budget': float(budget),
+                    'message': (
+                        'На части точек расчёта апостериорные выборки получить '
+                        'не удалось – правдоподобный диапазон положения максимума '
+                        'не считаем. Кривая прибыли и положение максимума '
+                        'рассчитаны.'
+                    ),
+                }
             if len(arr) != n_samples:
                 # Рассогласование выборок между точками сетки сделало бы интервал
                 # шумом: аргмаксимумы считались бы по разным наборам параметров.
@@ -731,7 +1074,22 @@ def _posterior_maximum_interval(
         sev_arr = _np.array(
             [(-1 if s is None else int(s)) for s in severities], dtype=int)
         beyond = sev_arr[arg]
-        return {
+
+        # 🔴 F-12: аргмаксимумы взяты на КОНЕЧНОЙ сетке. У выборки, чей оптимум
+        # лежит вне сетки, аргмаксимум прижимается к её краю — распределение
+        # цензурировано, и граница интервала перестаёт быть свойством модели:
+        # она становится артефактом выбора `hi_multiplier` (поставь 5 вместо 3 –
+        # граница уедет вслед). Вероятностным утверждением такой интервал
+        # подавать нельзя: помечаем и оговариваем в тексте.
+        lo_edge, hi_edge = float(budgets[0]), float(budgets[-1])
+        share_floor = float(_np.mean(arg == 0))
+        share_ceiling = float(_np.mean(arg == len(budgets) - 1))
+        low_at_grid = bool(float(low) <= lo_edge * (1.0 + 1e-9))
+        high_at_grid = bool(float(high) >= hi_edge * (1.0 - 1e-9))
+        truncated = bool(low_at_grid or high_at_grid)
+        censored = bool(share_floor > 0.0 or share_ceiling > 0.0)
+
+        interval: Dict[str, Any] = {
             'available': True,
             'hdi_prob': 0.9,
             'low': float(low),
@@ -739,15 +1097,51 @@ def _posterior_maximum_interval(
             'mean': float(mean),
             'method': method,
             'n_samples': int(n_samples),
-            'share_at_grid_floor': float(_np.mean(arg == 0)),
-            'share_at_grid_ceiling': float(_np.mean(arg == len(budgets) - 1)),
+            'share_at_grid_floor': share_floor,
+            'share_at_grid_ceiling': share_ceiling,
             'share_beyond_observed': float(_np.mean(beyond != 0)),
+            'grid_censored': censored,
+            'truncated_by_grid': truncated,
+            'truncated_side': ('both' if (low_at_grid and high_at_grid)
+                               else ('high' if high_at_grid
+                                     else ('low' if low_at_grid else None))),
+            'is_probabilistic': not truncated,
             'basis': PERIOD_BASIS,
             'note': (
                 'Интервал отражает неуверенность модели в параметрах, а не разброс '
                 'будущего факта.'
             ),
         }
+        if truncated:
+            edge_text = []
+            if high_at_grid:
+                edge_text.append(
+                    'сверху диапазон упирается в верхнюю границу расчёта '
+                    f'({_money_ru(hi_edge)} ₽), за неё расчёт не заходил'
+                    + (f'; у {round(share_ceiling * 100)}% выборок максимум лежит '
+                       'за этой границей' if share_ceiling > 0 else '')
+                )
+            if low_at_grid:
+                edge_text.append(
+                    'снизу диапазон упирается в нижнюю границу расчёта '
+                    f'({_money_ru(lo_edge)} ₽), ниже расчёт не заходил'
+                    + (f'; у {round(share_floor * 100)}% выборок максимум лежит '
+                       'ниже этой границы' if share_floor > 0 else '')
+                )
+            interval['caveat'] = (
+                'Диапазон ограничен рамками расчёта, а не только моделью: '
+                + ', '.join(edge_text)
+                + '. Поэтому читать его как «правдоподобный диапазон с '
+                'вероятностью 90%» нельзя – со стороны упора это граница '
+                'нашего расчёта.'
+            )
+        elif censored:
+            interval['caveat'] = (
+                'У части выборок максимум пришёлся на край расчёта '
+                f'({round((share_floor + share_ceiling) * 100)}%), поэтому разброс '
+                'положения максимума может быть шире рассчитанного.'
+            )
+        return interval
     except Exception:  # noqa: BLE001 - честность-контур не должен ронять фронтир
         return {
             'available': False,
