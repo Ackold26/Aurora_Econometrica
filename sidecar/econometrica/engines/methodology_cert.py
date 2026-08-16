@@ -543,6 +543,7 @@ def generate_methodology_certificate(
     checks = _extract_checks(model_data, diagnostics)
     data_fingerprint = _extract_data_fingerprint(model_data)
     adstock_protocol = _extract_adstock_protocol(model_data)
+    repro_tolerance = _extract_repro_tolerance(reproducibility)
 
     try:
         payload = build_cert_payload(model_data, decompose_result, bundle_manifest)
@@ -561,6 +562,7 @@ def generate_methodology_certificate(
             'checks': checks,
             'data_fingerprint': data_fingerprint,
             'adstock_protocol': adstock_protocol,
+            'repro_tolerance': repro_tolerance,
         }
 
     # Модель, обученная до появления паспорта воспроизводимости (P0.2), заверить
@@ -585,6 +587,7 @@ def generate_methodology_certificate(
         'checks': checks,
         'data_fingerprint': data_fingerprint,
         'adstock_protocol': adstock_protocol,
+        'repro_tolerance': repro_tolerance,
     }
 
 
@@ -1072,3 +1075,93 @@ def оговорка_о_выгрузке_параметров() -> str:
             'разбросы, правдоподобные диапазоны, параметры переноса и '
             'насыщения, нормировка и приоры – в отчёт не входит и выгружается '
             'отдельно, по вашему запросу.')
+
+
+# ── Критерий совпадения двух расчётов – вне хеша, для клиента ────────────────
+
+def _extract_repro_tolerance(reproducibility: dict[str, Any]) -> dict[str, Any]:
+    """Критерий совпадения: какое расхождение двух расчётов считается совпадением.
+
+    🔴 Паспорт прогона отвечает на вопрос «как повторить», критерий – на вопрос
+    «что считать повтором». Без второго первый неполон: оценка опирается на
+    случайную процедуру, повтор с другим зерном даёт другие числа, и без
+    объявленного допуска спор о результате неразрешим (замечание постороннего
+    аналитика, 2026-08-16).
+
+    Числа не задаются здесь: они берутся из `utils/repro_tolerance`, того же
+    источника, которым сверка и пользуется. Документ и проверка не вправе
+    разойтись.
+
+    Три состояния:
+      * `declared`     – расчёт случайный, паспорт записан, критерий применим;
+      * `deterministic`– режим малых данных, закрытая формула: повтор даёт те же
+        числа всегда, допуск не нужен;
+      * `absent`       – паспорта нет (модель ранней версии): зерно не записано,
+        режим сверки определить нечем, применим только самый широкий допуск.
+    """
+    from utils.repro_tolerance import criterion_for_certificate
+
+    критерий = criterion_for_certificate()
+    статус = (reproducibility or {}).get('status')
+    if статус == 'deterministic':
+        критерий['status'] = 'deterministic'
+        return критерий
+    if статус == 'recorded':
+        критерий['status'] = 'declared'
+        return критерий
+    критерий['status'] = 'absent'
+    return критерий
+
+
+def строки_критерия_совпадения(cert: Any, *, подробно: bool) -> list[tuple[str, str]]:
+    """Пары «подпись – значение» о том, что считается повторением расчёта.
+
+    Args:
+        подробно: True – форма отчёта, строка на каждое условие. False – форма
+            слайда: одна строка, самое главное.
+    """
+    критерий = (cert or {}).get('repro_tolerance') if isinstance(cert, dict) else None
+    if not isinstance(критерий, dict) or not критерий:
+        return []
+    статус = критерий.get('status')
+
+    if статус == 'deterministic':
+        return [('Совпадение расчётов', 'повтор даёт те же числа: расчёт '
+                                        'выполняется по закрытой формуле, случайной '
+                                        'процедуры в нём нет')]
+    if статус == 'absent':
+        # Молчать нельзя, но и объявлять допуск нечему: без зерна и настроек в
+        # паспорте режим сверки не определить, а назвать наугад – обмануть.
+        return [('Совпадение расчётов', 'критерий не применим: в модели не записаны '
+                                        'зерно и настройки расчёта, сверить повтор не с чем')]
+
+    from utils.repro_tolerance import criterion_lines
+    строки = criterion_lines()
+    if подробно:
+        return строки
+    строгий = критерий.get('other_seed_full') or {}
+    допуски = строгий.get('tolerances') or {}
+    окупаемость = допуски.get('roi')
+    if окупаемость is None:
+        return []
+    число = f'{окупаемость:.1f}'.rstrip('0').rstrip('.').replace('.', ',')
+    return [('Совпадение расчётов', f'то же зерно – числа совпадают точно; другое '
+                                    f'зерно – расхождение до {число} %')]
+
+
+def пояснение_критерия_совпадения(cert: Any) -> str:
+    """Одна фраза о том, зачем в документе объявлен допуск."""
+    критерий = (cert or {}).get('repro_tolerance') if isinstance(cert, dict) else None
+    if not isinstance(критерий, dict) or not критерий:
+        return ''
+    if критерий.get('status') == 'deterministic':
+        return ('Повторный расчёт на тех же данных даёт те же числа: в режиме малых '
+                'данных модель считается по закрытой формуле, случайной процедуры в '
+                'ней нет.')
+    if критерий.get('status') == 'absent':
+        return ('Критерий совпадения к этой модели не применяется: она обучена в '
+                'ранней версии программы, где зерно и настройки расчёта не '
+                'записывались. Переобучите модель, чтобы повтор можно было сверить.')
+
+    from utils.repro_tolerance import criterion_note
+    return criterion_note()
