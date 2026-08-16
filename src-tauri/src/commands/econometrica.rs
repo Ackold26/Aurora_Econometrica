@@ -630,12 +630,19 @@ pub async fn econ_safe_corridor(
     project_dir: String,
     relative_lo_factor: Option<f64>,
     relative_hi_factor: Option<f64>,
+    // F-08 (2026-08-16, находка починки коридора): продажи на границах коридора
+    // считаются по ЯВНОМУ запросу — прямой проход стоит ×4,8 к времени ответа.
+    // None/false = прежнее поведение (aggregate_sales приходит как
+    // status='not_requested'), sidecar default тоже false — явный unwrap_or
+    // для симметрии с остальными опциональными полями этой команды.
+    include_sales: Option<bool>,
 ) -> Result<Value, String> {
     info!("econ_safe_corridor: {project_dir}");
     let body = serde_json::json!({
         "project_dir": project_dir,
         "relative_lo_factor": relative_lo_factor.unwrap_or(0.5),
         "relative_hi_factor": relative_hi_factor.unwrap_or(1.5),
+        "include_sales": include_sales.unwrap_or(false),
     });
     post_json("/optimize/corridor", &body, quick_client()).await
 }
