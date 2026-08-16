@@ -2335,6 +2335,12 @@ class SafeCorridorRequest(BaseModel):
     project_dir: str
     relative_lo_factor: float = 0.5
     relative_hi_factor: float = 1.5
+    # Продажи на границах коридора — по ЯВНОМУ запросу (2026-08-16, находка F-08).
+    # Они требуют прямого прохода: чтение models/latest.pkl + повторное чтение
+    # файла данных + три прохода, то есть ×4,8 к времени ответа (0,047 → 0,228 с
+    # на проекте в 31 строку). Сам коридор — дешёвые перцентили; кто продажи не
+    # просил, тот за них и не платит.
+    include_sales: bool = False
 
 
 @app.post('/optimize/corridor')
@@ -2363,9 +2369,19 @@ def optimize_corridor(req: SafeCorridorRequest):
             relative_lo_factor=req.relative_lo_factor,
             relative_hi_factor=req.relative_hi_factor,
             # 2026-08-16: прямой проход есть → aggregate_sales считается
-            # по-настоящему (двумя вызовами forward), а не остаётся заглушкой.
-            project_dir=req.project_dir,
+            # по-настоящему (тремя вызовами forward), а не остаётся заглушкой.
+            # Но только когда клиент их попросил (include_sales) — иначе каждый
+            # вызов коридора тянул бы за собой чтение модели и данных.
+            project_dir=req.project_dir if req.include_sales else None,
         )
+        if not req.include_sales:
+            # Поле не молчит и не отдаёт нулей: видно, что числа не посчитаны и почему.
+            corridor['aggregate_sales'] = {
+                'status': 'not_requested',
+                'reason': 'include_sales_off',
+                'message': ('Продажи на границах коридора считаются по запросу – '
+                            'передайте include_sales=true.'),
+            }
         corridor['status'] = 'ok'
         return JSONResponse(content=corridor)
     except Exception as e:
