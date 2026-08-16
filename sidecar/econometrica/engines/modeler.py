@@ -147,13 +147,45 @@ def get_mcmc_params(has_compiler: bool, has_jax: bool | None = None) -> dict:
     return {'chains': 2, 'draws': 1000, 'tune': 500, 'sampler': 'NUTS'}
 
 
+# Причины, по которым канал получил свой тип затухания. Различать их
+# обязательно: «выбрал BIC» и «откатились, потому что селектор упал» — разные
+# факты, и для документа воспроизводимости разница существенна. Посторонний,
+# читающий документ, должен видеть не только ЧТО применили, но и ПОЧЕМУ.
+ADSTOCK_BY_USER = 'user'                       # тип задан пользователем явно
+ADSTOCK_BY_DEFAULT = 'default'                 # канала нет в настройке → geometric
+ADSTOCK_BY_BIC = 'bic'                         # выбрал BIC-селектор
+ADSTOCK_BY_SELECTOR_ERROR = 'fallback_selector_error'    # селектор бросил исключение
+ADSTOCK_BY_SELECTOR_STATUS = 'fallback_selector_status'  # селектор вернул не-ok
+ADSTOCK_BY_NO_SELECTION = 'fallback_no_selection'        # селектор без выбора по каналу
+
+# Тип затухания, применяемый когда канала нет в настройке. Держим константой
+# рядом с местом чтения (`adstock_config.get(col, 'geometric')` ниже), чтобы
+# запись в паспорт и фактическое применение не разъехались.
+ADSTOCK_DEFAULT_TYPE = 'geometric'
+
+
+def _adstock_type_of(value) -> str | None:
+    """Тип затухания из значения настройки: строка либо {'type': ...}.
+
+    None означает «в настройке канала нет» — это не то же самое, что
+    'geometric': отличие «пользователь выбрал geometric» от «никто ничего не
+    выбирал, применилось значение по умолчанию» нужно документу.
+    """
+    if isinstance(value, str):
+        return value
+    if isinstance(value, dict):
+        raw = value.get('type')
+        return raw if isinstance(raw, str) else None
+    return None
+
+
 def _resolve_auto_adstock(
     adstock_config: dict,
     data_file: str,
     kpi_col: str,
     media_cols: list[str],
     date_col: str | None = None,
-) -> None:
+) -> dict[str, dict]:
     """Resolve 'auto' adstock entries in-place using BIC selector.
 
     Mutates adstock_config: replaces 'auto' (str) or {'type': 'auto'} (dict)
@@ -167,20 +199,52 @@ def _resolve_auto_adstock(
         media_cols: List of media channel column names.
         date_col: Optional date column name (passed for API consistency).
 
+    Returns:
+        Протокол выбора по каждому каналу:
+        ``{канал: {'requested': 'auto'|<тип>|None, 'resolved': <тип>,
+        'by': <причина из ADSTOCK_BY_*>}}``.
+
+        Возвращается, а не собирается вызывающим, по факту кода: сам резолвер
+        мутирует ``adstock_config`` НА МЕСТЕ, и этот же объект уезжает в
+        модель — после вызова исходной настройки в природе больше нет.
+        Причину отката знает только резолвер: снаружи все три ветки выглядят
+        одинаковым 'geometric'.
+
+        Прежние вызывающие возвращаемое значение игнорируют — поведение
+        функции для них не изменилось.
+
     Side effects:
         - Logs INFO for each resolved channel.
         - Logs WARNING and falls back to 'geometric' on selector error.
         - No-op when no channels require auto-selection.
     """
+    # Исходная настройка снимается ДО любой мутации — иначе её уже не собрать.
+    requested = {ch: _adstock_type_of(adstock_config.get(ch)) for ch in media_cols}
+
+    def _protocol(by_channel: dict[str, str]) -> dict[str, dict]:
+        """Собрать протокол: запрошено (снято до мутации) + применено (после)."""
+        return {
+            ch: {
+                'requested': requested[ch],
+                'resolved': (
+                    _adstock_type_of(adstock_config.get(ch)) or ADSTOCK_DEFAULT_TYPE
+                ),
+                'by': by_channel[ch],
+            }
+            for ch in media_cols
+        }
+
+    # Причина по умолчанию для каналов, которых авто-выбор не касается.
+    by_channel = {
+        ch: (ADSTOCK_BY_DEFAULT if requested[ch] is None else ADSTOCK_BY_USER)
+        for ch in media_cols
+    }
+
     # Identify channels that need auto-resolution
-    auto_channels = []
-    for ch in media_cols:
-        val = adstock_config.get(ch)
-        if val == 'auto' or (isinstance(val, dict) and val.get('type') == 'auto'):
-            auto_channels.append(ch)
+    auto_channels = [ch for ch in media_cols if requested[ch] == 'auto']
 
     if not auto_channels:
-        return  # nothing to do — skip selector call entirely
+        return _protocol(by_channel)  # skip selector call entirely
 
     try:
         from engines.adstock_selector import select_adstock
@@ -198,7 +262,8 @@ def _resolve_auto_adstock(
         )
         for ch in auto_channels:
             adstock_config[ch] = 'geometric'
-        return
+            by_channel[ch] = ADSTOCK_BY_SELECTOR_ERROR
+        return _protocol(by_channel)
 
     if result.get('status') != 'ok':
         logger.warning(
@@ -208,17 +273,22 @@ def _resolve_auto_adstock(
         )
         for ch in auto_channels:
             adstock_config[ch] = 'geometric'
-        return
+            by_channel[ch] = ADSTOCK_BY_SELECTOR_STATUS
+        return _protocol(by_channel)
 
     selections = result.get('selections', {})
     for ch in auto_channels:
         sel = selections.get(ch)
-        if sel and isinstance(sel, dict):
-            resolved = sel.get('type', 'geometric')
+        if sel and isinstance(sel, dict) and isinstance(sel.get('type'), str):
+            resolved = sel['type']
+            by_channel[ch] = ADSTOCK_BY_BIC
         else:
             resolved = 'geometric'
+            by_channel[ch] = ADSTOCK_BY_NO_SELECTION
         adstock_config[ch] = resolved
         logger.info('adstock auto-resolved by BIC: %s -> %s', ch, resolved)
+
+    return _protocol(by_channel)
 
 
 def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[str, Any]:
@@ -277,6 +347,18 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
     else:
         df = pd.read_excel(data_file)
 
+    # ─── Отпечаток исходных данных (воспроизводимость) ───────────────────
+    # Снимаем ЗДЕСЬ, при обучении, а не при выпуске документа: у большинства
+    # обученных моделей исходного файла по записанному в конфиге пути уже
+    # нет (проверено на машине: 3 модели из 4), и постфактум отпечаток взять
+    # неоткуда.
+    #
+    # Отпечаток содержимого берём с таблицы КАК ПРОЧИТАНА — до отсева
+    # хвоста с пустым KPI ниже. Так посторонний воспроизводит его, просто
+    # открыв файл, без знания наших внутренних правил отсева.
+    from utils.data_fingerprint import build_data_fingerprint
+    data_fingerprint = build_data_fingerprint(df, data_file)
+
     kpi_col = config['kpi_column']
     # NaN-KPI row filter: drop media-plan tail (future rows where KPI is empty).
     # Invariant: if no tail exists, notna() == True for all rows → no-op.
@@ -295,7 +377,12 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
     # Также гарантирует, что channel_adstock_types в pickle содержит
     # конкретный тип, а не строку 'auto' (которая ломала fallback geometric
     # в прогнозных путях — находка приёмки П2 / NEW-1).
-    _resolve_auto_adstock(
+    # Протокол выбора забираем ЗДЕСЬ: резолвер мутирует adstock_config на
+    # месте, а этот же объект уезжает в модель — после вызова по готовой
+    # модели уже не отличить «пользователь выбрал Вейбулла» от «BIC выбрал
+    # Вейбулла». Посторонний обязан видеть не только применённый тип, но и
+    # процедуру, которой он получен.
+    adstock_selection = _resolve_auto_adstock(
         adstock_config,
         data_file=data_file,
         kpi_col=kpi_col,
@@ -790,6 +877,7 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
         draws=draws,
         tune=tune,
         has_compiler=has_compiler,
+        data_fingerprint=data_fingerprint,
     )
     logger.info(
         f'Воспроизводимость: зерно={mcmc_seed} (источник: {mcmc_seed_source})'
@@ -1695,6 +1783,13 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
             'kpi_type': kpi_type,
             'kpi_likelihood': kpi_config.likelihood,
             'channel_adstock_types': dict(adstock_config),
+            # Протокол выбора затухания: что просили, что применили, кто решил.
+            # Отдельное поле, а не расширение channel_adstock_types: там —
+            # применённый тип, его читают расчётные пути, и подмешивать туда
+            # историю выбора значило бы менять смысл занятого имени.
+            # {канал: {'requested': 'auto'|<тип>|None, 'resolved': <тип>,
+            #          'by': 'user'|'default'|'bic'|'fallback_*'}}
+            'adstock_selection': dict(adstock_selection),
         }
 
         # ─── P0.5 (2026-08-03): sensitivity tornado at-fit-time ───

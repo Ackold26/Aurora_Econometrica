@@ -121,6 +121,7 @@ def environment_snapshot(
     has_compiler: bool,
     chain_method: str | None = None,
     jax_devices: int | None = None,
+    data_fingerprint: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Снимок среды, от которой результат зависит помимо зерна.
 
@@ -138,6 +139,13 @@ def environment_snapshot(
         chain_method: способ раскладки цепей, запрошенный движком.
         jax_devices: сколько устройств увидел JAX — именно от этого числа
             движок выбирает раскладку.
+        data_fingerprint: отпечаток исходных данных из
+            ``utils.data_fingerprint.build_data_fingerprint`` — чем именно
+            кормили модель. Снимается при обучении: к моменту выпуска
+            документа исходного файла на месте может уже не быть.
+            ``None`` у моделей, обученных до появления поля, и у вызовов, где
+            данных нет (проверки среды) — отсутствие отпечатка так и
+            записывается отсутствием, подставлять вместо него нечего.
     """
     return {
         'seed': seed,
@@ -152,6 +160,9 @@ def environment_snapshot(
         # запрошенное за применённое.
         'chain_method_delivered': False,
         'jax_devices': jax_devices,
+        # Отпечаток исходных данных: содержимое таблицы + байты файла.
+        # Обе половины со своим статусом — они отказывают независимо.
+        'data_fingerprint': data_fingerprint,
         'has_compiler': has_compiler,
         'mcmc': {'chains': chains, 'draws': draws, 'tune': tune},
         'versions': _package_versions(),
