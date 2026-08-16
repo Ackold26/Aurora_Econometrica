@@ -3982,8 +3982,18 @@ class AuroraPPTXBuilder:
         kept = int(ps.get("kept") or 0)
         missed = int(ps.get("missed") or 0)
         total = kept + missed
+
+        def _ru_is_one(n: int) -> bool:
+            """Число оканчивается на 1, кроме 11 - правило согласования, как у
+            _ru_channels (s09_scqar) и optimize/frontier.py::_ru_periods."""
+            return n % 10 == 1 and n % 100 != 11
+
         if missed == 0:
-            title = f"Проверка рекомендаций: все {total} из прошлого отчёта сбылись"
+            if total == 1:
+                title = "Проверка рекомендаций: рекомендация из прошлого отчёта сбылась"
+            else:
+                verdict_verb = "сбылась" if _ru_is_one(total) else "сбылись"
+                title = f"Проверка рекомендаций: все {total} из прошлого отчёта {verdict_verb}"
         elif kept == 0:
             title = f"Проверка рекомендаций: {missed} из {total} не сбылось"
         else:
@@ -4005,9 +4015,11 @@ class AuroraPPTXBuilder:
             f"{kept} из {total}",
             font=self.serif, size=44, bold=True, color=self.deep_100,
         )
+        rec_of_total = "рекомендации" if _ru_is_one(total) else "рекомендаций"
+        confirmed_verb = "подтвердилась" if _ru_is_one(kept) else "подтвердились"
         self._text(
             slide, left_x, left_y + 1.6, left_w, 0.6,
-            "рекомендаций из прошлого отчёта подтвердились на практике",
+            f"{rec_of_total} из прошлого отчёта {confirmed_verb} на практике",
             font=self.sans, size=11, color=self.deep_60, line_spacing=1.2,
         )
         self._paragraphs(

@@ -16,8 +16,12 @@
   (c) _page_shift учитывает promises_summary наравне с backtest/gen_compare/forecast
   (d) слайд прогноза (s_forecast_plan) корректно сдвигается, если promises идёт
       перед ним
-  (e) мутация: если условие показа сломать (рисовать блок при пустых
-      обещаниях), тест должен покраснеть
+  (e) мутация: если условие показа `if self.promises_summary:` в настоящем
+      build() перестать привязывать к атрибуту, тест должен покраснеть
+      (F-06 внешнего аудита 2026-08-16: мутация ставится на реальный build(),
+      не на его переписанную в тесте копию)
+  (f) при единственной сверенной рекомендации число и слово согласованы
+      (F-11 внешнего аудита 2026-08-16)
 """
 import copy
 import json
@@ -251,75 +255,86 @@ def test_forecast_slide_shifts_after_promises(base_payload, tmp_path):
 
 # ─── (e) Мутация: сломанное условие показа обязано покраснеть ───────────────
 #
-# Мутация делается вручную (не через mutmut) прямо в тесте: временно
-# монkey-патчим source-условие, эмулируя баг «блок печатается при пустых
-# обещаниях» — то есть мутируем МЕСТО, ГДЕ ЗНАЧЕНИЕ РЕАЛЬНО ВЫЧИСЛЯЕТСЯ
-# (self.promises_summary в __init__), а не соседнюю чистую функцию.
+# F-06 внешнего аудита (2026-08-16): прежняя версия этого теста переписывала
+# ВНУТРИ СЕБЯ всё тело build() (16 вызовов слайдов) и проверяла копию — реальный
+# AuroraPPTXBuilder.build() при этом не исполнялся вовсе, а доказательство
+# сводилось к тавтологии «вызов s10d_promises() создаёт слайд». Копия могла
+# устареть относительно продуктового build() молча.
+#
+# Переписано: тест вызывает НАСТОЯЩИЙ, неизменённый build() дважды и точечно
+# подменяет только ВХОД условия показа — self.promises_summary у реального
+# объекта, прямо перед вызовом оригинального метода, — а не код метода.
 
 def test_mutation_gate_promises_condition_is_load_bearing(base_payload, monkeypatch, tmp_path):
-    """Если условие показа сломать так, что слайд рисуется всегда (даже без
-    живых обещаний), число слайдов колоды без promises_summary перестаёт
-    совпадать с эталоном — контрольный тест обязан это ловить.
+    """Если гейт `if self.promises_summary:` в НАСТОЯЩЕМ build() перестанет
+    зависеть от promises_summary (например, кто-то уберёт условие и вызов
+    s10d_promises() станет безусловным), эталонная колода без сверенных
+    обещаний тоже начнёт получать лишний слайд — разница между эталоном и
+    форсированной колодой перестанет быть равна 1, и assert ниже покраснеет.
 
-    Это НЕ тест продукта: это доказательство, что test_no_promises_no_extra_slide
-    и test_promises_slide_added способны покраснеть при реальной регрессии
-    (см. отчёт FIX_PROMISES_SLIDE_2026-08-16.md — мутация была прогнана и
-    откачена руками правкой builder.py, здесь — постоянный контрольный тест
-    того же класса на уровне build(), чтобы будущая регрессия не прошла тихо)."""
+    Мутируется СОСТОЯНИЕ реального объекта (self.promises_summary), а не
+    тело build(): вызывается ровно тот же `AuroraPPTXBuilder.build`, что и в
+    продукте, без единой переписанной строки."""
     import aurora_pptx.builder as builder_mod
 
     payload_no = copy.deepcopy(base_payload)
     payload_no.pop("promises_summary", None)
 
-    # Эталон: без promises_summary — N слайдов.
+    # Эталон: настоящий, неизменённый build(), promises_summary не задан.
     out_ref = str(tmp_path / "deck_ref.pptx")
     prs_ref = _build_deck(payload_no, out_ref)
     n_ref = len(prs_ref.slides)
 
-    # Мутация: build() рисует s10d_promises БЕЗ учёта self.promises_summary —
-    # эмулируем сломанное условие показа прямо на классе (не на данных).
+    # Форсированная колода: тот же payload без promises_summary, но прямо
+    # перед вызовом ОРИГИНАЛЬНОГО build() атрибут подменяется на truthy —
+    # условие показа обязано на это среагировать через настоящий s10d_promises().
     orig_build = builder_mod.AuroraPPTXBuilder.build
 
-    def _mutated_build(self):
-        self.s01_cover()
-        self.s03_toc()
-        self.s02_at_a_glance()
-        self.s05_key_message()
-        self.s09_scqar()
-        if self.backtest:
-            self.s10b_backtest()
-        if self.gen_compare:
-            self.s10c_generation_compare()
-        # МУТАЦИЯ: условие `if self.promises_summary:` убрано — слайд
-        # печатается даже при пустых обещаниях. Но promises_summary=None,
-        # а s10d_promises() читает ps.get(...) — упадёт с AttributeError,
-        # если None; используем {} чтобы мутация проявлялась как ЛИШНИЙ
-        # слайд-суррогат, а не падение (иначе тест не проверит нужное).
-        self.promises_summary = self.promises_summary or {"kept": 0, "missed": 0, "examples": []}
-        self.s10d_promises()
-        if self.forecast:
-            self.s_forecast_plan()
-        self.s06_action_chart()
-        self.s07_action_table()
-        self.s08_action_timeline()
-        self.s10_methodology()
-        self.s11_sources()
-        self.s12_glossary()
-        self.s13_colophon()
-        return self.prs
+    def _forced_build(self):
+        self.promises_summary = {"kept": 0, "missed": 0, "examples": []}
+        return orig_build(self)
 
-    monkeypatch.setattr(builder_mod.AuroraPPTXBuilder, "build", _mutated_build)
+    monkeypatch.setattr(builder_mod.AuroraPPTXBuilder, "build", _forced_build)
     out_mut = str(tmp_path / "deck_mutated.pptx")
     prs_mut = _build_deck(payload_no, out_mut)
     n_mut = len(prs_mut.slides)
 
     monkeypatch.setattr(builder_mod.AuroraPPTXBuilder, "build", orig_build)
 
-    # Мутация ДОЛЖНА дать лишний слайд по сравнению с эталоном — если
-    # ассерт здесь падает, это значит мутация перестала быть мутацией
-    # (тест выше молча пропустил бы такую же регрессию в проде).
+    # Форсированный promises_summary ДОЛЖЕН дать лишний слайд относительно
+    # эталона — если ассерт здесь падает, гейт `if self.promises_summary:` в
+    # настоящем build() больше не отвечает за показ слайда.
     assert n_mut == n_ref + 1, (
-        "Мутация (печать слайда без живых обещаний) не дала лишнего слайда — "
-        "тест-гейт test_no_promises_no_extra_slide не способен поймать эту "
-        "регрессию, проверку нужно переработать"
+        "Форсированный promises_summary не дал лишнего слайда в настоящем "
+        "build() — гейт test_no_promises_no_extra_slide / "
+        "test_promises_slide_added больше не опирается на реальное условие "
+        "показа, проверку нужно переработать"
     )
+
+
+# ─── (f) F-11: согласование числа и слова при единственной рекомендации ─────
+
+def test_promises_slide_singular_agreement(base_payload, tmp_path):
+    """F-11 внешнего аудита (2026-08-16): при ОДНОЙ сверенной рекомендации
+    заголовок и подпись героя раньше не согласовывались по числу — «Проверка
+    рекомендаций: все 1 из прошлого отчёта сбылись» и «1 из 1 … рекомендаций
+    из прошлого отчёта подтвердились на практике» (глагол во мн.ч. при
+    единственном числе). Приём согласования — по образцу
+    optimize/frontier.py::_ru_periods."""
+    payload_pr = copy.deepcopy(base_payload)
+    payload_pr["promises_summary"] = {
+        "kept": 1,
+        "missed": 0,
+        "examples": [
+            {"action_text": "Увеличить TV", "status": "kept", "status_ru": "сбылось"},
+        ],
+    }
+    out = str(tmp_path / "deck_promises_singular.pptx")
+    prs = _build_deck(payload_pr, out)
+    all_text = _xml_text(prs)
+
+    assert "Проверка рекомендаций: рекомендация из прошлого отчёта сбылась" in all_text
+    assert "все 1 из прошлого отчёта сбылись" not in all_text
+    assert "1 из 1" in all_text
+    assert "рекомендации из прошлого отчёта подтвердилась на практике" in all_text
+    assert "рекомендаций из прошлого отчёта подтвердились" not in all_text
