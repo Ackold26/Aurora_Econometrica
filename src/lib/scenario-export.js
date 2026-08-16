@@ -15,7 +15,6 @@
  * @module scenario-export
  */
 
-import { invoke } from '@tauri-apps/api/core';
 
 /**
  * @typedef {Object} Scenario
@@ -139,52 +138,7 @@ export function exportToCsv(scenarios, baseline = null) {
   return '﻿' + rows.join('\r\n');
 }
 
-/**
- * Export scenarios to PPTX (single slide with comparison table + chart).
- *
- * Delegates to Tauri command `export_scenarios_pptx`. If not implemented -
- * returns stub Blob with TODO comment.
- *
- * @param {Scenario[]} scenarios
- * @param {Scenario | null} [baseline]
- * @returns {Promise<{ path: string } | { stub: true, message: string }>}
- */
-export async function exportToPptx(scenarios, baseline = null) {
-  const all = baseline
-    ? [baseline, ...scenarios.filter(s => s.id !== baseline.id)]
-    : scenarios;
 
-  const payload = all.map(sc => ({
-    id: sc.id,
-    name: sc.name,
-    budget: sc.budget ?? 0,
-    predicted_kpi: sc.predictedKpi ?? 0,
-    ci_low: sc.ciLow ?? null,
-    ci_high: sc.ciHigh ?? null,
-    per_channel_allocation: sc.perChannelAllocation ?? {},
-    uplift_pct: baseline && baseline.predictedKpi && sc.id !== baseline.id
-      ? ((sc.predictedKpi - baseline.predictedKpi) / Math.abs(baseline.predictedKpi)) * 100
-      : null,
-  }));
-
-  try {
-    const result = /** @type {{ path: string }} */ (
-      await invoke('export_scenarios_pptx', { scenarios: payload })
-    );
-    return result;
-  } catch (err) {
-    // Backend command not yet implemented - return stub
-    // TODO: implement Rust command `export_scenarios_pptx` that generates a
-    // PPTX slide using a template with: comparison table + ECharts screenshot.
-    console.warn('export_scenarios_pptx not implemented, returning stub:', err);
-    return {
-      stub: true,
-      message:
-        'PPTX export временно недоступен. Используйте CSV export. ' +
-        '(Backend команда export_scenarios_pptx не реализована.)',
-    };
-  }
-}
 
 /**
  * Download a string content as a file via browser link-click trick.

@@ -5,7 +5,6 @@
  *   - exportToCsv: empty, single, multi-scenario, BOM prefix, comma escaping, number format
  *   - downloadBlob: DOM click triggered, URL revoked after timeout
  *   - buildExportFilename: includes date, correct structure
- *   - exportToPptx: mock invoke success, mock invoke throw (stub fallback)
  *   - module does not export exportToExcel (removed 2026-08-16, see Suite 6)
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
@@ -13,10 +12,8 @@ import {
   exportToCsv,
   downloadBlob,
   buildExportFilename,
-  exportToPptx,
 } from '../lib/scenario-export.js';
 import * as scenarioExportModule from '../lib/scenario-export.js';
-import { invoke } from '@tauri-apps/api/core';
 
 
 // ---------------------------------------------------------------------------
@@ -326,37 +323,11 @@ describe('scenario-export module - no exportToExcel (removed 2026-08-16)', () =>
     expect(scenarioExportModule.exportToExcel).toBeUndefined();
   });
 
-});
-
-
-// ---------------------------------------------------------------------------
-// Suite 7: exportToPptx - invoke mock
-// ---------------------------------------------------------------------------
-describe('exportToPptx - invoke mock', () => {
-
-  it('returns path result on successful invoke', async () => {
-    invoke.mockResolvedValueOnce({ path: '/tmp/scenarios.pptx' });
-    const result = await exportToPptx([makePlanA()], makeBaseline());
-    expect(result).toEqual({ path: '/tmp/scenarios.pptx' });
-  });
-
-  it('returns stub object when invoke throws', async () => {
-    invoke.mockRejectedValueOnce(new Error('not implemented'));
-    const result = await exportToPptx([makePlanA()], null);
-    expect(result).toHaveProperty('stub', true);
-    expect(result).toHaveProperty('message');
-  });
-
-  it('stub message mentions PPTX', async () => {
-    invoke.mockRejectedValueOnce(new Error('not impl'));
-    const result = await exportToPptx([makePlanA()], null);
-    expect(result.message).toContain('PPTX');
-  });
-
-  it('returns a Promise', () => {
-    invoke.mockResolvedValueOnce({ path: '/tmp/x.pptx' });
-    const r = exportToPptx([makePlanA()], null);
-    expect(r).toBeInstanceOf(Promise);
+  // Та же заглушка жила и для PPTX: кнопку убрали 03.08, а функция и её тесты
+  // с моком несуществующей команды export_scenarios_pptx остались (внешний
+  // аудит 16.08, раздел замечаний). Убрана вместе с мёртвым импортом invoke.
+  it('does not export exportToPptx (backend export_scenarios_pptx never existed)', () => {
+    expect(scenarioExportModule.exportToPptx).toBeUndefined();
   });
 
 });
