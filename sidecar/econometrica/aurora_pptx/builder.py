@@ -333,11 +333,16 @@ class AuroraPPTXBuilder:
         # B1-fix R-03/R-04: честное покрытие данных (n наблюдений / частота /
         # разрывы) от адаптера; None → строки рендерятся «—» или скрываются.
         self.data_coverage = self.data.get("data_coverage") or {}
-        # E1+E3 (2026-07-03): вставные слайды честности в секции «ГЛАВНОЕ»
-        # сразу после SCQAR — самые убедительные для продления подписки:
+        # E1+E3+E4 (2026-07-03, дополнено 2026-08-16): вставные слайды честности
+        # в секции «ГЛАВНОЕ» сразу после SCQAR — самые убедительные для
+        # продления подписки:
         #  · «Проверка на истории» (E1, models/backtest.json);
-        #  · «Что изменилось с прошлого квартала» (E3, generation_compare.json).
-        # Оба рисуются ТОЛЬКО с живыми данными — wireframe-режима НЕТ по
+        #  · «Что изменилось с прошлого квартала» (E3, generation_compare.json);
+        #  · «Проверка рекомендаций» (E4, promises_summary) — прежде тонула
+        #    сноской (кегль 9,5-10) в правой колонке слайда источников, мельче
+        #    соседних содержательных блоков; поднята до слайда своего уровня,
+        #    как в HTML render_trust_loop (см. s10d_promises).
+        # Все рисуются ТОЛЬКО с живыми данными — wireframe-режима НЕТ по
         # построению (урок B1: «замаскированная дефолтом честность»).
         # Дека 12 (+1 за каждый вставной); хвост и TOC сдвигаются формулой.
         _bt = self.data.get("backtest") or {}
@@ -355,7 +360,10 @@ class AuroraPPTXBuilder:
             _fc if (self.is_live and _fc.get("status") == "ok" and _fc.get("scenarios"))
             else None
         )
-        self._page_shift = int(bool(self.backtest)) + int(bool(self.gen_compare)) + int(bool(self.forecast))
+        self._page_shift = (
+            int(bool(self.backtest)) + int(bool(self.gen_compare))
+            + int(bool(self.promises_summary)) + int(bool(self.forecast))
+        )
         if self._page_shift:
             _s = self._page_shift
             if "total_slides" not in meta:
@@ -1357,7 +1365,10 @@ class AuroraPPTXBuilder:
             # приёмка «раздел планирования не найден». Подстрока делает его
             # находимым, не перекраивая сетку из 5 секций.
             if i == 1 and self.forecast:
-                fc_pg = 6 + int(bool(self.backtest)) + int(bool(self.gen_compare))
+                fc_pg = (
+                    6 + int(bool(self.backtest)) + int(bool(self.gen_compare))
+                    + int(bool(self.promises_summary))
+                )
                 # y уже за hairline секции (+0.5 выше); +0.02 — чтобы линия
                 # не прочерчивала подпись (находка аудита 2026-07-16).
                 self._text(
@@ -3463,26 +3474,12 @@ class AuroraPPTXBuilder:
             )
             _hy += 0.45
 
-        # E4 (2026-07-03): сбывшиеся рекомендации — петля доверия в отчёте.
-        # Только сверенные (kept/missed); «не сбылось» показывается так же
-        # прямо, как «сбылось».
-        if self.promises_summary:
-            _ps = self.promises_summary
-            self._text(
-                slide, right_x, _hy, right_w, 0.25,
-                (f"Проверка прошлых рекомендаций: сбылось {_ps.get('kept', 0)}, "
-                 f"не сбылось {_ps.get('missed', 0)}."),
-                font=self.sans, size=10, bold=True, color=self.deep_100,
-            )
-            _hy += 0.28
-            for _ex in (_ps.get("examples") or []):
-                self._text(
-                    slide, right_x, _hy, right_w, 0.4,
-                    f"«{_ex.get('action_text')}» — {_ex.get('status_ru')}.",
-                    font=self.sans, size=9.5,
-                    color=(self.deep_100 if _ex.get('status') == 'kept' else self.gold),
-                )
-                _hy += 0.30
+        # E4 (2026-07-03; поднято на отдельный слайд 2026-08-16): сбывшиеся
+        # рекомендации больше не тонут здесь сноской кеглем 9,5-10 — у них
+        # свой слайд «Проверка рекомендаций» (s10d_promises), наравне с
+        # «Проверка на истории» и «Что изменилось с прошлого квартала»,
+        # по образцу HTML render_trust_loop. Условие показа то же
+        # (self.promises_summary), просто рисуется в другом месте.
 
         # INV-50 F-DELIVERABLE-1 (2026-06-07): честная оговорка о тонких данных /
         # переобучении — та же формулировка, что в вердикте программы и письме
@@ -3828,7 +3825,10 @@ class AuroraPPTXBuilder:
         """
         fc = self.forecast
         slide = self._blank()
-        slide_num = 6 + int(bool(self.backtest)) + int(bool(self.gen_compare))
+        slide_num = (
+            6 + int(bool(self.backtest)) + int(bool(self.gen_compare))
+            + int(bool(self.promises_summary))
+        )
         self._header(slide, slide_num=slide_num)
 
         self._action_title(
@@ -3960,6 +3960,101 @@ class AuroraPPTXBuilder:
             except Exception:
                 pass  # График опционален — ошибка не ломает PPTX
 
+        self._footer(slide, slide_num)
+
+    def s10d_promises(self):
+        """E4 (2026-08-16): слайд «Проверка рекомендаций» — обещания против факта.
+
+        Прежде сбывшиеся/несбывшиеся рекомендации тонули сноской (кегль
+        9,5-10) в правой колонке слайда источников — мельче соседних
+        содержательных блоков колоды. В HTML-отчёте под них уже есть
+        полноценный раздел (render_trust_loop, блок E4). Приём условного
+        слайда — тот же, что у s10b_backtest/s10c_generation_compare: рисуется
+        ТОЛЬКО при сверенных обещаниях (self.promises_summary всегда
+        непустой, если задан — narrative_adapter кладёт его в data только
+        когда kept+missed > 0) — wireframe-режима нет по построению.
+        """
+        ps = self.promises_summary
+        slide = self._blank()
+        slide_num = 6 + int(bool(self.backtest)) + int(bool(self.gen_compare))
+        self._header(slide, slide_num=slide_num)
+
+        kept = int(ps.get("kept") or 0)
+        missed = int(ps.get("missed") or 0)
+        total = kept + missed
+        if missed == 0:
+            title = f"Проверка рекомендаций: все {total} из прошлого отчёта сбылись"
+        elif kept == 0:
+            title = f"Проверка рекомендаций: {missed} из {total} не сбылось"
+        else:
+            title = f"Проверка рекомендаций: сбылось {kept}, не сбылось {missed}"
+        self._action_title(slide, title, show_lime=True, y=0.80, height=0.80)
+
+        left_x = self.safe
+        left_y = 1.85
+        left_w = (self.w - 2 * self.safe) * 0.40
+
+        # LEFT: герой-цифра + счётчики (та же композиция, что у s10b_backtest).
+        self._text(
+            slide, left_x, left_y, left_w, 0.25, "ОТ ОБЕЩАНИЯ К ФАКТУ",
+            font=self.sans, size=9, bold=True, color=self.gold,
+        )
+        self._hairline(slide, left_x, left_y + 0.28, 1.0, weight=0.75, color=self.gold)
+        self._text(
+            slide, left_x, left_y + 0.55, left_w, 1.0,
+            f"{kept} из {total}",
+            font=self.serif, size=44, bold=True, color=self.deep_100,
+        )
+        self._text(
+            slide, left_x, left_y + 1.6, left_w, 0.6,
+            "рекомендаций из прошлого отчёта подтвердились на практике",
+            font=self.sans, size=11, color=self.deep_60, line_spacing=1.2,
+        )
+        self._paragraphs(
+            slide, left_x, left_y + 2.4, left_w, 1.0,
+            [
+                (f"Сбылось: {kept}", {"font": self.sans, "size": 11, "color": self.deep_100}),
+                (f"Не сбылось: {missed}",
+                 {"font": self.sans, "size": 11, "bold": missed > 0, "color": self.deep_100}),
+            ],
+            line_spacing=1.5,
+        )
+
+        # RIGHT: конкретные примеры (до 2 — narrative_adapter отдаёт не больше).
+        right_x = left_x + left_w + 0.5
+        right_w = self.w - self.safe - right_x
+        ry = left_y
+        self._text(
+            slide, right_x, ry, right_w, 0.25, "ПРИМЕРЫ",
+            font=self.sans, size=9, bold=True, color=self.gold,
+        )
+        self._hairline(slide, right_x, ry + 0.28, 1.0, weight=0.75, color=self.gold)
+        ry += 0.55
+        for ex in (ps.get("examples") or []):
+            self._text(
+                slide, right_x, ry, right_w, 0.6,
+                f"«{ex.get('action_text')}»",
+                font=self.sans, size=13, color=self.deep_100, line_spacing=1.2,
+            )
+            ry += 0.55
+            self._text(
+                slide, right_x, ry, right_w, 0.3,
+                str(ex.get("status_ru") or ""),
+                font=self.sans, size=11, bold=True,
+                color=(self.deep_100 if ex.get("status") == "kept" else self.gold),
+            )
+            ry += 0.3
+            self._hairline(slide, right_x, ry, right_w, weight=0.25)
+            ry += 0.25
+
+        # Сноска метода — по-русски, без жаргона на слайде (тот же приём,
+        # что у s10b_backtest/s10c_generation_compare).
+        self._text(
+            slide, left_x, 6.35, self.w - 2 * self.safe, 0.5,
+            ("Метод: обещание – зафиксированная рекомендация из прошлого отчёта; "
+             "исход сверяется с фактическими данными следующего периода."),
+            font=self.sans, size=9, color=self.deep_60, line_spacing=1.25,
+        )
         self._footer(slide, slide_num)
 
     def s12_glossary(self):
@@ -4186,13 +4281,16 @@ class AuroraPPTXBuilder:
         self.s02_at_a_glance()
         self.s05_key_message()
         self.s09_scqar()
-        # E1+П5+E3 (2026-07-03): вставные слайды честности завершают «Главное»
-        # (после SCQAR): витрина «Проверка на истории», затем «Что изменилось
-        # с прошлого квартала» — только при живых артефактах.
+        # E1+П5+E3+E4 (2026-07-03, дополнено 2026-08-16): вставные слайды
+        # честности завершают «Главное» (после SCQAR): витрина «Проверка на
+        # истории», затем «Что изменилось с прошлого квартала», затем
+        # «Проверка рекомендаций» — только при живых артефактах.
         if self.backtest:
             self.s10b_backtest()
         if self.gen_compare:
             self.s10c_generation_compare()
+        if self.promises_summary:
+            self.s10d_promises()
         if self.forecast:
             self.s_forecast_plan()
         self.s06_action_chart()
