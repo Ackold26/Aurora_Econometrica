@@ -1,0 +1,2520 @@
+diff --git a/sidecar/econometrica/aurora_pptx/builder.py b/sidecar/econometrica/aurora_pptx/builder.py
+index bdfc7fb..cb444e2 100644
+--- a/sidecar/econometrica/aurora_pptx/builder.py
++++ b/sidecar/econometrica/aurora_pptx/builder.py
+@@ -333,11 +333,16 @@ class AuroraPPTXBuilder:
+         # B1-fix R-03/R-04: честное покрытие данных (n наблюдений / частота /
+         # разрывы) от адаптера; None → строки рендерятся «—» или скрываются.
+         self.data_coverage = self.data.get("data_coverage") or {}
+-        # E1+E3 (2026-07-03): вставные слайды честности в секции «ГЛАВНОЕ»
+-        # сразу после SCQAR — самые убедительные для продления подписки:
++        # E1+E3+E4 (2026-07-03, дополнено 2026-08-16): вставные слайды честности
++        # в секции «ГЛАВНОЕ» сразу после SCQAR — самые убедительные для
++        # продления подписки:
+         #  · «Проверка на истории» (E1, models/backtest.json);
+-        #  · «Что изменилось с прошлого квартала» (E3, generation_compare.json).
+-        # Оба рисуются ТОЛЬКО с живыми данными — wireframe-режима НЕТ по
++        #  · «Что изменилось с прошлого квартала» (E3, generation_compare.json);
++        #  · «Проверка рекомендаций» (E4, promises_summary) — прежде тонула
++        #    сноской (кегль 9,5-10) в правой колонке слайда источников, мельче
++        #    соседних содержательных блоков; поднята до слайда своего уровня,
++        #    как в HTML render_trust_loop (см. s10d_promises).
++        # Все рисуются ТОЛЬКО с живыми данными — wireframe-режима НЕТ по
+         # построению (урок B1: «замаскированная дефолтом честность»).
+         # Дека 12 (+1 за каждый вставной); хвост и TOC сдвигаются формулой.
+         _bt = self.data.get("backtest") or {}
+@@ -355,7 +360,10 @@ class AuroraPPTXBuilder:
+             _fc if (self.is_live and _fc.get("status") == "ok" and _fc.get("scenarios"))
+             else None
+         )
+-        self._page_shift = int(bool(self.backtest)) + int(bool(self.gen_compare)) + int(bool(self.forecast))
++        self._page_shift = (
++            int(bool(self.backtest)) + int(bool(self.gen_compare))
++            + int(bool(self.promises_summary)) + int(bool(self.forecast))
++        )
+         if self._page_shift:
+             _s = self._page_shift
+             if "total_slides" not in meta:
+@@ -1357,7 +1365,10 @@ class AuroraPPTXBuilder:
+             # приёмка «раздел планирования не найден». Подстрока делает его
+             # находимым, не перекраивая сетку из 5 секций.
+             if i == 1 and self.forecast:
+-                fc_pg = 6 + int(bool(self.backtest)) + int(bool(self.gen_compare))
++                fc_pg = (
++                    6 + int(bool(self.backtest)) + int(bool(self.gen_compare))
++                    + int(bool(self.promises_summary))
++                )
+                 # y уже за hairline секции (+0.5 выше); +0.02 — чтобы линия
+                 # не прочерчивала подпись (находка аудита 2026-07-16).
+                 self._text(
+@@ -3463,26 +3474,12 @@ class AuroraPPTXBuilder:
+             )
+             _hy += 0.45
+ 
+-        # E4 (2026-07-03): сбывшиеся рекомендации — петля доверия в отчёте.
+-        # Только сверенные (kept/missed); «не сбылось» показывается так же
+-        # прямо, как «сбылось».
+-        if self.promises_summary:
+-            _ps = self.promises_summary
+-            self._text(
+-                slide, right_x, _hy, right_w, 0.25,
+-                (f"Проверка прошлых рекомендаций: сбылось {_ps.get('kept', 0)}, "
+-                 f"не сбылось {_ps.get('missed', 0)}."),
+-                font=self.sans, size=10, bold=True, color=self.deep_100,
+-            )
+-            _hy += 0.28
+-            for _ex in (_ps.get("examples") or []):
+-                self._text(
+-                    slide, right_x, _hy, right_w, 0.4,
+-                    f"«{_ex.get('action_text')}» — {_ex.get('status_ru')}.",
+-                    font=self.sans, size=9.5,
+-                    color=(self.deep_100 if _ex.get('status') == 'kept' else self.gold),
+-                )
+-                _hy += 0.30
++        # E4 (2026-07-03; поднято на отдельный слайд 2026-08-16): сбывшиеся
++        # рекомендации больше не тонут здесь сноской кеглем 9,5-10 — у них
++        # свой слайд «Проверка рекомендаций» (s10d_promises), наравне с
++        # «Проверка на истории» и «Что изменилось с прошлого квартала»,
++        # по образцу HTML render_trust_loop. Условие показа то же
++        # (self.promises_summary), просто рисуется в другом месте.
+ 
+         # INV-50 F-DELIVERABLE-1 (2026-06-07): честная оговорка о тонких данных /
+         # переобучении — та же формулировка, что в вердикте программы и письме
+@@ -3828,7 +3825,10 @@ class AuroraPPTXBuilder:
+         """
+         fc = self.forecast
+         slide = self._blank()
+-        slide_num = 6 + int(bool(self.backtest)) + int(bool(self.gen_compare))
++        slide_num = (
++            6 + int(bool(self.backtest)) + int(bool(self.gen_compare))
++            + int(bool(self.promises_summary))
++        )
+         self._header(slide, slide_num=slide_num)
+ 
+         self._action_title(
+@@ -3962,6 +3962,101 @@ class AuroraPPTXBuilder:
+ 
+         self._footer(slide, slide_num)
+ 
++    def s10d_promises(self):
++        """E4 (2026-08-16): слайд «Проверка рекомендаций» — обещания против факта.
++
++        Прежде сбывшиеся/несбывшиеся рекомендации тонули сноской (кегль
++        9,5-10) в правой колонке слайда источников — мельче соседних
++        содержательных блоков колоды. В HTML-отчёте под них уже есть
++        полноценный раздел (render_trust_loop, блок E4). Приём условного
++        слайда — тот же, что у s10b_backtest/s10c_generation_compare: рисуется
++        ТОЛЬКО при сверенных обещаниях (self.promises_summary всегда
++        непустой, если задан — narrative_adapter кладёт его в data только
++        когда kept+missed > 0) — wireframe-режима нет по построению.
++        """
++        ps = self.promises_summary
++        slide = self._blank()
++        slide_num = 6 + int(bool(self.backtest)) + int(bool(self.gen_compare))
++        self._header(slide, slide_num=slide_num)
++
++        kept = int(ps.get("kept") or 0)
++        missed = int(ps.get("missed") or 0)
++        total = kept + missed
++        if missed == 0:
++            title = f"Проверка рекомендаций: все {total} из прошлого отчёта сбылись"
++        elif kept == 0:
++            title = f"Проверка рекомендаций: {missed} из {total} не сбылось"
++        else:
++            title = f"Проверка рекомендаций: сбылось {kept}, не сбылось {missed}"
++        self._action_title(slide, title, show_lime=True, y=0.80, height=0.80)
++
++        left_x = self.safe
++        left_y = 1.85
++        left_w = (self.w - 2 * self.safe) * 0.40
++
++        # LEFT: герой-цифра + счётчики (та же композиция, что у s10b_backtest).
++        self._text(
++            slide, left_x, left_y, left_w, 0.25, "ОТ ОБЕЩАНИЯ К ФАКТУ",
++            font=self.sans, size=9, bold=True, color=self.gold,
++        )
++        self._hairline(slide, left_x, left_y + 0.28, 1.0, weight=0.75, color=self.gold)
++        self._text(
++            slide, left_x, left_y + 0.55, left_w, 1.0,
++            f"{kept} из {total}",
++            font=self.serif, size=44, bold=True, color=self.deep_100,
++        )
++        self._text(
++            slide, left_x, left_y + 1.6, left_w, 0.6,
++            "рекомендаций из прошлого отчёта подтвердились на практике",
++            font=self.sans, size=11, color=self.deep_60, line_spacing=1.2,
++        )
++        self._paragraphs(
++            slide, left_x, left_y + 2.4, left_w, 1.0,
++            [
++                (f"Сбылось: {kept}", {"font": self.sans, "size": 11, "color": self.deep_100}),
++                (f"Не сбылось: {missed}",
++                 {"font": self.sans, "size": 11, "bold": missed > 0, "color": self.deep_100}),
++            ],
++            line_spacing=1.5,
++        )
++
++        # RIGHT: конкретные примеры (до 2 — narrative_adapter отдаёт не больше).
++        right_x = left_x + left_w + 0.5
++        right_w = self.w - self.safe - right_x
++        ry = left_y
++        self._text(
++            slide, right_x, ry, right_w, 0.25, "ПРИМЕРЫ",
++            font=self.sans, size=9, bold=True, color=self.gold,
++        )
++        self._hairline(slide, right_x, ry + 0.28, 1.0, weight=0.75, color=self.gold)
++        ry += 0.55
++        for ex in (ps.get("examples") or []):
++            self._text(
++                slide, right_x, ry, right_w, 0.6,
++                f"«{ex.get('action_text')}»",
++                font=self.sans, size=13, color=self.deep_100, line_spacing=1.2,
++            )
++            ry += 0.55
++            self._text(
++                slide, right_x, ry, right_w, 0.3,
++                str(ex.get("status_ru") or ""),
++                font=self.sans, size=11, bold=True,
++                color=(self.deep_100 if ex.get("status") == "kept" else self.gold),
++            )
++            ry += 0.3
++            self._hairline(slide, right_x, ry, right_w, weight=0.25)
++            ry += 0.25
++
++        # Сноска метода — по-русски, без жаргона на слайде (тот же приём,
++        # что у s10b_backtest/s10c_generation_compare).
++        self._text(
++            slide, left_x, 6.35, self.w - 2 * self.safe, 0.5,
++            ("Метод: обещание – зафиксированная рекомендация из прошлого отчёта; "
++             "исход сверяется с фактическими данными следующего периода."),
++            font=self.sans, size=9, color=self.deep_60, line_spacing=1.25,
++        )
++        self._footer(slide, slide_num)
++
+     def s12_glossary(self):
+         """Glossary / тезаурус: compact 3-column reference for deck terms."""
+         slide = self._blank()
+@@ -4186,13 +4281,16 @@ class AuroraPPTXBuilder:
+         self.s02_at_a_glance()
+         self.s05_key_message()
+         self.s09_scqar()
+-        # E1+П5+E3 (2026-07-03): вставные слайды честности завершают «Главное»
+-        # (после SCQAR): витрина «Проверка на истории», затем «Что изменилось
+-        # с прошлого квартала» — только при живых артефактах.
++        # E1+П5+E3+E4 (2026-07-03, дополнено 2026-08-16): вставные слайды
++        # честности завершают «Главное» (после SCQAR): витрина «Проверка на
++        # истории», затем «Что изменилось с прошлого квартала», затем
++        # «Проверка рекомендаций» — только при живых артефактах.
+         if self.backtest:
+             self.s10b_backtest()
+         if self.gen_compare:
+             self.s10c_generation_compare()
++        if self.promises_summary:
++            self.s10d_promises()
+         if self.forecast:
+             self.s_forecast_plan()
+         self.s06_action_chart()
+diff --git a/sidecar/econometrica/optimize/bounds.py b/sidecar/econometrica/optimize/bounds.py
+index b21b417..d7df470 100644
+--- a/sidecar/econometrica/optimize/bounds.py
++++ b/sidecar/econometrica/optimize/bounds.py
+@@ -86,12 +86,16 @@ def compute_safe_corridor(
+     model_data: Dict[str, Any],
+     relative_lo_factor: float = 0.5,
+     relative_hi_factor: float = 1.5,
++    project_dir: Any = None,
+ ) -> Dict[str, Any]:
+     """Compute safe corridor for all channels + aggregate.
+ 
+     Args:
+         model_data: loaded model pickle (через `load_model_with_compat`).
+         relative_lo_factor / relative_hi_factor: see compute_per_channel_bounds.
++        project_dir: каталог проекта. Задан — считаем `aggregate_sales` прямым
++            проходом на границах агрегатного бюджета (2026-08-16, профит-фронтир:
++            прямой проход теперь есть, заглушку закрываем). None — поля нет.
+ 
+     Returns:
+         Dict:
+@@ -100,11 +104,27 @@ def compute_safe_corridor(
+           'formula': 'max(P5, 0.5*mu), min(P95, 1.5*mu)',
+           'per_channel': {channel: {lo, hi, mu, p5, p95, current}},
+           'aggregate_budget': {lo, hi, current},
+-          'aggregate_sales': {lo, hi, current}  # optional, требует forward pass
++          'aggregate_sales': {lo, hi, current, basis, n_periods}  # если задан project_dir
+         }
+ 
+-    Note: aggregate_sales - placeholder. Полный compute требует forward pass
+-    через model (вынесен в goal_seek.py).
++    `aggregate_sales` — СУММАРНЫЕ продажи за весь период обучения при бюджетах
++    границ коридора (`basis='total_over_training_period'`), считаются двумя
++    вызовами прямого прохода `build_proportional_forward` (плюс один в текущей
++    точке). Проход фиксирует текущие пропорции каналов и масштабирует общий
++    бюджет — те же продажи, что показывает подбор бюджета «от цели».
++
++    🔴 Основания в `aggregate_budget` разные: `lo`/`hi` — траты ЗА ОДИН ПЕРИОД
++    (перцентили и среднее по строкам данных), `current` — СУММА за весь период
++    обучения. Продажи считаются от суммарных бюджетов, и бюджеты, по которым
++    считали, отдаются полем `aggregate_sales.budget_used` вместе с флагом
++    `corridor_basis_mismatch` — чтобы число на экране нельзя было подписать
++    не тем основанием.
++
++    🔴 Единицы: коридор суммирует НАТИВНЫЕ траты каналов, а прямой проход ждёт
++    ДЕНЬГИ. Совпадает только когда стоимость единицы у всех каналов = 1 (данные
++    уже в рублях). Иначе чисел не даём — отдаём статус `unit_mismatch`
++    (тот же принцип, что UNIT_SMELL в оптимизаторе: смешанные единицы лучше
++    не показывать вовсе, чем показать неправильно).
+     """
+     config = model_data.get('config', {})
+     media_cols = config.get('media_columns', [])
+@@ -169,13 +189,108 @@ def compute_safe_corridor(
+         'current': sum_current,
+     }
+ 
+-    return {
++    result = {
+         'mode': 'mvp',
+         'formula': f'max(P5, {relative_lo_factor}*mu), min(P95, {relative_hi_factor}*mu)',
+         'per_channel': per_channel,
+         'aggregate_budget': aggregate_budget,
+     }
+ 
++    if project_dir is not None:
++        result['aggregate_sales'] = _aggregate_sales_at_bounds(
++            project_dir, config, aggregate_budget)
++
++    return result
++
++
++def _aggregate_sales_at_bounds(
++    project_dir: Any,
++    config: Dict[str, Any],
++    aggregate_budget: Dict[str, float],
++) -> Dict[str, Any]:
++    """Продажи на границах агрегатного коридора — двумя вызовами прямого прохода.
++
++    Возвращает либо {'status': 'ok', 'lo', 'hi', 'current', 'basis', 'n_periods'},
++    либо {'status': 'unavailable'|'unit_mismatch', 'reason', 'message'} — числа
++    не выдумываем (INV-50): нет корректной величины → статус, не ноль.
++    """
++    try:
++        from optimize.inverse import _resolve_current_unit_costs, build_proportional_forward
++
++        # Единицы: коридор в нативных тратах, проход — в деньгах. Совпадают
++        # только при стоимости единицы = 1 у всех каналов коридора.
++        unit_costs = _resolve_current_unit_costs(str(project_dir), config)
++        mismatched = sorted(
++            c for c, v in (unit_costs or {}).items()
++            if c in (config.get('media_columns') or []) and abs(float(v) - 1.0) > 1e-9
++        )
++        if mismatched:
++            return {
++                'status': 'unit_mismatch',
++                'reason': 'non_money_channels',
++                'channels': mismatched,
++                'message': (
++                    'Границы коридора считаются в натуральных единицах каналов, '
++                    'а продажи – от денежного бюджета. У части каналов задана '
++                    'стоимость единицы, поэтому сопоставить их напрямую нельзя: '
++                    'продажи на границах коридора не показываем.'
++                ),
++            }
++
++        forward, meta = build_proportional_forward(str(project_dir))
++        n_periods = int(meta.get('n_periods') or 0)
++        if n_periods <= 0:
++            return {
++                'status': 'unavailable',
++                'reason': 'n_periods_unknown',
++                'message': ('Число периодов обучения неизвестно – привести границы '
++                            'коридора к суммарному бюджету нельзя.'),
++            }
++
++        # 🔴 Основания разные (находка 2026-08-16): `lo`/`hi` коридора — это траты
++        # ЗА ОДИН ПЕРИОД (перцентили и среднее по строкам данных), а `current` в том
++        # же словаре — СУММА за весь период обучения. Прямой проход ждёт суммарный
++        # бюджет. Поэтому границы приводим к тому же основанию (× число периодов) и
++        # ЯВНО отдаём бюджеты, по которым считали, — иначе продажи «зелёной зоны»
++        # оказались бы почти базовым уровнем и читались бы как обвал (на реальной
++        # модели: 5,1 млн против текущих 260,2 млн). Само поле aggregate_budget
++        # не трогаем — им пользуется интерфейс.
++        budget_used = {
++            'lo': float(aggregate_budget.get('lo', 0.0) or 0.0) * n_periods,
++            'hi': float(aggregate_budget.get('hi', 0.0) or 0.0) * n_periods,
++            'current': float(aggregate_budget.get('current', 0.0) or 0.0),
++        }
++        out: Dict[str, Any] = {
++            'status': 'ok',
++            'basis': 'total_over_training_period',
++            'n_periods': n_periods,
++            'budget_used': budget_used,
++            'corridor_budget_basis': 'per_period',
++            'corridor_basis_mismatch': True,
++            'message': (
++                'Границы коридора заданы тратами за один период, а текущий бюджет – '
++                'суммой за весь период обучения. Продажи посчитаны от суммарных '
++                'бюджетов (границы × число периодов); эти бюджеты приведены '
++                'в поле budget_used.'
++            ),
++        }
++        for key in ('lo', 'hi', 'current'):
++            point = forward(budget_used[key])
++            if point.get('status') != 'ok':
++                return {
++                    'status': 'unavailable',
++                    'reason': 'forward_failed',
++                    'message': ('Продажи на границах коридора рассчитать не удалось.'),
++                }
++            out[key] = float(point['expected_sales'])
++        return out
++    except Exception as exc:  # noqa: BLE001 - коридор на критическом пути, не роняем
++        return {
++            'status': 'unavailable',
++            'reason': 'forward_unavailable',
++            'message': f'Продажи на границах коридора рассчитать не удалось: {exc}',
++        }
++
+ 
+ def is_in_safe_corridor(
+     value: float,
+diff --git a/sidecar/econometrica/optimize/frontier.py b/sidecar/econometrica/optimize/frontier.py
+new file mode 100644
+index 0000000..b007017
+--- /dev/null
++++ b/sidecar/econometrica/optimize/frontier.py
+@@ -0,0 +1,757 @@
++"""Профит-фронтир (2026-08-16): «сколько вообще тратить», а не «как разложить».
++
++Контракт — `Projects/FRONTIER_DESIGN_2026-08-16.md`.
++
++Что считаем: кривая прибыли по суммарному бюджету на сетке 25 точек от 0,2× до 3×
++текущего бюджета (точка текущего бюджета включена в сетку всегда), на каждой точке —
++бюджет, продажи, прибыль, предельная отдача и выход за наблюдавшийся диапазон
++(severity). Дальше — положение максимума прибыли и 90% интервал на это положение
++по апостериорным выборкам.
++
++Прямой проход берём готовый — `optimize.inverse.build_proportional_forward`
++(монотонен по построению, фиксирует текущие пропорции каналов и масштабирует общий
++бюджет). Формула отклика здесь НЕ дублируется (I8-alignment, как в goal-seek и
++split_ci).
++
++🔴 Три исхода максимума вместо одного (главное отличие от рынка):
++  1. `interior_observed` — максимум внутри наблюдавшегося диапазона: называем числом.
++  2. `beyond_observed`   — максимум за правым краем наблюдений: числа НЕ даём,
++     говорим «в пределах ваших данных рост бюджета остаётся выгодным, где потолок —
++     эти данные не показывают» (Chan & Perry 2017: вне наблюдённого диапазона кривая
++     данными не идентифицируется, разные кривые расходятся).
++  3. `below_current`     — максимум левее текущего бюджета: «вы уже за точкой
++     максимальной прибыли», с величиной теряемой прибыли.
++
++🔴 Экономика обязательна. Без перевода KPI в деньги максимума прибыли не существует
++в принципе (оборот растёт с бюджетом всегда), поэтому при её отсутствии — отказ с
++причиной, а не нулевая прибыль (INV-50; образец — `money_roi_unavailable` в
++engines/channel_action.py).
++
++🔴 Единицы. Прямой проход даёт СУММАРНЫЕ продажи за весь период обучения, и бюджет
++суммарный за тот же период. Каждый словарь с числами несёт `basis`, а верхний уровень —
++блок `period` (сколько периодов и какой шаг). В продукте уже был дефект ровно этого
++рода («260 млн против 2,46 млрд»), второй раз не наступаем.
++
++Цена: ~100 вызовов forward (< 1 мс каждый) + (сетка + 1) вызовов апостериорной
++выборки по 0,02 с ≈ 0,6 с суммарно. Считается на лету, отдельного прогона не нужно.
++"""
++from __future__ import annotations
++
++import json
++from pathlib import Path
++from typing import Any, Dict, List, Optional
++
++# Признак периода: все денежные величины и продажи — СУММА за весь период обучения,
++# не за месяц/неделю. Отдельным полем в каждом словаре с числами.
++PERIOD_BASIS = 'total_over_training_period'
++
++_GRANULARITY_LABEL_RU = {
++    'D': 'по дням', 'W': 'по неделям', 'M': 'по месяцам',
++    'Q': 'по кварталам', 'Y': 'по годам',
++}
++
++# Доля бюджета для центральной разности при оценке предельной отдачи.
++# Кривая гладкая: на реальной модели значение устойчиво в 4 знаках при шаге
++# 0,1%–1% (зонд 2026-08-16), 5% уже даёт видимый снос из-за вогнутости.
++_MARGINAL_DELTA_PCT = 0.01
++
++
++def _period_label_ru(granularity: Optional[Dict[str, Any]]) -> str:
++    """«по месяцам» / «по периодам» из detect_granularity (канон aurora_html/builder).
++
++    Низкая уверенность в регулярности дат → нейтральное «по периодам»: не врать
++    «по неделям» на месячных данных.
++    """
++    if not granularity:
++        return 'по периодам'
++    if float(granularity.get('confidence', 0.0) or 0.0) < 0.5:
++        return 'по периодам'
++    return _GRANULARITY_LABEL_RU.get(granularity.get('granularity'), 'по периодам')
++
++
++def _money_ru(value: float) -> str:
++    """«260 183 663» — разделитель разрядов пробелом.
++
++    Форматируем ИМЕННО число, а не готовую фразу: сквозная замена запятых в строке
++    (приём из goal-seek) съела бы запятые русского текста вокруг числа.
++    """
++    return f'{float(value):,.0f}'.replace(',', ' ')
++
++
++def _ru_periods(n: int) -> str:
++    """«31 период» / «2 периода» / «15 периодов» — согласование в клиентском тексте."""
++    n = abs(int(n))
++    if 11 <= n % 100 <= 14:
++        return f'{n} периодов'
++    last = n % 10
++    if last == 1:
++        return f'{n} период'
++    if 2 <= last <= 4:
++        return f'{n} периода'
++    return f'{n} периодов'
++
++
++def _read_json(path: Path) -> Dict[str, Any]:
++    """Мягкое чтение json проекта: отсутствие/битый файл не роняют расчёт."""
++    try:
++        if path.exists():
++            data = json.loads(path.read_text(encoding='utf-8'))
++            if isinstance(data, dict):
++                return data
++    except Exception:  # noqa: BLE001 - чтение настроек не должно ронять фронтир
++        pass
++    return {}
++
++
++def resolve_economics(
++    project_dir: str,
++    cfg: Optional[Dict[str, Any]] = None,
++    economics: Optional[Dict[str, Any]] = None,
++) -> Dict[str, Any]:
++    """Три режима перевода KPI в деньги, четвёртый исход — отказ.
++
++    | Режим            | Прибыль            | Условие максимума     |
++    |------------------|--------------------|-----------------------|
++    | `profit_kpi`     | П(B) = S(B) − B    | предельная отдача = 1 |
++    | `count_value`    | П(B) = v·S(B) − B  | отдача = 1/v          |
++    | `monetary_margin`| П(B) = m·S(B) − B  | отдача = 1/m          |
++
++    Здесь S(B) — прирост продаж ОТ МЕДИА (без базового уровня), см.
++    `compute_profit_frontier`: базовый уровень к бюджету не привязан и в прибыль
++    от медиа не входит. На положение максимума это не влияет (константа), на
++    величину прибыли — влияет, и молчаливое включение базы завышало бы её в разы.
++
++    Цепочка источников (SSOT, как `_resolve_current_unit_costs` в goal-seek):
++    запрос > `settings/v13_kpi.json` > `project.json` > конфигурация модели
++    (последняя — только если её передали: быстрый путь отказа модель не читает,
++    чтобы «не хватает экономики» стоило сотые доли секунды, а не чтения pickle).
++    Валовой маржи для денежных метрик сегодня нет ни в одном хранилище — её
++    передаёт вызывающая сторона; без неё честный отказ.
++
++    Returns:
++        {'mode': str, 'unit_value': float, 'marginal_threshold': float,
++         'kpi_type': str, 'kpi_kind': str, 'source': {...}}
++        либо {'mode': None, 'reason': str, 'message': str, ...} — отказ.
++    """
++    economics = economics or {}
++    cfg = cfg or {}
++    project_path = Path(project_dir)
++    proj = _read_json(project_path / 'project.json')
++    settings = _read_json(project_path / 'settings' / 'v13_kpi.json')
++
++    # ── тип KPI ──────────────────────────────────────────────────────────────
++    kpi_type = (economics.get('kpi_type')
++                or proj.get('kpi_type')
++                or cfg.get('kpi_type'))
++    kpi_kind = None
++    if isinstance(kpi_type, str):
++        try:
++            from utils.kpi_registry import get_kpi_config
++            kpi_kind = get_kpi_config(kpi_type).kpi_kind
++        except Exception:  # noqa: BLE001 - неизвестный тип обрабатываем ниже
++            kpi_kind = None
++    if kpi_kind is None:
++        # Запасной путь: явное поле проекта (заполняется мастером настройки).
++        kpi_kind = settings.get('kpi_kind') or proj.get('kpi_kind')
++
++    if kpi_kind not in ('monetary', 'count'):
++        return {
++            'mode': None,
++            'reason': 'kpi_kind_unsupported',
++            'kpi_type': kpi_type,
++            'kpi_kind': kpi_kind,
++            'message': (
++                'Для этой метрики прибыль не считается: её значение не переводится '
++                'в рубли напрямую. Профит-фронтир доступен для денежных и счётных '
++                'метрик (продажи в рублях, упаковки, лиды и подобные).'
++            ),
++        }
++
++    # ── режим 1: KPI и есть прибыль ──────────────────────────────────────────
++    if kpi_type == 'profit':
++        return {
++            'mode': 'profit_kpi',
++            'unit_value': 1.0,
++            'marginal_threshold': 1.0,
++            'kpi_type': kpi_type,
++            'kpi_kind': kpi_kind,
++            'source': {'unit_value': 'kpi_is_profit'},
++        }
++
++    # ── режим 2: счётная метрика с ценностью единицы ─────────────────────────
++    if kpi_kind == 'count':
++        vpcu = economics.get('value_per_count_unit')
++        source = 'request'
++        if vpcu is None:
++            vpcu = settings.get('value_per_count_unit')
++            source = 'project_settings'
++        if vpcu is None:
++            vpcu = proj.get('value_per_count_unit')
++            source = 'project_json'
++        try:
++            vpcu = float(vpcu) if vpcu is not None else None
++        except (TypeError, ValueError):
++            vpcu = None
++        if vpcu is None or vpcu <= 0:
++            label = ''
++            try:
++                from utils.kpi_registry import get_value_per_count_unit_label
++                label = get_value_per_count_unit_label(kpi_type)
++            except Exception:  # noqa: BLE001 - подпись необязательна
++                label = ''
++            label_part = f' ({label})' if label else ''
++            return {
++                'mode': None,
++                'reason': 'count_value_missing',
++                'kpi_type': kpi_type,
++                'kpi_kind': kpi_kind,
++                'message': (
++                    f'Чтобы посчитать прибыль, нужна ценность одной единицы{label_part}. '
++                    'Метрика проекта счётная: без ценности единицы перевести штуки '
++                    'в рубли нельзя, а без рублей максимума прибыли не существует. '
++                    'Задайте ценность единицы и повторите расчёт.'
++                ),
++            }
++        return {
++            'mode': 'count_value',
++            'unit_value': vpcu,
++            'marginal_threshold': 1.0 / vpcu,
++            'kpi_type': kpi_type,
++            'kpi_kind': kpi_kind,
++            'source': {'unit_value': source},
++        }
++
++    # ── режим 3: денежная метрика + валовая маржа ────────────────────────────
++    margin = economics.get('gross_margin')
++    if margin is None:
++        margin = settings.get('gross_margin')
++        margin_source = 'project_settings'
++    else:
++        margin_source = 'request'
++    if margin is None:
++        return {
++            'mode': None,
++            'reason': 'monetary_margin_missing',
++            'kpi_type': kpi_type,
++            'kpi_kind': kpi_kind,
++            'message': (
++                'Чтобы посчитать прибыль, нужна валовая маржа – доля прибыли '
++                'в рубле продаж. Метрика проекта измеряется в рублях выручки: '
++                'выручка растёт с бюджетом всегда, поэтому «оптимум по обороту» '
++                'был бы неправдой. Задайте валовую маржу и повторите расчёт.'
++            ),
++        }
++    try:
++        margin = float(margin)
++    except (TypeError, ValueError):
++        margin = float('nan')
++    if not (0.0 < margin <= 1.0):
++        return {
++            'mode': None,
++            'reason': 'gross_margin_out_of_range',
++            'kpi_type': kpi_type,
++            'kpi_kind': kpi_kind,
++            'message': (
++                'Валовая маржа должна быть долей от нуля до единицы '
++                '(например, 0,3 для 30%). Проверьте значение и повторите расчёт.'
++            ),
++        }
++    return {
++        'mode': 'monetary_margin',
++        'unit_value': margin,
++        'marginal_threshold': 1.0 / margin,
++        'kpi_type': kpi_type,
++        'kpi_kind': kpi_kind,
++        'source': {'unit_value': margin_source},
++    }
++
++
++def build_budget_grid(
++    current_total: float,
++    n_points: int = 25,
++    lo_multiplier: float = 0.2,
++    hi_multiplier: float = 3.0,
++) -> Dict[str, Any]:
++    """Сетка бюджетов с ОБЯЗАТЕЛЬНОЙ точкой текущего бюджета.
++
++    Равномерная сетка множителей 0,2…3,0 не содержит 1,0 (шаг 2,8/24 = 0,11667),
++    поэтому ближайший к текущему узел заменяем ровно на текущий бюджет: число
++    точек и порядок сохраняются, а «где я сейчас» не рисуется интерполяцией.
++
++    Returns:
++        {'budgets': [...], 'current_index': int, 'step': float, 'multipliers': [...]}
++    """
++    import numpy as _np
++
++    if n_points < 3:
++        n_points = 3
++    mult = _np.linspace(float(lo_multiplier), float(hi_multiplier), int(n_points))
++    budgets = mult * float(current_total)
++    current_index = int(_np.argmin(_np.abs(budgets - float(current_total))))
++    budgets[current_index] = float(current_total)
++    mult[current_index] = 1.0
++    step = float(budgets[1] - budgets[0]) if n_points > 1 else 0.0
++    return {
++        'budgets': [float(b) for b in budgets],
++        'multipliers': [float(m) for m in mult],
++        'current_index': current_index,
++        'step': step,
++    }
++
++
++def _profit_from_media(unit_value, media_sales, budget):
++    """П(B) = v·S_медиа(B) − B — ЕДИНСТВЕННОЕ место, где ценность единицы входит
++    в прибыль.
++
++    Работает и на скаляре (точечная кривая), и на матрице апостериорных выборок
++    (numpy broadcasting): формула не дублируется, поэтому положение максимума и
++    интервал на него не могут разъехаться.
++    """
++    return unit_value * media_sales - budget
++
++
++def compute_profit_frontier(
++    project_dir: str,
++    economics: Optional[Dict[str, Any]] = None,
++    *,
++    n_points: int = 25,
++    lo_multiplier: float = 0.2,
++    hi_multiplier: float = 3.0,
++    max_samples: int = 200,
++    unit_costs_override: Optional[Dict[str, Any]] = None,
++) -> Dict[str, Any]:
++    """Кривая прибыли по суммарному бюджету + максимум с честной границей данных.
++
++    Args:
++        project_dir: каталог проекта с `models/latest.pkl`.
++        economics: {'kpi_type', 'value_per_count_unit', 'gross_margin'} — что задано
++            явно, приоритетнее хранилищ проекта (см. `resolve_economics`).
++        n_points: точек сетки (25 по контракту).
++        lo_multiplier / hi_multiplier: границы сетки в долях текущего бюджета.
++        max_samples: апостериорных выборок на точку. ОДИН И ТОТ ЖЕ для всех точек
++            сетки — `posterior_sampler` отбирает выборки детерминированным шагом
++            `arange(0, n, n // max_samples)`, поэтому при равном max_samples индексы
++            и порядок совпадают между точками. Иначе интервал на положение
++            максимума превратился бы в шум (аргмаксы считались бы по разным
++            выборкам).
++        unit_costs_override: стоимость единицы из запроса (цепочка SSOT goal-seek).
++
++    Returns:
++        При успехе — словарь со `status='ok'`, блоками `period`, `economics`,
++        `grid`, `curve`, `current`, `observed_frontier`, `maximum`,
++        `posterior_interval`.
++        Без экономики — `status='economics_required'` с причиной и объяснением
++        (не нулевая прибыль: INV-50).
++    """
++    import numpy as _np
++
++    model_path = Path(project_dir) / 'models' / 'latest.pkl'
++    if not model_path.exists():
++        return {
++            'status': 'error',
++            'error_code': 'MODEL_NOT_FOUND',
++            'message': 'Модель не найдена. Сначала обучите модель.',
++        }
++
++    # Экономику решаем ДО тяжёлой работы: отказ не должен стоить чтения модели.
++    cfg_for_economics: Dict[str, Any] = {}
++    econ = resolve_economics(project_dir, cfg_for_economics, economics)
++    if econ.get('mode') is None:
++        return {
++            'status': 'economics_required',
++            'error_code': 'ECONOMICS_REQUIRED',
++            'reason': econ.get('reason'),
++            'message': econ.get('message'),
++            'kpi_type': econ.get('kpi_type'),
++            'kpi_kind': econ.get('kpi_kind'),
++        }
++
++    unit_value = float(econ['unit_value'])
++
++    from optimize.inverse import build_proportional_forward
++    forward, meta = build_proportional_forward(
++        project_dir, unit_costs_override=unit_costs_override)
++
++    current_total = float(meta.get('current_total_money') or 0.0)
++    if current_total <= 0:
++        return {
++            'status': 'error',
++            'error_code': 'NO_CURRENT_BUDGET',
++            'message': (
++                'Текущий суммарный бюджет по данным равен нулю – сетку «от текущего '
++                'бюджета» построить не от чего. Проверьте стоимость единицы '
++                'по каналам и данные о тратах.'
++            ),
++        }
++    baseline_total = float(meta.get('baseline_total') or 0.0)
++
++    grid = build_budget_grid(current_total, n_points, lo_multiplier, hi_multiplier)
++    budgets: List[float] = grid['budgets']
++    current_index: int = grid['current_index']
++
++    reporter = meta.get('extrapolation_reporter')
++
++    curve: List[Dict[str, Any]] = []
++    for idx, budget in enumerate(budgets):
++        point = forward(budget)
++        if point.get('status') != 'ok':
++            return {
++                'status': 'error',
++                'error_code': 'FORWARD_FAILED',
++                'message': (
++                    f'Не удалось рассчитать продажи при бюджете {_money_ru(budget)} ₽. '
++                    f'{point.get("error_message", "")}'
++                ).strip(),
++            }
++        sales_total = float(point['expected_sales'])
++
++        # Предельная отдача — ЛОКАЛЬНАЯ производная dS/dB (центральная разность).
++        # Именно производная, а не хорда между узлами сетки: условие максимума
++        # прибыли dП/dB = 0 ⇔ v·dS/dB = 1 записано на производной, а хорда на
++        # вогнутой кривой систематически её завышает (на реальной модели —
++        # на 15–32%, зонд 2026-08-16).
++        delta = _MARGINAL_DELTA_PCT * budget
++        s_plus = forward(budget + delta)
++        s_minus = forward(budget - delta)
++        marginal = None
++        if s_plus.get('status') == 'ok' and s_minus.get('status') == 'ok':
++            marginal = float(
++                (s_plus['expected_sales'] - s_minus['expected_sales']) / (2 * delta))
++
++        severity = None
++        extrapolation_channels: List[Dict[str, Any]] = []
++        if callable(reporter):
++            try:
++                report = reporter(point.get('distribution') or {})
++                severity = int(report.get('severity', 0))
++                extrapolation_channels = report.get('channels') or []
++            except Exception:  # noqa: BLE001 - честность-контур не роняет расчёт
++                severity = None
++
++        media_sales = sales_total - baseline_total
++        entry: Dict[str, Any] = {
++            'index': idx,
++            'multiplier': grid['multipliers'][idx],
++            'budget': budget,
++            'sales_total': sales_total,
++            'sales_from_media': media_sales,
++            'profit': float(_profit_from_media(unit_value, media_sales, budget)),
++            'is_current': idx == current_index,
++            'basis': PERIOD_BASIS,
++        }
++        if marginal is not None:
++            entry['marginal_return'] = marginal
++        if severity is not None:
++            entry['extrapolation_severity'] = severity
++            if severity > 0 and extrapolation_channels:
++                entry['extrapolation_channels'] = extrapolation_channels
++        curve.append(entry)
++
++    profits = _np.array([p['profit'] for p in curve], dtype=float)
++    severities = [p.get('extrapolation_severity') for p in curve]
++
++    # ── честная граница наблюдений: наибольший бюджет с severity 0 ────────────
++    observed_idx = None
++    for idx, sev in enumerate(severities):
++        if sev == 0:
++            observed_idx = idx
++    if observed_idx is None:
++        observed_frontier: Dict[str, Any] = {
++            'available': False,
++            'reason': ('no_zero_severity_point' if any(s is not None for s in severities)
++                       else 'extrapolation_unavailable'),
++            'message': (
++                'Ни одна точка сетки не укладывается в наблюдавшийся диапазон трат – '
++                'граница данных не определяется.'
++                if any(s is not None for s in severities) else
++                'Выход за наблюдавшийся диапазон не рассчитан – граница данных '
++                'не определяется.'
++            ),
++        }
++    else:
++        of = curve[observed_idx]
++        observed_frontier = {
++            'available': True,
++            'index': observed_idx,
++            'budget': of['budget'],
++            'multiplier': of['multiplier'],
++            'sales_total': of['sales_total'],
++            'profit': of['profit'],
++            'basis': PERIOD_BASIS,
++        }
++        if 'marginal_return' in of:
++            observed_frontier['marginal_return'] = of['marginal_return']
++
++    # ── максимум прибыли: один из трёх исходов ───────────────────────────────
++    max_idx = int(_np.argmax(profits))
++    max_point = curve[max_idx]
++    max_severity = severities[max_idx]
++    at_grid_floor = max_idx == 0
++    at_grid_ceiling = max_idx == len(curve) - 1
++    beyond_observed = (max_severity is None) or (max_severity > 0)
++    # Максимум пришёлся на САМУ границу наблюдений — последнюю точку, где данные
++    # ещё есть. Число честное (severity 0), но убывание прибыли за ним опирается
++    # на область, которую данные не проверяют, поэтому потребитель обязан это
++    # видеть. `at_grid_ceiling` эту ситуацию НЕ ловит: он про край расчётной
++    # сетки (3× текущего), а не про край данных.
++    at_observed_frontier = bool(
++        observed_frontier.get('available')
++        and observed_frontier.get('index') == max_idx
++    )
++    profit_at_current = float(curve[current_index]['profit'])
++
++    maximum: Dict[str, Any] = {
++        'at_grid_floor': at_grid_floor,
++        'at_grid_ceiling': at_grid_ceiling,
++        'at_observed_frontier': at_observed_frontier,
++        'basis': PERIOD_BASIS,
++    }
++    if beyond_observed or at_grid_ceiling:
++        # 🔴 Оптимума, которого не видели в данных, не рисуем: за правым краем
++        # наблюдений кривая данными не идентифицируется (Chan & Perry 2017).
++        maximum['outcome'] = 'beyond_observed'
++        maximum['reportable'] = False
++        maximum['still_profitable_within_data'] = True
++        if max_severity is not None:
++            maximum['severity_at_grid_argmax'] = max_severity
++        if observed_frontier.get('available'):
++            maximum['message'] = (
++                'В пределах ваших данных увеличение бюджета остаётся выгодным: '
++                'прибыль растёт до самой границы наблюдавшихся трат '
++                f'({_money_ru(observed_frontier["budget"])} ₽ суммарно за период '
++                'обучения). Где проходит потолок, эти данные не показывают – модель '
++                'за границей наблюдений не проверяется данными, и точку максимума '
++                'мы не называем.'
++            )
++        else:
++            maximum['message'] = (
++                'Прибыль растёт на всём рассмотренном диапазоне бюджета, а границу '
++                'наблюдавшихся трат определить не удалось – точку максимума '
++                'мы не называем.'
++            )
++    elif at_grid_floor:
++        # Red-team №5: максимум упёрся в левый край сетки – значит он лежит ниже
++        # рассмотренного диапазона, а не «равен 0,2× текущего».
++        maximum['outcome'] = 'below_current'
++        maximum['reportable'] = False
++        maximum['profit_at_current'] = profit_at_current
++        maximum['message'] = (
++            'Вы уже за точкой максимальной прибыли: она лежит ниже рассмотренного '
++            f'диапазона (менее {_money_ru(budgets[0])} ₽ суммарно за период '
++            'обучения). Точное положение мы не называем – оно вне расчётной сетки.'
++        )
++    else:
++        maximum['outcome'] = ('below_current' if max_idx < current_index
++                              else 'interior_observed')
++        maximum['reportable'] = True
++        maximum['index'] = max_idx
++        maximum['budget'] = max_point['budget']
++        maximum['multiplier'] = max_point['multiplier']
++        maximum['profit'] = max_point['profit']
++        maximum['sales_total'] = max_point['sales_total']
++        maximum['severity'] = max_severity
++        maximum['grid_step'] = grid['step']
++        if 'marginal_return' in max_point:
++            maximum['marginal_return'] = max_point['marginal_return']
++        if maximum['outcome'] == 'below_current':
++            maximum['profit_at_current'] = profit_at_current
++            maximum['profit_lost_at_current'] = max_point['profit'] - profit_at_current
++            maximum['message'] = (
++                'Вы уже за точкой максимальной прибыли: она примерно при '
++                f'{_money_ru(max_point["budget"])} ₽ суммарно за период обучения. '
++                'На текущем бюджете теряется около '
++                f'{_money_ru(max_point["profit"] - profit_at_current)} ₽ прибыли '
++                'за тот же период.'
++            )
++        else:
++            maximum['profit_at_current'] = profit_at_current
++            maximum['profit_gain_vs_current'] = max_point['profit'] - profit_at_current
++            maximum['message'] = (
++                'Максимум прибыли лежит внутри наблюдавшегося диапазона – около '
++                f'{_money_ru(max_point["budget"])} ₽ суммарно за период обучения '
++                f'(шаг сетки {_money_ru(grid["step"])} ₽).'
++            )
++        if at_observed_frontier:
++            # Число оставляем – оно честное (severity 0). Но говорим, что дальше
++            # этой точки данных нет, а значит спад прибыли за ней не подтверждён.
++            maximum['message'] += (
++                ' Максимум пришёлся на саму границу наблюдавшихся трат: за ней '
++                'поведение кривой данными не подтверждается.'
++            )
++
++    # ── 90% интервал на ПОЛОЖЕНИЕ максимума по апостериорным выборкам ─────────
++    posterior_interval = _posterior_maximum_interval(
++        meta=meta,
++        budgets=budgets,
++        severities=severities,
++        unit_value=unit_value,
++        max_samples=max_samples,
++    )
++
++    period = {
++        'basis': PERIOD_BASIS,
++        'n_periods': meta.get('n_periods'),
++        'granularity': (meta.get('period_granularity') or {}).get('granularity'),
++        'granularity_label_ru': _period_label_ru(meta.get('period_granularity')),
++    }
++    n_p = period['n_periods']
++    period['note'] = (
++        'Бюджет и продажи – суммарные за весь период обучения'
++        + (f' ({_ru_periods(n_p)}, {period["granularity_label_ru"]})' if n_p else '')
++        + ', не за один месяц.'
++    )
++
++    return {
++        'status': 'ok',
++        'period': period,
++        'economics': {
++            'mode': econ['mode'],
++            'unit_value': unit_value,
++            'marginal_threshold': econ['marginal_threshold'],
++            'kpi_type': econ.get('kpi_type'),
++            'kpi_kind': econ.get('kpi_kind'),
++            'source': econ.get('source'),
++            'profit_definition': 'media_revenue_minus_budget',
++            'note': (
++                'Прибыль считается от медиа: базовый уровень продаж (то, что '
++                'продаётся без рекламы) в неё не входит – он не зависит от бюджета.'
++            ),
++        },
++        'grid': {
++            'n_points': len(curve),
++            'lo_multiplier': lo_multiplier,
++            'hi_multiplier': hi_multiplier,
++            'step': grid['step'],
++            'current_index': current_index,
++        },
++        'current': {
++            'budget': current_total,
++            'sales_total': curve[current_index]['sales_total'],
++            'profit': profit_at_current,
++            'basis': PERIOD_BASIS,
++            **({'marginal_return': curve[current_index]['marginal_return']}
++               if 'marginal_return' in curve[current_index] else {}),
++        },
++        'baseline_sales_total': baseline_total,
++        'curve': curve,
++        'observed_frontier': observed_frontier,
++        'maximum': maximum,
++        'posterior_interval': posterior_interval,
++        'marginal_return_method': 'central_difference_1pct',
++        # Пропорции каналов фиксированы (масштабируется текущий микс): фронтир
++        # отвечает «сколько тратить при нынешнем распределении», а не «сколько
++        # тратить, если ещё и переложить» (red-team №1 контракта).
++        'allocation_mode': 'proportional',
++        'allocation_note': (
++            'Расчёт масштабирует текущее распределение бюджета между каналами. '
++            'Это ответ на вопрос «сколько тратить при нынешнем распределении», '
++            'а не «сколько тратить, если ещё и переложить между каналами».'
++        ),
++    }
++
++
++def _posterior_maximum_interval(
++    meta: Dict[str, Any],
++    budgets: List[float],
++    severities: List[Optional[int]],
++    unit_value: float,
++    max_samples: int,
++) -> Dict[str, Any]:
++    """90% интервал на ПОЛОЖЕНИЕ максимума прибыли по апостериорным выборкам.
++
++    Для каждой выборки считаем всю кривую прибыли по той же сетке и берём её
++    аргмаксимум → распределение B* → HDI (SSOT `compute_ci_hdi`, как в split_ci).
++
++    Выборки обязаны быть согласованы между точками сетки: `posterior_sampler`
++    отбирает их детерминированным шагом от одного и того же `max_samples`,
++    поэтому индексы и порядок совпадают. Согласованность проверяем явно по длине
++    массивов; расхождение → интервал недоступен, а не молча посчитанный шум.
++
++    Базовый уровень берём из той же апостериорной выборки при нулевом бюджете
++    (`sampler(0)`), чтобы прибыль от медиа считалась внутри одной выборки.
++
++    `None` от сэмплера (модель малых данных, МНК/legacy) — законный случай:
++    кривая и максимум есть, интервала нет, и об этом сказано полем, а не нулём.
++    """
++    import numpy as _np
++
++    sampler = meta.get('posterior_sampler')
++    if not callable(sampler):
++        return {
++            'available': False,
++            'reason': 'no_posterior_sampler',
++            'message': ('Апостериорные выборки для этой модели недоступны – '
++                        'интервал на положение максимума не рассчитывается.'),
++        }
++
++    unavailable = {
++        'available': False,
++        'reason': 'no_posterior_samples',
++        'message': (
++            'Модель обучена без байесовского вывода (малые данные, метод '
++            'наименьших квадратов) – апостериорных выборок нет. Кривая прибыли '
++            'и положение максимума рассчитаны, интервал на положение максимума – '
++            'нет.'
++        ),
++    }
++
++    try:
++        base_arr = sampler(0.0, max_samples=max_samples)
++        if base_arr is None or len(base_arr) < 4:
++            return unavailable
++        n_samples = len(base_arr)
++        base_arr = _np.asarray(base_arr, dtype=float)
++
++        sales = _np.empty((len(budgets), n_samples), dtype=float)
++        for j, budget in enumerate(budgets):
++            arr = sampler(budget, max_samples=max_samples)
++            if arr is None:
++                return unavailable
++            if len(arr) != n_samples:
++                # Рассогласование выборок между точками сетки сделало бы интервал
++                # шумом: аргмаксимумы считались бы по разным наборам параметров.
++                return {
++                    'available': False,
++                    'reason': 'inconsistent_samples',
++                    'message': ('Апостериорные выборки в точках сетки не совпали '
++                                'между собой – интервал на положение максимума '
++                                'не рассчитывается.'),
++                }
++            sales[j, :] = _np.asarray(arr, dtype=float)
++
++        budgets_arr = _np.asarray(budgets, dtype=float)
++        profits = _profit_from_media(
++            unit_value, sales - base_arr[None, :], budgets_arr[:, None])
++        arg = _np.argmax(profits, axis=0)
++        optimum_budgets = budgets_arr[arg]
++
++        from utils.posterior_propagation import compute_ci_hdi
++        mean, low, high, method = compute_ci_hdi(optimum_budgets, hdi_prob=0.9)
++
++        sev_arr = _np.array(
++            [(-1 if s is None else int(s)) for s in severities], dtype=int)
++        beyond = sev_arr[arg]
++        return {
++            'available': True,
++            'hdi_prob': 0.9,
++            'low': float(low),
++            'high': float(high),
++            'mean': float(mean),
++            'method': method,
++            'n_samples': int(n_samples),
++            'share_at_grid_floor': float(_np.mean(arg == 0)),
++            'share_at_grid_ceiling': float(_np.mean(arg == len(budgets) - 1)),
++            'share_beyond_observed': float(_np.mean(beyond != 0)),
++            'basis': PERIOD_BASIS,
++            'note': (
++                'Интервал отражает неуверенность модели в параметрах, а не разброс '
++                'будущего факта.'
++            ),
++        }
++    except Exception:  # noqa: BLE001 - честность-контур не должен ронять фронтир
++        return {
++            'available': False,
++            'reason': 'posterior_failed',
++            'message': ('Не удалось рассчитать интервал на положение максимума '
++                        'по апостериорным выборкам. Кривая и максимум рассчитаны.'),
++        }
+diff --git a/sidecar/econometrica/optimize/inverse.py b/sidecar/econometrica/optimize/inverse.py
+index 882a381..23a9e23 100644
+--- a/sidecar/econometrica/optimize/inverse.py
++++ b/sidecar/econometrica/optimize/inverse.py
+@@ -330,11 +330,27 @@ def build_proportional_forward(project_dir: str, unit_costs_override: Optional[D
+                 })
+         return {'severity': max_sev, 'channels': channels}
+ 
++    # Признак периода (2026-08-16, профит-фронтир): forward считает СУММАРНЫЕ
++    # продажи за весь период обучения при СУММАРНОМ бюджете за тот же период.
++    # Потребитель обязан подписать числа периодом, иначе читает их «в месяц»
++    # (дефект «260 млн против 2,46 млрд» в бэклоге). n_periods и шаг дат живут
++    # здесь — df уже прочитан, повторное чтение файла стоило бы ~1 с.
++    period_granularity = None
++    try:
++        from utils.forecast_validation import detect_granularity
++        date_col = cfg.get('date_column', 'date')
++        if date_col in df.columns:
++            period_granularity = detect_granularity(df[date_col])
++    except Exception:  # noqa: BLE001 - подпись периода не должна ронять goal-seek
++        period_granularity = None
++
+     return forward, {
+         'current_total_money': total_cur_money,
+         'baseline_total': baseline_total,
+         'posterior_sampler': posterior_sampler,
+         'extrapolation_reporter': extrapolation_reporter,
++        'n_periods': n_periods,
++        'period_granularity': period_granularity,
+     }
+ 
+ 
+diff --git a/sidecar/econometrica/server.py b/sidecar/econometrica/server.py
+index fae6538..1b30f74 100644
+--- a/sidecar/econometrica/server.py
++++ b/sidecar/econometrica/server.py
+@@ -2362,6 +2362,9 @@ def optimize_corridor(req: SafeCorridorRequest):
+             model_data,
+             relative_lo_factor=req.relative_lo_factor,
+             relative_hi_factor=req.relative_hi_factor,
++            # 2026-08-16: прямой проход есть → aggregate_sales считается
++            # по-настоящему (двумя вызовами forward), а не остаётся заглушкой.
++            project_dir=req.project_dir,
+         )
+         corridor['status'] = 'ok'
+         return JSONResponse(content=corridor)
+@@ -2374,6 +2377,61 @@ def optimize_corridor(req: SafeCorridorRequest):
+         })
+ 
+ 
++class ProfitFrontierRequest(BaseModel):
++    """Профит-фронтир (2026-08-16): «сколько вообще тратить».
++
++    Экономика приходит из запроса и приоритетнее хранилищ проекта. Валовой маржи
++    для денежных метрик в проекте сегодня нет — без неё расчёт честно отказывает.
++    """
++    project_dir: str
++    kpi_type: str | None = None
++    value_per_count_unit: float | None = None
++    gross_margin: float | None = None
++    n_points: int = Field(default=25, ge=5, le=101)
++    lo_multiplier: float = Field(default=0.2, gt=0.0, lt=1.0)
++    hi_multiplier: float = Field(default=3.0, gt=1.0, le=10.0)
++    max_samples: int = Field(default=200, ge=20, le=1000)
++    unit_costs: dict[str, float] | None = None
++
++
++@app.post('/optimize/profit-frontier')
++def optimize_profit_frontier_endpoint(req: ProfitFrontierRequest):
++    """Кривая прибыли по суммарному бюджету + максимум с честной границей данных.
++
++    Дёшево (~1 с: чтение модели + сетка + апостериорные выборки) — считается
++    на лету рядом с оптимизацией, отдельного долгого прогона не нужно.
++    status='economics_required' — честный отказ «не хватает экономики», не сбой:
++    без перевода KPI в деньги максимума прибыли не существует (INV-50).
++    """
++    try:
++        from optimize.frontier import compute_profit_frontier
++
++        result = compute_profit_frontier(
++            project_dir=req.project_dir,
++            economics={
++                'kpi_type': req.kpi_type,
++                'value_per_count_unit': req.value_per_count_unit,
++                'gross_margin': req.gross_margin,
++            },
++            n_points=req.n_points,
++            lo_multiplier=req.lo_multiplier,
++            hi_multiplier=req.hi_multiplier,
++            max_samples=req.max_samples,
++            unit_costs_override=req.unit_costs,
++        )
++        if result.get('error_code') == 'MODEL_NOT_FOUND':
++            return JSONResponse(status_code=404, content=result)
++        return JSONResponse(content=result)
++    except FileNotFoundError as e:
++        # Текст резолвера данных уже человеческий и с действием — как есть.
++        return JSONResponse(status_code=200, content={
++            'status': 'error', 'error_code': 'DATA_FILE_MISSING', 'message': str(e)})
++    except Exception as e:
++        logger.exception('Profit frontier FAILED')
++        return JSONResponse(status_code=500, content={
++            'status': 'error', 'message': _friendly_error(e), 'type': type(e).__name__})
++
++
+ class SplitCiRequest(BaseModel):
+     """A4/OPP-04 (2026-07-03): интервалы неопределённости оптимального сплита
+     (Jin 2017: пере-оптимизация на подвыборке posterior-draws → HDI долей)."""
+diff --git a/sidecar/econometrica/tests/test_corridor_aggregate_sales.py b/sidecar/econometrica/tests/test_corridor_aggregate_sales.py
+new file mode 100644
+index 0000000..8cc3049
+--- /dev/null
++++ b/sidecar/econometrica/tests/test_corridor_aggregate_sales.py
+@@ -0,0 +1,124 @@
++"""Долг коридора закрыт (2026-08-16): `aggregate_sales` считается прямым проходом.
++
++До этого поле было объявлено в докстринге `compute_safe_corridor` как заглушка
++«требует forward pass», а в возвращаемом словаре его не было вовсе — интерфейс
++из-за этого говорил клиенту, что диапазон продаж модель не рассчитывает. Проход
++появился (профит-фронтир), и границы коридора теперь переводятся в продажи двумя
++вызовами `forward`.
++
++🔴 Единицы: коридор суммирует НАТИВНЫЕ траты, проход ждёт ДЕНЬГИ. При заданной
++стоимости единицы чисел не даём — статус `unit_mismatch` (не переводим молча).
++"""
++
++from __future__ import annotations
++
++import sys
++from pathlib import Path
++
++import pytest
++
++sys.path.insert(0, str(Path(__file__).parent.parent))
++
++from optimize.bounds import compute_safe_corridor  # noqa: E402
++
++BASELINE = 5.0e6
++K = 3000.0
++
++
++def _model_with_data(tmp_path: Path) -> dict:
++    """Модель с двумя каналами и файлом обучающих данных (csv рядом)."""
++    data_file = tmp_path / 'data.csv'
++    data_file.write_text(
++        'TV,Digital\n'
++        '100,50\n120,60\n90,40\n110,55\n130,65\n95,45\n105,52\n115,58\n',
++        encoding='utf-8',
++    )
++    return {'config': {'media_columns': ['TV', 'Digital'],
++                       'data_file': str(data_file)}}
++
++
++def _install_forward(monkeypatch, unit_costs=None):
++    import math
++
++    def forward(budget: float):
++        b = max(float(budget), 0.0)
++        return {'expected_sales': BASELINE + K * math.sqrt(b),
++                'distribution': {'TV': 0.6 * b, 'Digital': 0.4 * b},
++                'status': 'ok'}
++
++    monkeypatch.setattr(
++        'optimize.inverse.build_proportional_forward',
++        lambda project_dir, unit_costs_override=None: (
++            forward, {'current_total_money': 1.0e6, 'baseline_total': BASELINE,
++                      'n_periods': 31}),
++    )
++    monkeypatch.setattr(
++        'optimize.inverse._resolve_current_unit_costs',
++        lambda project_dir, cfg, override=None: dict(unit_costs or {}),
++    )
++    return forward
++
++
++def test_aggregate_sales_absent_without_project_dir(tmp_path):
++    """Обратная совместимость: без project_dir поля нет (а не ноль)."""
++    corridor = compute_safe_corridor(_model_with_data(tmp_path))
++    assert 'aggregate_sales' not in corridor
++    assert corridor['aggregate_budget']['current'] > 0
++
++
++def test_aggregate_sales_computed_at_corridor_bounds(monkeypatch, tmp_path):
++    """Продажи на границах = прямой проход в тех же точках, с признаком периода.
++
++    🔴 Основания разные: `lo`/`hi` коридора — траты за ОДИН период, `current` —
++    сумма за весь период обучения. Продажи считаются от суммарных бюджетов,
++    и бюджеты, по которым считали, отдаются явно.
++    """
++    forward = _install_forward(monkeypatch)
++    model_data = _model_with_data(tmp_path)
++
++    corridor = compute_safe_corridor(model_data, project_dir=str(tmp_path))
++
++    sales = corridor['aggregate_sales']
++    budget = corridor['aggregate_budget']
++    assert sales['status'] == 'ok'
++    assert sales['basis'] == 'total_over_training_period'
++    assert sales['n_periods'] == 31
++    assert sales['corridor_basis_mismatch'] is True
++    # Границы приведены к суммарному бюджету, текущий уже суммарный.
++    assert sales['budget_used']['lo'] == pytest.approx(budget['lo'] * 31)
++    assert sales['budget_used']['hi'] == pytest.approx(budget['hi'] * 31)
++    assert sales['budget_used']['current'] == pytest.approx(budget['current'])
++    for key in ('lo', 'hi', 'current'):
++        assert sales[key] == pytest.approx(
++            forward(sales['budget_used'][key])['expected_sales'])
++    assert sales['lo'] < sales['hi']
++
++
++def test_aggregate_sales_refuses_on_unit_mismatch(monkeypatch, tmp_path):
++    """Стоимость единицы задана → коридор в натуральных единицах, продажи от денег:
++    числа не показываем, отдаём причину."""
++    _install_forward(monkeypatch, unit_costs={'TV': 1500.0, 'Digital': 1.0})
++
++    corridor = compute_safe_corridor(_model_with_data(tmp_path),
++                                     project_dir=str(tmp_path))
++
++    sales = corridor['aggregate_sales']
++    assert sales['status'] == 'unit_mismatch'
++    assert sales['channels'] == ['TV']
++    assert not {'lo', 'hi', 'current'} & set(sales)
++
++
++def test_aggregate_sales_survives_forward_failure(monkeypatch, tmp_path):
++    """Сбой прохода не роняет коридор (он на критическом пути) и не даёт нулей."""
++    monkeypatch.setattr(
++        'optimize.inverse.build_proportional_forward',
++        lambda project_dir, unit_costs_override=None: (_ for _ in ()).throw(
++            RuntimeError('модель битая')),
++    )
++
++    corridor = compute_safe_corridor(_model_with_data(tmp_path),
++                                     project_dir=str(tmp_path))
++
++    assert corridor['aggregate_budget']['current'] > 0
++    assert corridor['aggregate_sales']['status'] == 'unavailable'
++    assert 'lo' not in corridor['aggregate_sales']
+diff --git a/sidecar/econometrica/tests/test_profit_frontier.py b/sidecar/econometrica/tests/test_profit_frontier.py
+new file mode 100644
+index 0000000..8a38633
+--- /dev/null
++++ b/sidecar/econometrica/tests/test_profit_frontier.py
+@@ -0,0 +1,400 @@
++"""Тесты профит-фронтира (2026-08-16), контракт Projects/FRONTIER_DESIGN_2026-08-16.md.
++
++Стратегия подмены: `compute_profit_frontier` читает pickle и обучающие данные
++(тяжело), поэтому подменяем `optimize.inverse.build_proportional_forward` —
++границу, за которой начинается наша логика. Кривая синтетическая с ИЗВЕСТНЫМ
++аналитическим ответом:
++
++    S_медиа(B) = K·√B  ⇒  П(B) = v·K·√B − B  ⇒  dП/dB = 0 при B* = (v·K/2)²
++
++то есть положение максимума считается на бумаге и сверяется с расчётом в пределах
++шага сетки.
++
++Покрытие по контракту: (а) синтетика с известным ответом, (б) три исхода
++максимума по отдельности, (в) отказ при отсутствии экономики, (г) `None` от
++апостериорного сэмплера не роняет расчёт, (д) максимум за границей наблюдений
++не выдаётся как ответ.
++"""
++
++from __future__ import annotations
++
++import math
++import sys
++from pathlib import Path
++
++import numpy as np
++import pytest
++
++sys.path.insert(0, str(Path(__file__).parent.parent))
++
++from optimize.frontier import compute_profit_frontier  # noqa: E402
++
++CURRENT = 1.0e6
++BASELINE = 5.0e6
++# Границы «наблюдавшихся» трат синтетики: до 1,8 млн — severity 0, до 2,4 млн — 1.
++SEV_1 = 1.8e6
++SEV_2 = 2.4e6
++
++
++def _prep_model(tmp_path: Path) -> str:
++    """Каталог проекта с models/latest.pkl (расчёт проверяет наличие модели)."""
++    models_dir = tmp_path / 'models'
++    models_dir.mkdir(parents=True, exist_ok=True)
++    (models_dir / 'latest.pkl').write_bytes(b'dummy')
++    return str(tmp_path)
++
++
++def _k_for_optimum(target_budget: float, unit_value: float) -> float:
++    """K, при котором максимум прибыли лежит ровно в target_budget: K = 2·√B*/v."""
++    return 2.0 * math.sqrt(target_budget) / unit_value
++
++
++def _install_forward(monkeypatch, k: float, sampler=None, n_periods: int = 31):
++    """Подменяет прямой проход синтетикой S(B) = BASELINE + K·√B."""
++
++    def forward(budget: float):
++        b = max(float(budget), 0.0)
++        return {
++            'expected_sales': BASELINE + k * math.sqrt(b),
++            'distribution': {'TV': 0.6 * b, 'Digital': 0.4 * b},
++            'status': 'ok',
++        }
++
++    def reporter(distribution):
++        total = sum(float(v) for v in (distribution or {}).values())
++        severity = 0 if total <= SEV_1 else (1 if total <= SEV_2 else 2)
++        return {'severity': severity, 'channels': []}
++
++    meta = {
++        'current_total_money': CURRENT,
++        'baseline_total': BASELINE,
++        'extrapolation_reporter': reporter,
++        'posterior_sampler': sampler,
++        'n_periods': n_periods,
++        'period_granularity': {'granularity': 'M', 'confidence': 0.97},
++    }
++    monkeypatch.setattr(
++        'optimize.inverse.build_proportional_forward',
++        lambda project_dir, unit_costs_override=None: (forward, meta),
++    )
++
++
++def _sampler_factory(k_values):
++    """Апостериорный сэмплер: у каждой выборки свой K (разброс параметров)."""
++    arr = np.asarray(k_values, dtype=float)
++
++    def sampler(budget: float, max_samples: int = 200):
++        n = min(len(arr), max_samples)
++        return BASELINE + arr[:n] * math.sqrt(max(float(budget), 0.0))
++
++    return sampler
++
++
++# ─── (а) синтетика с известным ответом ───────────────────────────────────────
++
++def test_maximum_matches_analytic_optimum_within_grid_step(monkeypatch, tmp_path):
++    """Положение максимума совпадает с аналитическим в пределах шага сетки."""
++    project = _prep_model(tmp_path)
++    target = 1.4e6           # внутри наблюдений (severity 0) и правее текущего
++    margin = 0.3
++    _install_forward(monkeypatch, _k_for_optimum(target, margin))
++
++    result = compute_profit_frontier(project, {'kpi_type': 'sales',
++                                               'gross_margin': margin})
++
++    assert result['status'] == 'ok'
++    maximum = result['maximum']
++    assert maximum['reportable'] is True
++    step = result['grid']['step']
++    assert abs(maximum['budget'] - target) <= step, (
++        f"максимум {maximum['budget']:,.0f} против аналитического {target:,.0f} "
++        f"при шаге сетки {step:,.0f}")
++    # Условие максимума: предельная отдача ≈ 1/маржа (порог из режима экономики).
++    assert result['economics']['marginal_threshold'] == pytest.approx(1.0 / margin)
++    assert maximum['marginal_return'] == pytest.approx(1.0 / margin, rel=0.15)
++
++
++def test_current_budget_point_is_always_on_the_grid(monkeypatch, tmp_path):
++    """Точка текущего бюджета в сетке ровно (не интерполяцией), точек 25."""
++    project = _prep_model(tmp_path)
++    _install_forward(monkeypatch, _k_for_optimum(1.4e6, 0.3))
++
++    result = compute_profit_frontier(project, {'kpi_type': 'sales', 'gross_margin': 0.3})
++
++    assert result['grid']['n_points'] == 25
++    idx = result['grid']['current_index']
++    assert result['curve'][idx]['budget'] == pytest.approx(CURRENT)
++    assert result['curve'][idx]['is_current'] is True
++    assert sum(1 for p in result['curve'] if p['is_current']) == 1
++    assert result['current']['budget'] == pytest.approx(CURRENT)
++
++
++def test_every_number_carries_period_marker(monkeypatch, tmp_path):
++    """Единицы: каждое число несёт признак периода (сколько периодов и шаг)."""
++    project = _prep_model(tmp_path)
++    _install_forward(monkeypatch, _k_for_optimum(1.4e6, 0.3), n_periods=31)
++
++    result = compute_profit_frontier(project, {'kpi_type': 'sales', 'gross_margin': 0.3})
++
++    period = result['period']
++    assert period['n_periods'] == 31
++    assert period['granularity_label_ru'] == 'по месяцам'
++    assert '31 период, по месяцам' in period['note']  # согласование, не «31 периодов»
++    assert 'не за один месяц' in period['note']
++    assert all(p['basis'] == 'total_over_training_period' for p in result['curve'])
++    for block in ('current', 'observed_frontier', 'maximum'):
++        assert result[block]['basis'] == 'total_over_training_period'
++
++
++# ─── (б) три исхода максимума по отдельности ─────────────────────────────────
++
++def test_outcome_interior_observed(monkeypatch, tmp_path):
++    """Исход 1: максимум внутри наблюдавшегося диапазона — называем числом."""
++    project = _prep_model(tmp_path)
++    _install_forward(monkeypatch, _k_for_optimum(1.4e6, 0.3))
++
++    maximum = compute_profit_frontier(
++        project, {'kpi_type': 'sales', 'gross_margin': 0.3})['maximum']
++
++    assert maximum['outcome'] == 'interior_observed'
++    assert maximum['reportable'] is True
++    assert maximum['severity'] == 0
++    assert maximum['profit_gain_vs_current'] > 0
++    # Максимум с запасом внутри данных — про границу наблюдений не говорим.
++    assert maximum['at_observed_frontier'] is False
++    assert 'границу наблюдавшихся трат' not in maximum['message']
++
++
++def test_maximum_exactly_on_observed_frontier_is_flagged(monkeypatch, tmp_path):
++    """Максимум пришёлся на САМУ границу наблюдений — отдельный признак.
++
++    Число честное (severity 0) и остаётся, но за этой точкой данных нет: спад
++    прибыли правее опирается на непроверенную область. `at_grid_ceiling` этот
++    случай не ловит — он про край расчётной сетки (3× текущего), не про край
++    данных. Приёмка ведущей на живой модели: маржа 50% давала максимум ровно
++    в `observed_frontier.budget` и подавалась как обычный внутренний.
++    """
++    project = _prep_model(tmp_path)
++    # Последний узел сетки с severity 0: шаг 2,8/24 от 1 млн → узел 13 = 1 716 666,67,
++    # следующий (1 833 333) уже за порогом наблюдений SEV_1 = 1,8 млн.
++    frontier_budget = 0.2e6 + 13 * (2.8e6 / 24)
++    _install_forward(monkeypatch, _k_for_optimum(frontier_budget, 0.3))
++
++    result = compute_profit_frontier(project, {'kpi_type': 'sales', 'gross_margin': 0.3})
++    maximum = result['maximum']
++
++    assert maximum['index'] == result['observed_frontier']['index']
++    assert maximum['at_observed_frontier'] is True
++    assert maximum['at_grid_ceiling'] is False, 'край данных ≠ край сетки'
++    # Число остаётся: оно честное.
++    assert maximum['reportable'] is True
++    assert maximum['budget'] == pytest.approx(result['observed_frontier']['budget'])
++    assert maximum['severity'] == 0
++    assert ('Максимум пришёлся на саму границу наблюдавшихся трат: за ней '
++            'поведение кривой данными не подтверждается.') in maximum['message']
++
++
++def test_outcome_beyond_observed_gives_no_number(monkeypatch, tmp_path):
++    """Исход 2 + приёмка (д): максимум за границей наблюдений НЕ выдаётся числом."""
++    project = _prep_model(tmp_path)
++    # B* = 2,8 млн — за severity 0 (1,8 млн), но внутри сетки (до 3 млн).
++    _install_forward(monkeypatch, _k_for_optimum(2.8e6, 0.5))
++
++    result = compute_profit_frontier(project, {'kpi_type': 'sales', 'gross_margin': 0.5})
++    maximum = result['maximum']
++
++    assert maximum['outcome'] == 'beyond_observed'
++    assert maximum['reportable'] is False
++    assert 'budget' not in maximum, 'оптимум за границей данных не называем числом'
++    assert 'profit' not in maximum
++    assert maximum['still_profitable_within_data'] is True
++    # Клиентский текст: число с пробелами между разрядами, запятые русского
++    # предложения на месте (форматируем число, а не подменяем запятые в фразе).
++    expected_number = f'{result["observed_frontier"]["budget"]:,.0f}'.replace(',', ' ')
++    assert f'{expected_number} ₽' in maximum['message']
++    assert 'Где проходит потолок, эти данные не показывают' in maximum['message']
++    # Честная граница наблюдений — наибольший бюджет с severity 0 — на месте.
++    frontier = result['observed_frontier']
++    assert frontier['available'] is True
++    assert frontier['budget'] <= SEV_1
++    assert result['curve'][frontier['index'] + 1]['extrapolation_severity'] > 0
++
++
++def test_outcome_below_current(monkeypatch, tmp_path):
++    """Исход 3: максимум левее текущего бюджета — с величиной потерь."""
++    project = _prep_model(tmp_path)
++    _install_forward(monkeypatch, _k_for_optimum(0.6e6, 0.3))
++
++    result = compute_profit_frontier(project, {'kpi_type': 'sales', 'gross_margin': 0.3})
++    maximum = result['maximum']
++
++    assert maximum['outcome'] == 'below_current'
++    assert maximum['reportable'] is True
++    assert maximum['budget'] < CURRENT
++    assert maximum['profit_lost_at_current'] > 0
++    assert maximum['profit_lost_at_current'] == pytest.approx(
++        maximum['profit'] - result['current']['profit'])
++
++
++def test_outcome_at_grid_floor_is_not_reported_as_a_point(monkeypatch, tmp_path):
++    """Red-team №5: максимум на левом краю сетки — не «оптимум = 0,2× текущего»."""
++    project = _prep_model(tmp_path)
++    _install_forward(monkeypatch, _k_for_optimum(0.05e6, 0.3))
++
++    maximum = compute_profit_frontier(
++        project, {'kpi_type': 'sales', 'gross_margin': 0.3})['maximum']
++
++    assert maximum['at_grid_floor'] is True
++    assert maximum['reportable'] is False
++    assert 'budget' not in maximum
++    assert maximum['outcome'] == 'below_current'
++
++
++# ─── (в) отказ при отсутствии экономики ──────────────────────────────────────
++
++def test_refusal_when_margin_missing(monkeypatch, tmp_path):
++    """Денежная метрика без валовой маржи — отказ с причиной, не нулевая прибыль."""
++    project = _prep_model(tmp_path)
++    _install_forward(monkeypatch, _k_for_optimum(1.4e6, 0.3))
++
++    result = compute_profit_frontier(project, {'kpi_type': 'sales'})
++
++    assert result['status'] == 'economics_required'
++    assert result['reason'] == 'monetary_margin_missing'
++    assert 'маржа' in result['message']
++    assert 'curve' not in result and 'maximum' not in result
++    assert 0 not in (result.get('profit'), result.get('maximum'))
++
++
++def test_refusal_when_count_value_missing(monkeypatch, tmp_path):
++    """Счётная метрика без ценности единицы — отказ, не «посчитаем по штукам»."""
++    project = _prep_model(tmp_path)
++    _install_forward(monkeypatch, _k_for_optimum(1.4e6, 0.3))
++
++    result = compute_profit_frontier(project, {'kpi_type': 'leads'})
++
++    assert result['status'] == 'economics_required'
++    assert result['reason'] == 'count_value_missing'
++    assert 'Ценность лида' in result['message']
++
++
++def test_refusal_when_kpi_kind_unsupported(monkeypatch, tmp_path):
++    """Доля (известность) в рубли напрямую не переводится — отказ."""
++    project = _prep_model(tmp_path)
++    _install_forward(monkeypatch, _k_for_optimum(1.4e6, 0.3))
++
++    result = compute_profit_frontier(project, {'kpi_type': 'awareness'})
++
++    assert result['status'] == 'economics_required'
++    assert result['reason'] == 'kpi_kind_unsupported'
++
++
++def test_refusal_when_margin_out_of_range(monkeypatch, tmp_path):
++    project = _prep_model(tmp_path)
++    _install_forward(monkeypatch, _k_for_optimum(1.4e6, 0.3))
++
++    result = compute_profit_frontier(
++        project, {'kpi_type': 'sales', 'gross_margin': 1.7})
++
++    assert result['status'] == 'economics_required'
++    assert result['reason'] == 'gross_margin_out_of_range'
++
++
++def test_count_value_mode_reaches_same_optimum(monkeypatch, tmp_path):
++    """Счётный режим с ценностью единицы: порог отдачи = 1/v, максимум на месте."""
++    project = _prep_model(tmp_path)
++    vpcu = 0.3
++    _install_forward(monkeypatch, _k_for_optimum(1.4e6, vpcu))
++
++    result = compute_profit_frontier(
++        project, {'kpi_type': 'leads', 'value_per_count_unit': vpcu})
++
++    assert result['economics']['mode'] == 'count_value'
++    assert result['economics']['marginal_threshold'] == pytest.approx(1.0 / vpcu)
++    assert abs(result['maximum']['budget'] - 1.4e6) <= result['grid']['step']
++
++
++def test_profit_kpi_mode_uses_unit_value_one(monkeypatch, tmp_path):
++    """KPI = прибыль: перевод не нужен, условие максимума — отдача = 1."""
++    project = _prep_model(tmp_path)
++    _install_forward(monkeypatch, _k_for_optimum(1.4e6, 1.0))
++
++    result = compute_profit_frontier(project, {'kpi_type': 'profit'})
++
++    assert result['economics']['mode'] == 'profit_kpi'
++    assert result['economics']['unit_value'] == 1.0
++    assert result['economics']['marginal_threshold'] == 1.0
++    assert abs(result['maximum']['budget'] - 1.4e6) <= result['grid']['step']
++
++
++# ─── (г) апостериорные выборки ───────────────────────────────────────────────
++
++def test_none_posterior_sampler_does_not_break_the_curve(monkeypatch, tmp_path):
++    """Модель малых данных: сэмплер вернул None — кривая и максимум есть,
++    интервала нет, и об этом сказано полем, а не нулём."""
++    project = _prep_model(tmp_path)
++    _install_forward(monkeypatch, _k_for_optimum(1.4e6, 0.3),
++                     sampler=lambda budget, max_samples=200: None)
++
++    result = compute_profit_frontier(project, {'kpi_type': 'sales', 'gross_margin': 0.3})
++
++    assert result['status'] == 'ok'
++    assert len(result['curve']) == 25
++    assert result['maximum']['reportable'] is True
++    interval = result['posterior_interval']
++    assert interval['available'] is False
++    assert interval['reason'] == 'no_posterior_samples'
++    assert 'low' not in interval and 'high' not in interval
++    assert 'наименьших квадратов' in interval['message']
++
++
++def test_posterior_interval_on_maximum_position(monkeypatch, tmp_path):
++    """Интервал на ПОЛОЖЕНИЕ максимума: разброс K → разброс B*, 90% интервал."""
++    project = _prep_model(tmp_path)
++    margin = 0.3
++    k_point = _k_for_optimum(1.4e6, margin)
++    rng = np.random.default_rng(7)
++    k_values = k_point * (1.0 + 0.12 * rng.standard_normal(200))
++    _install_forward(monkeypatch, k_point, sampler=_sampler_factory(k_values))
++
++    result = compute_profit_frontier(project, {'kpi_type': 'sales',
++                                               'gross_margin': margin})
++    interval = result['posterior_interval']
++
++    assert interval['available'] is True
++    assert interval['n_samples'] == 200
++    assert interval['low'] < interval['high']
++    assert interval['low'] <= result['maximum']['budget'] <= interval['high']
++    # Аналитический разброс: B*_s = (v·K_s/2)² — 90% выборок укладываются
++    # в интервал по построению; проверяем порядок величины, не подгонку.
++    analytic = (margin * k_values / 2.0) ** 2
++    assert interval['low'] <= np.median(analytic) <= interval['high']
++    assert interval['share_at_grid_floor'] < 0.5
++    assert 'неуверенность модели' in interval['note']
++
++
++def test_posterior_samples_must_be_consistent_across_grid(monkeypatch, tmp_path):
++    """Рассогласованные выборки между точками сетки → интервал не считаем
++    (иначе аргмаксимумы брались бы по разным наборам параметров = шум)."""
++    project = _prep_model(tmp_path)
++    calls = {'n': 0}
++
++    def flaky_sampler(budget, max_samples=200):
++        calls['n'] += 1
++        size = 200 if calls['n'] <= 2 else 137
++        return BASELINE + np.full(size, 3000.0) * math.sqrt(max(float(budget), 0.0))
++
++    _install_forward(monkeypatch, _k_for_optimum(1.4e6, 0.3), sampler=flaky_sampler)
++
++    result = compute_profit_frontier(project, {'kpi_type': 'sales', 'gross_margin': 0.3})
++
++    assert result['status'] == 'ok'
++    assert result['posterior_interval']['available'] is False
++    assert result['posterior_interval']['reason'] == 'inconsistent_samples'
++
++
++def test_model_not_found(tmp_path):
++    result = compute_profit_frontier(str(tmp_path), {'kpi_type': 'sales',
++                                                     'gross_margin': 0.3})
++    assert result['status'] == 'error'
++    assert result['error_code'] == 'MODEL_NOT_FOUND'
+diff --git a/sidecar/econometrica/tests/test_promises_slide.py b/sidecar/econometrica/tests/test_promises_slide.py
+new file mode 100644
+index 0000000..13d0e04
+--- /dev/null
++++ b/sidecar/econometrica/tests/test_promises_slide.py
+@@ -0,0 +1,325 @@
++"""
++Тесты слайда «Проверка рекомендаций» (E4, поднят из сноски 2026-08-16).
++
++Раньше сбывшиеся/несбывшиеся рекомендации рисовались кеглем 9,5-10 в правой
++колонке слайда источников (builder.py::s11_sources) — мельче соседних
++содержательных блоков колоды. Теперь у них свой условный слайд
++(s10d_promises), рисуемый в той же зоне вставных слайдов честности, что
++«Проверка на истории» (E1) и «Что изменилось с прошлого квартала» (E3) —
++по образцу HTML render_trust_loop, где все три блока живут в одном разделе
++«Петля доверия».
++
++Покрывают:
++  (a) PPTX с promises_summary → лишний слайд + текст на месте + overflow-чисто
++  (b) PPTX без promises_summary → кол-во слайдов не меняется (INV-50), старой
++      сноски на слайде источников тоже больше нет
++  (c) _page_shift учитывает promises_summary наравне с backtest/gen_compare/forecast
++  (d) слайд прогноза (s_forecast_plan) корректно сдвигается, если promises идёт
++      перед ним
++  (e) мутация: если условие показа сломать (рисовать блок при пустых
++      обещаниях), тест должен покраснеть
++"""
++import copy
++import json
++import os
++
++import pytest
++
++from aurora_pptx.builder import AuroraPPTXBuilder
++
++_HERE = os.path.dirname(os.path.abspath(__file__))
++_FIXTURE = os.path.join(_HERE, "fixtures", "kagocel_builder_payload.json")
++
++# ─── Минимальный валидный promises_summary (форма из narrative_adapter) ──────
++
++PROMISES_DATA = {
++    "kept": 2,
++    "missed": 1,
++    "examples": [
++        {"action_text": "Увеличить TV", "status": "kept", "status_ru": "сбылось"},
++        {"action_text": "Сократить Radio", "status": "missed", "status_ru": "не сбылось"},
++    ],
++}
++
++
++@pytest.fixture(scope="module")
++def base_payload():
++    with open(_FIXTURE, encoding="utf-8") as f:
++        return json.load(f)
++
++
++def _build_deck(payload, path):
++    prs = AuroraPPTXBuilder(payload).build()
++    prs.save(path)
++    return prs
++
++
++def _xml_text(prs):
++    texts = []
++    for slide in prs.slides:
++        for shape in slide.shapes:
++            if shape.has_text_frame:
++                texts.append(shape.text_frame.text)
++    return "\n".join(texts)
++
++
++# ─── (a) С promises_summary → дополнительный слайд, текст на месте ──────────
++
++def test_promises_slide_added(base_payload, tmp_path):
++    """При наличии promises_summary колода получает на 1 слайд больше."""
++    payload_base = copy.deepcopy(base_payload)
++    payload_base.pop("promises_summary", None)
++    out_base = str(tmp_path / "deck_base.pptx")
++    prs_base = _build_deck(payload_base, out_base)
++    n_base = len(prs_base.slides)
++
++    payload_pr = copy.deepcopy(base_payload)
++    payload_pr["promises_summary"] = PROMISES_DATA
++    out_pr = str(tmp_path / "deck_promises.pptx")
++    prs_pr = _build_deck(payload_pr, out_pr)
++    n_pr = len(prs_pr.slides)
++
++    assert n_pr == n_base + 1, (
++        f"Ожидали {n_base + 1} слайдов с promises_summary, получили {n_pr}"
++    )
++
++
++def test_promises_slide_contains_hero_and_examples(base_payload, tmp_path):
++    """Слайд содержит заголовок раздела, hero-счёт и примеры кеглем не мельче
++    прочих содержательных блоков (проверяется текстом — сам кегль см. в коде
++    s10d_promises: 44pt hero, 13pt примеры, оба крупнее прежних 10/9,5)."""
++    payload_pr = copy.deepcopy(base_payload)
++    payload_pr["promises_summary"] = PROMISES_DATA
++    out = str(tmp_path / "deck_promises_text.pptx")
++    prs = _build_deck(payload_pr, out)
++    all_text = _xml_text(prs)
++
++    assert "Проверка рекомендаций" in all_text, "Заголовок слайда не найден"
++    assert "2 из 3" in all_text, "Hero-счёт «сбылось из всего» не найден"
++    assert "Увеличить TV" in all_text, "Пример «сбылось» не найден"
++    assert "Сократить Radio" in all_text, "Пример «не сбылось» не найден"
++    assert "сбылось" in all_text and "не сбылось" in all_text
++
++
++def test_promises_slide_overflow_clean(base_payload, tmp_path):
++    """Колода со слайдом «Проверка рекомендаций» не должна иметь overflow."""
++    from aurora_pptx.check_overflow import check
++
++    payload_pr = copy.deepcopy(base_payload)
++    payload_pr["promises_summary"] = PROMISES_DATA
++    out = str(tmp_path / "deck_promises_overflow.pptx")
++    _build_deck(payload_pr, out)
++    issues, n_slides = check(out)
++    assert n_slides > 0
++    detail = "\n".join(f"  слайд {s}: [{k}] {d}" for s, k, d in issues)
++    assert issues == [], f"PPTX с promises_summary получил overflow/overlap:\n{detail}"
++
++
++# ─── (b) Без promises_summary → нет лишнего слайда, нет старой сноски ───────
++
++def test_no_promises_no_extra_slide(base_payload, tmp_path):
++    """Без promises_summary дека не получает лишний слайд-суррогат (INV-50)."""
++    payload_no = copy.deepcopy(base_payload)
++    payload_no.pop("promises_summary", None)
++
++    out1 = str(tmp_path / "deck_no_pr_1.pptx")
++    out2 = str(tmp_path / "deck_no_pr_2.pptx")
++    prs1 = _build_deck(payload_no, out1)
++    prs2 = _build_deck(payload_no, out2)
++    assert len(prs1.slides) == len(prs2.slides), (
++        "Без promises_summary кол-во слайдов нестабильно"
++    )
++
++
++def test_no_promises_no_stray_footnote_text(base_payload, tmp_path):
++    """Без promises_summary в колоде нет ни слайда, ни бывшей сноски-заглушки
++    («Проверка прошлых рекомендаций», «сбылось 0, не сбылось 0» и т.п.) —
++    INV-50, пустых заглушек в колоде быть не должно."""
++    payload_no = copy.deepcopy(base_payload)
++    payload_no.pop("promises_summary", None)
++    out = str(tmp_path / "deck_no_pr_text.pptx")
++    prs = _build_deck(payload_no, out)
++    all_text = _xml_text(prs)
++    assert "Проверка рекомендаций" not in all_text
++    assert "Проверка прошлых рекомендаций" not in all_text
++    assert "ОТ ОБЕЩАНИЯ К ФАКТУ" not in all_text
++
++
++def test_promises_absent_when_examples_effectively_empty(base_payload, tmp_path):
++    """Невалидный/пустой promises_summary не порождает слайд-суррогат
++    (тот же принцип, что test_no_forecast_no_extra_slide для forecast)."""
++    payload_no = copy.deepcopy(base_payload)
++    payload_no.pop("promises_summary", None)
++    out_no = str(tmp_path / "deck_no_pr_3.pptx")
++    prs_no = _build_deck(payload_no, out_no)
++
++    payload_empty = copy.deepcopy(base_payload)
++    payload_empty["promises_summary"] = {}
++    out_empty = str(tmp_path / "deck_empty_pr.pptx")
++    prs_empty = _build_deck(payload_empty, out_empty)
++    assert len(prs_empty.slides) == len(prs_no.slides), (
++        "Пустой promises_summary={} породил лишний слайд-суррогат (INV-50)"
++    )
++
++
++# ─── (c) _page_shift учитывает promises_summary ──────────────────────────────
++
++def test_page_shift_includes_promises(base_payload):
++    """При backtest + gen_compare + promises + forecast _page_shift == 4."""
++    payload = copy.deepcopy(base_payload)
++
++    payload["backtest"] = {
++        "status": "ok",
++        "windows": [{"window": "Q1", "actual_total": 100, "predicted_total": 98,
++                     "pi_low_total": 80, "pi_high_total": 120, "hit_total": True}],
++        "windows_hit_total": 1,
++        "windows_with_interval": 1,
++        "verdict": "validated",
++        "granularity": "M",
++        "horizon_periods": 3,
++        "mape_model": 5.0,
++        "mape_naive_best": 10.0,
++        "coverage_per_period": 0.9,
++        "n_holdout_points_with_interval": 3,
++    }
++    payload["generation_compare"] = {
++        "status": "ok",
++        "channels": [{"name": "TV", "roi_old": 1.2, "roi_new": 1.5,
++                      "verdict": "stable", "verdict_ru": "стабильно"}],
++        "summary": {"counts": {"stable": 1, "shift_within_ci": 0, "shift_strong": 0}},
++        "baseline": {"timestamp": "2026-01-01T00:00:00"},
++    }
++    payload["promises_summary"] = PROMISES_DATA
++    payload["forecast"] = {
++        "status": "ok",
++        "scenarios": [{
++            "name": "Базовый", "variant_id": "v1", "total_kpi": 460.0,
++            "total_kpi_ci_low": 414.0, "total_kpi_ci_high": 506.0,
++            "total_spend_money": 5_000_000.0, "roas_money": 0.092,
++        }],
++        "accepted_variant": "v1",
++        "disclaimers": ["Прогноз при неизменных условиях рынка"],
++    }
++
++    builder = AuroraPPTXBuilder(payload)
++    assert builder._page_shift == 4, (
++        f"Ожидали _page_shift=4 при backtest+gen_compare+promises+forecast, "
++        f"получили {builder._page_shift}"
++    )
++    assert builder.total_slides == 16, (
++        f"Ожидали total_slides=16, получили {builder.total_slides}"
++    )
++
++
++# ─── (d) forecast-слайд сдвигается на 1, когда promises идёт перед ним ──────
++
++def test_forecast_slide_shifts_after_promises(base_payload, tmp_path):
++    """Слайд «Прогноз на будущий период» должен идти ПОСЛЕ «Проверка
++    рекомендаций» — оба содержат корректный номер страницы в подписи
++    (регресс-проверка на смещение нумерации: без учёта promises в
++    slide_num колода сохранилась бы, но номер страницы форекаста стал бы
++    неверным — проверяем через TOC-подстроку номера страницы)."""
++    payload = copy.deepcopy(base_payload)
++    payload["promises_summary"] = PROMISES_DATA
++    payload["forecast"] = {
++        "status": "ok",
++        "scenarios": [{
++            "name": "Базовый", "variant_id": "v1", "total_kpi": 460.0,
++            "total_kpi_ci_low": 414.0, "total_kpi_ci_high": 506.0,
++            "total_spend_money": 5_000_000.0, "roas_money": 0.092,
++        }],
++        "accepted_variant": "v1",
++        "disclaimers": ["Прогноз при неизменных условиях рынка"],
++    }
++    out = str(tmp_path / "deck_promises_forecast.pptx")
++    prs = _build_deck(payload, out)
++
++    builder = AuroraPPTXBuilder(payload)
++    fc_pg = 6 + int(bool(builder.backtest)) + int(bool(builder.gen_compare)) + int(
++        bool(builder.promises_summary)
++    )
++    toc_text = _xml_text(prs)
++    assert f"в том числе «Прогноз на будущий период» — стр. {fc_pg:02d}" in toc_text, (
++        "TOC-подстрока про прогноз не учла сдвиг от слайда promises"
++    )
++
++    # Оба слайда физически присутствуют и не совпадают по номеру страницы.
++    all_text = _xml_text(prs)
++    assert "Проверка рекомендаций" in all_text
++    assert "Прогноз на будущий период" in all_text
++
++
++# ─── (e) Мутация: сломанное условие показа обязано покраснеть ───────────────
++#
++# Мутация делается вручную (не через mutmut) прямо в тесте: временно
++# монkey-патчим source-условие, эмулируя баг «блок печатается при пустых
++# обещаниях» — то есть мутируем МЕСТО, ГДЕ ЗНАЧЕНИЕ РЕАЛЬНО ВЫЧИСЛЯЕТСЯ
++# (self.promises_summary в __init__), а не соседнюю чистую функцию.
++
++def test_mutation_gate_promises_condition_is_load_bearing(base_payload, monkeypatch, tmp_path):
++    """Если условие показа сломать так, что слайд рисуется всегда (даже без
++    живых обещаний), число слайдов колоды без promises_summary перестаёт
++    совпадать с эталоном — контрольный тест обязан это ловить.
++
++    Это НЕ тест продукта: это доказательство, что test_no_promises_no_extra_slide
++    и test_promises_slide_added способны покраснеть при реальной регрессии
++    (см. отчёт FIX_PROMISES_SLIDE_2026-08-16.md — мутация была прогнана и
++    откачена руками правкой builder.py, здесь — постоянный контрольный тест
++    того же класса на уровне build(), чтобы будущая регрессия не прошла тихо)."""
++    import aurora_pptx.builder as builder_mod
++
++    payload_no = copy.deepcopy(base_payload)
++    payload_no.pop("promises_summary", None)
++
++    # Эталон: без promises_summary — N слайдов.
++    out_ref = str(tmp_path / "deck_ref.pptx")
++    prs_ref = _build_deck(payload_no, out_ref)
++    n_ref = len(prs_ref.slides)
++
++    # Мутация: build() рисует s10d_promises БЕЗ учёта self.promises_summary —
++    # эмулируем сломанное условие показа прямо на классе (не на данных).
++    orig_build = builder_mod.AuroraPPTXBuilder.build
++
++    def _mutated_build(self):
++        self.s01_cover()
++        self.s03_toc()
++        self.s02_at_a_glance()
++        self.s05_key_message()
++        self.s09_scqar()
++        if self.backtest:
++            self.s10b_backtest()
++        if self.gen_compare:
++            self.s10c_generation_compare()
++        # МУТАЦИЯ: условие `if self.promises_summary:` убрано — слайд
++        # печатается даже при пустых обещаниях. Но promises_summary=None,
++        # а s10d_promises() читает ps.get(...) — упадёт с AttributeError,
++        # если None; используем {} чтобы мутация проявлялась как ЛИШНИЙ
++        # слайд-суррогат, а не падение (иначе тест не проверит нужное).
++        self.promises_summary = self.promises_summary or {"kept": 0, "missed": 0, "examples": []}
++        self.s10d_promises()
++        if self.forecast:
++            self.s_forecast_plan()
++        self.s06_action_chart()
++        self.s07_action_table()
++        self.s08_action_timeline()
++        self.s10_methodology()
++        self.s11_sources()
++        self.s12_glossary()
++        self.s13_colophon()
++        return self.prs
++
++    monkeypatch.setattr(builder_mod.AuroraPPTXBuilder, "build", _mutated_build)
++    out_mut = str(tmp_path / "deck_mutated.pptx")
++    prs_mut = _build_deck(payload_no, out_mut)
++    n_mut = len(prs_mut.slides)
++
++    monkeypatch.setattr(builder_mod.AuroraPPTXBuilder, "build", orig_build)
++
++    # Мутация ДОЛЖНА дать лишний слайд по сравнению с эталоном — если
++    # ассерт здесь падает, это значит мутация перестала быть мутацией
++    # (тест выше молча пропустил бы такую же регрессию в проде).
++    assert n_mut == n_ref + 1, (
++        "Мутация (печать слайда без живых обещаний) не дала лишнего слайда — "
++        "тест-гейт test_no_promises_no_extra_slide не способен поймать эту "
++        "регрессию, проверку нужно переработать"
++    )
+diff --git a/src-tauri/help-econometrica/econometrica-help.pdf b/src-tauri/help-econometrica/econometrica-help.pdf
+index 68bfed2..9098728 100644
+--- a/src-tauri/help-econometrica/econometrica-help.pdf
++++ b/src-tauri/help-econometrica/econometrica-help.pdf
+@@ -119,8 +119,9 @@ Optimizer MMM
+  Подготовь данные                  Импорт + Валидация              Стоимость юнитов
+  XLSX/CSV: date + KPI +            Перетащи файл. Светофор         Если есть TRP / impressions –
+  медиа-столбцы. Минимум            покажет готов ли датасет,       укажи ₽/юнит. Без этого
+- 20 строк на 5 каналов.            автоопределит роли              ROAS будет в native-
+- подробнее                         столбцов.                       единицах и несопоставим.
++ 10 строк на 5 каналов,            автоопределит роли              ROAS будет в native-
++ рекомендация 20+.                 столбцов.                       единицах и несопоставим.
++ подробнее
+ 
+ 
+ 
+@@ -156,12 +157,12 @@ Optimizer MMM
+         MQS будет ограничен.
+ 
+         💡 Смешивать TRP и рубли в одной модели можно, но тогда обязательно укажи
+-        стоимость юнита – иначе ROAS не сопоставим между каналами.
+-
+ 
+ 
+                                                 4
+-💡 Если видишь ROI 500× – это сигнал переобучения. Проверьте запас данных и
++стоимость юнита – иначе ROAS не сопоставим между каналами.
++
++💡 Если видишь ROI 500× – это сигнал переобучения. Проверьте запас данных и
+ стоимость единицы.
+ 
+ 💡 MCMC чувствителен к данным – при R-hat > 1.1 модели доверять нельзя,
+@@ -809,7 +810,7 @@ Visual Pipeline (UI)
+ 
+ 
+             Visual Pipeline       Рекомендуется                      Кабинет эконометриста
+-            Интерактивный 6-шаговый процесс с                          Продвинутый
++            Интерактивный 7-шаговый процесс с                          Продвинутый
+ 
+             визуализациями. Drag-drop импорт,                        Чат-режим для нестандартных запросов и
+             автоопределение колонок,                                 сценарного моделирования (команды
+@@ -1294,7 +1295,7 @@ Summary-карточки в интерфейсе: MQS Score, R², прирост
+ 
+ 
+   Можно ли использовать ежемесячные данные?
+-  Да. Укажите минимум 36 точек (3 года). Система автоматически определит частоту (ежедневно /
++  Да. Укажите минимум 52 точки. Система автоматически определит частоту (ежедневно /
+   еженедельно / ежемесячно / ежеквартально) и покажет её в блоке валидации.
+ 
+ 
+@@ -3883,7 +3884,7 @@ Waterfall (каскад) читается слева направо: старт
+ 
+ 
+  Экспорт сценариев
+- Сохранённые сценарии выгружаются в CSV / XLSX / PPTX отдельно от основного отчёта.
++ Сохранённые сценарии выгружаются в CSV отдельно от основного отчёта.
+ 
+  Где: сравнение сценариев
+ 
+diff --git a/src-tauri/help-econometrica/econometrica.html b/src-tauri/help-econometrica/econometrica.html
+index aee3592..9b6c305 100644
+--- a/src-tauri/help-econometrica/econometrica.html
++++ b/src-tauri/help-econometrica/econometrica.html
+@@ -123,7 +123,7 @@ tr:hover td { background: var(--bg3); }
+ <div class="mode-cards">
+   <div class="mode-card primary">
+     <h3>Visual Pipeline <span class="mode-badge badge-new">Рекомендуется</span></h3>
+-    <p>Интерактивный 6-шаговый процесс с визуализациями. Drag-drop импорт, автоопределение колонок, корреляционная матрица, прогресс обучения, оптимизатор бюджета.</p>
++    <p>Интерактивный 7-шаговый процесс с визуализациями. Drag-drop импорт, автоопределение колонок, корреляционная матрица, прогресс обучения, оптимизатор бюджета.</p>
+   </div>
+   <div class="mode-card">
+     <h3 id="chat-mode">Кабинет эконометриста <span class="mode-badge badge-adv">Продвинутый</span></h3>
+@@ -502,7 +502,7 @@ tr:hover td { background: var(--bg3); }
+   <dd>Значит |r| &gt; 0.8 между ними. Рассмотрите объединение в один суммарный канал или исключение менее значимого. Сильно скоррелированные каналы мешают модели разделить их вклады.</dd>
+ 
+   <dt>Можно ли использовать ежемесячные данные?</dt>
+-  <dd>Да. Укажите минимум 36 точек (3 года). Система автоматически определит частоту (ежедневно / еженедельно / ежемесячно / ежеквартально) и покажет её в блоке валидации.</dd>
++  <dd>Да. Укажите минимум 52 точки. Система автоматически определит частоту (ежедневно / еженедельно / ежемесячно / ежеквартально) и покажет её в блоке валидации.</dd>
+ 
+   <dt>Где хранятся результаты?</dt>
+   <dd>В папке проекта – <strong>Настройки → Папки проектов</strong>. JSON-файлы с результатами: <code>validation.json</code>, <code>model.json</code>, <code>decomposition.json</code> и т.д.</dd>
+diff --git a/src-tauri/help-econometrica/features.html b/src-tauri/help-econometrica/features.html
+index 49cc971..f242061 100644
+--- a/src-tauri/help-econometrica/features.html
++++ b/src-tauri/help-econometrica/features.html
+@@ -178,7 +178,7 @@ code { background: var(--bg3); padding: 1px 6px; border-radius: 4px; font-size:
+   <div class="feat-item"><h3>Презентация PPTX</h3><p>Слайды с графиками и комментариями, готовые к отправке руководству.</p><div class="where"><b>Где:</b> шаг «Отчёт»</div></div>
+   <div class="feat-item"><h3>Многолистовой XLSX</h3><p>5 листов: резюме, модель, декомпозиция, оптимизация, сценарии.</p><div class="where"><b>Где:</b> шаг «Отчёт»</div></div>
+   <div class="feat-item"><h3>HTML-отчёт (офлайн)</h3><p>Web-отчёт с интерактивными графиками. Библиотека графиков встроена в файл (~0,7 МБ) – открывается без интернета.</p><div class="where"><b>Где:</b> шаг «Отчёт»</div></div>
+-  <div class="feat-item"><h3>Экспорт сценариев</h3><p>Сохранённые сценарии выгружаются в CSV / XLSX / PPTX отдельно от основного отчёта.</p><div class="where"><b>Где:</b> сравнение сценариев</div></div>
++  <div class="feat-item"><h3>Экспорт сценариев</h3><p>Сохранённые сценарии выгружаются в CSV отдельно от основного отчёта.</p><div class="where"><b>Где:</b> сравнение сценариев</div></div>
+   <div class="feat-item"><h3>Резюме для руководителя</h3><p>Краткий текстовый вывод результатов из живых значений вашей модели.</p><div class="where"><b>Где:</b> шаг «Отчёт»</div></div>
+ </div>
+ 
+diff --git a/src-tauri/help-econometrica/index.html b/src-tauri/help-econometrica/index.html
+index 3a7c883..b77b1b8 100644
+--- a/src-tauri/help-econometrica/index.html
++++ b/src-tauri/help-econometrica/index.html
+@@ -109,7 +109,7 @@
+     <div class="step">
+       <div class="num">1</div>
+       <h3>Подготовь данные</h3>
+-      <p>XLSX/CSV: date + KPI + медиа-столбцы. Минимум 20 строк на 5 каналов. <a href="data-preparation.html" style="color: var(--accent)">подробнее</a></p>
++      <p>XLSX/CSV: date + KPI + медиа-столбцы. Минимум 10 строк на 5 каналов, рекомендация 20+. <a href="data-preparation.html" style="color: var(--accent)">подробнее</a></p>
+     </div>
+     <div class="step">
+       <div class="num">2</div>
+diff --git a/src/lib/components/pipeline/ExpertValidatePanel.svelte b/src/lib/components/pipeline/ExpertValidatePanel.svelte
+index 498093f..540c11d 100644
+--- a/src/lib/components/pipeline/ExpertValidatePanel.svelte
++++ b/src/lib/components/pipeline/ExpertValidatePanel.svelte
+@@ -142,7 +142,7 @@
+             </th>
+             <th>
+               Пропуски %
+-              <span class="help-icon" title="Доля строк с пропущенным значением (NaN). При &gt;20% столбец лучше исключить - интерполяция не спасёт.">?</span>
++              <span class="help-icon" title="Доля строк с пропущенным значением (NaN). При обучении пропуски считаются нулём, то есть «активности не было» – восстановления значений в расчёте нет. При &gt;20% столбец лучше исключить.">?</span>
+             </th>
+             <th>
+               Нули %
+diff --git a/src/lib/components/pipeline/MultiScenarioPage.svelte b/src/lib/components/pipeline/MultiScenarioPage.svelte
+index 3d9358b..259be8b 100644
+--- a/src/lib/components/pipeline/MultiScenarioPage.svelte
++++ b/src/lib/components/pipeline/MultiScenarioPage.svelte
+@@ -26,7 +26,6 @@
+   } from '$lib/scenario-diff-analyzer.js';
+   import {
+     exportToCsv,
+-    exportToExcel,
+     downloadText,
+     buildExportFilename,
+   } from '$lib/scenario-export.js';
+@@ -293,25 +292,6 @@
+     }
+   }
+ 
+-  /** Export to Excel via Rust backend */
+-  async function handleExportExcel() {
+-    exportOpen = false;
+-    exportBusy = true;
+-    exportStatus = null;
+-    try {
+-      const result = await exportToExcel(scenarios, baseline);
+-      if ('stub' in result) {
+-        exportStatus = result.message;
+-      } else {
+-        exportStatus = `Excel сохранён: ${result.path}`;
+-      }
+-    } catch (e) {
+-      exportStatus = `Ошибка: ${String(e)}`;
+-    } finally {
+-      exportBusy = false;
+-    }
+-  }
+-
+   // Close any open dropdown on outside click
+   function handleDocClick(/** @type {MouseEvent} */ e) {
+     const target = /** @type {HTMLElement | null} */ (e.target);
+@@ -557,11 +537,6 @@
+                 CSV - сравнение
+               </button>
+             </li>
+-            <li role="menuitem">
+-              <button type="button" onclick={handleExportExcel}>
+-                Excel (.xlsx) - сравнение
+-              </button>
+-            </li>
+           </ul>
+         {/if}
+       </div>
+diff --git a/src/lib/data/tooltip-texts.js b/src/lib/data/tooltip-texts.js
+index 71ec338..00f6f34 100644
+--- a/src/lib/data/tooltip-texts.js
++++ b/src/lib/data/tooltip-texts.js
+@@ -134,7 +134,7 @@ export const TOOLTIPS = {
+     'Нули% – доля периодов без активности канала. > 80%: канал почти всегда молчал, сложно оценить эффект. > 60%: рекомендуем объединить с похожим каналом.',
+ 
+   'col.nulls':
+-    'Пропуски (NaN) – строки без значений. В отличие от нулей, пропуски ломают регрессию. Программа интерполирует малые пробелы; при > 20% пропусков лучше исключить столбец.',
++    'Пропуски (NaN) – строки без значений. В отличие от нулей, пропуски ломают регрессию. При обучении они считаются нулём, то есть «активности не было» – восстановления пропущенных значений в расчёте нет, заполните их до обучения. При > 20% пропусков лучше исключить столбец.',
+ 
+   'col.ratio':
+     'Запас данных (Ratio) – отношение числа наблюдений к числу независимых переменных. < 4:1 – мало данных для надёжной оценки. ≥ 4:1 – приемлемо. ≥ 10:1 – отлично.',
+diff --git a/src/lib/insights-rules.js b/src/lib/insights-rules.js
+index e3b79b1..18fa7e8 100644
+--- a/src/lib/insights-rules.js
++++ b/src/lib/insights-rules.js
+@@ -749,7 +749,7 @@ export function validateInsights(result, objective = 'roi', engine = 'bayesian',
+   const missing = cols.filter(/** @param {any} c */ c => c.role !== 'unused' && c.stats?.missing_pct > 5);
+   if (missing.length > 0) {
+     const names = missing.map(/** @param {any} c */ c => `${c.name} (${c.stats.missing_pct.toFixed(0)}%)`).join(', ');
+-    out.push({ severity: 'warning', text: `Пропуски >5%: ${names}`, tip: 'Линейная интерполяция заполнит небольшие пробелы. При >20% пропусков столбец лучше исключить или найти альтернативный источник.' });
++    out.push({ severity: 'warning', text: `Пропуски >5%: ${names}`, tip: 'При обучении пропуски считаются нулём, то есть «активности не было» – восстановления пропущенных значений в расчёте нет, заполните их до обучения. При >20% пропусков столбец лучше исключить или найти альтернативный источник.' });
+   }
+ 
+   // ── Группировка парных колонок и рекомендации ──
+diff --git a/src/lib/program-help.js b/src/lib/program-help.js
+index 6261816..07cc1cb 100644
+--- a/src/lib/program-help.js
++++ b/src/lib/program-help.js
+@@ -43,9 +43,10 @@ export const PROGRAM_OVERVIEW = [
+   '',
+   'Что нужно на входе: таблица Excel (.xlsx), одна строка = одна неделя, колонки –',
+   'дата/неделя, целевой показатель (продажи) и бюджеты либо контакты каналов.',
+-  'Рекомендуемый минимум наблюдений: 52 недели для 2–3 каналов, 78 для 4–6, 104',
+-  'для 7+. Меньше данных – шире правдоподобные диапазоны. Маржа на единицу нужна',
+-  'для вердикта «прибыльный/убыточный». Отраслевая категория (OTC-фарма, FMCG,',
++  'Рекомендуемый уровень данных – от 4 наблюдений на параметр модели, идеальный –',
++  'от 6; минимальная длина ряда – 52 точки. Меньше данных – шире правдоподобные',
++  'диапазоны. Маржа на единицу нужна для вердикта «прибыльный/убыточный».',
++  'Отраслевая категория (OTC-фарма, FMCG,',
+   'B2B) задаёт априорные ожидания модели (priors).',
+   '',
+   'Пайплайн – 7 шагов:',
+@@ -64,7 +65,7 @@ export const PROGRAM_OVERVIEW = [
+   '   рубля; есть обратный режим «подбор под цель» (минимальный бюджет под цель).',
+   '6. Планирование – квартальный медиаплан на основе модели: распределение бюджета',
+   '   по периодам с учётом сезонности и целей, опционально поверх оптимизации.',
+-  '7. Отчёт – выгрузка результата в HTML (печать/конвертация в PDF снаружи).',
++  '7. Отчёт – выгрузка результата в PPTX, XLSX или HTML (печать/конвертация в PDF снаружи).',
+   '',
+   'Вкладки результатов:',
+   '- Декомпозиция – стопчатый график: серая зона снизу = базовые продажи (без',
+diff --git a/src/lib/scenario-export.js b/src/lib/scenario-export.js
+index fea85b9..8dec348 100644
+--- a/src/lib/scenario-export.js
++++ b/src/lib/scenario-export.js
+@@ -1,15 +1,17 @@
+ /**
+- * Scenario Export helpers - CSV / Excel (XLSX via Rust backend) / PPTX export.
++ * Scenario Export helpers - CSV / PPTX export.
+  *
+  * Per WIZARD_FLOW_v2_FINAL.md §4.2 ScenarioExport + ADR-019 §7.
+  *
+- * XLSX uses Rust backend command `econ_export_scenarios_xlsx` (same pattern as
+- * `econ_export_xlsx` in ReportStep). PPTX delegates to `export_scenarios_pptx`.
+- * Both commands may not be implemented yet - stubs return placeholder Blob with
+- * TODO comment (per spec instruction).
++ * PPTX delegates to Rust backend command `export_scenarios_pptx`. Command may
++ * not be implemented yet - stub returns placeholder Blob with TODO comment
++ * (per spec instruction).
+  *
+  * CSV is native JS - no extra deps required.
+  *
++ * (Excel/XLSX export removed - `econ_export_scenarios_xlsx` Rust command never
++ * existed, button always failed silently. XLSX export is a backlog item.)
++ *
+  * @module scenario-export
+  */
+ 
+@@ -137,58 +139,6 @@ export function exportToCsv(scenarios, baseline = null) {
+   return '﻿' + rows.join('\r\n');
+ }
+ 
+-/**
+- * Export scenarios to Excel XLSX binary via Rust backend.
+- *
+- * Delegates to Tauri command `econ_export_scenarios_xlsx` which writes the file
+- * to disk and returns the path. If the command is not yet implemented on the
+- * backend, returns a stub Blob with a TODO comment.
+- *
+- * The returned path string is used by the UI to open the file with the OS viewer.
+- * For in-browser download use `downloadBlob` with the CSV fallback.
+- *
+- * @param {Scenario[]} scenarios
+- * @param {Scenario | null} [baseline]
+- * @returns {Promise<{ path: string } | { stub: true, message: string }>}
+- */
+-export async function exportToExcel(scenarios, baseline = null) {
+-  // Build lightweight payload for backend serialization
+-  const all = baseline
+-    ? [baseline, ...scenarios.filter(s => s.id !== baseline.id)]
+-    : scenarios;
+-
+-  const payload = all.map(sc => ({
+-    id: sc.id,
+-    name: sc.name,
+-    budget: sc.budget ?? 0,
+-    predicted_kpi: sc.predictedKpi ?? 0,
+-    ci_low: sc.ciLow ?? null,
+-    ci_high: sc.ciHigh ?? null,
+-    per_channel_allocation: sc.perChannelAllocation ?? {},
+-    uplift_pct: baseline && baseline.predictedKpi && sc.id !== baseline.id
+-      ? ((sc.predictedKpi - baseline.predictedKpi) / Math.abs(baseline.predictedKpi)) * 100
+-      : null,
+-  }));
+-
+-  try {
+-    const result = /** @type {{ path: string }} */ (
+-      await invoke('econ_export_scenarios_xlsx', { scenarios: payload })
+-    );
+-    return result;
+-  } catch (err) {
+-    // Backend command not yet implemented - return stub
+-    // TODO: implement Rust command `econ_export_scenarios_xlsx` that writes
+-    // a multi-sheet XLSX (Sheet1: comparison table, Sheet2: per-period forecasts).
+-    console.warn('econ_export_scenarios_xlsx not implemented, returning stub:', err);
+-    return {
+-      stub: true,
+-      message:
+-        'Excel export временно недоступен. Используйте CSV export. ' +
+-        '(Backend команда econ_export_scenarios_xlsx не реализована.)',
+-    };
+-  }
+-}
+-
+ /**
+  * Export scenarios to PPTX (single slide with comparison table + chart).
+  *
+diff --git a/src/tests/multi-scenario-page.test.js b/src/tests/multi-scenario-page.test.js
+index fcab609..d99ca4c 100644
+--- a/src/tests/multi-scenario-page.test.js
++++ b/src/tests/multi-scenario-page.test.js
+@@ -327,13 +327,18 @@ describe('MultiScenarioPage - Export dropdown', () => {
+     expect(screen.getByText(/CSV/)).toBeInTheDocument();
+   });
+ 
+-  it('Export dropdown contains Excel option', async () => {
++  // TIDY-UI.3 (2026-08-16): кнопка «Excel (.xlsx) - сравнение» убрана — вела
++  // на несуществующую Rust-команду econ_export_scenarios_xlsx (её нет в
++  // src-tauri/src/), фронт ловил ошибку и подставлял заглушку «Excel export
++  // временно недоступен». Тест перевёрнут по образцу PPTX-сторожа ниже —
++  // теперь стережёт ОТСУТСТВИЕ обещания, которое продукт не мог выполнить.
++  it('Export dropdown does not offer Excel (no working backend command)', async () => {
+     render(MultiScenarioPage, {
+       props: { scenarios: [makeScenario('sc-1'), makeScenario('sc-2')] },
+     });
+     const exportBtn = screen.getByRole('button', { name: /Экспорт/ });
+     await fireEvent.click(exportBtn);
+-    expect(screen.getByText(/Excel/)).toBeInTheDocument();
++    expect(screen.queryByText(/Excel/)).not.toBeInTheDocument();
+   });
+ 
+   // P0.4 (2026-08-03): кнопка PPTX убрана — вела на несуществующую Rust-команду
+diff --git a/src/tests/scenario-export.test.js b/src/tests/scenario-export.test.js
+index a1364f0..fd4b45b 100644
+--- a/src/tests/scenario-export.test.js
++++ b/src/tests/scenario-export.test.js
+@@ -5,17 +5,17 @@
+  *   - exportToCsv: empty, single, multi-scenario, BOM prefix, comma escaping, number format
+  *   - downloadBlob: DOM click triggered, URL revoked after timeout
+  *   - buildExportFilename: includes date, correct structure
+- *   - exportToExcel: mock invoke success, mock invoke throw (stub fallback)
+  *   - exportToPptx: mock invoke success, mock invoke throw (stub fallback)
++ *   - module does not export exportToExcel (removed 2026-08-16, see Suite 6)
+  */
+ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+ import {
+   exportToCsv,
+   downloadBlob,
+   buildExportFilename,
+-  exportToExcel,
+   exportToPptx,
+ } from '../lib/scenario-export.js';
++import * as scenarioExportModule from '../lib/scenario-export.js';
+ import { invoke } from '@tauri-apps/api/core';
+ 
+ 
+@@ -312,34 +312,18 @@ describe('downloadBlob - DOM interaction', () => {
+ 
+ 
+ // ---------------------------------------------------------------------------
+-// Suite 6: exportToExcel - invoke mock
++// Suite 6: exportToExcel removed (2026-08-16) - guard against reintroduction
+ // ---------------------------------------------------------------------------
+-describe('exportToExcel - invoke mock', () => {
+-
+-  it('returns path result on successful invoke', async () => {
+-    invoke.mockResolvedValueOnce({ path: '/tmp/scenarios.xlsx' });
+-    const result = await exportToExcel([makePlanA()], makeBaseline());
+-    expect(result).toEqual({ path: '/tmp/scenarios.xlsx' });
+-  });
+-
+-  it('returns stub object when invoke throws (graceful degradation)', async () => {
+-    invoke.mockRejectedValueOnce(new Error('command not found'));
+-    const result = await exportToExcel([makePlanA()], null);
+-    expect(result).toHaveProperty('stub', true);
+-    expect(result).toHaveProperty('message');
+-    expect(typeof result.message).toBe('string');
+-  });
+-
+-  it('stub message mentions CSV fallback', async () => {
+-    invoke.mockRejectedValueOnce(new Error('not impl'));
+-    const result = await exportToExcel([makePlanA()], null);
+-    expect(result.message).toContain('CSV');
+-  });
+-
+-  it('returns a Promise', () => {
+-    invoke.mockResolvedValueOnce({ path: '/tmp/x.xlsx' });
+-    const r = exportToExcel([makePlanA()], null);
+-    expect(r).toBeInstanceOf(Promise);
++// Кнопка «Excel (.xlsx) - сравнение» в MultiScenarioPage всегда падала в catch:
++// звала invoke('econ_export_scenarios_xlsx', ...), а такой Rust-команды в
++// src-tauri/src/ нет и не было - пользователь всегда получал заглушку «Excel
++// export временно недоступен». Функцию убрали вместе с кнопкой (тот же
++// прецедент, что PPTX 2026-08-03, см. multi-scenario-page.test.js). Тест
++// перевёрнут по тому же образцу - стережёт ОТСУТСТВИЕ обещания.
++describe('scenario-export module - no exportToExcel (removed 2026-08-16)', () => {
++
++  it('does not export exportToExcel (backend econ_export_scenarios_xlsx never existed)', () => {
++    expect(scenarioExportModule.exportToExcel).toBeUndefined();
+   });
+ 
+ });
