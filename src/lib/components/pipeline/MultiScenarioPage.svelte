@@ -26,7 +26,6 @@
   } from '$lib/scenario-diff-analyzer.js';
   import {
     exportToCsv,
-    exportToExcel,
     downloadText,
     buildExportFilename,
   } from '$lib/scenario-export.js';
@@ -293,25 +292,6 @@
     }
   }
 
-  /** Export to Excel via Rust backend */
-  async function handleExportExcel() {
-    exportOpen = false;
-    exportBusy = true;
-    exportStatus = null;
-    try {
-      const result = await exportToExcel(scenarios, baseline);
-      if ('stub' in result) {
-        exportStatus = result.message;
-      } else {
-        exportStatus = `Excel сохранён: ${result.path}`;
-      }
-    } catch (e) {
-      exportStatus = `Ошибка: ${String(e)}`;
-    } finally {
-      exportBusy = false;
-    }
-  }
-
   // Close any open dropdown on outside click
   function handleDocClick(/** @type {MouseEvent} */ e) {
     const target = /** @type {HTMLElement | null} */ (e.target);
@@ -555,11 +535,6 @@
             <li role="menuitem">
               <button type="button" onclick={handleExportCsv}>
                 CSV - сравнение
-              </button>
-            </li>
-            <li role="menuitem">
-              <button type="button" onclick={handleExportExcel}>
-                Excel (.xlsx) - сравнение
               </button>
             </li>
           </ul>

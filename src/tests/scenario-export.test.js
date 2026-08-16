@@ -5,17 +5,17 @@
  *   - exportToCsv: empty, single, multi-scenario, BOM prefix, comma escaping, number format
  *   - downloadBlob: DOM click triggered, URL revoked after timeout
  *   - buildExportFilename: includes date, correct structure
- *   - exportToExcel: mock invoke success, mock invoke throw (stub fallback)
  *   - exportToPptx: mock invoke success, mock invoke throw (stub fallback)
+ *   - module does not export exportToExcel (removed 2026-08-16, see Suite 6)
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import {
   exportToCsv,
   downloadBlob,
   buildExportFilename,
-  exportToExcel,
   exportToPptx,
 } from '../lib/scenario-export.js';
+import * as scenarioExportModule from '../lib/scenario-export.js';
 import { invoke } from '@tauri-apps/api/core';
 
 
@@ -312,34 +312,18 @@ describe('downloadBlob - DOM interaction', () => {
 
 
 // ---------------------------------------------------------------------------
-// Suite 6: exportToExcel - invoke mock
+// Suite 6: exportToExcel removed (2026-08-16) - guard against reintroduction
 // ---------------------------------------------------------------------------
-describe('exportToExcel - invoke mock', () => {
+// Кнопка «Excel (.xlsx) - сравнение» в MultiScenarioPage всегда падала в catch:
+// звала invoke('econ_export_scenarios_xlsx', ...), а такой Rust-команды в
+// src-tauri/src/ нет и не было - пользователь всегда получал заглушку «Excel
+// export временно недоступен». Функцию убрали вместе с кнопкой (тот же
+// прецедент, что PPTX 2026-08-03, см. multi-scenario-page.test.js). Тест
+// перевёрнут по тому же образцу - стережёт ОТСУТСТВИЕ обещания.
+describe('scenario-export module - no exportToExcel (removed 2026-08-16)', () => {
 
-  it('returns path result on successful invoke', async () => {
-    invoke.mockResolvedValueOnce({ path: '/tmp/scenarios.xlsx' });
-    const result = await exportToExcel([makePlanA()], makeBaseline());
-    expect(result).toEqual({ path: '/tmp/scenarios.xlsx' });
-  });
-
-  it('returns stub object when invoke throws (graceful degradation)', async () => {
-    invoke.mockRejectedValueOnce(new Error('command not found'));
-    const result = await exportToExcel([makePlanA()], null);
-    expect(result).toHaveProperty('stub', true);
-    expect(result).toHaveProperty('message');
-    expect(typeof result.message).toBe('string');
-  });
-
-  it('stub message mentions CSV fallback', async () => {
-    invoke.mockRejectedValueOnce(new Error('not impl'));
-    const result = await exportToExcel([makePlanA()], null);
-    expect(result.message).toContain('CSV');
-  });
-
-  it('returns a Promise', () => {
-    invoke.mockResolvedValueOnce({ path: '/tmp/x.xlsx' });
-    const r = exportToExcel([makePlanA()], null);
-    expect(r).toBeInstanceOf(Promise);
+  it('does not export exportToExcel (backend econ_export_scenarios_xlsx never existed)', () => {
+    expect(scenarioExportModule.exportToExcel).toBeUndefined();
   });
 
 });

@@ -749,7 +749,7 @@ export function validateInsights(result, objective = 'roi', engine = 'bayesian',
   const missing = cols.filter(/** @param {any} c */ c => c.role !== 'unused' && c.stats?.missing_pct > 5);
   if (missing.length > 0) {
     const names = missing.map(/** @param {any} c */ c => `${c.name} (${c.stats.missing_pct.toFixed(0)}%)`).join(', ');
-    out.push({ severity: 'warning', text: `Пропуски >5%: ${names}`, tip: 'Линейная интерполяция заполнит небольшие пробелы. При >20% пропусков столбец лучше исключить или найти альтернативный источник.' });
+    out.push({ severity: 'warning', text: `Пропуски >5%: ${names}`, tip: 'При обучении пропуски считаются нулём, то есть «активности не было» – восстановления пропущенных значений в расчёте нет, заполните их до обучения. При >20% пропусков столбец лучше исключить или найти альтернативный источник.' });
   }
 
   // ── Группировка парных колонок и рекомендации ──

@@ -1,14 +1,16 @@
 /**
- * Scenario Export helpers - CSV / Excel (XLSX via Rust backend) / PPTX export.
+ * Scenario Export helpers - CSV / PPTX export.
  *
  * Per WIZARD_FLOW_v2_FINAL.md §4.2 ScenarioExport + ADR-019 §7.
  *
- * XLSX uses Rust backend command `econ_export_scenarios_xlsx` (same pattern as
- * `econ_export_xlsx` in ReportStep). PPTX delegates to `export_scenarios_pptx`.
- * Both commands may not be implemented yet - stubs return placeholder Blob with
- * TODO comment (per spec instruction).
+ * PPTX delegates to Rust backend command `export_scenarios_pptx`. Command may
+ * not be implemented yet - stub returns placeholder Blob with TODO comment
+ * (per spec instruction).
  *
  * CSV is native JS - no extra deps required.
+ *
+ * (Excel/XLSX export removed - `econ_export_scenarios_xlsx` Rust command never
+ * existed, button always failed silently. XLSX export is a backlog item.)
  *
  * @module scenario-export
  */
@@ -135,58 +137,6 @@ export function exportToCsv(scenarios, baseline = null) {
 
   // UTF-8 BOM for correct Excel opening
   return '﻿' + rows.join('\r\n');
-}
-
-/**
- * Export scenarios to Excel XLSX binary via Rust backend.
- *
- * Delegates to Tauri command `econ_export_scenarios_xlsx` which writes the file
- * to disk and returns the path. If the command is not yet implemented on the
- * backend, returns a stub Blob with a TODO comment.
- *
- * The returned path string is used by the UI to open the file with the OS viewer.
- * For in-browser download use `downloadBlob` with the CSV fallback.
- *
- * @param {Scenario[]} scenarios
- * @param {Scenario | null} [baseline]
- * @returns {Promise<{ path: string } | { stub: true, message: string }>}
- */
-export async function exportToExcel(scenarios, baseline = null) {
-  // Build lightweight payload for backend serialization
-  const all = baseline
-    ? [baseline, ...scenarios.filter(s => s.id !== baseline.id)]
-    : scenarios;
-
-  const payload = all.map(sc => ({
-    id: sc.id,
-    name: sc.name,
-    budget: sc.budget ?? 0,
-    predicted_kpi: sc.predictedKpi ?? 0,
-    ci_low: sc.ciLow ?? null,
-    ci_high: sc.ciHigh ?? null,
-    per_channel_allocation: sc.perChannelAllocation ?? {},
-    uplift_pct: baseline && baseline.predictedKpi && sc.id !== baseline.id
-      ? ((sc.predictedKpi - baseline.predictedKpi) / Math.abs(baseline.predictedKpi)) * 100
-      : null,
-  }));
-
-  try {
-    const result = /** @type {{ path: string }} */ (
-      await invoke('econ_export_scenarios_xlsx', { scenarios: payload })
-    );
-    return result;
-  } catch (err) {
-    // Backend command not yet implemented - return stub
-    // TODO: implement Rust command `econ_export_scenarios_xlsx` that writes
-    // a multi-sheet XLSX (Sheet1: comparison table, Sheet2: per-period forecasts).
-    console.warn('econ_export_scenarios_xlsx not implemented, returning stub:', err);
-    return {
-      stub: true,
-      message:
-        'Excel export временно недоступен. Используйте CSV export. ' +
-        '(Backend команда econ_export_scenarios_xlsx не реализована.)',
-    };
-  }
 }
 
 /**

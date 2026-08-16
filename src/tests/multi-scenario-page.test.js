@@ -327,13 +327,18 @@ describe('MultiScenarioPage - Export dropdown', () => {
     expect(screen.getByText(/CSV/)).toBeInTheDocument();
   });
 
-  it('Export dropdown contains Excel option', async () => {
+  // TIDY-UI.3 (2026-08-16): кнопка «Excel (.xlsx) - сравнение» убрана — вела
+  // на несуществующую Rust-команду econ_export_scenarios_xlsx (её нет в
+  // src-tauri/src/), фронт ловил ошибку и подставлял заглушку «Excel export
+  // временно недоступен». Тест перевёрнут по образцу PPTX-сторожа ниже —
+  // теперь стережёт ОТСУТСТВИЕ обещания, которое продукт не мог выполнить.
+  it('Export dropdown does not offer Excel (no working backend command)', async () => {
     render(MultiScenarioPage, {
       props: { scenarios: [makeScenario('sc-1'), makeScenario('sc-2')] },
     });
     const exportBtn = screen.getByRole('button', { name: /Экспорт/ });
     await fireEvent.click(exportBtn);
-    expect(screen.getByText(/Excel/)).toBeInTheDocument();
+    expect(screen.queryByText(/Excel/)).not.toBeInTheDocument();
   });
 
   // P0.4 (2026-08-03): кнопка PPTX убрана — вела на несуществующую Rust-команду
