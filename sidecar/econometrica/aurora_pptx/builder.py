@@ -165,6 +165,11 @@ def строки_сертификата(cert) -> list[tuple[str, str]]:
         строки.append(("Повторяемость", "расчёт без случайного подбора"))
     elif cert.get("status") == "not_attested":
         строки.append(("Заверение", "неполное"))
+    # Исходные данные и перенос эффекта – те же факты, что в отчёте, в краткой
+    # форме. Текст один на оба документа (`engines/methodology_cert.py`), иначе
+    # презентация и отчёт разойдутся формулировками об одном расчёте.
+    from engines.methodology_cert import краткие_строки_данных_и_переноса
+    строки.extend(краткие_строки_данных_и_переноса(cert))
     return строки
 
 
@@ -3082,18 +3087,26 @@ class AuroraPPTXBuilder:
         # P0.7 шаг 15: воспроизводимость и сертификат.
         diag.extend(строки_сертификата(self.data.get("certificate")))
         dy = diag_y + 0.4
+        # Шаг строки сжимается ровно настолько, чтобы список кончился выше
+        # сноски слайда. Прежний шаг 0.3 сохраняется везде, где список в него
+        # укладывается (без сертификата – четыре метрики). Отпечаток данных и
+        # перенос эффекта доводят список до восьми строк, и при 0.3 последние
+        # две легли бы поверх сноски о приорах и под линию подвала.
+        ВЕРХ_СНОСКИ = 6.85
+        шаг = min(0.3, max((ВЕРХ_СНОСКИ - dy) / max(len(diag), 1), 0.18))
+        высота_строки = min(0.25, шаг - 0.02)
         for label, val in diag:
             self._text(
-                slide, left_x, dy, left_w * 0.55, 0.25, label,
+                slide, left_x, dy, left_w * 0.55, высота_строки, label,
                 font=self.sans, size=10, color=self.deep_60,
             )
             self._text(
-                slide, left_x + left_w * 0.55, dy, left_w * 0.45, 0.25, val,
+                slide, left_x + left_w * 0.55, dy, left_w * 0.45, высота_строки, val,
                 font=self.sans, size=10, bold=True, color=self.deep_100,
                 align=PP_ALIGN.RIGHT,
             )
-            self._hairline(slide, left_x, dy + 0.27, left_w, weight=0.25)
-            dy += 0.3
+            self._hairline(slide, left_x, dy + высота_строки + 0.02, left_w, weight=0.25)
+            dy += шаг
 
         # RIGHT: Limitations (tier-1 differentiator)
         right_x = left_x + left_w + 0.5
