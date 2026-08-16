@@ -326,14 +326,17 @@
     <EChartBase option={chartOption} height="280px" />
 
     <section class="outcome" class:outcome-ok={result.maximum.outcome === 'interior_observed'}
-      class:outcome-info={result.maximum.outcome === 'beyond_observed'}
+      class:outcome-info={result.maximum.outcome === 'beyond_observed' || result.maximum.outcome === 'at_grid_ceiling'}
       class:outcome-warn={result.maximum.outcome === 'below_current'}
       data-testid="frontier-outcome">
       <p class="outcome-message">{result.maximum.message}</p>
       {#if result.maximum.reportable}
         <div class="outcome-figure" data-testid="frontier-maximum-budget">
           <span class="figure-label">Максимум прибыли при бюджете:</span>
-          <span class="figure-value">{formatMoney(result.maximum.budget, { compact: false })}</span>
+          <!-- 2026-08-16 (F-17, fix-frontier): budget_display - округлённое до
+               разрешения сетки число для экрана, budget (точное) не печатаем -
+               псевдоточность иначе вернулась бы через карточку. -->
+          <span class="figure-value">{formatMoney(result.maximum.budget_display, { compact: false })}</span>
         </div>
       {/if}
       {#if result.maximum.at_observed_frontier}
@@ -347,9 +350,19 @@
     <section class="interval" data-testid="posterior-interval">
       {#if result.posterior_interval?.available}
         <p>
-          Правдоподобный диапазон положения максимума (90%):
+          <!-- 2026-08-16 (F-12, fix-frontier): интервал, усечённый расчётной сеткой
+               (is_probabilistic=false), - не вероятностное утверждение, подпись
+               без «90%». -->
+          {#if result.posterior_interval.is_probabilistic === false}
+            Диапазон положения максимума (ограничен расчётной сеткой):
+          {:else}
+            Правдоподобный диапазон положения максимума (90%):
+          {/if}
           <strong>{formatMoney(result.posterior_interval.low, { compact: false })} – {formatMoney(result.posterior_interval.high, { compact: false })}</strong>
         </p>
+        {#if result.posterior_interval.caveat}
+          <p class="interval-caveat" data-testid="posterior-interval-caveat">{result.posterior_interval.caveat}</p>
+        {/if}
       {:else}
         <p class="interval-unavailable">{result.posterior_interval?.message ?? 'Интервал на положение максимума недоступен.'}</p>
       {/if}
@@ -437,6 +450,7 @@
   .interval p { margin: 0; line-height: 1.5; }
   .interval strong { color: var(--text-primary); }
   .interval-unavailable { color: var(--text-muted); }
+  .interval-caveat { margin: 4px 0 0; font-size: 11px; color: var(--warning, #fbbf24); line-height: 1.5; }
 
   .current-row { display: flex; gap: 18px; flex-wrap: wrap; font-size: 12px; color: var(--text-secondary); }
   .current-row strong { color: var(--text-primary); }
