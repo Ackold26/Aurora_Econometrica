@@ -1,6 +1,6 @@
 {
-  "version": "2.4.10",
-  "generated": "2026-08-16T10:47:00Z",
+  "version": "2.5.0",
+  "generated": "2026-08-16T20:26:29Z",
   "sources": {
     "about.html": "d341856678790fe296783eb6296b499fde5df8ec32c5cbd5d74caf7c2a1707b0",
     "data-preparation.html": "c094135d2cfa18b3af4f9894478c8c3df363649423eed3fd004151972c259fa4",
@@ -10,7 +10,7 @@
     "features.html": "06a8884f6e159b187e01107dcb0e6834847394ecc01bf5afeec791ee4258b78b",
     "glossary.html": "5380cdb0dfbd9434bb9d5406fd835ce3de1cc7d1b098ec151071c939f2452065",
     "index.html": "0a0f1e080479e057c339a8b008069ab1e4d98a520747a885bcb4f8584f2c2713",
-    "install.html": "b307ed229c10d9a801d559c0399f3293eab14786049049bc85a0b162d591cf7e",
+    "install.html": "bd5adefad2cbf37329a8a47be3240757a2f7efa02f94cfe191db07439716a8d4",
     "interpretation.html": "fbc86093348c511c9e17a3576973023dcb12ee95cb1311491529f779df8b10b5",
     "methodology.html": "1cf743634c196251126b82e065237f97a1ca198bc498772b722f7bf2458988df",
     "pipeline.html": "e8ba03e772c61a1ca7fbe87662947674895e83df23306f8a13c4923fb25e3faf",
