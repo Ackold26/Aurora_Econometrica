@@ -2362,6 +2362,9 @@ def optimize_corridor(req: SafeCorridorRequest):
             model_data,
             relative_lo_factor=req.relative_lo_factor,
             relative_hi_factor=req.relative_hi_factor,
+            # 2026-08-16: прямой проход есть → aggregate_sales считается
+            # по-настоящему (двумя вызовами forward), а не остаётся заглушкой.
+            project_dir=req.project_dir,
         )
         corridor['status'] = 'ok'
         return JSONResponse(content=corridor)
@@ -2372,6 +2375,61 @@ def optimize_corridor(req: SafeCorridorRequest):
             'message': _friendly_error(e),
             'type': type(e).__name__,
         })
+
+
+class ProfitFrontierRequest(BaseModel):
+    """Профит-фронтир (2026-08-16): «сколько вообще тратить».
+
+    Экономика приходит из запроса и приоритетнее хранилищ проекта. Валовой маржи
+    для денежных метрик в проекте сегодня нет — без неё расчёт честно отказывает.
+    """
+    project_dir: str
+    kpi_type: str | None = None
+    value_per_count_unit: float | None = None
+    gross_margin: float | None = None
+    n_points: int = Field(default=25, ge=5, le=101)
+    lo_multiplier: float = Field(default=0.2, gt=0.0, lt=1.0)
+    hi_multiplier: float = Field(default=3.0, gt=1.0, le=10.0)
+    max_samples: int = Field(default=200, ge=20, le=1000)
+    unit_costs: dict[str, float] | None = None
+
+
+@app.post('/optimize/profit-frontier')
+def optimize_profit_frontier_endpoint(req: ProfitFrontierRequest):
+    """Кривая прибыли по суммарному бюджету + максимум с честной границей данных.
+
+    Дёшево (~1 с: чтение модели + сетка + апостериорные выборки) — считается
+    на лету рядом с оптимизацией, отдельного долгого прогона не нужно.
+    status='economics_required' — честный отказ «не хватает экономики», не сбой:
+    без перевода KPI в деньги максимума прибыли не существует (INV-50).
+    """
+    try:
+        from optimize.frontier import compute_profit_frontier
+
+        result = compute_profit_frontier(
+            project_dir=req.project_dir,
+            economics={
+                'kpi_type': req.kpi_type,
+                'value_per_count_unit': req.value_per_count_unit,
+                'gross_margin': req.gross_margin,
+            },
+            n_points=req.n_points,
+            lo_multiplier=req.lo_multiplier,
+            hi_multiplier=req.hi_multiplier,
+            max_samples=req.max_samples,
+            unit_costs_override=req.unit_costs,
+        )
+        if result.get('error_code') == 'MODEL_NOT_FOUND':
+            return JSONResponse(status_code=404, content=result)
+        return JSONResponse(content=result)
+    except FileNotFoundError as e:
+        # Текст резолвера данных уже человеческий и с действием — как есть.
+        return JSONResponse(status_code=200, content={
+            'status': 'error', 'error_code': 'DATA_FILE_MISSING', 'message': str(e)})
+    except Exception as e:
+        logger.exception('Profit frontier FAILED')
+        return JSONResponse(status_code=500, content={
+            'status': 'error', 'message': _friendly_error(e), 'type': type(e).__name__})
 
 
 class SplitCiRequest(BaseModel):

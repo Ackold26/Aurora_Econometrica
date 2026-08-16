@@ -330,11 +330,27 @@ def build_proportional_forward(project_dir: str, unit_costs_override: Optional[D
                 })
         return {'severity': max_sev, 'channels': channels}
 
+    # Признак периода (2026-08-16, профит-фронтир): forward считает СУММАРНЫЕ
+    # продажи за весь период обучения при СУММАРНОМ бюджете за тот же период.
+    # Потребитель обязан подписать числа периодом, иначе читает их «в месяц»
+    # (дефект «260 млн против 2,46 млрд» в бэклоге). n_periods и шаг дат живут
+    # здесь — df уже прочитан, повторное чтение файла стоило бы ~1 с.
+    period_granularity = None
+    try:
+        from utils.forecast_validation import detect_granularity
+        date_col = cfg.get('date_column', 'date')
+        if date_col in df.columns:
+            period_granularity = detect_granularity(df[date_col])
+    except Exception:  # noqa: BLE001 - подпись периода не должна ронять goal-seek
+        period_granularity = None
+
     return forward, {
         'current_total_money': total_cur_money,
         'baseline_total': baseline_total,
         'posterior_sampler': posterior_sampler,
         'extrapolation_reporter': extrapolation_reporter,
+        'n_periods': n_periods,
+        'period_granularity': period_granularity,
     }
 
 

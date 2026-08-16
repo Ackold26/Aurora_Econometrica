@@ -86,12 +86,16 @@ def compute_safe_corridor(
     model_data: Dict[str, Any],
     relative_lo_factor: float = 0.5,
     relative_hi_factor: float = 1.5,
+    project_dir: Any = None,
 ) -> Dict[str, Any]:
     """Compute safe corridor for all channels + aggregate.
 
     Args:
         model_data: loaded model pickle (через `load_model_with_compat`).
         relative_lo_factor / relative_hi_factor: see compute_per_channel_bounds.
+        project_dir: каталог проекта. Задан — считаем `aggregate_sales` прямым
+            проходом на границах агрегатного бюджета (2026-08-16, профит-фронтир:
+            прямой проход теперь есть, заглушку закрываем). None — поля нет.
 
     Returns:
         Dict:
@@ -100,11 +104,27 @@ def compute_safe_corridor(
           'formula': 'max(P5, 0.5*mu), min(P95, 1.5*mu)',
           'per_channel': {channel: {lo, hi, mu, p5, p95, current}},
           'aggregate_budget': {lo, hi, current},
-          'aggregate_sales': {lo, hi, current}  # optional, требует forward pass
+          'aggregate_sales': {lo, hi, current, basis, n_periods}  # если задан project_dir
         }
 
-    Note: aggregate_sales - placeholder. Полный compute требует forward pass
-    через model (вынесен в goal_seek.py).
+    `aggregate_sales` — СУММАРНЫЕ продажи за весь период обучения при бюджетах
+    границ коридора (`basis='total_over_training_period'`), считаются двумя
+    вызовами прямого прохода `build_proportional_forward` (плюс один в текущей
+    точке). Проход фиксирует текущие пропорции каналов и масштабирует общий
+    бюджет — те же продажи, что показывает подбор бюджета «от цели».
+
+    🔴 Основания в `aggregate_budget` разные: `lo`/`hi` — траты ЗА ОДИН ПЕРИОД
+    (перцентили и среднее по строкам данных), `current` — СУММА за весь период
+    обучения. Продажи считаются от суммарных бюджетов, и бюджеты, по которым
+    считали, отдаются полем `aggregate_sales.budget_used` вместе с флагом
+    `corridor_basis_mismatch` — чтобы число на экране нельзя было подписать
+    не тем основанием.
+
+    🔴 Единицы: коридор суммирует НАТИВНЫЕ траты каналов, а прямой проход ждёт
+    ДЕНЬГИ. Совпадает только когда стоимость единицы у всех каналов = 1 (данные
+    уже в рублях). Иначе чисел не даём — отдаём статус `unit_mismatch`
+    (тот же принцип, что UNIT_SMELL в оптимизаторе: смешанные единицы лучше
+    не показывать вовсе, чем показать неправильно).
     """
     config = model_data.get('config', {})
     media_cols = config.get('media_columns', [])
@@ -169,12 +189,107 @@ def compute_safe_corridor(
         'current': sum_current,
     }
 
-    return {
+    result = {
         'mode': 'mvp',
         'formula': f'max(P5, {relative_lo_factor}*mu), min(P95, {relative_hi_factor}*mu)',
         'per_channel': per_channel,
         'aggregate_budget': aggregate_budget,
     }
+
+    if project_dir is not None:
+        result['aggregate_sales'] = _aggregate_sales_at_bounds(
+            project_dir, config, aggregate_budget)
+
+    return result
+
+
+def _aggregate_sales_at_bounds(
+    project_dir: Any,
+    config: Dict[str, Any],
+    aggregate_budget: Dict[str, float],
+) -> Dict[str, Any]:
+    """Продажи на границах агрегатного коридора — двумя вызовами прямого прохода.
+
+    Возвращает либо {'status': 'ok', 'lo', 'hi', 'current', 'basis', 'n_periods'},
+    либо {'status': 'unavailable'|'unit_mismatch', 'reason', 'message'} — числа
+    не выдумываем (INV-50): нет корректной величины → статус, не ноль.
+    """
+    try:
+        from optimize.inverse import _resolve_current_unit_costs, build_proportional_forward
+
+        # Единицы: коридор в нативных тратах, проход — в деньгах. Совпадают
+        # только при стоимости единицы = 1 у всех каналов коридора.
+        unit_costs = _resolve_current_unit_costs(str(project_dir), config)
+        mismatched = sorted(
+            c for c, v in (unit_costs or {}).items()
+            if c in (config.get('media_columns') or []) and abs(float(v) - 1.0) > 1e-9
+        )
+        if mismatched:
+            return {
+                'status': 'unit_mismatch',
+                'reason': 'non_money_channels',
+                'channels': mismatched,
+                'message': (
+                    'Границы коридора считаются в натуральных единицах каналов, '
+                    'а продажи – от денежного бюджета. У части каналов задана '
+                    'стоимость единицы, поэтому сопоставить их напрямую нельзя: '
+                    'продажи на границах коридора не показываем.'
+                ),
+            }
+
+        forward, meta = build_proportional_forward(str(project_dir))
+        n_periods = int(meta.get('n_periods') or 0)
+        if n_periods <= 0:
+            return {
+                'status': 'unavailable',
+                'reason': 'n_periods_unknown',
+                'message': ('Число периодов обучения неизвестно – привести границы '
+                            'коридора к суммарному бюджету нельзя.'),
+            }
+
+        # 🔴 Основания разные (находка 2026-08-16): `lo`/`hi` коридора — это траты
+        # ЗА ОДИН ПЕРИОД (перцентили и среднее по строкам данных), а `current` в том
+        # же словаре — СУММА за весь период обучения. Прямой проход ждёт суммарный
+        # бюджет. Поэтому границы приводим к тому же основанию (× число периодов) и
+        # ЯВНО отдаём бюджеты, по которым считали, — иначе продажи «зелёной зоны»
+        # оказались бы почти базовым уровнем и читались бы как обвал (на реальной
+        # модели: 5,1 млн против текущих 260,2 млн). Само поле aggregate_budget
+        # не трогаем — им пользуется интерфейс.
+        budget_used = {
+            'lo': float(aggregate_budget.get('lo', 0.0) or 0.0) * n_periods,
+            'hi': float(aggregate_budget.get('hi', 0.0) or 0.0) * n_periods,
+            'current': float(aggregate_budget.get('current', 0.0) or 0.0),
+        }
+        out: Dict[str, Any] = {
+            'status': 'ok',
+            'basis': 'total_over_training_period',
+            'n_periods': n_periods,
+            'budget_used': budget_used,
+            'corridor_budget_basis': 'per_period',
+            'corridor_basis_mismatch': True,
+            'message': (
+                'Границы коридора заданы тратами за один период, а текущий бюджет – '
+                'суммой за весь период обучения. Продажи посчитаны от суммарных '
+                'бюджетов (границы × число периодов); эти бюджеты приведены '
+                'в поле budget_used.'
+            ),
+        }
+        for key in ('lo', 'hi', 'current'):
+            point = forward(budget_used[key])
+            if point.get('status') != 'ok':
+                return {
+                    'status': 'unavailable',
+                    'reason': 'forward_failed',
+                    'message': ('Продажи на границах коридора рассчитать не удалось.'),
+                }
+            out[key] = float(point['expected_sales'])
+        return out
+    except Exception as exc:  # noqa: BLE001 - коридор на критическом пути, не роняем
+        return {
+            'status': 'unavailable',
+            'reason': 'forward_unavailable',
+            'message': f'Продажи на границах коридора рассчитать не удалось: {exc}',
+        }
 
 
 def is_in_safe_corridor(
