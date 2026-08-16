@@ -746,10 +746,20 @@ export function validateInsights(result, objective = 'roi', engine = 'bayesian',
   }
 
   // ── Пропуски ──
-  const missing = cols.filter(/** @param {any} c */ c => c.role !== 'unused' && c.stats?.missing_pct > 5);
-  if (missing.length > 0) {
-    const names = missing.map(/** @param {any} c */ c => `${c.name} (${c.stats.missing_pct.toFixed(0)}%)`).join(', ');
-    out.push({ severity: 'warning', text: `Пропуски >5%: ${names}`, tip: 'При обучении пропуски считаются нулём, то есть «активности не было» – восстановления пропущенных значений в расчёте нет, заполните их до обучения. При >20% пропусков столбец лучше исключить или найти альтернативный источник.' });
+  // Роль решает, что реально делает движок с пропуском (validator.py:605-631):
+  // media/control – заполняются нулём («активности не было»); kpi – период
+  // выбрасывается из обучения ЦЕЛИКОМ, вместе с медиа-данными этой недели.
+  // Одна и та же формулировка для обеих ролей вводит в заблуждение (F-04).
+  const missingAll = cols.filter(/** @param {any} c */ c => c.role !== 'unused' && c.stats?.missing_pct > 5);
+  const missingKpi = missingAll.filter(/** @param {any} c */ c => c.role === 'kpi');
+  const missingOther = missingAll.filter(/** @param {any} c */ c => c.role !== 'kpi');
+  if (missingOther.length > 0) {
+    const names = missingOther.map(/** @param {any} c */ c => `${c.name} (${c.stats.missing_pct.toFixed(0)}%)`).join(', ');
+    out.push({ severity: 'warning', text: `Пропуски >5%: ${names}`, tip: 'При обучении пропуски в медиа и факторах считаются нулём, то есть «активности не было» – восстановления пропущенных значений в расчёте нет, заполните их до обучения. При >20% пропусков столбец лучше исключить или найти альтернативный источник.' });
+  }
+  if (missingKpi.length > 0) {
+    const names = missingKpi.map(/** @param {any} c */ c => `${c.name} (${c.stats.missing_pct.toFixed(0)}%)`).join(', ');
+    out.push({ severity: 'warning', text: `Пропуски в целевой метрике >5%: ${names}`, tip: 'Периоды без целевой метрики исключаются из обучения целиком – вместе с медиа-данными этих недель. Это не «нули», а потеря части истории и бюджета из выборки. Заполните пропуски до обучения, иначе выборка станет короче.' });
   }
 
   // ── Группировка парных колонок и рекомендации ──
