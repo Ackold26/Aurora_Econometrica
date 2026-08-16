@@ -103,6 +103,55 @@ def _parse_version(v: str) -> tuple[int, int, int]:
     return (int(major), int(minor), int(patch) if patch else 0)
 
 
+# Служебный ключ: имена полей, которых в файле модели НЕ БЫЛО – их подставил
+# этот загрузчик при чтении (`kpi_type='sales'`, `kpi_likelihood='normal'`,
+# `kpi_kind`, `model_version='1.0'` и прочие defaults ниже).
+#
+# Зачем: заверяемая выгрузка параметров (`engines/json_export.py`) обязана
+# отличать запись обучения от умолчания продукта. Без следа она метила
+# подставленное как «прочитано из файла модели как есть», и модель, обученная
+# на знании марки, уходила третьей стороне моделью продаж (Critical C-1,
+# внешний аудит 2026-08-16).
+#
+# След накопительный, а не переписываемый при каждой загрузке: `save_v20_diagnostics`
+# и `clear_sensitivity_cache` сохраняют УЖЕ ЗАГРУЖЕННУЮ модель обратно в файл
+# вместе с подставленными значениями – без сохранения следа умолчание после
+# первого же такого сохранения стало бы неотличимо от записи обучения.
+#
+# Для потребителей, которые о ключе не знают, он безвреден: поле additive
+# (список имён), модели без него читаются как прежде, ни один расчётный путь
+# по ключам модели не ходит.
+LOADER_DEFAULTS_KEY = '_loader_injected_defaults'
+
+
+def _loader_defaults_trace(model_data: dict[str, Any]) -> list[str]:
+    """След подстановок загрузчика. Заводится при первом обращении.
+
+    Чужое или испорченное содержимое ключа (не список, элементы не строки)
+    не роняет загрузку: остаются только строковые имена.
+    """
+    trace = model_data.get(LOADER_DEFAULTS_KEY)
+    if isinstance(trace, list) and all(isinstance(name, str) for name in trace):
+        return trace
+    cleaned = [name for name in trace if isinstance(name, str)] if isinstance(trace, list) else []
+    model_data[LOADER_DEFAULTS_KEY] = cleaned
+    return cleaned
+
+
+def _setdefault_tracked(model_data: dict[str, Any], key: str, value: Any) -> None:
+    """`setdefault` + запись имени поля в след подстановок.
+
+    Поле уже есть в модели – ничего не делаем и в след не пишем: это запись
+    обучения, а не наша подстановка.
+    """
+    if key in model_data:
+        return
+    model_data[key] = value
+    trace = _loader_defaults_trace(model_data)
+    if key not in trace:
+        trace.append(key)
+
+
 def load_model_with_compat(model_path: Path | str) -> dict[str, Any]:
     """Load модель с backward-compat fields injected.
 
@@ -183,28 +232,30 @@ def load_model_with_compat(model_path: Path | str) -> dict[str, Any]:
             f'{p} не aurora-model и не pickle. Файл повреждён или неподдерживаемого формата.'
         )
 
-    # Defensive defaults (v1.0 legacy may lack these fields entirely)
-    model_data.setdefault('model_version', '1.0')
-    model_data.setdefault('channel_categories', {})
+    # Defensive defaults (v1.0 legacy may lack these fields entirely).
+    # Через `_setdefault_tracked`, а не `setdefault`: подставленное поле обязано
+    # быть отличимо от записанного при обучении (см. LOADER_DEFAULTS_KEY).
+    _setdefault_tracked(model_data, 'model_version', '1.0')
+    _setdefault_tracked(model_data, 'channel_categories', {})
 
     # v2.0 additive fields (default к pre-v2.0 behavior)
-    model_data.setdefault('kpi_type', 'sales')
-    model_data.setdefault('kpi_likelihood', 'normal')
-    model_data.setdefault('awareness_aggregation_mode', None)
-    model_data.setdefault('channel_adstock_types', {})       # default per-channel = 'geometric'
-    model_data.setdefault('weibull_params_per_channel', {})  # learned (peak_week, tail_decay)
-    model_data.setdefault('comparison_baseline_posterior', None)  # для ROI shift toggle
-    model_data.setdefault('feature_flags_used', [])          # telemetry
+    _setdefault_tracked(model_data, 'kpi_type', 'sales')
+    _setdefault_tracked(model_data, 'kpi_likelihood', 'normal')
+    _setdefault_tracked(model_data, 'awareness_aggregation_mode', None)
+    _setdefault_tracked(model_data, 'channel_adstock_types', {})       # default per-channel = 'geometric'
+    _setdefault_tracked(model_data, 'weibull_params_per_channel', {})  # learned (peak_week, tail_decay)
+    _setdefault_tracked(model_data, 'comparison_baseline_posterior', None)  # для ROI shift toggle
+    _setdefault_tracked(model_data, 'feature_flags_used', [])          # telemetry
 
     # Phase 2 (Planning Mode) - pre-Phase-2 pickles get None defaults; G2 inference
     # helpers compute lazily when planning mode actually queries them.
-    model_data.setdefault('training_granularity', None)
-    model_data.setdefault('train_x_norm_quantiles', None)
-    model_data.setdefault('seasonality_detected', None)
+    _setdefault_tracked(model_data, 'training_granularity', None)
+    _setdefault_tracked(model_data, 'train_x_norm_quantiles', None)
+    _setdefault_tracked(model_data, 'seasonality_detected', None)
     # Автосезонность (2026-07-04): что инжектировано как Фурье-контроли (period/K/
     # columns) — decomposer переинжектит. None для pre-фичи pickle (модели до
     # автосезонности праздники учитывали, Фурье-волну нет — decomposer их пропустит).
-    model_data.setdefault('fourier_seasonality', None)
+    _setdefault_tracked(model_data, 'fourier_seasonality', None)
 
     # v1.3.0 additive fields (per ADR-017 - schema bump skipped, in-memory inject only).
     # Defaults match v1.2 behavior: monetary KPI, all channels in ₽, mode=roi, no goal-seek history.
@@ -408,7 +459,7 @@ def _inject_v13_defaults(model_data: dict[str, Any]) -> None:
             kpi_kind = get_kpi_config(kpi_type).kpi_kind
         except (ValueError, ImportError):
             kpi_kind = 'monetary'  # safe fallback
-        model_data['kpi_kind'] = kpi_kind
+        _setdefault_tracked(model_data, 'kpi_kind', kpi_kind)
 
     # per_channel_input: default - all media columns as 'monetary'.
     if 'per_channel_input' not in model_data:
@@ -424,26 +475,29 @@ def _inject_v13_defaults(model_data: dict[str, Any]) -> None:
             default_metric = 'physical'
         else:
             default_metric = 'monetary'  # 'roi' и 'manual' → default monetary (manual override приходит из bundle)
-        model_data['per_channel_input'] = {ch: default_metric for ch in media_cols}
+        _setdefault_tracked(
+            model_data, 'per_channel_input', {ch: default_metric for ch in media_cols}
+        )
 
     # derived_mode: lazy compute через mode_inference if absent.
     if 'derived_mode' not in model_data:
         try:
             from utils.mode_inference import derive_mode
-            model_data['derived_mode'] = derive_mode(model_data['per_channel_input'])
+            derived = derive_mode(model_data['per_channel_input'])
         except (ValueError, ImportError):
-            model_data['derived_mode'] = 'roi'  # safe fallback
+            derived = 'roi'  # safe fallback
+        _setdefault_tracked(model_data, 'derived_mode', derived)
 
     # value_per_count_unit: None default; populated by user in Validate UI.
-    model_data.setdefault('value_per_count_unit', None)
-    model_data.setdefault('value_per_count_unit_label', '')
-    model_data.setdefault('value_per_count_unit_source', None)  # 'auto'|'manual'|'imported'|None
+    _setdefault_tracked(model_data, 'value_per_count_unit', None)
+    _setdefault_tracked(model_data, 'value_per_count_unit_label', '')
+    _setdefault_tracked(model_data, 'value_per_count_unit_source', None)  # 'auto'|'manual'|'imported'|None
 
     # goal_seek_history: append-only log of past goal-seek runs.
-    model_data.setdefault('goal_seek_history', [])
+    _setdefault_tracked(model_data, 'goal_seek_history', [])
 
     # safe_corridor_cache: lazy invalidate on retrain.
-    model_data.setdefault('safe_corridor_cache', None)
+    _setdefault_tracked(model_data, 'safe_corridor_cache', None)
 
 
 def _inject_v20_defaults(model_data: dict[str, Any]) -> None:
@@ -472,13 +526,13 @@ def _inject_v20_defaults(model_data: dict[str, Any]) -> None:
     - analysis_mode: 'roi'|'effectiveness'|'mixed' — v2.0.0 explicit mode
       recorded at train time (ADR-019). None для pre-v2.0.0 pickles.
     """
-    model_data.setdefault('signed_factor_priors_used', {})
-    model_data.setdefault('holiday_dummies_injected', [])
-    model_data.setdefault('mcmc_diagnostics', None)
-    model_data.setdefault('backtest_results', None)
-    model_data.setdefault('ppc_results', None)
-    model_data.setdefault('sensitivity_tornado_cache', None)
-    model_data.setdefault('analysis_mode', None)
+    _setdefault_tracked(model_data, 'signed_factor_priors_used', {})
+    _setdefault_tracked(model_data, 'holiday_dummies_injected', [])
+    _setdefault_tracked(model_data, 'mcmc_diagnostics', None)
+    _setdefault_tracked(model_data, 'backtest_results', None)
+    _setdefault_tracked(model_data, 'ppc_results', None)
+    _setdefault_tracked(model_data, 'sensitivity_tornado_cache', None)
+    _setdefault_tracked(model_data, 'analysis_mode', None)
 
 
 def get_kpi_type(model_data: dict[str, Any]) -> str:

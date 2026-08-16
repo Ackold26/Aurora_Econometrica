@@ -1,0 +1,2301 @@
+{
+  "паспорт_воспроизводимости": {
+    "среда_и_прогон": {
+      "status": "recorded",
+      "seed": 42,
+      "seed_source": "config",
+      "sampler_tier": "numpyro-nuts",
+      "mcmc": {
+        "chains": 2,
+        "draws": 300,
+        "tune": 2000
+      },
+      "versions": {
+        "python": "3.12.10",
+        "numpy": "2.4.2",
+        "pymc": "5.28.4"
+      }
+    },
+    "отпечаток_исходных_данных": {
+      "status": "recorded",
+      "content": {
+        "algo": "aurora-frame-v1",
+        "sha256": "f4ee6352af7d66dc5106e9959ec66bd92bbbf25bb41afce05f6ba4a169a62b9c",
+        "n_rows": 31,
+        "n_cols": 34
+      },
+      "file": {
+        "algo": "sha256-full-file",
+        "sha256": "8d3e62227ea60cd1e583f8a41aa9d0bbc114b4b78470ca9d6794783361b5c0cf",
+        "size_bytes": 65894,
+        "file_name": "Кагоцел РФ+_данные для эконометрики + наши данные 29.08.xlsx"
+      }
+    },
+    "протокол_выбора_переноса": {
+      "status": "recorded",
+      "channels": [
+        {
+          "name": "OLV Бюджет до НДС до АК",
+          "requested": "auto",
+          "resolved": "geometric",
+          "by": "bic"
+        },
+        {
+          "name": "Banners Бюджет \nДО НДС до АК",
+          "requested": "auto",
+          "resolved": "geometric",
+          "by": "bic"
+        },
+        {
+          "name": "Social Бюджет \nДО НДС до АК",
+          "requested": "auto",
+          "resolved": "geometric",
+          "by": "bic"
+        },
+        {
+          "name": "Performance Бюджет \nДо НДС до АК",
+          "requested": "auto",
+          "resolved": "geometric",
+          "by": "bic"
+        }
+      ]
+    },
+    "критерий_совпадения": {
+      "version": "aurora-repro-tolerance-v2",
+      "quantities": [
+        "окупаемость канала",
+        "доля канала во вкладе медиа",
+        "коэффициент канала",
+        "скорость переноса",
+        "форма насыщения",
+        "точка насыщения"
+      ],
+      "quantities_from_decomposition": {
+        "quantities": [
+          "окупаемость канала",
+          "доля канала во вкладе медиа"
+        ],
+        "where_to_find": "окупаемость канала и доля канала во вкладе медиа в паспорт не входят: это не параметры модели, а результат разбивки продаж. Они приводятся в отчёте по модели – раздел «Декомпозиция», таблица «Портфель каналов»; в программе – вкладка результатов «Окупаемость каналов»",
+        "note": "При сверке только по паспорту эти две величины остаются непроверенными: в паспорте их нет, и подтвердить их можно лишь по отчёту с разбивкой продаж."
+      },
+      "full_run_draws": 8000,
+      "applicable": {
+        "mode": "reduced_or_other_env",
+        "title": "сокращённый расчёт, другая среда или другие настройки",
+        "tolerances": {
+          "roi": 10.0,
+          "contribution_pct": 3.0,
+          "beta": 10.0,
+          "decay": 10.0,
+          "alpha": 10.0,
+          "gamma": 10.0
+        },
+        "reason": "Расчёт сокращённый: 600 итоговых выборок, а полным считается расчёт от 8000. Чем короче расчёт, тем шире собственный разброс метода, поэтому и допуск шире.",
+        "total_draws": 600
+      },
+      "exact": {
+        "title": "повторный запуск той же программой в той же среде",
+        "tolerance": "совпадение точное",
+        "note": "Стороннему проверяющему эта ветвь неприменима: побитовое совпадение даёт не зерно и среда, а тот же самый код – порядок объявления переменных модели и реализация переноса. Ею проверяется наш собственный детерминизм; для сторонней проверки действует ветвь по другому зерну либо по сокращённому расчёту."
+      },
+      "other_seed_full": {
+        "title": "другое зерно при полном расчёте",
+        "tolerances": {
+          "roi": 5.0,
+          "contribution_pct": 1.5,
+          "beta": 5.0,
+          "decay": 5.0,
+          "alpha": 5.0,
+          "gamma": 5.0
+        }
+      },
+      "reduced_or_other_env": {
+        "title": "сокращённый расчёт, другая среда или другие настройки",
+        "tolerances": {
+          "roi": 10.0,
+          "contribution_pct": 3.0,
+          "beta": 10.0,
+          "decay": 10.0,
+          "alpha": 10.0,
+          "gamma": 10.0
+        }
+      },
+      "ci_share_limit_pct": 25.0
+    }
+  },
+  "выгрузка_параметров_модели": {
+    "schema": {
+      "name": "aurora-econometrica-model-params",
+      "version": "3.1",
+      "language": "ru",
+      "purpose": "Спецификация обученной модели для независимой проверки и воспроизведения сторонним аналитиком.",
+      "origins": {
+        "recorded": "значение прочитано из файла модели как есть",
+        "computed": "значение посчитано при выгрузке (из апостериорных выборок или других полей модели)",
+        "not_recorded": "в модели такого поля нет – значение пустое; пояснение см. в absent_fields",
+        "reference": "значение взято не из модели, а из кода продукта на момент выгрузки (описание метода, параметры по умолчанию) – при изменении кода может разойтись с тем, что применялось при обучении"
+      },
+      "honesty_rule": "Значения по умолчанию не подставляются. Отсутствующее в модели поле выходит пустым (null) и перечислено в absent_fields с пояснением, где эта величина есть.",
+      "conventions": {
+        "range_90": "Правдоподобный диапазон 90% – квантильный: 5-й и 95-й процентили апостериорных выборок параметра с линейной интерполяцией. Это НЕ интервал наибольшей плотности.",
+        "signed_factors": "Знаковые факторы входят в ту же сумму, что и остальные контроли: в модели это один вектор коэффициентов по всем контрольным столбцам. Раздел signed_factors выделен только по виду фактора, отдельного слагаемого в уравнении у него нет.",
+        "rounding": "Параметры каналов (beta, hill_alpha, hill_gamma, adstock_decay, adstock_mean_posterior) записаны в модели округлёнными до 4 знаков после запятой – так их сохраняет обучение. Статистики по выборкам (разброс, границы диапазона) и величины нормировки приведены с полной точностью, поэтому знаков у них больше.",
+        "origin_of_conventions": "reference"
+      }
+    },
+    "model": {
+      "version": "1.2",
+      "version_origin": "recorded",
+      "hierarchical_adstock": false,
+      "hierarchical_adstock_origin": "recorded",
+      "analysis_mode": null,
+      "analysis_mode_origin": "not_recorded",
+      "derived_mode": "roi",
+      "derived_mode_origin": "reference"
+    },
+    "kpi": {
+      "type": "sales",
+      "unit_kind": "monetary",
+      "unit_kind_origin": "recorded",
+      "unit_kind_note": "род величины KPI: 'monetary' – денежная, 'count' – счётная, 'proportional' – доля. Конкретная валюта или единица счёта в модели не записана: она задана столбцом исходных данных, имя которого приведено в kpi.column",
+      "unit_label": null,
+      "unit_label_origin": "not_recorded",
+      "type_origin": "recorded",
+      "kind": "monetary",
+      "kind_origin": "recorded",
+      "likelihood": "normal",
+      "likelihood_origin": "recorded",
+      "column": "Продажи в руб. бренд",
+      "column_origin": "recorded",
+      "unit_cost": null,
+      "unit_cost_origin": "not_recorded"
+    },
+    "history": {
+      "length": 31,
+      "length_origin": "computed",
+      "length_note": "число наблюдений в ряде KPI, на котором обучалась модель",
+      "granularity": "M",
+      "granularity_origin": "recorded",
+      "granularity_note": "код периода: 'M' – месяц, 'W' – неделя, 'D' – день",
+      "date_column": "Date",
+      "date_column_origin": "recorded",
+      "data_file_name": "Кагоцел РФ+_данные для эконометрики + наши данные 29.08.xlsx",
+      "data_file_name_origin": "computed",
+      "date_range": {
+        "first": "2023-01-01",
+        "last": "2025-07-01",
+        "n_dates": 31,
+        "matches_history_length": true
+      },
+      "date_range_origin": "computed",
+      "date_range_note": "Прочитано из файла исходных данных при выгрузке. Тождественность файла обучающей таблице доказана: отпечаток содержимого, пересчитанный сейчас, совпал с записанным при обучении (f4ee6352af7d66dc5106e9959ec66bd92bbbf25bb41afce05f6ba4a169a62b9c). Правила отпечатка – в reproducibility.data_fingerprint_algorithm."
+    },
+    "specification": {
+      "origin": "reference",
+      "source": "engines/modeler.py – сборка модели PyMC; utils/adstock.py – перенос",
+      "target": "y_norm = (y − y_mean) / y_std",
+      "likelihood": "obs ~ Normal(mu, sigma)",
+      "mu": "mu = intercept + Σ_i beta_i · S_i + Σ_j control_beta_j · z_j",
+      "saturation": "S_i = x_i^alpha_i / (x_i^alpha_i + gamma_i^alpha_i + 1e−10), где x_i = adstock_i / mean(adstock_i). Делитель – среднее ряда переноса, вычисляемое ВНУТРИ модели на каждой выборке при том же значении затухания, что и сам ряд. Записанное channels[*].adstock_mean_posterior – апостериорное среднее этой величины, то есть ИТОГ обучения, а не входной делитель: подставлять его вместо mean(adstock_i) при пересчёте нельзя. Точка нормировки насыщения – только эта величина; normalization.media_means к ней отношения не имеет",
+      "adstock_geometric": "a_t = spend_t + decay · a_(t−1), a_0 = spend_0",
+      "adstock_weibull": "свёртка ряда с весами функции распределения Вейбулла (shape, scale, max_lag); параметры при обучении фиксированы, в модели не записаны",
+      "controls": "z_j = (control_j − control_means_j) / control_stds_j",
+      "adstock_defaults_in_code": {
+        "geometric": {
+          "alpha": 0.5
+        },
+        "weibull": {
+          "shape": 2.0,
+          "scale": 3.0,
+          "max_lag": 12.0
+        },
+        "note": "значения по умолчанию из кода продукта на момент выгрузки. Применялись к каналам, чей перенос считался вне модели (тип отличен от geometric, включая незафиксированный auto)"
+      },
+      "note": "Описание метода взято из кода продукта, а не из файла модели: сама модель формул не хранит. Коэффициенты ниже относятся к нормированной шкале – чтобы вернуться к исходным единицам KPI, результат умножается на y_std и складывается с y_mean."
+    },
+    "channels": {
+      "OLV Бюджет до НДС до АК": {
+        "beta": 0.0935,
+        "beta_std": 0.08745374218890774,
+        "beta_range_90": [
+          0.005812992155551911,
+          0.2577883139252661
+        ],
+        "hill_alpha": 1.5675,
+        "hill_alpha_std": 0.7399803980911333,
+        "hill_alpha_range_90": [
+          0.573892229795456,
+          3.047073876857757
+        ],
+        "hill_gamma": 0.4889,
+        "hill_gamma_std": 0.1912488905372636,
+        "hill_gamma_range_90": [
+          0.19092776179313659,
+          0.7934346407651901
+        ],
+        "adstock_decay": 0.2897,
+        "adstock_decay_std": 0.21741756985492203,
+        "adstock_decay_range_90": [
+          0.04213674869388342,
+          0.7571058809757227
+        ],
+        "adstock_type_recorded": "geometric",
+        "adstock_type": "geometric",
+        "adstock_selection": {
+          "requested": "auto",
+          "resolved": "geometric",
+          "decided_by": "bic"
+        },
+        "adstock_decay_learned": true,
+        "adstock_mean_posterior": 6256206.6328,
+        "unit_kind": "monetary",
+        "media_mean": 6888976.617376961,
+        "unit_cost_applied": null,
+        "tail_ess_ok": true,
+        "untrained": false,
+        "category": null,
+        "origin": {
+          "beta": "recorded",
+          "beta_std": "computed",
+          "beta_range_90": "computed",
+          "hill_alpha": "recorded",
+          "hill_alpha_std": "computed",
+          "hill_alpha_range_90": "computed",
+          "hill_gamma": "recorded",
+          "hill_gamma_std": "computed",
+          "hill_gamma_range_90": "computed",
+          "adstock_decay": "recorded",
+          "adstock_decay_std": "computed",
+          "adstock_decay_range_90": "computed",
+          "adstock_type_recorded": "recorded",
+          "adstock_type": "recorded",
+          "adstock_selection": "recorded",
+          "adstock_decay_learned": "computed",
+          "adstock_mean_posterior": "recorded",
+          "unit_kind": "recorded",
+          "media_mean": "recorded",
+          "unit_cost_applied": "not_recorded",
+          "tail_ess_ok": "recorded",
+          "untrained": "computed",
+          "category": "not_recorded"
+        },
+        "notes": {
+          "adstock_type_recorded": "значение, записанное в модели буквально, без толкования",
+          "adstock_decay_learned": "откат входил в правдоподобие: перенос считался внутри модели с сэмплируемым откатом",
+          "unit_kind": "род величины ряда канала: 'monetary' – денежная (бюджет), 'count' – счётная (показы, контакты). Конкретная валюта или единица счёта в модели не записана – она задана столбцом исходных данных, имя которого стоит ключом этого раздела. В этих же единицах выражены adstock_mean_posterior и media_mean; коэффициент beta безразмерен – он относится к нормированной шкале KPI",
+          "media_mean": "среднее ряда ПОСЛЕ переноса с фиксированным коэффициентом 0,5 – масштаб входного медиаряда, а не средние траты канала. Точкой нормировки насыщения НЕ является: там делитель считается внутри модели (см. specification.saturation)",
+          "unit_cost_applied": "множитель, применённый к сырому ряду канала до переноса (перевод в денежную шкалу); пусто – множитель не применялся",
+          "tail_ess_ok": "хватило ли эффективного размера выборки в хвостах для устойчивой оценки границ диапазона",
+          "untrained": "канал без изменчивости в обучающих данных: коэффициент не идентифицируем, оценка определяется приором"
+        }
+      },
+      "Banners Бюджет \nДО НДС до АК": {
+        "beta": 0.1037,
+        "beta_std": 0.09243018971966233,
+        "beta_range_90": [
+          0.005860859109088779,
+          0.29229248315095896
+        ],
+        "hill_alpha": 1.6199,
+        "hill_alpha_std": 0.7782862050553031,
+        "hill_alpha_range_90": [
+          0.5885982811450958,
+          3.036411070823669
+        ],
+        "hill_gamma": 0.5182,
+        "hill_gamma_std": 0.17389937736059324,
+        "hill_gamma_range_90": [
+          0.21829415187239648,
+          0.7874980628490448
+        ],
+        "adstock_decay": 0.2753,
+        "adstock_decay_std": 0.20728551738850132,
+        "adstock_decay_range_90": [
+          0.03268816638737917,
+          0.7081317663192748
+        ],
+        "adstock_type_recorded": "geometric",
+        "adstock_type": "geometric",
+        "adstock_selection": {
+          "requested": "auto",
+          "resolved": "geometric",
+          "decided_by": "bic"
+        },
+        "adstock_decay_learned": true,
+        "adstock_mean_posterior": 6025735.2415,
+        "unit_kind": "monetary",
+        "media_mean": 7209551.607238929,
+        "unit_cost_applied": null,
+        "tail_ess_ok": true,
+        "untrained": false,
+        "category": null,
+        "origin": {
+          "beta": "recorded",
+          "beta_std": "computed",
+          "beta_range_90": "computed",
+          "hill_alpha": "recorded",
+          "hill_alpha_std": "computed",
+          "hill_alpha_range_90": "computed",
+          "hill_gamma": "recorded",
+          "hill_gamma_std": "computed",
+          "hill_gamma_range_90": "computed",
+          "adstock_decay": "recorded",
+          "adstock_decay_std": "computed",
+          "adstock_decay_range_90": "computed",
+          "adstock_type_recorded": "recorded",
+          "adstock_type": "recorded",
+          "adstock_selection": "recorded",
+          "adstock_decay_learned": "computed",
+          "adstock_mean_posterior": "recorded",
+          "unit_kind": "recorded",
+          "media_mean": "recorded",
+          "unit_cost_applied": "not_recorded",
+          "tail_ess_ok": "recorded",
+          "untrained": "computed",
+          "category": "not_recorded"
+        },
+        "notes": {
+          "adstock_type_recorded": "значение, записанное в модели буквально, без толкования",
+          "adstock_decay_learned": "откат входил в правдоподобие: перенос считался внутри модели с сэмплируемым откатом",
+          "unit_kind": "род величины ряда канала: 'monetary' – денежная (бюджет), 'count' – счётная (показы, контакты). Конкретная валюта или единица счёта в модели не записана – она задана столбцом исходных данных, имя которого стоит ключом этого раздела. В этих же единицах выражены adstock_mean_posterior и media_mean; коэффициент beta безразмерен – он относится к нормированной шкале KPI",
+          "media_mean": "среднее ряда ПОСЛЕ переноса с фиксированным коэффициентом 0,5 – масштаб входного медиаряда, а не средние траты канала. Точкой нормировки насыщения НЕ является: там делитель считается внутри модели (см. specification.saturation)",
+          "unit_cost_applied": "множитель, применённый к сырому ряду канала до переноса (перевод в денежную шкалу); пусто – множитель не применялся",
+          "tail_ess_ok": "хватило ли эффективного размера выборки в хвостах для устойчивой оценки границ диапазона",
+          "untrained": "канал без изменчивости в обучающих данных: коэффициент не идентифицируем, оценка определяется приором"
+        }
+      },
+      "Social Бюджет \nДО НДС до АК": {
+        "beta": 0.3036,
+        "beta_std": 0.1707142429570976,
+        "beta_range_90": [
+          0.0430455069988966,
+          0.6207575917243957
+        ],
+        "hill_alpha": 1.7202,
+        "hill_alpha_std": 0.7589307328093305,
+        "hill_alpha_range_90": [
+          0.713334733247757,
+          3.1114341974258424
+        ],
+        "hill_gamma": 0.5558,
+        "hill_gamma_std": 0.18202464749096428,
+        "hill_gamma_range_90": [
+          0.25056042000651363,
+          0.84731507897377
+        ],
+        "adstock_decay": 0.2443,
+        "adstock_decay_std": 0.1906635650565728,
+        "adstock_decay_range_90": [
+          0.026713842153549196,
+          0.632373198866844
+        ],
+        "adstock_type_recorded": "geometric",
+        "adstock_type": "geometric",
+        "adstock_selection": {
+          "requested": "auto",
+          "resolved": "geometric",
+          "decided_by": "bic"
+        },
+        "adstock_decay_learned": true,
+        "adstock_mean_posterior": 740897.2798,
+        "unit_kind": "monetary",
+        "media_mean": 973701.74134285,
+        "unit_cost_applied": null,
+        "tail_ess_ok": true,
+        "untrained": false,
+        "category": null,
+        "origin": {
+          "beta": "recorded",
+          "beta_std": "computed",
+          "beta_range_90": "computed",
+          "hill_alpha": "recorded",
+          "hill_alpha_std": "computed",
+          "hill_alpha_range_90": "computed",
+          "hill_gamma": "recorded",
+          "hill_gamma_std": "computed",
+          "hill_gamma_range_90": "computed",
+          "adstock_decay": "recorded",
+          "adstock_decay_std": "computed",
+          "adstock_decay_range_90": "computed",
+          "adstock_type_recorded": "recorded",
+          "adstock_type": "recorded",
+          "adstock_selection": "recorded",
+          "adstock_decay_learned": "computed",
+          "adstock_mean_posterior": "recorded",
+          "unit_kind": "recorded",
+          "media_mean": "recorded",
+          "unit_cost_applied": "not_recorded",
+          "tail_ess_ok": "recorded",
+          "untrained": "computed",
+          "category": "not_recorded"
+        },
+        "notes": {
+          "adstock_type_recorded": "значение, записанное в модели буквально, без толкования",
+          "adstock_decay_learned": "откат входил в правдоподобие: перенос считался внутри модели с сэмплируемым откатом",
+          "unit_kind": "род величины ряда канала: 'monetary' – денежная (бюджет), 'count' – счётная (показы, контакты). Конкретная валюта или единица счёта в модели не записана – она задана столбцом исходных данных, имя которого стоит ключом этого раздела. В этих же единицах выражены adstock_mean_posterior и media_mean; коэффициент beta безразмерен – он относится к нормированной шкале KPI",
+          "media_mean": "среднее ряда ПОСЛЕ переноса с фиксированным коэффициентом 0,5 – масштаб входного медиаряда, а не средние траты канала. Точкой нормировки насыщения НЕ является: там делитель считается внутри модели (см. specification.saturation)",
+          "unit_cost_applied": "множитель, применённый к сырому ряду канала до переноса (перевод в денежную шкалу); пусто – множитель не применялся",
+          "tail_ess_ok": "хватило ли эффективного размера выборки в хвостах для устойчивой оценки границ диапазона",
+          "untrained": "канал без изменчивости в обучающих данных: коэффициент не идентифицируем, оценка определяется приором"
+        }
+      },
+      "Performance Бюджет \nДо НДС до АК": {
+        "beta": 0.1667,
+        "beta_std": 0.13754985489452637,
+        "beta_range_90": [
+          0.008485853765159845,
+          0.45588611960411074
+        ],
+        "hill_alpha": 1.6304,
+        "hill_alpha_std": 0.7739940716595998,
+        "hill_alpha_range_90": [
+          0.6278944760560989,
+          3.0868357777595508
+        ],
+        "hill_gamma": 0.5036,
+        "hill_gamma_std": 0.19301316789143572,
+        "hill_gamma_range_90": [
+          0.1919728323817253,
+          0.8333572298288345
+        ],
+        "adstock_decay": 0.248,
+        "adstock_decay_std": 0.19063509066692613,
+        "adstock_decay_range_90": [
+          0.03489721566438675,
+          0.656991696357726
+        ],
+        "adstock_type_recorded": "geometric",
+        "adstock_type": "geometric",
+        "adstock_selection": {
+          "requested": "auto",
+          "resolved": "geometric",
+          "decided_by": "bic"
+        },
+        "adstock_decay_learned": true,
+        "adstock_mean_posterior": 1169034.0518,
+        "unit_kind": "monetary",
+        "media_mean": 1495728.4220316657,
+        "unit_cost_applied": null,
+        "tail_ess_ok": true,
+        "untrained": false,
+        "category": null,
+        "origin": {
+          "beta": "recorded",
+          "beta_std": "computed",
+          "beta_range_90": "computed",
+          "hill_alpha": "recorded",
+          "hill_alpha_std": "computed",
+          "hill_alpha_range_90": "computed",
+          "hill_gamma": "recorded",
+          "hill_gamma_std": "computed",
+          "hill_gamma_range_90": "computed",
+          "adstock_decay": "recorded",
+          "adstock_decay_std": "computed",
+          "adstock_decay_range_90": "computed",
+          "adstock_type_recorded": "recorded",
+          "adstock_type": "recorded",
+          "adstock_selection": "recorded",
+          "adstock_decay_learned": "computed",
+          "adstock_mean_posterior": "recorded",
+          "unit_kind": "recorded",
+          "media_mean": "recorded",
+          "unit_cost_applied": "not_recorded",
+          "tail_ess_ok": "recorded",
+          "untrained": "computed",
+          "category": "not_recorded"
+        },
+        "notes": {
+          "adstock_type_recorded": "значение, записанное в модели буквально, без толкования",
+          "adstock_decay_learned": "откат входил в правдоподобие: перенос считался внутри модели с сэмплируемым откатом",
+          "unit_kind": "род величины ряда канала: 'monetary' – денежная (бюджет), 'count' – счётная (показы, контакты). Конкретная валюта или единица счёта в модели не записана – она задана столбцом исходных данных, имя которого стоит ключом этого раздела. В этих же единицах выражены adstock_mean_posterior и media_mean; коэффициент beta безразмерен – он относится к нормированной шкале KPI",
+          "media_mean": "среднее ряда ПОСЛЕ переноса с фиксированным коэффициентом 0,5 – масштаб входного медиаряда, а не средние траты канала. Точкой нормировки насыщения НЕ является: там делитель считается внутри модели (см. specification.saturation)",
+          "unit_cost_applied": "множитель, применённый к сырому ряду канала до переноса (перевод в денежную шкалу); пусто – множитель не применялся",
+          "tail_ess_ok": "хватило ли эффективного размера выборки в хвостах для устойчивой оценки границ диапазона",
+          "untrained": "канал без изменчивости в обучающих данных: коэффициент не идентифицируем, оценка определяется приором"
+        }
+      }
+    },
+    "controls": {
+      "Кол-во запросов": {
+        "beta": 0.6978206216872275,
+        "kind": "unknown",
+        "prior_mean": 0.0,
+        "untrained": false,
+        "origin": {
+          "beta": "recorded",
+          "kind": "recorded",
+          "prior_mean": "recorded",
+          "untrained": "computed"
+        }
+      },
+      "holiday_newyear_preshop": {
+        "beta": 0.17442377567821318,
+        "kind": "holiday",
+        "prior_mean": 0.0,
+        "untrained": false,
+        "origin": {
+          "beta": "recorded",
+          "kind": "recorded",
+          "prior_mean": "recorded",
+          "untrained": "computed"
+        }
+      },
+      "holiday_newyear_postsale": {
+        "beta": -0.050246599775585675,
+        "kind": "holiday",
+        "prior_mean": 0.0,
+        "untrained": false,
+        "origin": {
+          "beta": "recorded",
+          "kind": "recorded",
+          "prior_mean": "recorded",
+          "untrained": "computed"
+        }
+      },
+      "holiday_valentine": {
+        "beta": -0.0481305759685337,
+        "kind": "holiday",
+        "prior_mean": 0.0,
+        "untrained": false,
+        "origin": {
+          "beta": "recorded",
+          "kind": "recorded",
+          "prior_mean": "recorded",
+          "untrained": "computed"
+        }
+      },
+      "holiday_defender_day": {
+        "beta": -0.032707093803454663,
+        "kind": "holiday",
+        "prior_mean": 0.0,
+        "untrained": false,
+        "origin": {
+          "beta": "recorded",
+          "kind": "recorded",
+          "prior_mean": "recorded",
+          "untrained": "computed"
+        }
+      },
+      "holiday_march8": {
+        "beta": 0.07734892824095521,
+        "kind": "holiday",
+        "prior_mean": 0.0,
+        "untrained": false,
+        "origin": {
+          "beta": "recorded",
+          "kind": "recorded",
+          "prior_mean": "recorded",
+          "untrained": "computed"
+        }
+      },
+      "holiday_may_holidays": {
+        "beta": -0.020568627322167722,
+        "kind": "holiday",
+        "prior_mean": 0.0,
+        "untrained": false,
+        "origin": {
+          "beta": "recorded",
+          "kind": "recorded",
+          "prior_mean": "recorded",
+          "untrained": "computed"
+        }
+      },
+      "holiday_russia_day": {
+        "beta": 0.05397787652342094,
+        "kind": "holiday",
+        "prior_mean": 0.0,
+        "untrained": false,
+        "origin": {
+          "beta": "recorded",
+          "kind": "recorded",
+          "prior_mean": "recorded",
+          "untrained": "computed"
+        }
+      },
+      "holiday_back_to_school": {
+        "beta": -0.06981374792855546,
+        "kind": "holiday",
+        "prior_mean": 0.0,
+        "untrained": false,
+        "origin": {
+          "beta": "recorded",
+          "kind": "recorded",
+          "prior_mean": "recorded",
+          "untrained": "computed"
+        }
+      },
+      "holiday_unity_day": {
+        "beta": 0.039641099892975144,
+        "kind": "holiday",
+        "prior_mean": 0.0,
+        "untrained": false,
+        "origin": {
+          "beta": "recorded",
+          "kind": "recorded",
+          "prior_mean": "recorded",
+          "untrained": "computed"
+        }
+      },
+      "holiday_black_friday": {
+        "beta": 0.02062802637470817,
+        "kind": "holiday",
+        "prior_mean": 0.0,
+        "untrained": false,
+        "origin": {
+          "beta": "recorded",
+          "kind": "recorded",
+          "prior_mean": "recorded",
+          "untrained": "computed"
+        }
+      },
+      "holiday_cyber_monday": {
+        "beta": -0.038489142433025085,
+        "kind": "holiday",
+        "prior_mean": 0.0,
+        "untrained": false,
+        "origin": {
+          "beta": "recorded",
+          "kind": "recorded",
+          "prior_mean": "recorded",
+          "untrained": "computed"
+        }
+      },
+      "holiday_school_breaks": {
+        "beta": -0.047678027873500034,
+        "kind": "holiday",
+        "prior_mean": 0.0,
+        "untrained": false,
+        "origin": {
+          "beta": "recorded",
+          "kind": "recorded",
+          "prior_mean": "recorded",
+          "untrained": "computed"
+        }
+      },
+      "season_fourier_sin_1": {
+        "beta": -0.20865242438757667,
+        "kind": "seasonality",
+        "prior_mean": 0.0,
+        "untrained": false,
+        "origin": {
+          "beta": "recorded",
+          "kind": "recorded",
+          "prior_mean": "recorded",
+          "untrained": "computed"
+        }
+      },
+      "season_fourier_cos_1": {
+        "beta": -0.05549765437723047,
+        "kind": "seasonality",
+        "prior_mean": 0.0,
+        "untrained": false,
+        "origin": {
+          "beta": "recorded",
+          "kind": "recorded",
+          "prior_mean": "recorded",
+          "untrained": "computed"
+        }
+      },
+      "season_fourier_sin_2": {
+        "beta": 0.11451309026539064,
+        "kind": "seasonality",
+        "prior_mean": 0.0,
+        "untrained": false,
+        "origin": {
+          "beta": "recorded",
+          "kind": "recorded",
+          "prior_mean": "recorded",
+          "untrained": "computed"
+        }
+      },
+      "season_fourier_cos_2": {
+        "beta": -0.01684842979400577,
+        "kind": "seasonality",
+        "prior_mean": 0.0,
+        "untrained": false,
+        "origin": {
+          "beta": "recorded",
+          "kind": "recorded",
+          "prior_mean": "recorded",
+          "untrained": "computed"
+        }
+      },
+      "season_fourier_sin_3": {
+        "beta": -0.009525354453103678,
+        "kind": "seasonality",
+        "prior_mean": 0.0,
+        "untrained": false,
+        "origin": {
+          "beta": "recorded",
+          "kind": "recorded",
+          "prior_mean": "recorded",
+          "untrained": "computed"
+        }
+      },
+      "season_fourier_cos_3": {
+        "beta": 0.1723162557912557,
+        "kind": "seasonality",
+        "prior_mean": 0.0,
+        "untrained": false,
+        "origin": {
+          "beta": "recorded",
+          "kind": "recorded",
+          "prior_mean": "recorded",
+          "untrained": "computed"
+        }
+      }
+    },
+    "signed_factors": {
+      "Продажи в уп. конкуренты": {
+        "beta": 0.09588996460793023,
+        "kind": "signed_competitor",
+        "prior_mean": -0.3,
+        "untrained": false,
+        "origin": {
+          "beta": "recorded",
+          "kind": "recorded",
+          "prior_mean": "recorded",
+          "untrained": "computed"
+        }
+      }
+    },
+    "holidays_injected": [
+      "holiday_newyear_preshop",
+      "holiday_newyear_postsale",
+      "holiday_valentine",
+      "holiday_defender_day",
+      "holiday_march8",
+      "holiday_may_holidays",
+      "holiday_russia_day",
+      "holiday_back_to_school",
+      "holiday_unity_day",
+      "holiday_black_friday",
+      "holiday_cyber_monday",
+      "holiday_school_breaks"
+    ],
+    "holiday_calendar": {
+      "origin": "reference",
+      "note": "Определения окон взяты из календарного модуля продукта на момент выгрузки. Имена признаков и режим – из модели.",
+      "injected": [
+        "holiday_newyear_preshop",
+        "holiday_newyear_postsale",
+        "holiday_valentine",
+        "holiday_defender_day",
+        "holiday_march8",
+        "holiday_may_holidays",
+        "holiday_russia_day",
+        "holiday_back_to_school",
+        "holiday_unity_day",
+        "holiday_black_friday",
+        "holiday_cyber_monday",
+        "holiday_school_breaks"
+      ],
+      "mode_recorded": "fraction",
+      "mode_recorded_origin": "recorded",
+      "source_data": {
+        "status": "verified",
+        "reason": null,
+        "note": "календарные границы окон выводятся из годов обучающего ряда, а он берётся из файла исходных данных только после сверки отпечатка таблицы"
+      },
+      "calendar": {
+        "source": "utils/holiday_calendar_ru.py – HOLIDAY_DEFINITIONS, generate_holiday_dummies, _row_period, _infer_step_days",
+        "mode": "fraction",
+        "mode_rules": {
+          "fraction": "Значение признака в строке = доля дней периода этой строки, попавших в окно события: (число дней окна внутри периода) / (число дней в периоде), округление до 4 знаков. Диапазон 0..1. На месячных данных декабрь получает 17/31 у предновогодних закупок, а не 0 или 1.",
+          "binary_point": "Значение признака = 1, если сама дата строки попадает в окно события, иначе 0. Режим моделей до 05.07.2026; у распродаж применяются узкие окна версии 2.0 (сам день события), а не распродажный период."
+        },
+        "row_period_rule": [
+          "Шаг ряда определяется как медиана разностей между соседними датами в днях.",
+          "Шаг 28–31 день – период строки равен календарному месяцу её даты, от первого числа до последнего. Дата начала месяца и дата конца месяца дают один и тот же период.",
+          "Шаг 1 день и меньше – период равен самой дате (доля вырождается в 0 или 1).",
+          "Прочий шаг (например недельный) – период равен [дата; дата + шаг − 1 день], то есть дата считается началом периода."
+        ],
+        "window_kinds": {
+          "preparation": "окно подготовки: активность идёт ДО события (закупка подарков)",
+          "sale_period": "окно распродажи: активность идёт ОТ старта распродажи",
+          "calendar_period": "сам календарный период потребления"
+        },
+        "years_covered": [
+          2022,
+          2023,
+          2024,
+          2025
+        ],
+        "years_rule": "В набор дат события входят окна каждого года, встречающегося в данных, и предшествующего ему года – иначе события, переходящие через границу года, потерялись бы в первом году ряда.",
+        "events": [
+          {
+            "name": "holiday_newyear_preshop",
+            "category": "gift",
+            "window_kind": "preparation",
+            "description": "Pre-Новогодние закупки подарков (15-31 декабря)",
+            "window_source": "date_range",
+            "windows": [
+              {
+                "start": "2022-12-15",
+                "end": "2022-12-31",
+                "days": 17
+              },
+              {
+                "start": "2023-12-15",
+                "end": "2023-12-31",
+                "days": 17
+              },
+              {
+                "start": "2024-12-15",
+                "end": "2024-12-31",
+                "days": 17
+              },
+              {
+                "start": "2025-12-15",
+                "end": "2025-12-31",
+                "days": 17
+              }
+            ],
+            "n_days_total": 68
+          },
+          {
+            "name": "holiday_newyear_postsale",
+            "category": "commercial",
+            "window_kind": "sale_period",
+            "description": "Новогодние распродажи + январские каникулы (старт 25 дек → 8 янв)",
+            "window_source": "date_range",
+            "windows": [
+              {
+                "start": "2022-12-25",
+                "end": "2023-01-08",
+                "days": 15
+              },
+              {
+                "start": "2023-12-25",
+                "end": "2024-01-08",
+                "days": 15
+              },
+              {
+                "start": "2024-12-25",
+                "end": "2025-01-08",
+                "days": 15
+              },
+              {
+                "start": "2025-12-25",
+                "end": "2026-01-08",
+                "days": 15
+              }
+            ],
+            "n_days_total": 60
+          },
+          {
+            "name": "holiday_valentine",
+            "category": "gift",
+            "window_kind": "preparation",
+            "description": "День Святого Валентина (подготовка 1-14 февраля)",
+            "window_source": "date_range",
+            "windows": [
+              {
+                "start": "2022-02-01",
+                "end": "2022-02-14",
+                "days": 14
+              },
+              {
+                "start": "2023-02-01",
+                "end": "2023-02-14",
+                "days": 14
+              },
+              {
+                "start": "2024-02-01",
+                "end": "2024-02-14",
+                "days": 14
+              },
+              {
+                "start": "2025-02-01",
+                "end": "2025-02-14",
+                "days": 14
+              }
+            ],
+            "n_days_total": 56
+          },
+          {
+            "name": "holiday_defender_day",
+            "category": "gift",
+            "window_kind": "preparation",
+            "description": "23 февраля (подготовка 15-23 февраля)",
+            "window_source": "date_range",
+            "windows": [
+              {
+                "start": "2022-02-15",
+                "end": "2022-02-23",
+                "days": 9
+              },
+              {
+                "start": "2023-02-15",
+                "end": "2023-02-23",
+                "days": 9
+              },
+              {
+                "start": "2024-02-15",
+                "end": "2024-02-23",
+                "days": 9
+              },
+              {
+                "start": "2025-02-15",
+                "end": "2025-02-23",
+                "days": 9
+              }
+            ],
+            "n_days_total": 36
+          },
+          {
+            "name": "holiday_march8",
+            "category": "gift",
+            "window_kind": "preparation",
+            "description": "8 марта (подготовка 1-8 марта)",
+            "window_source": "date_range",
+            "windows": [
+              {
+                "start": "2022-03-01",
+                "end": "2022-03-08",
+                "days": 8
+              },
+              {
+                "start": "2023-03-01",
+                "end": "2023-03-08",
+                "days": 8
+              },
+              {
+                "start": "2024-03-01",
+                "end": "2024-03-08",
+                "days": 8
+              },
+              {
+                "start": "2025-03-01",
+                "end": "2025-03-08",
+                "days": 8
+              }
+            ],
+            "n_days_total": 32
+          },
+          {
+            "name": "holiday_may_holidays",
+            "category": "general",
+            "window_kind": "calendar_period",
+            "description": "Майские праздники (28 апреля - 9 мая)",
+            "window_source": "date_range",
+            "windows": [
+              {
+                "start": "2022-04-28",
+                "end": "2022-05-09",
+                "days": 12
+              },
+              {
+                "start": "2023-04-28",
+                "end": "2023-05-09",
+                "days": 12
+              },
+              {
+                "start": "2024-04-28",
+                "end": "2024-05-09",
+                "days": 12
+              },
+              {
+                "start": "2025-04-28",
+                "end": "2025-05-09",
+                "days": 12
+              }
+            ],
+            "n_days_total": 48
+          },
+          {
+            "name": "holiday_russia_day",
+            "category": "general",
+            "window_kind": "calendar_period",
+            "description": "День России (11-12 июня)",
+            "window_source": "date_range",
+            "windows": [
+              {
+                "start": "2022-06-11",
+                "end": "2022-06-12",
+                "days": 2
+              },
+              {
+                "start": "2023-06-11",
+                "end": "2023-06-12",
+                "days": 2
+              },
+              {
+                "start": "2024-06-11",
+                "end": "2024-06-12",
+                "days": 2
+              },
+              {
+                "start": "2025-06-11",
+                "end": "2025-06-12",
+                "days": 2
+              }
+            ],
+            "n_days_total": 8
+          },
+          {
+            "name": "holiday_back_to_school",
+            "category": "category_specific",
+            "window_kind": "preparation",
+            "description": "Back-to-school – подготовка к 1 сентября (15 августа - 1 сентября)",
+            "window_source": "date_range",
+            "windows": [
+              {
+                "start": "2022-08-15",
+                "end": "2022-09-01",
+                "days": 18
+              },
+              {
+                "start": "2023-08-15",
+                "end": "2023-09-01",
+                "days": 18
+              },
+              {
+                "start": "2024-08-15",
+                "end": "2024-09-01",
+                "days": 18
+              },
+              {
+                "start": "2025-08-15",
+                "end": "2025-09-01",
+                "days": 18
+              }
+            ],
+            "n_days_total": 72
+          },
+          {
+            "name": "holiday_unity_day",
+            "category": "general",
+            "window_kind": "calendar_period",
+            "description": "День народного единства (3-4 ноября)",
+            "window_source": "date_range",
+            "windows": [
+              {
+                "start": "2022-11-03",
+                "end": "2022-11-04",
+                "days": 2
+              },
+              {
+                "start": "2023-11-03",
+                "end": "2023-11-04",
+                "days": 2
+              },
+              {
+                "start": "2024-11-03",
+                "end": "2024-11-04",
+                "days": 2
+              },
+              {
+                "start": "2025-11-03",
+                "end": "2025-11-04",
+                "days": 2
+              }
+            ],
+            "n_days_total": 8
+          },
+          {
+            "name": "holiday_black_friday",
+            "category": "commercial",
+            "window_kind": "sale_period",
+            "description": "Чёрная Пятница – распродажный период (старт: последняя пятница ноября, ~2 недели)",
+            "window_source": "date_range",
+            "windows": [
+              {
+                "start": "2022-11-25",
+                "end": "2022-12-08",
+                "days": 14
+              },
+              {
+                "start": "2023-11-24",
+                "end": "2023-12-07",
+                "days": 14
+              },
+              {
+                "start": "2024-11-29",
+                "end": "2024-12-12",
+                "days": 14
+              },
+              {
+                "start": "2025-11-28",
+                "end": "2025-12-11",
+                "days": 14
+              }
+            ],
+            "n_days_total": 56
+          },
+          {
+            "name": "holiday_cyber_monday",
+            "category": "commercial",
+            "window_kind": "sale_period",
+            "description": "Cyber Monday – онлайн-распродажная неделя (старт: пн после ЧП, 7 дней)",
+            "window_source": "date_range",
+            "windows": [
+              {
+                "start": "2022-11-28",
+                "end": "2022-12-04",
+                "days": 7
+              },
+              {
+                "start": "2023-11-27",
+                "end": "2023-12-03",
+                "days": 7
+              },
+              {
+                "start": "2024-12-02",
+                "end": "2024-12-08",
+                "days": 7
+              },
+              {
+                "start": "2025-12-01",
+                "end": "2025-12-07",
+                "days": 7
+              }
+            ],
+            "n_days_total": 28
+          },
+          {
+            "name": "holiday_school_breaks",
+            "category": "family",
+            "window_kind": "calendar_period",
+            "description": "Школьные каникулы (4 окна: осенние / зимние / весенние / летние)",
+            "window_source": "date_range",
+            "windows": [
+              {
+                "start": "2022-03-22",
+                "end": "2022-03-30",
+                "days": 9
+              },
+              {
+                "start": "2022-06-01",
+                "end": "2022-06-07",
+                "days": 7
+              },
+              {
+                "start": "2022-10-28",
+                "end": "2022-11-04",
+                "days": 8
+              },
+              {
+                "start": "2022-12-28",
+                "end": "2023-01-08",
+                "days": 12
+              },
+              {
+                "start": "2023-03-22",
+                "end": "2023-03-30",
+                "days": 9
+              },
+              {
+                "start": "2023-06-01",
+                "end": "2023-06-07",
+                "days": 7
+              },
+              {
+                "start": "2023-10-28",
+                "end": "2023-11-04",
+                "days": 8
+              },
+              {
+                "start": "2023-12-28",
+                "end": "2024-01-08",
+                "days": 12
+              },
+              {
+                "start": "2024-03-22",
+                "end": "2024-03-30",
+                "days": 9
+              },
+              {
+                "start": "2024-06-01",
+                "end": "2024-06-07",
+                "days": 7
+              },
+              {
+                "start": "2024-10-28",
+                "end": "2024-11-04",
+                "days": 8
+              },
+              {
+                "start": "2024-12-28",
+                "end": "2025-01-08",
+                "days": 12
+              },
+              {
+                "start": "2025-03-22",
+                "end": "2025-03-30",
+                "days": 9
+              },
+              {
+                "start": "2025-06-01",
+                "end": "2025-06-07",
+                "days": 7
+              },
+              {
+                "start": "2025-10-28",
+                "end": "2025-11-04",
+                "days": 8
+              },
+              {
+                "start": "2025-12-28",
+                "end": "2026-01-08",
+                "days": 12
+              }
+            ],
+            "n_days_total": 144
+          }
+        ]
+      },
+      "verification": {
+        "status": "verified",
+        "checked": 12,
+        "mismatched": [],
+        "max_deviation": 0.0,
+        "tolerance": 1e-09,
+        "per_feature": [
+          {
+            "name": "holiday_newyear_preshop",
+            "status": "match",
+            "mean_recorded": 0.035380645161290324,
+            "mean_rebuilt": 0.035380645161290324,
+            "std_recorded": 0.13695250130210554,
+            "std_rebuilt": 0.13695250130210554,
+            "max_deviation": 0.0
+          },
+          {
+            "name": "holiday_newyear_postsale",
+            "status": "match",
+            "mean_recorded": 0.03954516129032258,
+            "mean_rebuilt": 0.03954516129032258,
+            "std_recorded": 0.09189481247132388,
+            "std_rebuilt": 0.09189481247132388,
+            "max_deviation": 0.0
+          },
+          {
+            "name": "holiday_valentine",
+            "status": "match",
+            "mean_recorded": 0.04783225806451613,
+            "mean_rebuilt": 0.04783225806451613,
+            "std_recorded": 0.14856762407984853,
+            "std_rebuilt": 0.14856762407984853,
+            "max_deviation": 0.0
+          },
+          {
+            "name": "holiday_defender_day",
+            "status": "match",
+            "mean_recorded": 0.030745161290322582,
+            "mean_rebuilt": 0.030745161290322582,
+            "std_recorded": 0.09549499057964485,
+            "std_rebuilt": 0.09549499057964485,
+            "max_deviation": 0.0
+          },
+          {
+            "name": "holiday_march8",
+            "status": "match",
+            "mean_recorded": 0.024977419354838708,
+            "mean_rebuilt": 0.024977419354838708,
+            "std_recorded": 0.07756863932319305,
+            "std_rebuilt": 0.07756863932319305,
+            "max_deviation": 0.0
+          },
+          {
+            "name": "holiday_may_holidays",
+            "status": "match",
+            "mean_recorded": 0.03777096774193549,
+            "mean_rebuilt": 0.03777096774193549,
+            "std_recorded": 0.08918076098033846,
+            "std_rebuilt": 0.08918076098033846,
+            "max_deviation": 0.0
+          },
+          {
+            "name": "holiday_russia_day",
+            "status": "match",
+            "mean_recorded": 0.006454838709677419,
+            "mean_rebuilt": 0.006454838709677419,
+            "std_recorded": 0.02004582813970158,
+            "std_rebuilt": 0.02004582813970158,
+            "max_deviation": 0.0
+          },
+          {
+            "name": "holiday_back_to_school",
+            "status": "match",
+            "mean_recorded": 0.03752903225806452,
+            "mean_rebuilt": 0.03752903225806452,
+            "std_recorded": 0.13663108771078517,
+            "std_rebuilt": 0.13663108771078517,
+            "max_deviation": 0.0
+          },
+          {
+            "name": "holiday_unity_day",
+            "status": "match",
+            "mean_recorded": 0.004303225806451613,
+            "mean_rebuilt": 0.004303225806451613,
+            "std_recorded": 0.016657060242250988,
+            "std_rebuilt": 0.016657060242250988,
+            "max_deviation": 0.0
+          },
+          {
+            "name": "holiday_black_friday",
+            "status": "match",
+            "mean_recorded": 0.029448387096774196,
+            "mean_rebuilt": 0.029448387096774196,
+            "std_recorded": 0.08809585639505696,
+            "std_rebuilt": 0.08809585639505696,
+            "max_deviation": 0.0
+          },
+          {
+            "name": "holiday_cyber_monday",
+            "status": "match",
+            "mean_recorded": 0.014706451612903225,
+            "mean_rebuilt": 0.014706451612903225,
+            "std_recorded": 0.04879210957715649,
+            "std_rebuilt": 0.04879210957715649,
+            "max_deviation": 0.0
+          },
+          {
+            "name": "holiday_school_breaks",
+            "status": "match",
+            "mean_recorded": 0.10089354838709677,
+            "mean_rebuilt": 0.10089354838709677,
+            "std_recorded": 0.11582929950429605,
+            "std_rebuilt": 0.11582929950429605,
+            "max_deviation": 0.0
+          }
+        ],
+        "note": "признаки построены заново по описанным здесь окнам и режиму, из обучающего ряда дат, и сверены с записанными в модели средним и разбросом каждого признака",
+        "std_convention": "сверка сошлась при разбросе, посчитанном с делением на n−1 (соглашение pandas)"
+      }
+    },
+    "seasonality": {
+      "fourier_injected": {
+        "period": 12.0,
+        "n_harmonics": 3.0,
+        "columns": [
+          "season_fourier_sin_1",
+          "season_fourier_cos_1",
+          "season_fourier_sin_2",
+          "season_fourier_cos_2",
+          "season_fourier_sin_3",
+          "season_fourier_cos_3"
+        ],
+        "granularity": "M",
+        "autocorrelation": 0.8529959850934017,
+        "origin": "recorded"
+      },
+      "fourier_rule": {
+        "origin": "reference",
+        "source": "utils/fourier_seasonality.py – generate_fourier_terms",
+        "note": "Значения прочитаны из кода продукта на момент выгрузки, а не из файла модели: спецификация приоров при обучении не сохраняется. Совпадение с версией программы, которой обучена эта модель, не гарантировано.",
+        "formula": "season_fourier_sin_k[t] = sin(2π · k · t / P), season_fourier_cos_k[t] = cos(2π · k · t / P)",
+        "index_rule": "t – ПОЗИЦИЯ наблюдения в обучающем ряду, отсчёт с нуля: t = 0, 1, …, n−1. Календарные даты в построении не участвуют, поэтому фаза привязана к первой строке ряда, а не к календарному месяцу.",
+        "k_rule": "k – номер гармоники, от 1 до числа гармоник включительно.",
+        "period_symbol": "P – период сезонности (period ниже), в шагах ряда",
+        "column_order": "на каждую гармонику k выходят два столбца в порядке sin_k, cos_k; значения в [−1, 1]",
+        "verification": {
+          "status": "verified",
+          "checked": 6,
+          "mismatched": [],
+          "max_deviation": 0.0,
+          "tolerance": 1e-09,
+          "per_feature": [
+            {
+              "name": "season_fourier_sin_1",
+              "status": "match",
+              "mean_recorded": 0.12038873572802837,
+              "mean_rebuilt": 0.12038873572802837,
+              "std_recorded": 0.6964362407189911,
+              "std_rebuilt": 0.6964362407189911,
+              "max_deviation": 0.0
+            },
+            {
+              "name": "season_fourier_cos_1",
+              "status": "match",
+              "mean_recorded": 7.162729191130042e-18,
+              "mean_rebuilt": 7.162729191130042e-18,
+              "std_recorded": 0.7302967433402214,
+              "std_rebuilt": 0.7302967433402214,
+              "max_deviation": 0.0
+            },
+            {
+              "name": "season_fourier_sin_2",
+              "status": "match",
+              "mean_recorded": -1.085381869184606e-17,
+              "mean_rebuilt": -1.085381869184606e-17,
+              "std_recorded": 0.7071067811865476,
+              "std_rebuilt": 0.7071067811865476,
+              "max_deviation": 0.0
+            },
+            {
+              "name": "season_fourier_cos_2",
+              "status": "match",
+              "mean_recorded": 0.03225806451612883,
+              "mean_rebuilt": 0.03225806451612883,
+              "std_recorded": 0.7295601856708801,
+              "std_rebuilt": 0.7295601856708801,
+              "max_deviation": 0.0
+            },
+            {
+              "name": "season_fourier_sin_3",
+              "status": "match",
+              "mean_recorded": 0.0322580645161289,
+              "mean_rebuilt": 0.0322580645161289,
+              "std_recorded": 0.7063460420946633,
+              "std_rebuilt": 0.7063460420946633,
+              "max_deviation": 0.0
+            },
+            {
+              "name": "season_fourier_cos_3",
+              "status": "match",
+              "mean_recorded": 1.6474277139599097e-16,
+              "mean_rebuilt": 1.6474277139599097e-16,
+              "std_recorded": 0.7302967433402214,
+              "std_rebuilt": 0.7302967433402214,
+              "max_deviation": 0.0
+            }
+          ],
+          "note": "признаки построены заново по приведённой формуле на ряду той же длины и сверены с записанными в модели средним и разбросом каждого признака"
+        }
+      },
+      "detected": {
+        "period": 12.0,
+        "autocorrelation": 0.8529959850934017,
+        "origin": "recorded",
+        "note": "результат проверки ряда KPI на цикличность; сам по себе в модель не входит"
+      }
+    },
+    "normalization": {
+      "y_mean": 362130893.61290324,
+      "y_std": 179595019.0780868,
+      "intercept_mean": -0.4083349838238154,
+      "media_means": {
+        "OLV Бюджет до НДС до АК": 6888976.617376961,
+        "Banners Бюджет \nДО НДС до АК": 7209551.607238929,
+        "Social Бюджет \nДО НДС до АК": 973701.74134285,
+        "Performance Бюджет \nДо НДС до АК": 1495728.4220316657
+      },
+      "control_means": {
+        "Кол-во запросов": 206142.83870967742,
+        "Продажи в уп. конкуренты": 10834806.612903226,
+        "holiday_newyear_preshop": 0.035380645161290324,
+        "holiday_newyear_postsale": 0.03954516129032258,
+        "holiday_valentine": 0.04783225806451613,
+        "holiday_defender_day": 0.030745161290322582,
+        "holiday_march8": 0.024977419354838708,
+        "holiday_may_holidays": 0.03777096774193549,
+        "holiday_russia_day": 0.006454838709677419,
+        "holiday_back_to_school": 0.03752903225806452,
+        "holiday_unity_day": 0.004303225806451613,
+        "holiday_black_friday": 0.029448387096774196,
+        "holiday_cyber_monday": 0.014706451612903225,
+        "holiday_school_breaks": 0.10089354838709677,
+        "season_fourier_sin_1": 0.12038873572802837,
+        "season_fourier_cos_1": 7.162729191130042e-18,
+        "season_fourier_sin_2": -1.085381869184606e-17,
+        "season_fourier_cos_2": 0.03225806451612883,
+        "season_fourier_sin_3": 0.0322580645161289,
+        "season_fourier_cos_3": 1.6474277139599097e-16
+      },
+      "control_stds": {
+        "Кол-во запросов": 110782.75673018697,
+        "Продажи в уп. конкуренты": 3679414.1314488524,
+        "holiday_newyear_preshop": 0.13695250130210554,
+        "holiday_newyear_postsale": 0.09189481247132388,
+        "holiday_valentine": 0.14856762407984853,
+        "holiday_defender_day": 0.09549499057964485,
+        "holiday_march8": 0.07756863932319305,
+        "holiday_may_holidays": 0.08918076098033846,
+        "holiday_russia_day": 0.02004582813970158,
+        "holiday_back_to_school": 0.13663108771078517,
+        "holiday_unity_day": 0.016657060242250988,
+        "holiday_black_friday": 0.08809585639505696,
+        "holiday_cyber_monday": 0.04879210957715649,
+        "holiday_school_breaks": 0.11582929950429605,
+        "season_fourier_sin_1": 0.6964362407189911,
+        "season_fourier_cos_1": 0.7302967433402214,
+        "season_fourier_sin_2": 0.7071067811865476,
+        "season_fourier_cos_2": 0.7295601856708801,
+        "season_fourier_sin_3": 0.7063460420946633,
+        "season_fourier_cos_3": 0.7302967433402214
+      },
+      "untrained_channels": [],
+      "untrained_controls": [],
+      "holiday_dummies_mode": "fraction",
+      "origin": {
+        "y_mean": "recorded",
+        "y_std": "recorded",
+        "intercept_mean": "recorded",
+        "media_means": "recorded",
+        "control_means": "recorded",
+        "control_stds": "recorded",
+        "untrained_channels": "recorded",
+        "untrained_controls": "recorded",
+        "holiday_dummies_mode": "recorded"
+      },
+      "note": "Медиаряды нормированы делением на среднее, контроли – вычитанием среднего и делением на разброс, KPI – вычитанием среднего и делением на разброс. media_means – это средние ряда ПОСЛЕ переноса с фиксированным коэффициентом 0,5, то есть масштаб входного медиаряда, а не средние трат канала. Точкой нормировки насыщения они НЕ являются: там делитель – среднее ряда переноса, вычисляемое внутри модели на каждой выборке (см. specification.saturation). Сравнивать media_means с channels[*].adstock_mean_posterior нельзя – у этих чисел разные основания, и меньшее значение переноса тут не противоречие."
+    },
+    "priors": {
+      "control_prior_means": {
+        "Кол-во запросов": 0.0,
+        "Продажи в уп. конкуренты": -0.3,
+        "holiday_newyear_preshop": 0.0,
+        "holiday_newyear_postsale": 0.0,
+        "holiday_valentine": 0.0,
+        "holiday_defender_day": 0.0,
+        "holiday_march8": 0.0,
+        "holiday_may_holidays": 0.0,
+        "holiday_russia_day": 0.0,
+        "holiday_back_to_school": 0.0,
+        "holiday_unity_day": 0.0,
+        "holiday_black_friday": 0.0,
+        "holiday_cyber_monday": 0.0,
+        "holiday_school_breaks": 0.0,
+        "season_fourier_sin_1": 0.0,
+        "season_fourier_cos_1": 0.0,
+        "season_fourier_sin_2": 0.0,
+        "season_fourier_cos_2": 0.0,
+        "season_fourier_sin_3": 0.0,
+        "season_fourier_cos_3": 0.0
+      },
+      "control_prior_means_origin": "recorded",
+      "hierarchical_posterior_means": null,
+      "hierarchical_posterior_means_origin": "not_recorded",
+      "signed_factor_priors": null,
+      "signed_factor_priors_origin": "not_recorded",
+      "registry_reference": {
+        "beta_sigma_brand": 0.7,
+        "beta_sigma_performance": 0.3,
+        "beta_sigma_mixed": 0.4,
+        "hill_gamma_beta_distribution": [
+          3.0,
+          3.0
+        ],
+        "decay_mu_logit_brand": [
+          0.7,
+          0.3
+        ],
+        "decay_mu_logit_performance": [
+          -1.4,
+          0.7
+        ],
+        "decay_mu_logit_mixed": [
+          -1.4,
+          0.7
+        ],
+        "observation_sigma": 0.3
+      },
+      "registry_reference_origin": "reference",
+      "registry_reference_note": "Значения взяты из реестра KPI кода продукта на момент выгрузки, а НЕ из файла модели: спецификация приоров при обучении не сохраняется. Если реестр менялся после обучения, эти значения могут отличаться от применявшихся. Куда именно каждое из них подставляется и применялось ли оно к этой модели – см. specification_from_code.",
+      "specification_from_code": {
+        "origin": "reference",
+        "source": "engines/modeler.py – сборка модели PyMC (разбор исходника при выгрузке)",
+        "note": "Значения прочитаны из кода продукта на момент выгрузки, а не из файла модели: спецификация приоров при обучении не сохраняется. Совпадение с версией программы, которой обучена эта модель, не гарантировано.",
+        "how_read": "Семейство распределения и его аргументы прочитаны из кода разбором синтаксического дерева, а не переписаны в этот модуль – рукописная копия расходится с расчётом при первой же правке модели. Числа, пришедшие из реестра KPI, помечены в value_source.",
+        "branch_flags": {
+          "use_hierarchical": false,
+          "use_hierarchical_origin": "recorded",
+          "use_horseshoe": false,
+          "use_horseshoe_origin": "computed",
+          "use_horseshoe_note": "ключа use_horseshoe в конфигурации модели нет; значение взято из того же вызова config.get, которым его читает код обучения"
+        },
+        "condition_note": "condition – ветвление кода, при котором приор применяется; applies_to_this_model – выполнялось ли оно при обучении ЭТОЙ модели (вычислено по записанным флагам). null означает «определить нельзя».",
+        "priors": [
+          {
+            "variable": "intercept",
+            "family": "Normal",
+            "parameters": {
+              "mu": {
+                "expression": "0",
+                "value": 0.0,
+                "value_source": "литерал кода"
+              },
+              "sigma": {
+                "expression": "0.5",
+                "value": 0.5,
+                "value_source": "литерал кода"
+              }
+            },
+            "notation": "Normal(mu=0.0, sigma=0.5)",
+            "shape_expression": null,
+            "condition": "без условий",
+            "applies_to_this_model": true,
+            "document_field": "normalization.intercept_mean – свободный член",
+            "source_line": 899
+          },
+          {
+            "variable": "horseshoe_tau",
+            "family": "HalfCauchy",
+            "parameters": {
+              "beta": {
+                "expression": "0.1",
+                "value": 0.1,
+                "value_source": "литерал кода"
+              }
+            },
+            "notation": "HalfCauchy(beta=0.1)",
+            "shape_expression": null,
+            "condition": "use_horseshoe",
+            "applies_to_this_model": false,
+            "document_field": "общая сжимающая величина разреженного приора (ветвь «подкова»)",
+            "source_line": 909
+          },
+          {
+            "variable": "horseshoe_lambda",
+            "family": "HalfCauchy",
+            "parameters": {
+              "beta": {
+                "expression": "1.0",
+                "value": 1.0,
+                "value_source": "литерал кода"
+              }
+            },
+            "notation": "HalfCauchy(beta=1.0)",
+            "shape_expression": "len(media_cols)",
+            "condition": "use_horseshoe",
+            "applies_to_this_model": false,
+            "document_field": "сжимающая величина канала (ветвь «подкова»)",
+            "source_line": 911
+          },
+          {
+            "variable": "media_betas",
+            "family": "HalfNormal",
+            "parameters": {
+              "sigma": {
+                "expression": "horseshoe_tau * horseshoe_lambda",
+                "value": null,
+                "value_source": null
+              }
+            },
+            "notation": "HalfNormal(sigma=horseshoe_tau * horseshoe_lambda)",
+            "shape_expression": "len(media_cols)",
+            "condition": "use_horseshoe",
+            "applies_to_this_model": false,
+            "document_field": "channels[*].beta – коэффициент канала",
+            "source_line": 913
+          },
+          {
+            "variable": "brand_sigma",
+            "family": "HalfNormal",
+            "parameters": {
+              "sigma": {
+                "expression": "kpi_config.brand_beta_sigma",
+                "value": 0.7,
+                "value_source": "реестр KPI"
+              }
+            },
+            "notation": "HalfNormal(sigma=0.7)",
+            "shape_expression": null,
+            "condition": "НЕ (use_horseshoe) и use_hierarchical",
+            "applies_to_this_model": false,
+            "document_field": "сигма коэффициентов каналов категории «бренд» (иерархическая ветвь)",
+            "source_line": 927
+          },
+          {
+            "variable": "perf_sigma",
+            "family": "HalfNormal",
+            "parameters": {
+              "sigma": {
+                "expression": "kpi_config.perf_beta_sigma",
+                "value": 0.3,
+                "value_source": "реестр KPI"
+              }
+            },
+            "notation": "HalfNormal(sigma=0.3)",
+            "shape_expression": null,
+            "condition": "НЕ (use_horseshoe) и use_hierarchical",
+            "applies_to_this_model": false,
+            "document_field": "сигма коэффициентов каналов категории «отклик» (иерархическая ветвь)",
+            "source_line": 928
+          },
+          {
+            "variable": "mixed_sigma",
+            "family": "HalfNormal",
+            "parameters": {
+              "sigma": {
+                "expression": "kpi_config.mixed_beta_sigma",
+                "value": 0.4,
+                "value_source": "реестр KPI"
+              }
+            },
+            "notation": "HalfNormal(sigma=0.4)",
+            "shape_expression": null,
+            "condition": "НЕ (use_horseshoe) и use_hierarchical",
+            "applies_to_this_model": false,
+            "document_field": "сигма коэффициентов каналов категории «смешанный» (иерархическая ветвь)",
+            "source_line": 929
+          },
+          {
+            "variable": "media_betas_z",
+            "family": "HalfNormal",
+            "parameters": {
+              "sigma": {
+                "expression": "1.0",
+                "value": 1.0,
+                "value_source": "литерал кода"
+              }
+            },
+            "notation": "HalfNormal(sigma=1.0)",
+            "shape_expression": "len(media_cols)",
+            "condition": "НЕ (use_horseshoe) и use_hierarchical",
+            "applies_to_this_model": false,
+            "document_field": "channels[*].beta – вспомогательная величина: beta = сигма группы × z",
+            "source_line": 933
+          },
+          {
+            "variable": "media_betas",
+            "family": "HalfNormal",
+            "parameters": {
+              "sigma": {
+                "expression": "0.3",
+                "value": 0.3,
+                "value_source": "литерал кода"
+              }
+            },
+            "notation": "HalfNormal(sigma=0.3)",
+            "shape_expression": "len(media_cols)",
+            "condition": "НЕ (use_horseshoe) и НЕ (use_hierarchical)",
+            "applies_to_this_model": true,
+            "document_field": "channels[*].beta – коэффициент канала",
+            "source_line": 936
+          },
+          {
+            "variable": "control_betas",
+            "family": "Normal",
+            "parameters": {
+              "mu": {
+                "expression": "_control_mu_array",
+                "value": null,
+                "value_source": null,
+                "value_where_to_find": "priors.control_prior_means этого документа – приорное среднее по каждому контролю, записано в модели"
+              },
+              "sigma": {
+                "expression": "0.3",
+                "value": 0.3,
+                "value_source": "литерал кода"
+              }
+            },
+            "notation": "Normal(mu=_control_mu_array, sigma=0.3)",
+            "shape_expression": "len(control_cols)",
+            "condition": "len(control_cols) > 0",
+            "applies_to_this_model": true,
+            "document_field": "controls[*].beta и signed_factors[*].beta – коэффициенты контролей",
+            "source_line": 945
+          },
+          {
+            "variable": "alphas",
+            "family": "Gamma",
+            "parameters": {
+              "alpha": {
+                "expression": "5",
+                "value": 5.0,
+                "value_source": "литерал кода"
+              },
+              "beta": {
+                "expression": "3",
+                "value": 3.0,
+                "value_source": "литерал кода"
+              }
+            },
+            "notation": "Gamma(alpha=5.0, beta=3.0)",
+            "shape_expression": "len(media_cols)",
+            "condition": "без условий",
+            "applies_to_this_model": true,
+            "document_field": "channels[*].hill_alpha – крутизна насыщения",
+            "source_line": 957
+          },
+          {
+            "variable": "gammas",
+            "family": "Beta",
+            "parameters": {
+              "alpha": {
+                "expression": "kpi_config.gammas_alpha",
+                "value": 3.0,
+                "value_source": "реестр KPI"
+              },
+              "beta": {
+                "expression": "kpi_config.gammas_beta",
+                "value": 3.0,
+                "value_source": "реестр KPI"
+              }
+            },
+            "notation": "Beta(alpha=3.0, beta=3.0)",
+            "shape_expression": "len(media_cols)",
+            "condition": "без условий",
+            "applies_to_this_model": true,
+            "document_field": "channels[*].hill_gamma – точка половинного насыщения",
+            "source_line": 959
+          },
+          {
+            "variable": "adstock_sigma_logit",
+            "family": "HalfNormal",
+            "parameters": {
+              "sigma": {
+                "expression": "1.0",
+                "value": 1.0,
+                "value_source": "литерал кода"
+              }
+            },
+            "notation": "HalfNormal(sigma=1.0)",
+            "shape_expression": null,
+            "condition": "без условий",
+            "applies_to_this_model": true,
+            "document_field": "sampling.decay_hyper_sigma_logit_posterior_mean – разброс отката в логит-шкале",
+            "source_line": 971
+          },
+          {
+            "variable": "adstock_z",
+            "family": "Normal",
+            "parameters": {
+              "mu": {
+                "expression": "0.0",
+                "value": 0.0,
+                "value_source": "литерал кода"
+              },
+              "sigma": {
+                "expression": "1.0",
+                "value": 1.0,
+                "value_source": "литерал кода"
+              }
+            },
+            "notation": "Normal(mu=0.0, sigma=1.0)",
+            "shape_expression": "len(media_cols)",
+            "condition": "без условий",
+            "applies_to_this_model": true,
+            "document_field": "channels[*].adstock_decay – вспомогательная величина под сигмоидой",
+            "source_line": 972
+          },
+          {
+            "variable": "brand_mu_logit",
+            "family": "Normal",
+            "parameters": {
+              "mu": {
+                "expression": "_b_mu",
+                "value": 0.7,
+                "value_source": "реестр KPI"
+              },
+              "sigma": {
+                "expression": "_b_sg",
+                "value": 0.3,
+                "value_source": "реестр KPI"
+              }
+            },
+            "notation": "Normal(mu=0.7, sigma=0.3)",
+            "shape_expression": null,
+            "condition": "use_hierarchical",
+            "applies_to_this_model": false,
+            "document_field": "центр отката категории «бренд» в логит-шкале (иерархическая ветвь)",
+            "source_line": 981
+          },
+          {
+            "variable": "perf_mu_logit",
+            "family": "Normal",
+            "parameters": {
+              "mu": {
+                "expression": "_p_mu",
+                "value": -1.4,
+                "value_source": "реестр KPI"
+              },
+              "sigma": {
+                "expression": "_p_sg",
+                "value": 0.7,
+                "value_source": "реестр KPI"
+              }
+            },
+            "notation": "Normal(mu=-1.4, sigma=0.7)",
+            "shape_expression": null,
+            "condition": "use_hierarchical",
+            "applies_to_this_model": false,
+            "document_field": "центр отката категории «отклик» в логит-шкале (иерархическая ветвь)",
+            "source_line": 982
+          },
+          {
+            "variable": "mixed_mu_logit",
+            "family": "Normal",
+            "parameters": {
+              "mu": {
+                "expression": "_m_mu",
+                "value": -1.4,
+                "value_source": "реестр KPI"
+              },
+              "sigma": {
+                "expression": "_m_sg",
+                "value": 0.7,
+                "value_source": "реестр KPI"
+              }
+            },
+            "notation": "Normal(mu=-1.4, sigma=0.7)",
+            "shape_expression": null,
+            "condition": "use_hierarchical",
+            "applies_to_this_model": false,
+            "document_field": "центр отката категории «смешанный» в логит-шкале (иерархическая ветвь)",
+            "source_line": 983
+          },
+          {
+            "variable": "adstock_mu_logit",
+            "family": "Normal",
+            "parameters": {
+              "mu": {
+                "expression": "_sp_mu",
+                "value": -1.4,
+                "value_source": "реестр KPI"
+              },
+              "sigma": {
+                "expression": "_sp_sg",
+                "value": 0.7,
+                "value_source": "реестр KPI"
+              }
+            },
+            "notation": "Normal(mu=-1.4, sigma=0.7)",
+            "shape_expression": null,
+            "condition": "НЕ (use_hierarchical)",
+            "applies_to_this_model": true,
+            "document_field": "sampling.decay_hyper_mu_logit_posterior_mean – центр отката в логит-шкале",
+            "source_line": 993
+          },
+          {
+            "variable": "sigma",
+            "family": "HalfNormal",
+            "parameters": {
+              "sigma": {
+                "expression": "kpi_config.obs_sigma_prior",
+                "value": 0.3,
+                "value_source": "реестр KPI"
+              }
+            },
+            "notation": "HalfNormal(sigma=0.3)",
+            "shape_expression": null,
+            "condition": "без условий",
+            "applies_to_this_model": true,
+            "document_field": "шум наблюдения; апостериорная оценка в модели не записана – в документе её нет",
+            "source_line": 1063
+          }
+        ],
+        "deterministic_transforms": [
+          {
+            "variable": "media_betas",
+            "expression": "sigma_vec * media_betas_z",
+            "condition": "НЕ (use_horseshoe) и use_hierarchical",
+            "applies_to_this_model": false,
+            "document_field": "channels[*].beta – коэффициент канала",
+            "source_line": 934
+          },
+          {
+            "variable": "adstock_decay",
+            "expression": "pm.math.sigmoid(mu_vec + adstock_sigma_logit * adstock_z)",
+            "condition": "use_hierarchical",
+            "applies_to_this_model": false,
+            "document_field": "channels[*].adstock_decay – откат канала, сигмоида от логит-шкалы",
+            "source_line": 986
+          },
+          {
+            "variable": "adstock_decay",
+            "expression": "pm.math.sigmoid(adstock_mu_logit + adstock_sigma_logit * adstock_z)",
+            "condition": "НЕ (use_hierarchical)",
+            "applies_to_this_model": true,
+            "document_field": "channels[*].adstock_decay – откат канала, сигмоида от логит-шкалы",
+            "source_line": 994
+          }
+        ],
+        "likelihood": [
+          {
+            "variable": "obs",
+            "family": "Normal",
+            "parameters": {
+              "mu": {
+                "expression": "mu",
+                "value": null,
+                "value_source": null
+              },
+              "sigma": {
+                "expression": "sigma",
+                "value": null,
+                "value_source": null
+              }
+            },
+            "notation": "Normal(mu=mu, sigma=sigma)",
+            "shape_expression": null,
+            "condition": "без условий",
+            "applies_to_this_model": true,
+            "document_field": "правдоподобие наблюдений KPI",
+            "source_line": 1064,
+            "observed": "y_norm"
+          }
+        ],
+        "category_note": "Иерархия по группам каналов при обучении была выключена: приоры, различающиеся по категории канала (бренд / отклик / смешанный), не применялись – см. condition у каждого приора. Пустое поле channels[*].category на спецификацию приоров этой модели не влияет."
+      },
+      "specification_from_code_origin": "reference"
+    },
+    "sampling": {
+      "n_chains": 2,
+      "n_draws_per_chain": 300,
+      "n_samples_total": 600,
+      "n_tune": 2000,
+      "decay_hyper_mu_logit_posterior_mean": -1.3410861866313344,
+      "decay_hyper_sigma_logit_posterior_mean": 0.8322544392430697,
+      "origin": {
+        "n_chains": "recorded",
+        "n_draws_per_chain": "recorded",
+        "n_samples_total": "computed",
+        "n_tune": "recorded",
+        "decay_hyper_mu_logit_posterior_mean": "recorded",
+        "decay_hyper_sigma_logit_posterior_mean": "recorded"
+      },
+      "note": "Гиперпараметры переноса даны в логит-шкале: откат канала = сигмоида(mu + sigma · z). Это апостериорные средние, а не приоры.",
+      "settings_from_code": {
+        "origin": "reference",
+        "source": "engines/modeler.py – вызовы pm.sample (разбор исходника при выгрузке)",
+        "note": "Значения прочитаны из кода продукта на момент выгрузки, а не из файла модели: спецификация приоров при обучении не сохраняется. Совпадение с версией программы, которой обучена эта модель, не гарантировано.",
+        "calls": [
+          {
+            "sampler_tier": "numpyro-nuts",
+            "arguments": {
+              "draws": "draws",
+              "tune": "tune",
+              "chains": "chains",
+              "random_seed": "mcmc_seed",
+              "return_inferencedata": "True",
+              "progressbar": "True",
+              "nuts_sampler": "'numpyro'",
+              "nuts_sampler_kwargs": "{'chain_method': _chain_method}",
+              "target_accept": "0.95"
+            },
+            "applies_to_this_model": true,
+            "source_line": 1149,
+            "not_passed": [
+              "max_treedepth",
+              "init",
+              "initvals",
+              "step",
+              "jitter"
+            ]
+          },
+          {
+            "sampler_tier": "pytensor-nuts",
+            "arguments": {
+              "draws": "draws",
+              "tune": "tune",
+              "chains": "chains",
+              "cores": "1",
+              "random_seed": "mcmc_seed",
+              "return_inferencedata": "True",
+              "progressbar": "True",
+              "callback": "_draw_cb",
+              "target_accept": "0.95"
+            },
+            "applies_to_this_model": false,
+            "source_line": 1201,
+            "not_passed": [
+              "max_treedepth",
+              "init",
+              "initvals",
+              "step",
+              "jitter"
+            ]
+          },
+          {
+            "sampler_tier": "pytensor-nuts-no-callback",
+            "arguments": {
+              "draws": "draws",
+              "tune": "tune",
+              "chains": "chains",
+              "cores": "1",
+              "random_seed": "mcmc_seed",
+              "return_inferencedata": "True",
+              "progressbar": "True",
+              "target_accept": "0.95"
+            },
+            "applies_to_this_model": false,
+            "source_line": 1215,
+            "not_passed": [
+              "max_treedepth",
+              "init",
+              "initvals",
+              "step",
+              "jitter"
+            ]
+          }
+        ],
+        "not_passed_note": "not_passed – параметры, которые код обучения сэмплеру НЕ передаёт: действует значение по умолчанию той версии библиотеки, что указана в разделе воспроизводимости. Это и есть граница обещания повторяемости: одно зерно даёт одинаковые числа на той же среде, но не гарантирует побитового совпадения на другой.",
+        "applied_tier": "numpyro-nuts",
+        "applied_tier_origin": "recorded",
+        "target_accept_in_code": 0.95
+      },
+      "settings_from_code_origin": "reference"
+    },
+    "diagnostics": {
+      "available": false,
+      "origin": "not_recorded",
+      "where_to_find": "results/model-diagnostics.json проекта"
+    },
+    "reproducibility": {
+      "available": true,
+      "origin": "recorded",
+      "seed": 42,
+      "seed_source": "config",
+      "sampler_tier": "numpyro-nuts",
+      "chain_method_requested": "vectorized",
+      "chain_method_delivered": true,
+      "jax_devices": 1,
+      "data_fingerprint": {
+        "content": {
+          "status": "ok",
+          "algo": "aurora-frame-v1",
+          "content_sha256": "f4ee6352af7d66dc5106e9959ec66bd92bbbf25bb41afce05f6ba4a169a62b9c",
+          "n_rows": 31,
+          "n_cols": 34
+        },
+        "file": {
+          "status": "ok",
+          "algo": "sha256-full-file",
+          "file_sha256": "8d3e62227ea60cd1e583f8a41aa9d0bbc114b4b78470ca9d6794783361b5c0cf",
+          "size_bytes": 65894,
+          "file_name": "Кагоцел РФ+_данные для эконометрики + наши данные 29.08.xlsx",
+          "file_ext": ".xlsx"
+        }
+      },
+      "has_compiler": true,
+      "mcmc": {
+        "chains": 2,
+        "draws": 300,
+        "tune": 2000
+      },
+      "versions": {
+        "python": "3.12.10",
+        "numpy": "2.4.2",
+        "pymc": "5.28.4",
+        "pytensor": "2.38.2",
+        "numpyro": "0.20.1",
+        "jax": "0.7.2"
+      },
+      "platform": {
+        "system": "Windows",
+        "release": "11",
+        "machine": "AMD64",
+        "python": "3.12.10"
+      },
+      "data_fingerprint_algorithm": {
+        "algo": "aurora-frame-v1",
+        "hash_function": "SHA-256",
+        "digest_format": "шестнадцатеричный текст, 64 знака, нижний регистр",
+        "source": "utils/data_fingerprint.py – compute_frame_fingerprint, _column_digest, _canon_scalar",
+        "what_is_hashed": "Таблица исходных данных так, как её прочитала программа: все столбцы файла в исходном порядке и все строки в исходном порядке. Отбор столбцов под модель происходит позже и на отпечаток не влияет.",
+        "constants": {
+          "algo_label": "aurora-frame-v1",
+          "significant_digits": 12,
+          "cell_separator_hex": "0x1F",
+          "field_separator_hex": "0x1E",
+          "na_token_bytes_hex": "0x00 0x4E 0x41"
+        },
+        "cell_canonical_form": [
+          "Пропуск (None, NaN, NaT, pd.NA), а также текст «nan», «NaN», «NaT», «<NA>» – единый токен из байтов 0x00 0x4E 0x41.",
+          "Логическое значение – текст «TRUE» или «FALSE» (не 1 и не 0: в таблице это отдельный тип).",
+          "Целое число – десятичная запись без знака плюс и без разделителей разрядов (результат str(int(значение))).",
+          "Дробное число – ноль записывается как «0» (без знака минус), плюс-минус бесконечность – как «inf» и «-inf», прочее – формат Python «%.12g» (то есть 12 значащих цифр, экспоненциальная форма при необходимости).",
+          "Дата и время – ISO-8601, результат метода isoformat() (например «2023-01-01T00:00:00»).",
+          "Всё остальное – текстовое представление значения как есть.",
+          "Скаляр numpy сначала разворачивается в родной тип Python (np.int64 → int, np.bool_ → bool), после чего применяются правила выше."
+        ],
+        "column_digest": [
+          "Завести SHA-256.",
+          "Для каждой строки в порядке таблицы подать: канонический текст ячейки в UTF-8, затем разделитель ячеек 0x1F.",
+          "Хеш столбца – шестнадцатеричный дайджест (64 знака, нижний регистр)."
+        ],
+        "frame_digest": [
+          "Завести SHA-256.",
+          "Подать метку алгоритма «aurora-frame-v1» в UTF-8, затем разделитель полей 0x1E.",
+          "Подать текст «rows=<число строк>;cols=<число столбцов>» в UTF-8, затем 0x1E.",
+          "Для каждого столбца в порядке таблицы (нумерация с нуля) подать: номер позиции десятичным текстом, разделитель полей, имя столбца в UTF-8 буква в букву (включая переводы строк внутри имени), разделитель полей, хеш столбца из предыдущего пункта как текст ASCII, разделитель полей.",
+          "Отпечаток содержимого – шестнадцатеричный дайджест итогового SHA-256."
+        ],
+        "sensitive_to": [
+          "значению любой ячейки",
+          "имени столбца",
+          "порядку столбцов",
+          "порядку строк",
+          "числу строк и столбцов",
+          "метке алгоритма (смена правил обязана менять метку)"
+        ],
+        "insensitive_to": [
+          "представлению числа (целое / дробное, версия библиотеки чтения)",
+          "способу записи пропуска",
+          "пересохранению файла",
+          "имени и пути файла"
+        ],
+        "note": "Описание порождается тем же модулем, что считает отпечаток, и подставляет его фактические константы – расхождение описания с расчётом исключено по построению."
+      },
+      "data_fingerprint_algorithm_origin": "reference"
+    },
+    "not_included": {
+      "channel_roi": {
+        "note": "Окупаемость каналов в этом документе не приводится: она не параметр модели, а результат разложения продаж по вкладам.",
+        "where_to_find": "engines/decomposer.py – результат в results/decomposition.json проекта"
+      },
+      "optimization": {
+        "note": "Рекомендации по перераспределению бюджета – отдельный расчёт, не параметр модели.",
+        "where_to_find": "engines/optimizer.py – результат в results/optimization.json проекта"
+      },
+      "raw_data": {
+        "note": "Исходные данные в документ не включаются – только имя файла и параметры нормировки.",
+        "where_to_find": "файл данных проекта, указанный при обучении"
+      },
+      "posterior_samples": {
+        "note": "Полные апостериорные выборки (тысячи значений на параметр) в документ не включаются из-за объёма – по ним посчитаны разброс и правдоподобный диапазон 90% каждого параметра.",
+        "where_to_find": "файл модели проекта, раздел posterior_samples"
+      }
+    },
+    "absent_fields": [
+      {
+        "field": "model.analysis_mode",
+        "reason": "режим анализа при обучении не записан (поле появилось в схеме позже)",
+        "where_to_find": "derived_mode – выводится загрузчиком по полю per_channel_input, это не запись обучения"
+      },
+      {
+        "field": "channels[*].category",
+        "reason": "категории каналов (бренд / отклик / смешанный) при обучении не назначены",
+        "where_to_find": "назначаются пользователем на шаге настройки; пустое поле означает «не назначено». На спецификацию приоров ЭТОЙ модели категория не влияет: иерархия по группам каналов была выключена, применялся общий приор коэффициента – см. priors.specification_from_code"
+      },
+      {
+        "field": "priors.hierarchical_posterior_means",
+        "reason": "групповые гиперпараметры переноса не записаны – модель обучена без иерархии по группам"
+      },
+      {
+        "field": "priors.signed_factor_priors",
+        "reason": "подробная запись применённых приоров знаковых факторов в модели пуста",
+        "where_to_find": "приорные средние по каждому контролю – priors.control_prior_means"
+      },
+      {
+        "field": "priors.specification_at_training",
+        "reason": "полная спецификация приоров (сигмы коэффициентов, приоры насыщения и шума) при обучении в модель не записывается – семейства и параметры ниже прочитаны из кода продукта",
+        "where_to_find": "priors.specification_from_code – разбор engines/modeler.py на момент выгрузки; числа реестра – utils/kpi_registry.py"
+      },
+      {
+        "field": "sampling.max_treedepth",
+        "reason": "эту настройку сэмплера код обучения не передаёт – действует значение по умолчанию библиотеки той версии, что указана в разделе воспроизводимости; побитового повторения одно зерно поэтому не гарантирует",
+        "where_to_find": "sampling.settings_from_code – аргументы фактического вызова сэмплера"
+      },
+      {
+        "field": "sampling.init",
+        "reason": "эту настройку сэмплера код обучения не передаёт – действует значение по умолчанию библиотеки той версии, что указана в разделе воспроизводимости; побитового повторения одно зерно поэтому не гарантирует",
+        "where_to_find": "sampling.settings_from_code – аргументы фактического вызова сэмплера"
+      },
+      {
+        "field": "sampling.initvals",
+        "reason": "эту настройку сэмплера код обучения не передаёт – действует значение по умолчанию библиотеки той версии, что указана в разделе воспроизводимости; побитового повторения одно зерно поэтому не гарантирует",
+        "where_to_find": "sampling.settings_from_code – аргументы фактического вызова сэмплера"
+      },
+      {
+        "field": "sampling.step",
+        "reason": "эту настройку сэмплера код обучения не передаёт – действует значение по умолчанию библиотеки той версии, что указана в разделе воспроизводимости; побитового повторения одно зерно поэтому не гарантирует",
+        "where_to_find": "sampling.settings_from_code – аргументы фактического вызова сэмплера"
+      },
+      {
+        "field": "sampling.jitter",
+        "reason": "эту настройку сэмплера код обучения не передаёт – действует значение по умолчанию библиотеки той версии, что указана в разделе воспроизводимости; побитового повторения одно зерно поэтому не гарантирует",
+        "where_to_find": "sampling.settings_from_code – аргументы фактического вызова сэмплера"
+      },
+      {
+        "field": "diagnostics",
+        "reason": "диагностика в файле модели не хранится и при выгрузке не передана",
+        "where_to_find": "единый источник для чтения – results/model-diagnostics.json проекта"
+      }
+    ]
+  }
+}

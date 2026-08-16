@@ -136,6 +136,27 @@ MODE_EXACT = 'exact'
 MODE_STRICT = 'other_seed_full'
 MODE_WIDE = 'reduced_or_other_env'
 
+# Исходы сверки. «Сверять нечего» – отдельный исход, а не «совпало»: пустая
+# сверка, объявленная совпадением, – та же неправда, что зелёный прогон из нуля
+# тестов (замечание M-2 внешнего аудита, 2026-08-16). Совпадением называется
+# только то, что сверили хотя бы по одной величине.
+VERDICT_MATCH = 'match'
+VERDICT_MISMATCH = 'mismatch'
+VERDICT_NOTHING = 'nothing_compared'
+
+VERDICT_TITLES = {
+    VERDICT_MATCH: 'совпало',
+    VERDICT_MISMATCH: 'не совпало',
+    VERDICT_NOTHING: 'сверять нечего',
+}
+
+# Тождественность исходных данных: подтверждена отпечатками содержимого обоих
+# паспортов либо не проверена. Молчать об этом нельзя – читатель принял бы
+# «совпало» за подтверждение того, что расчёты сделаны на одной таблице
+# (замечание M-3, 2026-08-16).
+DATA_IDENTITY_CONFIRMED = 'confirmed'
+DATA_IDENTITY_NOT_VERIFIED = 'not_verified'
+
 MODE_TITLES = {
     # Имя ветви 1 говорит, ЧТО она на самом деле проверяет: тот же код запускает
     # сам себя. Прежнее имя («то же зерно, та же среда и те же настройки»)
@@ -510,10 +531,15 @@ def compare_runs(
 
     Returns:
         {'status': 'compared'|'not_comparable',
-         'verdict': 'match'|'mismatch'|None,
+         'verdict': 'match'|'mismatch'|'nothing_compared'|None,
          'mode', 'mode_title', 'mode_reason', 'criterion_version',
          'tolerances', 'ci_share_limit_pct',
+         'compared_count': сколько величин действительно сверено,
+         'data_identity': 'confirmed'|'not_verified',
          'channels': [...], 'unverified': [...], 'notes': [...]}
+
+    Вердикт «совпало» выносится только тогда, когда сверена хотя бы одна
+    величина: пустая сверка – отдельный исход `nothing_compared`.
     """
     run_a = read_run(model_a, project_a)
     run_b = read_run(model_b, project_b)
@@ -529,6 +555,29 @@ def compare_runs(
         }
 
     notes: list[str] = []
+
+    # Тождественность данных. `_check_comparable` отказывает в сверке, только
+    # когда отпечатки есть у обоих и различаются; молчаливый пропуск при
+    # отсутствующем отпечатке обязан дойти до заключения, иначе читатель примет
+    # «совпало» за подтверждение того, что таблица одна и та же (M-3).
+    отпечаток_а = _content_hash(run_a.get('passport') or {})
+    отпечаток_б = _content_hash(run_b.get('passport') or {})
+    if отпечаток_а and отпечаток_б:
+        data_identity = DATA_IDENTITY_CONFIRMED
+    else:
+        data_identity = DATA_IDENTITY_NOT_VERIFIED
+        if not отпечаток_а and not отпечаток_б:
+            где = 'ни в одном из двух паспортов'
+        elif not отпечаток_а:
+            где = 'в паспорте первого расчёта'
+        else:
+            где = 'в паспорте второго расчёта'
+        notes.append(
+            f'Тождественность исходных данных НЕ проверена: отпечаток содержимого таблицы {где} '
+            'не записан. Совпадение величин ниже не означает, что расчёты сделаны на одной '
+            'и той же таблице.'
+        )
+
     detected, reason = detect_mode(run_a, run_b)
     used_mode = mode or detected
     if used_mode not in TOLERANCES:
@@ -563,6 +612,7 @@ def compare_runs(
 
     channels: list[dict[str, Any]] = []
     all_within = not (only_a or only_b)
+    сверено_всего = 0
     for name in sorted(names_a & names_b):
         row_a, row_b = run_a['channels'][name], run_b['channels'][name]
         quantities: dict[str, Any] = {}
@@ -595,16 +645,41 @@ def compare_runs(
                 'within': within,
                 'passed_by': passed_by,
             }
+        # Сверенной считается величина, по которой вынесено да или нет.
+        # `within is None` – «не сверено» (нет значения, нулевая база), и
+        # канал, где не сверено НИ ОДНОЙ величины, совпавшим назвать нельзя.
+        сверено_в_канале = sum(1 for величина in quantities.values() if величина['within'] is not None)
+        сверено_всего += сверено_в_канале
+        if сверено_в_канале == 0:
+            вердикт_канала = VERDICT_NOTHING
+        else:
+            вердикт_канала = VERDICT_MATCH if channel_within else VERDICT_MISMATCH
         channels.append({
             'channel': name,
             'quantities': quantities,
-            'verdict': 'match' if channel_within else 'mismatch',
+            'compared_count': сверено_в_канале,
+            'verdict': вердикт_канала,
         })
         all_within = all_within and channel_within
 
+    # Пустая сверка – отдельный исход, а не «совпало» (M-2). Расхождение
+    # наборов каналов – находка сама по себе, поэтому она главнее пустоты:
+    # различие уже обнаружено, и заключение обязано остаться отрицательным.
+    if сверено_всего == 0 and not (only_a or only_b):
+        verdict = VERDICT_NOTHING
+        notes.append(
+            'Сверять оказалось нечего: ни одна величина двух расчётов не сравнивалась '
+            '(в разбивке и в моделях нет значений либо каналы не пересекаются). '
+            'Это НЕ совпадение – это отсутствие сверки.'
+        )
+    else:
+        verdict = VERDICT_MATCH if all_within else VERDICT_MISMATCH
+
     return {
         'status': 'compared',
-        'verdict': 'match' if all_within else 'mismatch',
+        'verdict': verdict,
+        'compared_count': сверено_всего,
+        'data_identity': data_identity,
         'mode': used_mode,
         'mode_title': MODE_TITLES[used_mode],
         'mode_reason': reason,
