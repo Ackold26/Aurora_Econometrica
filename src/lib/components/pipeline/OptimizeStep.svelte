@@ -40,6 +40,7 @@
   import { buildScaledParams, predictKPI } from '$lib/hill.js';
   import BudgetOptimizer from '$lib/components/pipeline/BudgetOptimizer.svelte';
   import OptimizeGoalSeek from '$lib/components/pipeline/OptimizeGoalSeek.svelte';
+  import ProfitFrontierCard from '$lib/components/pipeline/ProfitFrontierCard.svelte';
   import ResponseCurves from '$lib/components/pipeline/ResponseCurves.svelte';
   import ExpandableCard from '$lib/components/ExpandableCard.svelte';
   import GlossaryTerm from '$lib/components/GlossaryTerm.svelte';
@@ -150,7 +151,8 @@
   }
 
   /** v1.3.0: forward (от бюджета) vs goal-seek (от цели) per ADR-014.
-   * @type {'forward' | 'goal-seek'} */
+   * 2026-08-16: + frontier (сколько вообще тратить) - профит-фронтир.
+   * @type {'forward' | 'goal-seek' | 'frontier'} */
   let taskMode = $state('forward');
 
   /** @type {'idle' | 'optimizing' | 'done' | 'error'} */
@@ -1773,6 +1775,20 @@
           </div>
         </Tooltip>
       </button>
+      <button
+        type="button"
+        role="radio"
+        aria-checked={taskMode === 'frontier'}
+        class="task-pill"
+        class:active={taskMode === 'frontier'}
+        onclick={() => { taskMode = 'frontier'; }}
+      >
+        <span class="pill-icon"><TrendingUp size={28} strokeWidth={1.5} /></span>
+        <div class="pill-text">
+          <strong>Сколько тратить всего</strong>
+          <span class="pill-sub">Профит-фронтир - есть ли смысл наращивать бюджет</span>
+        </div>
+      </button>
     </div>
   </section>
 
@@ -1781,6 +1797,8 @@
       currentSales={dData?.total_contribution ?? dData?.total_sales ?? 0}
       salesCorridor={null}
     />
+  {:else if taskMode === 'frontier'}
+    <ProfitFrontierCard />
   {:else}
 
   <!-- ══════════ Phase 2 - Mode toggle (Analyst | Planner) ══════════ -->

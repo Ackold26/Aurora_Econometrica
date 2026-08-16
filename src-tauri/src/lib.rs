@@ -3939,6 +3939,8 @@ fn build_app() -> Result<(), String> {
             // v1.3.0 - Goal-Seek + Safe Corridor + Auto-Price + KPI Settings (ADR-014..017)
             commands::econometrica::econ_safe_corridor,
             commands::econometrica::econ_optimize_inverse,
+            // 2026-08-16: профит-фронтир — «сколько вообще тратить» (P1)
+            commands::econometrica::econ_profit_frontier,
             commands::econometrica::econ_auto_detect_price,
             commands::econometrica::econ_save_kpi_settings,
             commands::econometrica::econ_forecast_context,

@@ -837,6 +837,31 @@ pub async fn econ_optimize_inverse(
     post_json("/optimize/inverse", &body, train_client()).await
 }
 
+/// 2026-08-16: профит-фронтир — «сколько вообще тратить» (не «как разложить
+/// заданный бюджет»). Кривая прибыли по суммарному бюджету + честный максимум
+/// с тремя исходами (внутри наблюдений / за границей / уже за максимумом).
+/// Дёшево (~1 с) — считается на лету, отдельного долгого прогона не нужно.
+#[tauri::command]
+pub async fn econ_profit_frontier(
+    project_dir: String,
+    kpi_type: Option<String>,
+    value_per_count_unit: Option<f64>,
+    gross_margin: Option<f64>,
+    unit_costs: Option<Value>,
+) -> Result<Value, String> {
+    info!("econ_profit_frontier: {project_dir}");
+    let body = serde_json::json!({
+        "project_dir": project_dir,
+        "kpi_type": kpi_type,
+        "value_per_count_unit": value_per_count_unit,
+        "gross_margin": gross_margin,
+        "unit_costs": unit_costs,
+    });
+    // Апостериорные выборки на сетке ≈0,6 с + чтение модели — train_client
+    // (как econ_optimize_inverse), quick_client'а достаточно, но запас не мешает.
+    post_json("/optimize/profit-frontier", &body, train_client()).await
+}
+
 #[tauri::command]
 pub async fn econ_auto_detect_price(
     project_dir: String,

@@ -66,6 +66,17 @@ pub struct ProjectInfo {
     pub kpi_kind: Option<String>,
     #[serde(default)]
     pub value_per_count_unit: Option<f64>,
+    /// Профит-фронтир (2026-08-16): валовая маржа для денежных KPI (выручка,
+    /// продажи) — доля прибыли в рубле продаж, нужна чтобы перевести прирост
+    /// продаж от медиа в прибыль (`optimize/frontier.py::resolve_economics`,
+    /// режим `monetary_margin`). Персистится тем же путём, что и
+    /// `value_per_count_unit` (тот же паттерн, тот же durable project.json) —
+    /// карточка фронтира отправляет её в запрос на расчёт каждый раз, но без
+    /// персиста поле обнулялось бы при каждом заходе на шаг заново.
+    /// Backward compat: None для проектов без введённой маржи (расчёт честно
+    /// откажет с объяснением, а не подставит ноль — INV-50).
+    #[serde(default)]
+    pub gross_margin: Option<f64>,
     /// LOAD-1 (2026-06-07): режим анализа (`roi`/`effectiveness`/`mixed`). Влияет
     /// на cpp-гейт обучения: physical-канал в `roi`-режиме без unit_cost = ROI-артефакт.
     /// Не персистился → reset в `roi` на reload → effectiveness-проект (валидный с
@@ -304,6 +315,7 @@ pub async fn project_create(name: String, industry: Option<String>) -> Result<Pr
         kpi_type: None,
         kpi_kind: None,
         value_per_count_unit: None,
+        gross_margin: None,
         analysis_mode: None,
         model_channel_enabled: HashMap::new(),
         per_channel_input: HashMap::new(),
@@ -432,6 +444,15 @@ pub async fn project_update(project_id: String, updates: Value) -> Result<Projec
             info.value_per_count_unit = None;
         } else if let Some(f) = vpcu.as_f64() {
             info.value_per_count_unit = Some(f);
+        }
+    }
+    // Профит-фронтир (2026-08-16): persist валовой маржи — тот же паттерн,
+    // что value_per_count_unit выше (null очищает, число сохраняет).
+    if let Some(gm) = updates.get("gross_margin") {
+        if gm.is_null() {
+            info.gross_margin = None;
+        } else if let Some(f) = gm.as_f64() {
+            info.gross_margin = Some(f);
         }
     }
     // LOAD-1 (2026-06-07): persist analysis_mode (roi/effectiveness/mixed) → cpp-гейт
@@ -1123,6 +1144,7 @@ mod atomic_write_tests {
             kpi_type: None,
             kpi_kind: None,
             value_per_count_unit: None,
+            gross_margin: None,
             analysis_mode: None,
             model_channel_enabled: HashMap::new(),
             per_channel_input: HashMap::new(),
@@ -1152,6 +1174,33 @@ mod atomic_write_tests {
         let loaded = read_project(tmp.path()).unwrap();
         assert_eq!(loaded.media_columns, info.media_columns);
         assert_eq!(loaded.unit_costs.get("tv_spend"), Some(&1.0));
+    }
+
+    #[test]
+    fn write_project_roundtrip_preserves_gross_margin() {
+        // Профит-фронтир (2026-08-16): валовая маржа должна переживать save/reload
+        // (тот же паттерн, что value_per_count_unit).
+        let tmp = TempDir::new().unwrap();
+        let mut info = make_info("gm", "Gross Margin");
+        info.gross_margin = Some(0.3);
+        write_project(tmp.path(), &info).unwrap();
+        let loaded = read_project(tmp.path()).unwrap();
+        assert_eq!(loaded.gross_margin, Some(0.3));
+    }
+
+    #[test]
+    fn read_project_legacy_json_without_gross_margin_defaults_none() {
+        // Backward compat: legacy project.json без поля → serde(default) → None.
+        let tmp = TempDir::new().unwrap();
+        let legacy = r#"{
+            "id": "legacy", "name": "Legacy", "description": "",
+            "created_at": "2026-05-01T00:00:00Z", "updated_at": "2026-05-01T00:00:00Z",
+            "kpi_column": "sales", "media_columns": ["tv"], "control_columns": [],
+            "data_file": null
+        }"#;
+        std::fs::write(tmp.path().join("project.json"), legacy).unwrap();
+        let loaded = read_project(tmp.path()).unwrap();
+        assert_eq!(loaded.gross_margin, None);
     }
 
     #[test]

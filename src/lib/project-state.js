@@ -893,6 +893,14 @@ export const valuePerCountUnit = writable(null);
  */
 export const valuePerCountUnitSource = writable(null);
 
+/**
+ * Профит-фронтир (2026-08-16): валовая маржа для денежных KPI (доля прибыли
+ * в рубле продаж). Персистируется в project.json тем же путём, что и
+ * valuePerCountUnit (см. ре-гидрацию ниже + project.rs::ProjectInfo.gross_margin).
+ * @type {import('svelte/store').Writable<number | null>}
+ */
+export const grossMargin = writable(null);
+
 // LOAD-1 (2026-06-06): ре-гидрация count-KPI train-входов из DURABLE project.json
 // (ProjectInfo.kpi_type/kpi_kind/value_per_count_unit — добавлены в project.rs +
 // персистятся в ConfigPanel.trainModel). Раньше не персистились → reset при reload →
@@ -917,6 +925,7 @@ activeProject.subscribe((p) => {
     kpiType.set('sales');
     kpiKind.set('monetary');
     valuePerCountUnit.set(null);
+    grossMargin.set(null);
     perChannelInput.set({});  // D-1: сброс per-channel метрик при деселекте
     return;
   }
@@ -925,6 +934,9 @@ activeProject.subscribe((p) => {
   if (typeof p.kpi_type === 'string' && p.kpi_type) kpiType.set(p.kpi_type);
   if (typeof p.kpi_kind === 'string' && p.kpi_kind) kpiKind.set(p.kpi_kind);
   if (typeof p.value_per_count_unit === 'number') valuePerCountUnit.set(p.value_per_count_unit);
+  // Профит-фронтир (2026-08-16): та же ре-гидрация id-guard'ом, тот же SET-IF-PRESENT
+  // паттерн, что value_per_count_unit строкой выше.
+  if (typeof p.gross_margin === 'number') grossMargin.set(p.gross_margin);
   // LOAD-1 D-1 (2026-06-07): ре-гидрация per-channel метрики из DURABLE project.json →
   // cpp-гейт на reload судит по реальному выбору юзера, не по детектору имени (закрывает
   // ложный over-block physical-имя+override='monetary'+no-cost). SET-IF-PRESENT: пустая
