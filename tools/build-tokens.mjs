@@ -43,7 +43,24 @@ if (!existsSync(STANDARDS_BUILD)) {
   process.exit(0);
 }
 
-const args = ['--target', 'css', '--product', PRODUCT];
+// 🔴 CPD-98: пути вывода общего генератора зашиты на дерево `Dev/Aurora_Econometrica`.
+// Без явного указания сборка из ЛЮБОГО другого рабочего дерева (тонкого, канона,
+// временного) писала бы токены в чужое дерево и чужую ветку, а своё оставляла со
+// старыми. Проверено 16.08: файл в основном дереве менялся 15.08 в 22:06 – в момент
+// сборки 2.4.10 отсюда. Считаем адресатов от СВОЕГО корня.
+const REPO_ROOT = resolve(__dirname, '..');
+const OUT = {
+  css: resolve(REPO_ROOT, 'src', 'tokens.generated.css'),
+  py: resolve(REPO_ROOT, 'sidecar', 'econometrica', 'aurora_tokens.py'),
+  htmlCss: resolve(REPO_ROOT, 'sidecar', 'econometrica', 'aurora_html', 'templates', 'aurora_html.css'),
+  htmlJs: resolve(REPO_ROOT, 'sidecar', 'econometrica', 'aurora_html', 'templates', 'aurora_html_tokens.js'),
+};
+const BSLASH = String.fromCharCode(92);
+const q = (p) => '"' + p.split(BSLASH).join('/') + '"';
+// Пути вывода задаёт сам генератор по --product, поэтому переносим их в СВОЁ
+// рабочее дерево штатным флагом --product-root, а не переопределением --out-*
+// (тот перекрывается флагом --product и молча не применяется).
+const args = ['--target', 'css', '--product', PRODUCT, '--product-root', q(REPO_ROOT)];
 if (checkMode) args.push('--check');
 
 const standardsBuildNormalized = STANDARDS_BUILD.replaceAll('\\', '/');
