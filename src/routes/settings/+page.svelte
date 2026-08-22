@@ -719,7 +719,7 @@
                 <span class="mode-name">Шлюз Авроры</span>
                 <span class="mode-note">
                   Работу советника выполняет наш сервер: своя подписка Claude не нужна. Материалы
-                  проходят через Платформу Аврора и дальше к Anthropic.
+                  проходят через Платформу Аврора.
                 </span>
                 {#if !executionMode.cloud_built_in}
                   <span class="mode-warn">Не входит в эту сборку.</span>
