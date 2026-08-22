@@ -125,7 +125,7 @@ if ($DryRun) {
     Write-Host "    /td sha256 \\"
     Write-Host "    /fd sha256 \\"
     Write-Host "    /d 'Aurora MMM Optimizer' \\"
-    Write-Host "    /du 'https://auroraai.pro' \\"
+    Write-Host "    /du 'https://AuroraAi.pro' \\"
     Write-Host "    $InstallerPath"
     Write-Host ""
     Write-Host "Pending: сертификат EV Code Signing от ООО." -ForegroundColor Yellow
@@ -143,7 +143,7 @@ $signArgs = @(
     '/td', 'sha256',
     '/fd', 'sha256',
     '/d', 'Aurora MMM Optimizer',
-    '/du', 'https://auroraai.pro',
+    '/du', 'https://AuroraAi.pro',
     $InstallerPath
 )
 

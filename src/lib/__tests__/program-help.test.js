@@ -19,7 +19,7 @@ describe('PROGRAM_OVERVIEW — карта программы', () => {
     expect(PROGRAM_OVERVIEW).toMatch(/Aurora MMM Optimizer/);
     expect(PROGRAM_OVERVIEW).toMatch(/Пайплайн/);
     expect(PROGRAM_OVERVIEW).toMatch(/Декомпозиция/);
-    expect(PROGRAM_OVERVIEW).toMatch(/support@auroraai\.pro/);
+    expect(PROGRAM_OVERVIEW).toMatch(/support@AuroraAi\.pro/);
     // методологические нормативы (пороги) — присутствуют
     expect(PROGRAM_OVERVIEW).toMatch(/1,05/);
   });
