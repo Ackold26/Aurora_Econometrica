@@ -49,6 +49,23 @@ const REQUEST_TIMEOUT_SECS: u64 = 15;
 /// Map CARGO_PKG_NAME to product identifier for the server.
 pub fn detect_product() -> &'static str {
     let pkg = env!("CARGO_PKG_NAME");
+    let product = map_pkg_to_product(pkg);
+    // CPD-84: незнакомое имя пакета — первое, что будет искать поддержка при жалобе «не вижу
+    // свои кабинеты». Пишем в журнал здесь, а не внутри `map_pkg_to_product`: та остаётся
+    // чистой функцией без побочных действий, и её удобно дёргать в тестах десятками вызовов.
+    if product == "unknown" {
+        log::error!(
+            "CPD-84: незнакомое имя пакета лицензии «{}» — продукт не опознан, кабинеты будут \
+             скрыты (пустой список), а не выданы по умолчанию",
+            pkg
+        );
+    }
+    product
+}
+
+/// Pure mapping used by [`detect_product`]; extracted so it is unit-testable
+/// without depending on the crate currently being compiled.
+fn map_pkg_to_product(pkg: &str) -> &'static str {
     match pkg {
         "rosst-ai-legal" => "legal",
         "rosst-ai-creative" => "creative",
@@ -56,7 +73,12 @@ pub fn detect_product() -> &'static str {
         "rosst-ai-docmaster" => "docmaster",
         "aurora-creative-hub" => "creative-hub",
         "aurora-econometrica-gui" => "econometrica",
-        _ => "agency", // ai-agency-gui and any other → agency
+        // CPD-84 / ловушка A: легитимные имена агентской сборки — единственные, что попадают
+        // в "agency". Своё имя этого дерева ("aurora-econometrica-gui") распознаётся веткой выше.
+        "aurora-agency" | "aurora-ai-agency" | "ai-agency-gui" => "agency",
+        // CPD-84: раньше здесь был `_ => "agency"` — ЛЮБОЕ незнакомое имя пакета молча получало
+        // ключ "agency", а filter_by_product("agency", …) отдаёт None, то есть ВСЕ кабинеты линии.
+        _ => "unknown",
     }
 }
 
@@ -1184,6 +1206,35 @@ mod tests {
             assert!(!status.cabinets.is_empty(), "При ok сервер обязан вернуть кабинеты");
         }
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // ── CPD-84: неопознанное имя пакета лицензии — пустой список кабинетов ──
+
+    #[test]
+    fn legitimate_agency_names_map_to_agency_and_unknown_names_do_not() {
+        assert_eq!(map_pkg_to_product("aurora-agency"), "agency");
+        assert_eq!(map_pkg_to_product("aurora-ai-agency"), "agency");
+        assert_eq!(map_pkg_to_product("ai-agency-gui"), "agency");
+        // CPD-84: до правки все три ниже тоже уходили в "agency" и получали ВСЕ кабинеты
+        // линии. Теперь — явный "unknown", а filter_by_product() отдаёт для него пусто.
+        assert_eq!(map_pkg_to_product("something-unknown"), "unknown");
+        assert_eq!(map_pkg_to_product("aurora-econometrikaa"), "unknown"); // опечатка в имени
+        assert_eq!(map_pkg_to_product(""), "unknown");
+    }
+
+    #[test]
+    fn an_unknown_package_name_gets_no_cabinets_at_all() {
+        use crate::commands::cabinet::{filter_by_product, get_cabinet_definitions};
+        let product = map_pkg_to_product("something-unknown");
+        let all_cabinets = get_cabinet_definitions();
+        let total = all_cabinets.len();
+        let cabinets = filter_by_product(product, all_cabinets);
+        assert!(
+            cabinets.is_empty(),
+            "получил {} кабинет(ов) из {}",
+            cabinets.len(),
+            total
+        );
     }
 }
 

@@ -126,7 +126,17 @@ pub fn filter_by_product(product: &str, cabinets: Vec<CabinetInfo>) -> Vec<Cabin
         "creative" => Some(&["creative-director", "communication-strategist", "focus-groups", "copywriter", "art-director"]),
         "docmaster" => Some(&["doc-master"]),
         "prmaster" => Some(&["communication-analyst", "social-listening", "copywriter"]),
-        _ => None,
+        // CPD-84 / ловушка B: ключ производит detect_product() этого дерева (rosst-ai-media /
+        // rosst-media-gui), но принадлежит чужой линии (ROSST_AI_Media / Insights Hub) — состав
+        // её кабинетов здесь не заводим (выдумывать чужой список запрещено). Сохраняем прежнее
+        // поведение явной веткой: раньше этот ключ проваливался в `_ => None`, то есть все кабинеты.
+        "media" => None,
+        "unknown" => Some(&[]),
+        // CPD-84: раньше здесь был `_ => None` — любой не перечисленный явно ключ продукта
+        // (опечатка в имени пакета, забытая ветка нового продукта) получал ВСЕ кабинеты линии
+        // вместо ограничения. `None` в этой функции означает «не ограничивать», поэтому
+        // умолчание для незнакомого ключа обязано быть `Some(&[])` — пустой список.
+        _ => Some(&[]),
     };
     match allowed {
         Some(ids) => cabinets.into_iter().filter(|c| ids.contains(&c.id.as_str())).collect(),
@@ -630,6 +640,24 @@ mod tests {
         assert_eq!(
             crate::commands::claude::CLOUD_ADVISORS_ENABLED,
             cfg!(feature = "cloud_advisors")
+        );
+    }
+
+    // CPD-84: ветка `_` в filter_by_product() не защищена именованными тестами выше — они
+    // проходят через "unknown" и никогда не задевают саму ветку `_`. Мутация `_ => None`
+    // оставляет оба теста слоя 1 зелёными; ловит её только этот тест.
+    #[test]
+    fn unnamed_product_key_falls_through_to_empty_not_to_all_cabinets() {
+        let все = get_cabinet_definitions();
+        assert!(!все.is_empty(), "перечень кабинетов пуст — проверять нечего");
+
+        let выданные = filter_by_product("ключ-которого-нет-ни-в-одном-списке", все.clone());
+        assert!(
+            выданные.is_empty(),
+            "🔴 не перечисленный явно ключ продукта получил {} кабинет(ов) из {} — ветка `_` \
+             снова означает «не ограничивать», и любой забытый ключ открывает клиенту всю линию",
+            выданные.len(),
+            все.len()
         );
     }
 }
