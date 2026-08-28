@@ -61,6 +61,96 @@ function parseRange(header: string | null, size: number): RangeSpec | "invalid" 
   return { start, end };
 }
 
+// --- Наблюдаемость доставки (2026-08-28) ---------------------------------
+//
+// Дверь `/content` открывается знанием одного лишь отпечатка машины, и до сих
+// пор в журнале не было видно, КТО забрал файл: событие `content_downloaded`
+// несло только имя файла, продукт и версию. Отличить обычное обновление от
+// вычерпывания всей истории (399 объектов, 9,64 МБ) было нечем. Ниже — только
+// запись в журнал: ни одного отказа, ни одной задержки клиенту не добавляется.
+
+/** Окно наблюдения, секунды. */
+const BURST_WINDOW_SECS = 600;
+
+/**
+ * Порог всплеска — сколько РАЗЛИЧНЫХ файлов один отпечаток забрал за окно.
+ *
+ * Почему считаем различные файлы, а не обращения. Прогон по боевому журналу
+ * (1687 событий `content_downloaded`, 31.03–17.08.2026, 12 отпечатков) показал:
+ * законный клиент умеет повторять один и тот же файл десятками раз — 16.08 одна
+ * машина сделала 253 обращения за 16 минут, но различных файлов в них было
+ * всего 9 (244 повтора). По сырым обращениям порог 60 сработал бы 448 раз на
+ * совершенно законной картине и утонул бы в шуме. По различным файлам
+ * исторический максимум за 10 минут — 14.
+ *
+ * Почему именно 60:
+ *  - исторический максимум 14 (запас более чем четырёхкратный);
+ *  - худший мыслимый законный случай — машина со всеми лицензиями заново
+ *    качает текущие версии всех 11 продуктов: 50 различных файлов, всё ещё
+ *    ниже порога;
+ *  - самая большая одна версия — 13 файлов, обычное обновление не приблизится;
+ *  - вычерпывание истории (399 объектов) отмечается на 60-м файле.
+ * На исторических данных порог не сработал бы ни разу.
+ */
+const BURST_DISTINCT_FILES = 60;
+
+/**
+ * Предел строк, вычитываемых из журнала за окно. Ограничивает и трафик, и
+ * работу базы, если кто-то ломится в дверь: для перехода порога достаточно
+ * увидеть 60 различных файлов, а берём мы самые свежие записи.
+ */
+const BURST_SCAN_LIMIT = 600;
+
+/** Строка журнала за окно — ровно те поля, что нужны счётчику. */
+type BurstRow = { event: string; p: string | null; v: string | null; f: string | null };
+
+/** Ключ различимости: один и тот же файл одной версии считается один раз. */
+function fileKey(product: string, version: string, file: string): string {
+  return `${product}/${version}/${file}`;
+}
+
+/**
+ * Сколько различных файлов набралось за окно и надо ли писать всплеск.
+ *
+ * Чистая функция: ввода-вывода нет, поэтому её поведение проверяемо отдельно.
+ * `rows` — записи журнала этого отпечатка за окно (и скачивания, и уже
+ * записанные всплески), `current` — файл, который отдаём прямо сейчас.
+ * Повторный всплеск в том же окне не пишется: одна запись на окно, иначе на
+ * длинном вычерпывании журнал залило бы сотнями одинаковых строк.
+ */
+function assessBurst(
+  rows: BurstRow[],
+  current: string,
+  threshold: number
+): { distinct: number; report: boolean } {
+  const seen = new Set<string>([current]);
+  let alreadyReported = false;
+  for (const r of rows) {
+    if (r.event === "content_burst") {
+      alreadyReported = true;
+      continue;
+    }
+    if (r.p && r.v && r.f) seen.add(fileKey(r.p, r.v, r.f));
+  }
+  return { distinct: seen.size, report: !alreadyReported && seen.size >= threshold };
+}
+
+/**
+ * Первые 12 знаков отпечатка в нижнем регистре — метка машины для журнала.
+ *
+ * Целиком отпечаток в журнал не кладём: он же служит паролем к содержимому,
+ * и запись его в общедоступную для служебного ключа таблицу удвоила бы число
+ * мест, откуда его можно взять. Двенадцати знаков хватает с огромным запасом:
+ * среди всех 12 отпечатков боевой базы усечения не совпадают ни разу, а по
+ * самой метке восстановить отпечаток нельзя. Ничего сверх этого о машине
+ * клиента не пишем (INV-38). Возвращает `null`, если отпечаток не похож на
+ * шестнадцатеричный — тогда просто не считаем всплеск и не пишем метку.
+ */
+function shortFingerprint(fingerprint_hash: string): string | null {
+  const head = fingerprint_hash.slice(0, 12);
+  return /^[0-9a-fA-F]{12}$/.test(head) ? head.toLowerCase() : null;
+}
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
@@ -149,11 +239,81 @@ Deno.serve(async (req: Request) => {
     // раз и сделала бы его непригодным для разбора отказов — а он нужен именно
     // для этого. Признак `ranged` показывает, что клиент качает по частям.
     if (!invalidRange && (range === null || range.start === 0)) {
+      // 4а. Метка машины и счётчик всплеска. Считаем ровно там, где и без того
+      // идём в журнал, — на начальном запросе файла: при докачке кусками ни
+      // одного лишнего обращения к базе не появляется. Один запрос на файл
+      // вместо прежних нуля; тело ответа при этом всё равно едет из хранилища,
+      // и оно дороже. Весь блок обёрнут так, чтобы отказ журнала не мешал
+      // выдаче: при любой ошибке счётчик просто молчит, а файл уходит клиенту.
+      const fp12 = shortFingerprint(fingerprint_hash);
+      let recentFiles: number | null = null;
+      let burst: number | null = null;
+
+      if (fp12) {
+        try {
+          const since = new Date(Date.now() - BURST_WINDOW_SECS * 1000).toISOString();
+          const { data: recent, error: recentError } = await supabase
+            .from("audit_log")
+            .select("event, p:details->>product, v:details->>version, f:details->>file")
+            .in("event", ["content_downloaded", "content_burst"])
+            .eq("details->>fp12", fp12)
+            .gte("created_at", since)
+            .order("created_at", { ascending: false })
+            .limit(BURST_SCAN_LIMIT);
+
+          // Клиент не бросает исключений на сетевом сбое, а возвращает ошибку
+          // объектом — проверено живым зондом. Считать по пустому ответу в этом
+          // случае нельзя: поле `recent_files` тогда показало бы «забрал один
+          // файл» там, где счётчик попросту не отработал. Молчим честно.
+          if (!recentError) {
+            const verdict = assessBurst(
+              (recent ?? []) as unknown as BurstRow[],
+              fileKey(product, version, file),
+              BURST_DISTINCT_FILES
+            );
+            recentFiles = verdict.distinct;
+            if (verdict.report) burst = verdict.distinct;
+          }
+        } catch {
+          // Журнал недоступен — доставку это не касается.
+          console.error("content: burst counter unavailable");
+        }
+      }
+
       await supabase.from("audit_log").insert({
         event: "content_downloaded",
         license_id: license.id,
-        details: { product, version, file, size, ranged: range !== null },
+        details: {
+          product,
+          version,
+          file,
+          size,
+          ranged: range !== null,
+          ...(fp12 ? { fp12 } : {}),
+          ...(recentFiles !== null ? { recent_files: recentFiles } : {}),
+        },
       });
+
+      // 4б. Всплеск — отдельной строкой, чтобы его было видно без разбора всего
+      // журнала. Ни отказа, ни задержки: к этому мгновению файл уже прочитан и
+      // уходит клиенту тем же ответом, что и без всплеска.
+      if (burst !== null) {
+        try {
+          await supabase.from("audit_log").insert({
+            event: "content_burst",
+            license_id: license.id,
+            details: {
+              fp12,
+              product,
+              distinct_files: burst,
+              window_secs: BURST_WINDOW_SECS,
+              threshold: BURST_DISTINCT_FILES,
+            },
+          });
+        } catch {
+          console.error("content: burst event not written");
+        }
+      }
     }
 
     if (invalidRange) {
