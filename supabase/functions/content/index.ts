@@ -208,6 +208,17 @@ Deno.serve(async (req: Request) => {
       }, 400);
     }
 
+    // 🔴 Отпечаток приводится к нижнему регистру ИМЕННО ЗДЕСЬ, а не в функции входа. Гейт выше
+    // намеренно допускает оба регистра (отказывать невиновному из-за прописных букв не за что),
+    // но сверка с базой регистрозависима — значит вызывающий с верхним регистром прошёл бы
+    // проверку и не нашёл лицензию, получив `403 «Лицензия не найдена»` без единой строки в
+    // журнале: оператор разбирал бы это как отзыв или порчу данных. Клиент шлёт `hex::encode`,
+    // то есть нижний регистр, поэтому сегодня ветка недостижима — приведение тут на будущее.
+    // 🔴 Во ВХОДЕ так делать нельзя: там полный отпечаток входит в подписываемую строку
+    // `AUTHSIG-v1`, и нормализация разошлась бы с тем, что собирает клиент при проверке подписи.
+    // В выдаче содержимого подписи нет, ломать нечего.
+    const отпечаток = fingerprint_hash.toLowerCase();
+
     const supabase = createClient(
       Deno.env.get("SUPABASE_URL")!,
       Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
@@ -217,21 +228,44 @@ Deno.serve(async (req: Request) => {
     let query = supabase
       .from("licenses")
       .select("id, product, is_active, expires_at")
-      .eq("fingerprint_hash", fingerprint_hash)
+      .eq("fingerprint_hash", отпечаток)
       .eq("is_active", true);
 
     // Filter by product if provided
     query = query.eq("product", product);
 
     const { data: licenses } = await query;
-    const license = licenses && licenses.length > 0 ? licenses[0] : null;
+
+    // 🔴 Срок разбирается ВРЕМЕНЕМ, и непарсящееся значение считается истёкшим, а не
+    // «бессрочным». Прежде здесь стояло `new Date(license.expires_at) < new Date()`:
+    // `new Date("2026-13-45")` даёт `Invalid Date`, сравнение с `NaN` всегда ложно — и лицензия
+    // с испорченным сроком проходила, отдавая ВСЕ файлы кабинетов бессрочно. Функция входа такую
+    // лицензию уже отвергает (`auth/index.ts`, функция `момент` и событие `auth_bad_expiry`), то
+    // есть правило существовало, но до этого носителя доведено не было — ровно класс CPD-139/140.
+    const момент = (x: any): number => {
+      const t = Date.parse(String(x?.expires_at ?? ""));
+      return Number.isFinite(t) ? t : -Infinity;
+    };
+    const сейчас = Date.now();
+
+    // 🔴 Из нескольких действующих строк берётся ЖИВАЯ С САМЫМ ПОЗДНИМ СРОКОМ, а не первая
+    // попавшаяся: запрос порядка не задаёт, и база вправе вернуть истёкшую первой. Такие пары в
+    // бою есть — зонд 23.08 показал на ОДНОЙ машине то 6 кабинетов, то 13, и срок то 01.11.2026,
+    // то 14.04.2030. Прежнее `licenses[0]` давало отказ «Лицензия истекла» при живой лицензии
+    // рядом: вход работал, обновление кабинетов вставало, и в журнале не оставалось ни строки.
+    // Это то же правило владельца от 23.08, которое уже действует в функции входа.
+    const все = licenses ?? [];
+    const живые = все.filter((x: any) => момент(x) > сейчас);
+    const license = живые.length > 0
+      ? [...живые].sort((a: any, b: any) => момент(b) - момент(a))[0]
+      : null;
 
     if (!license) {
-      return jsonResponse({ status: "blocked", message: "Лицензия не найдена" }, 403);
-    }
-
-    if (new Date(license.expires_at) < new Date()) {
-      return jsonResponse({ status: "blocked", message: "Лицензия истекла" }, 403);
+      // Различаем два случая: строки нет вовсе и строка есть, но негодна по сроку — иначе
+      // оператор не отличит «лицензию не выдали» от «срок вышел либо записан неверно».
+      return все.length > 0
+        ? jsonResponse({ status: "blocked", message: "Лицензия истекла" }, 403)
+        : jsonResponse({ status: "blocked", message: "Лицензия не найдена" }, 403);
     }
 
     // 2. Download file from Storage
@@ -267,7 +301,7 @@ Deno.serve(async (req: Request) => {
       // вместо прежних нуля; тело ответа при этом всё равно едет из хранилища,
       // и оно дороже. Весь блок обёрнут так, чтобы отказ журнала не мешал
       // выдаче: при любой ошибке счётчик просто молчит, а файл уходит клиенту.
-      const fp12 = shortFingerprint(fingerprint_hash);
+      const fp12 = shortFingerprint(отпечаток);
       let recentFiles: number | null = null;
       let burst: number | null = null;
 
