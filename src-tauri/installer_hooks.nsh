@@ -1,11 +1,14 @@
 ﻿; Aurora AI Econometrica – NSIS installer hooks (v1.0.9+)
 ;
-; Цель: предотвратить Windows Defender Firewall prompt при первом запуске
-; sidecar'а на ephemeral port. На корпоративных RDP-серверах нет interactive
-; admin для разрешения диалога – без правил sidecar блокируется.
+; Цель: освободить файлы движка перед установкой и удалением (kill-блоки ниже).
 ;
-; Оба правила scoped на localip=127.0.0.1 – только loopback, никакого
-; внешнего экспозиш.
+; Правила брандмауэра убраны (CPD-116, 2026-08-17). Раньше хуки заводили при
+; установке и снимали при удалении два разрешающих правила на петлевой адрес
+; (localip=127.0.0.1) для интерфейса и движка. Соседняя линия доказала зондом:
+; петлевой трафик Windows брандмауэром НЕ фильтрует – правила ничего не
+; разрешали, при этом были единственной причиной, по которой установщику
+; Эконометрики требовались права администратора. Удалены и правила добавления,
+; и правила снятия: иначе деинсталлятор чистил бы несуществующее.
 ;
 ; Phase 3.1 (2026-05-23): PREINSTALL hook убивает running sidecar + GUI
 ; чтобы NSIS мог перезаписать .pyd / .dll. Это safety net на случай если
@@ -15,7 +18,7 @@
 ;
 ; rc10 (2026-06-07) + фикс кодировки (2026-07-07): ВСЕ внешние команды через
 ; nsExec::Exec – НЕ ExecWait и НЕ ExecToLog. ExecWait для консольных программ
-; (taskkill/netsh) открывает видимое чёрное окно cmd. ExecToLog запускает скрыто,
+; (taskkill) открывает видимое чёрное окно cmd. ExecToLog запускает скрыто,
 ; но ТАЩИТ локализованный вывод утилит (OEM/CP866) в installer-лог → кракозябры
 ; на русской Windows (репорт Антона со скрином 2026-07-07). nsExec::Exec запускает
 ; СКРЫТО (без окна) и НЕ пишет вывод в лог; прогресс даём своим ASCII DetailPrint.
@@ -64,18 +67,6 @@
 !macroend
 
 !macro NSIS_HOOK_POSTINSTALL
-  ; GUI exe
-  nsExec::Exec 'netsh advfirewall firewall add rule \
-name="Aurora AI Econometrica (loopback)" \
-dir=in action=allow protocol=TCP localip=127.0.0.1 \
-program="$INSTDIR\aurora-econometrica-gui.exe"'
-  Pop $0
-  ; Sidecar exe (bundled sub-dir)
-  nsExec::Exec 'netsh advfirewall firewall add rule \
-name="Aurora AI Econometrica Sidecar (loopback)" \
-dir=in action=allow protocol=TCP localip=127.0.0.1 \
-program="$INSTDIR\sidecar\econometrica\econometrica-sidecar.exe"'
-  Pop $0
   ; Явное окно успеха установки (распоряжение Антона 2026-07-02). В silent/passive
   ; режиме подавляется (IfSilent) – там app сам перезапустится по /R (onInstSuccess).
   IfSilent +2
@@ -95,10 +86,4 @@ program="$INSTDIR\sidecar\econometrica\econometrica-sidecar.exe"'
   nsExec::Exec 'taskkill /IM "aurora-econometrica-gui.exe" /FI "USERNAME eq %USERNAME%" /T /F'
   Pop $0
   Sleep 1000
-  nsExec::Exec 'netsh advfirewall firewall delete rule \
-name="Aurora AI Econometrica (loopback)"'
-  Pop $0
-  nsExec::Exec 'netsh advfirewall firewall delete rule \
-name="Aurora AI Econometrica Sidecar (loopback)"'
-  Pop $0
 !macroend

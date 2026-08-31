@@ -319,7 +319,17 @@ impl SessionManager {
     /// открыты в другой программе). Это не отказ операции: ответ советника получен, и рвать его
     /// из-за одного занятого файла нельзя.
     pub fn sync_exports(&self, cabinet_id: &str) -> Result<Vec<String>> {
-        let mut blocked = Vec::new();
+        Ok(self.sync_exports_reported(cabinet_id)?.blocked)
+    }
+
+    /// Та же доставка, но с ОБОИМИ исходами: и не записанные файлы, и те, что легли рядом под
+    /// свободным именем, потому что файл клиента с таким именем расходится с новым.
+    ///
+    /// 🔴 Про второй список человеку нужно СКАЗАТЬ, журнала мало: он ждёт свой результат по
+    /// прежнему имени, а получил его в файле «имя (2)». Готовый текст — общий с генераторами
+    /// выдачи: `commands::saved_aside_notice`.
+    pub fn sync_exports_reported(&self, cabinet_id: &str) -> Result<ExportDelivery> {
+        let mut report = ExportDelivery::default();
         let sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
         if let Some(session) = sessions.get(cabinet_id) {
             let work_dir = session.work_dir.clone();
@@ -329,19 +339,25 @@ impl SessionManager {
             // Sync from exports/ and all vault-specific output directories.
             // 🔴 CPD-39: копирование БЕЗ зеркального удаления — выгрузки клиента только
             // накапливаются. Зеркало здесь сносило ранее выданные файлы с Рабочего стола.
-            blocked.extend(copy_dir_into(&work_dir.join("exports"), &dst)?);
+            report.absorb(copy_dir_into(&work_dir.join("exports"), &dst)?);
             for dir_name in &["pretensions", "nda", "contracts", "reports"] {
                 let src = work_dir.join(dir_name);
                 if src.exists() {
-                    blocked.extend(copy_dir_into(&src, &dst)?);
+                    report.absorb(copy_dir_into(&src, &dst)?);
                 }
             }
         }
         // Пять источников кладут в ОДИН приёмник, поэтому одно и то же имя может прийти дважды;
         // клиенту его показывают списком (находка внешнего аудита, Low).
-        blocked.sort();
-        blocked.dedup();
-        Ok(blocked)
+        report.tidy();
+        if !report.saved_aside.is_empty() {
+            warn!(
+                "CPD-39 [{cabinet_id}]: файлы клиента с такими именами отличаются от новых и \
+                 оставлены нетронутыми, новые результаты сохранены рядом: {}",
+                report.saved_aside.join(", ")
+            );
+        }
+        Ok(report)
     }
 
     /// Auto-route exported artifacts to target cabinets' inboxes based on filename patterns.
@@ -656,29 +672,159 @@ fn routing_key(name_lower: &str, entry: &std::fs::DirEntry) -> String {
     format!("{name_lower}|{stamp}")
 }
 
+/// Итог доставки результатов в папку клиента: два РАЗНЫХ факта, сведение которых в один список
+/// было бы ложью о происходящем.
+///
+/// * `blocked` — файл не записан вовсе (приёмник занят другой программой или не является файлом).
+///   Свежего результата у клиента нет, и он обязан это знать.
+/// * `saved_aside` — файл клиента с таким именем расходится с новым, поэтому оставлен нетронутым,
+///   а новый результат лёг рядом под этим именем. Ничего не потеряно, но имя другое, и об этом
+///   человеку тоже нужно сказать: он ждёт результат по прежнему имени.
+#[derive(Debug, Default, Clone, PartialEq, Eq)]
+pub struct ExportDelivery {
+    pub blocked: Vec<String>,
+    pub saved_aside: Vec<String>,
+}
+
+impl ExportDelivery {
+    /// Присоединить итог одного источника: `sync_exports` обходит до пяти каталогов подряд.
+    fn absorb(&mut self, other: ExportDelivery) {
+        self.blocked.extend(other.blocked);
+        self.saved_aside.extend(other.saved_aside);
+    }
+
+    /// Пять источников кладут в ОДИН приёмник — одно и то же имя приходит дважды, а человеку
+    /// его показывают списком.
+    fn tidy(&mut self) {
+        self.blocked.sort();
+        self.blocked.dedup();
+        self.saved_aside.sort();
+        self.saved_aside.dedup();
+    }
+}
+
 /// 🔴 Один занятый файл не имеет права отменить весь ответ (находка внешнего аудита, Medium).
 /// `std::fs::copy` под `?` возвращал `Err` наверх, а вызов в `send_message` стоял под `?` — клиент,
 /// открывший ранее выданный `.docx` в Word, получал отказ на СЛЕДУЮЩЕЕ сообщение (os error 32),
 /// хотя ответ советника был получен полностью. Проход продолжается, а имена незаписанных файлов
 /// возвращаются наверх: молча глотать отказ нельзя (INV-50) — о нём сообщают, но не ценой ответа.
-fn copy_dir_into(src: &Path, dst: &Path) -> Result<Vec<String>> {
+///
+/// 🔴 Вторая половина CPD-39 (блокирующая, потеря работы клиента): копирование шло безусловным
+/// `fs::copy` поверх одноимённого файла в папке выдачи. Имена результатов детерминированные, и
+/// клиент, поправивший вчерашний разбор руками, терял свою правку молча и без следа. Решение о
+/// размещении принимает ЕДИНАЯ функция `commands::place_generated_export` — та же, что у
+/// генераторов выдачи (CPD-70): файла нет — создаётся, содержимое совпало — файл не трогают
+/// вовсе, содержимое разошлось — прежний остаётся байт в байт, новый ложится рядом под
+/// свободным именем. Своей копии этого правила здесь нет намеренно: копии расходятся молча
+/// (CPD-71).
+fn copy_dir_into(src: &Path, dst: &Path) -> Result<ExportDelivery> {
+    let mut report = ExportDelivery::default();
     if !src.exists() {
-        return Ok(Vec::new());
+        return Ok(report);
     }
     std::fs::create_dir_all(dst)?;
-    let mut blocked = Vec::new();
     for entry in std::fs::read_dir(src)? {
         let entry = entry?;
-        if entry.file_type()?.is_file() {
-            let dst_file = dst.join(entry.file_name());
-            if let Err(e) = std::fs::copy(entry.path(), &dst_file) {
-                let name = entry.file_name().to_string_lossy().to_string();
+        if !entry.file_type()?.is_file() {
+            continue;
+        }
+        let name = entry.file_name().to_string_lossy().to_string();
+        let dst_file = dst.join(entry.file_name());
+
+        // Приёмник занят не файлом (каталог с тем же именем): записать по этому пути нельзя
+        // никогда, и класть рядом «имя (2)» здесь неверно — это не правка клиента, а поломка
+        // раскладки, о которой он обязан узнать поимённо.
+        if dst_file.exists() && !dst_file.is_file() {
+            warn!(
+                "Файл не обновлён в папке результатов: {name}: на его месте каталог, запись невозможна"
+            );
+            report.blocked.push(name);
+            continue;
+        }
+
+        // Промежуточная копия рядом с целью: сама выдача выполняется переименованием внутри
+        // одного тома, поэтому отказ на середине не оставляет клиенту обрубок вместо файла.
+        let staged = staging_path(dst);
+        if let Err(e) = stage_copy(&entry.path(), &staged) {
+            let _ = std::fs::remove_file(&staged);
+            warn!("Файл не обновлён в папке результатов: {name}: {e}");
+            report.blocked.push(name);
+            continue;
+        }
+
+        // Тот же результат мог уже лечь рядом на прошлом сообщении: доставка идёт после
+        // КАЖДОГО ответа кабинета, и без этой сверки папка клиента заросла бы «имя (2)»,
+        // «имя (3)» на каждой реплике.
+        if already_delivered_beside(&staged, &dst_file) {
+            let _ = std::fs::remove_file(&staged);
+            continue;
+        }
+
+        match crate::commands::place_generated_export(&staged, &dst_file) {
+            Ok(crate::commands::PlacedExport::Created)
+            | Ok(crate::commands::PlacedExport::Unchanged) => {}
+            Ok(crate::commands::PlacedExport::SavedAside(aside)) => {
+                info!(
+                    "CPD-39: {} в папке клиента отличается от нового и оставлен нетронутым, \
+                     новый результат сохранён как {}",
+                    dst_file.display(),
+                    aside.display()
+                );
+                if let Some(aside_name) = aside.file_name() {
+                    report.saved_aside.push(aside_name.to_string_lossy().to_string());
+                }
+            }
+            Err(e) => {
+                let _ = std::fs::remove_file(&staged);
                 warn!("Файл не обновлён в папке результатов: {name}: {e}");
-                blocked.push(name);
+                report.blocked.push(name);
+                continue;
             }
         }
     }
-    Ok(blocked)
+    Ok(report)
+}
+
+/// Путь промежуточной копии в папке выдачи. Имя служебное и узнаваемое: если процесс умрёт
+/// между копированием и переименованием, такой огрызок видно и в папке клиента, и глазами.
+/// Номер процесса и счётчик — чтобы две доставки подряд (пять источников в один приёмник) и
+/// два окна продукта не отняли друг у друга промежуточный файл.
+fn staging_path(dst: &Path) -> PathBuf {
+    use std::sync::atomic::{AtomicU64, Ordering};
+    static SEQ: AtomicU64 = AtomicU64::new(0);
+    let n = SEQ.fetch_add(1, Ordering::Relaxed);
+    dst.join(format!(".aurora-{}-{n}.tmp", std::process::id()))
+}
+
+/// Копирование в промежуточный файл с доведением содержимого до диска. Без `sync_all`
+/// переименование могло бы опередить запись, и отказ питания оставил бы клиенту файл
+/// правильного имени с мусором внутри — то есть ровно ту потерю, от которой защищаемся.
+fn stage_copy(from: &Path, to: &Path) -> std::io::Result<()> {
+    std::fs::copy(from, to)?;
+    std::fs::OpenOptions::new().write(true).open(to)?.sync_all()
+}
+
+/// Лежит ли этот же результат уже рядом с файлом клиента под номерным именем — то есть
+/// доставлялся ли он на одном из прошлых сообщений.
+///
+/// Совпадение с самим приёмником здесь НЕ рассматривается: этот случай решает
+/// `place_generated_export` (исход «не трогать вовсе»), и второе правило о том же было бы
+/// копией — расходятся такие копии молча (CPD-71).
+fn already_delivered_beside(staged: &Path, dst_file: &Path) -> bool {
+    if !dst_file.exists() {
+        return false;
+    }
+    let mut n: u32 = 2;
+    loop {
+        let candidate = crate::commands::numbered_variant(dst_file, n);
+        if !candidate.exists() {
+            return false;
+        }
+        if crate::commands::same_bytes(staged, &candidate).unwrap_or(false) {
+            return true;
+        }
+        n += 1;
+    }
 }
 
 /// Mirror-sync files from src to dst (one level, no recursion).
@@ -1255,6 +1401,391 @@ mod export_sync_tests {
             window.contains("already.contains"),
             "раскладка обязана пропускать уже разложенное, иначе история перекопируется на каждое \
              сообщение, а удалённый пользователем файл возвращается"
+        );
+    }
+
+    // ── CPD-39 (вторая половина) / CPD-106: доставка не имеет права затирать ──────────
+    //
+    // Запрет на удаление из папки выдачи закрывал лишь половину класса: копирование шло
+    // безусловным `fs::copy` поверх одноимённого файла. Клиент, поправивший вчерашний
+    // результат руками, терял правку молча и без следа — самый тяжёлый класс в линейке.
+    //
+    // Проверки идут через ВЫЗОВ `sync_exports` на настоящей файловой системе (временный
+    // каталог), а не через внутреннюю функцию копирования: сторож, смотрящий на функцию,
+    // остаётся зелёным при возврате затирания в вызывающем месте (урок Ф-04). Предмет
+    // проверки — сохранность файла клиента, время его изменения и сумма содержимого, то
+    // есть ровно то, чего подменённый слой файловой системы доказать не может.
+
+    /// Сумма содержимого файла: показывается в доказательстве прогона (`--nocapture`) и
+    /// сравнивается в утверждениях. Байты, а не длина: расхождение равной длины — типовой
+    /// случай правки документа.
+    fn sha256_hex(path: &Path) -> String {
+        use sha2::{Digest, Sha256};
+        let bytes = std::fs::read(path).unwrap_or_else(|e| panic!("не читается {}: {e}", path.display()));
+        let mut hasher = Sha256::new();
+        hasher.update(&bytes);
+        hasher.finalize().iter().map(|b| format!("{b:02x}")).collect()
+    }
+
+    /// Время изменения в наносекундах от начала эпохи — единственный признак «файл не
+    /// трогали вовсе». Сравнение содержимого этого не доказывает: перезапись тем же
+    /// содержимым оставляет сумму прежней, а метку сдвигает.
+    fn mtime_nanos(path: &Path) -> u128 {
+        std::fs::metadata(path)
+            .unwrap_or_else(|e| panic!("нет сведений о {}: {e}", path.display()))
+            .modified()
+            .expect("время изменения недоступно")
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("время изменения раньше начала эпохи")
+            .as_nanos()
+    }
+
+    /// Прогон (а): в папке клиента такого файла нет — результат обязан доехать.
+    ///
+    /// Положительный контроль ко всем сторожам ниже: правило «ничего не терять»
+    /// удовлетворялось бы и доставкой, которая не доставляет ничего.
+    #[test]
+    fn run_a_missing_file_is_created() {
+        let tmp = tempfile::tempdir().unwrap();
+        let work_dir = tmp.path().join("session-work");
+        let desktop = tmp.path().join("Рабочий стол/Aurora/econometrist");
+        std::fs::create_dir_all(work_dir.join("exports")).unwrap();
+        let source = work_dir.join("exports/разбор-модели.md");
+        std::fs::write(&source, "свежий разбор модели").unwrap();
+
+        let manager = manager_with_session(&work_dir, &desktop, tmp.path());
+        manager.sync_exports("econometrist").expect("доставка обязана пройти");
+
+        let delivered = desktop.join("exports/разбор-модели.md");
+        assert!(delivered.exists(), "новый результат обязан доехать до папки клиента");
+        assert_eq!(
+            sha256_hex(&delivered),
+            sha256_hex(&source),
+            "доставленный файл обязан совпадать с собранным байт в байт"
+        );
+        println!(
+            "[прогон а] файла не было → создан: {} сумма={} время={}",
+            delivered.display(),
+            sha256_hex(&delivered),
+            mtime_nanos(&delivered)
+        );
+    }
+
+    /// 🔴 Прогон (б): файл у клиента есть и содержимое совпадает — трогать его нельзя ВОВСЕ.
+    ///
+    /// Проверяется временем изменения, а не содержимым: перезапись тем же содержимым
+    /// оставляет сумму прежней и потому неотличима от «не трогали» по любому другому
+    /// признаку. А сдвиг метки — это перезапись файла клиента, то есть окно, в котором
+    /// его правка теряется при отказе на середине.
+    #[test]
+    fn run_b_identical_file_is_not_touched_at_all() {
+        let tmp = tempfile::tempdir().unwrap();
+        let work_dir = tmp.path().join("session-work");
+        let desktop = tmp.path().join("Рабочий стол/Aurora/econometrist");
+        std::fs::create_dir_all(work_dir.join("exports")).unwrap();
+        let delivered = desktop.join("exports/разбор-модели.md");
+        std::fs::create_dir_all(desktop.join("exports")).unwrap();
+
+        std::fs::write(work_dir.join("exports/разбор-модели.md"), "один и тот же разбор").unwrap();
+        std::fs::write(&delivered, "один и тот же разбор").unwrap();
+
+        // Метка задаётся явно: полагаться на разрешение часов нельзя — доставка в пределах
+        // одного такта дала бы то же значение, и сторож стал бы ложно-зелёным (та же грабля,
+        // что у `routing_key_changes_only_when_the_file_changes`).
+        let фиксированное = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_700_000_000);
+        std::fs::OpenOptions::new()
+            .write(true)
+            .open(&delivered)
+            .unwrap()
+            .set_modified(фиксированное)
+            .unwrap();
+
+        let было_время = mtime_nanos(&delivered);
+        let была_сумма = sha256_hex(&delivered);
+
+        let manager = manager_with_session(&work_dir, &desktop, tmp.path());
+        manager.sync_exports("econometrist").expect("доставка обязана пройти");
+
+        let стало_время = mtime_nanos(&delivered);
+        let стала_сумма = sha256_hex(&delivered);
+        println!(
+            "[прогон б] содержимое совпало: было время={было_время} сумма={была_сумма}; \
+             стало время={стало_время} сумма={стала_сумма}"
+        );
+
+        assert_eq!(
+            стало_время, было_время,
+            "файл клиента переписан заново там, где содержимое совпадает: время изменения \
+             сдвинулось {было_время} → {стало_время}. Это лишняя перезапись чужого файла и \
+             окно потери при отказе на середине (CPD-39)"
+        );
+        assert_eq!(стала_сумма, была_сумма, "содержимое обязано остаться прежним");
+        let сколько = std::fs::read_dir(desktop.join("exports")).unwrap().flatten().count();
+        assert_eq!(сколько, 1, "совпадающий файл не имеет права плодить копии, стало {сколько}");
+    }
+
+    /// 🔴 Прогон (в): файл у клиента есть, но содержимое РАСХОДИТСЯ — он правил его руками.
+    ///
+    /// Именно этот сценарий терял работу клиента молча: имена результатов детерминированные,
+    /// а `unique_export_path` до правки в доставке не участвовала вовсе.
+    #[test]
+    fn run_c_differing_file_survives_and_the_new_one_lands_beside() {
+        let tmp = tempfile::tempdir().unwrap();
+        let work_dir = tmp.path().join("session-work");
+        let desktop = tmp.path().join("Рабочий стол/Aurora/econometrist");
+        std::fs::create_dir_all(work_dir.join("exports")).unwrap();
+        std::fs::create_dir_all(desktop.join("exports")).unwrap();
+
+        let клиентский = desktop.join("exports/разбор-модели.md");
+        std::fs::write(&клиентский, "вчерашний разбор С МОИМИ ПРАВКАМИ").unwrap();
+        std::fs::write(work_dir.join("exports/разбор-модели.md"), "сегодняшний разбор").unwrap();
+
+        let было_время = mtime_nanos(&клиентский);
+        let была_сумма = sha256_hex(&клиентский);
+
+        let manager = manager_with_session(&work_dir, &desktop, tmp.path());
+        manager.sync_exports("econometrist").expect("доставка обязана пройти");
+
+        let стало_время = mtime_nanos(&клиентский);
+        let стала_сумма = sha256_hex(&клиентский);
+        let рядом = desktop.join("exports/разбор-модели (2).md");
+        println!(
+            "[прогон в] содержимое разошлось: файл клиента было время={было_время} сумма={была_сумма}; \
+             стало время={стало_время} сумма={стала_сумма}; рядом={} есть={}",
+            рядом.display(),
+            рядом.exists()
+        );
+
+        assert_eq!(
+            std::fs::read_to_string(&клиентский).unwrap(),
+            "вчерашний разбор С МОИМИ ПРАВКАМИ",
+            "правка клиента затёрта молча — это потеря его работы, самый тяжёлый класс (CPD-39)"
+        );
+        assert_eq!(стала_сумма, была_сумма, "файл клиента обязан остаться байт в байт прежним");
+        assert_eq!(стало_время, было_время, "файла клиента не должны были касаться вовсе");
+        assert!(
+            рядом.exists(),
+            "новый результат обязан лечь РЯДОМ под свободным именем, а не пропасть: доставка не \
+             имеет права ни затирать чужое, ни терять своё"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&рядом).unwrap(),
+            "сегодняшний разбор",
+            "рядом обязан лежать именно свежий результат"
+        );
+    }
+
+    /// Уникализация без сверки содержимого превращается в машину размножения копий:
+    /// доставка идёт после КАЖДОГО ответа кабинета, и папка клиента заросла бы
+    /// «имя (2)», «имя (3)» на каждой реплике. Правила работают только вместе.
+    #[test]
+    fn repeated_delivery_of_the_same_result_does_not_flood_the_folder() {
+        let tmp = tempfile::tempdir().unwrap();
+        let work_dir = tmp.path().join("session-work");
+        let desktop = tmp.path().join("Рабочий стол/Aurora/econometrist");
+        std::fs::create_dir_all(work_dir.join("exports")).unwrap();
+        std::fs::write(work_dir.join("exports/стратегия.md"), "неизменный результат").unwrap();
+
+        let manager = manager_with_session(&work_dir, &desktop, tmp.path());
+        for _ in 0..6 {
+            manager.sync_exports("econometrist").expect("доставка обязана пройти");
+        }
+
+        let файлы: Vec<String> = std::fs::read_dir(desktop.join("exports"))
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().to_string())
+            .collect();
+        assert_eq!(
+            файлы.len(),
+            1,
+            "в папке клиента обязан остаться ровно один документ, стало {файлы:?}"
+        );
+    }
+
+    /// 🔴 Продолжение того же правила для случая, когда файл клиента ПРАВЛЕН руками:
+    /// «имя (2)» кладётся один раз, а не на каждое следующее сообщение.
+    ///
+    /// Сторож выше проверяет неразмножение там, где совпадает сам приёмник. Здесь приёмник
+    /// расходится ВСЕГДА (клиент оставил свою правку), и без сверки с уже доставленными
+    /// соседями каждая реплика кабинета добавляла бы «имя (3)», «имя (4)», «имя (5)» —
+    /// доставка идёт после каждого ответа.
+    #[test]
+    fn a_hand_edited_file_gets_one_neighbour_not_one_per_message() {
+        let tmp = tempfile::tempdir().unwrap();
+        let work_dir = tmp.path().join("session-work");
+        let desktop = tmp.path().join("Рабочий стол/Aurora/econometrist");
+        std::fs::create_dir_all(work_dir.join("exports")).unwrap();
+        std::fs::create_dir_all(desktop.join("exports")).unwrap();
+
+        let клиентский = desktop.join("exports/разбор-модели.md");
+        std::fs::write(&клиентский, "вчерашний разбор С МОИМИ ПРАВКАМИ").unwrap();
+        std::fs::write(work_dir.join("exports/разбор-модели.md"), "сегодняшний разбор").unwrap();
+
+        let manager = manager_with_session(&work_dir, &desktop, tmp.path());
+        for _ in 0..5 {
+            manager.sync_exports("econometrist").expect("доставка обязана пройти");
+        }
+
+        let mut файлы: Vec<String> = std::fs::read_dir(desktop.join("exports"))
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().to_string())
+            .collect();
+        файлы.sort();
+        assert_eq!(
+            файлы,
+            vec!["разбор-модели (2).md".to_string(), "разбор-модели.md".to_string()],
+            "правленый файл клиента обязан получить РОВНО одного соседа на все сообщения, стало {файлы:?}"
+        );
+        assert_eq!(
+            std::fs::read_to_string(&клиентский).unwrap(),
+            "вчерашний разбор С МОИМИ ПРАВКАМИ",
+            "правка клиента обязана уцелеть при любом числе доставок"
+        );
+    }
+
+    /// Доставка идёт через временный файл рядом с целью; в папке клиента не должно
+    /// оставаться наших огрызков ни после успеха, ни после отказа.
+    #[test]
+    fn no_temporary_files_are_left_in_the_client_folder() {
+        let tmp = tempfile::tempdir().unwrap();
+        let work_dir = tmp.path().join("session-work");
+        let desktop = tmp.path().join("Рабочий стол/Aurora/econometrist");
+        std::fs::create_dir_all(work_dir.join("exports")).unwrap();
+        std::fs::create_dir_all(desktop.join("exports")).unwrap();
+        std::fs::write(work_dir.join("exports/отчёт.pptx"), "содержимое отчёта").unwrap();
+        std::fs::write(desktop.join("exports/отчёт.pptx"), "прежний отчёт клиента").unwrap();
+
+        let manager = manager_with_session(&work_dir, &desktop, tmp.path());
+        manager.sync_exports("econometrist").expect("доставка обязана пройти");
+
+        let мусор: Vec<String> = std::fs::read_dir(desktop.join("exports"))
+            .unwrap()
+            .flatten()
+            .map(|e| e.file_name().to_string_lossy().to_string())
+            .filter(|n| n.starts_with(".aurora-") || n.ends_with(".tmp"))
+            .collect();
+        assert!(мусор.is_empty(), "в папке клиента остался наш служебный мусор: {мусор:?}");
+    }
+
+    /// 🔴 Структурный сторож: затирание не должно вернуться копированием соседней строки.
+    /// Поведенческие проверки выше заметят ЗАМЕНУ правила, но не заметят безусловный
+    /// `fs::copy`, добавленный рядом с правильным путём.
+    #[test]
+    fn delivery_never_writes_over_a_file_the_client_already_has() {
+        let src = include_str!("manager.rs");
+        // Тестовый модуль отсекаем ДО разбора: иначе сторож находит сам себя в собственном
+        // сообщении об отказе.
+        let head = src.split("#[cfg(test)]").next().unwrap_or(src);
+        let start = head
+            .find("fn copy_dir_into")
+            .expect("функция copy_dir_into не найдена — сторож смотрит не туда");
+        let tail = &head[start..];
+        let end = tail[1..].find("\n/// ").map(|i| i + 1).unwrap_or(tail.len());
+        let body: String = tail[..end]
+            .lines()
+            .map(str::trim_start)
+            .filter(|l| !l.starts_with("//"))
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        assert!(
+            !body.contains("std::fs::copy(entry.path(), &dst_file)"),
+            "перезапись поверх одноимённого файла вернулась: документ клиента будет затёрт \
+             молча (CPD-39, вторая половина)"
+        );
+        assert!(
+            body.contains("place_generated_export("),
+            "решение обязано приниматься ЕДИНОЙ функцией размещения выдачи, а не копией \
+             правила по местам (CPD-71): копии расходятся молча"
+        );
+        assert!(
+            body.contains("continue;"),
+            "отказ на одном файле обязан не отменять доставку остальных — обход продолжается, \
+             а несостоявшиеся собираются в отчёт"
+        );
+    }
+
+    /// 🔴 Сторож ПОСЛЕДНЕЙ мили: список переименованных доходит до ЧЕЛОВЕКА, а не оседает в
+    /// отчёте функции.
+    ///
+    /// Сохранность файла клиента держат проверки выше, но сама по себе она половинчата:
+    /// человек ждёт результат по прежнему имени, а тот лежит под «имя (2)». Пока значение не
+    /// доехало до канала уведомления, развилка для него неотличима от «результат не пришёл».
+    ///
+    /// Проверяется именно ДОХОЖДЕНИЕ ЗНАЧЕНИЯ, а не факт вызова: в каждом из трёх мест
+    /// доставки прослеживается путь `delivery.saved_aside` → канал этого места. Живьём эти
+    /// места вызовом не проверить — они внутри `send_message` и обхода шагов, которым нужен
+    /// живой `AppHandle` (тот же довод, что у сторожа CPD-70 в `commands/mod.rs`).
+    #[test]
+    fn every_delivery_site_tells_the_person_about_renamed_files() {
+        // Строки-комментарии отсекаются ДО разбора: иначе закомментированный канал
+        // уведомления удовлетворял бы сторожа — тот видел бы текст, которого в работе нет.
+        let src: String = include_str!("../lib.rs")
+            .replace("\r\n", "\n")
+            .lines()
+            .filter(|l| !l.trim_start().starts_with("//"))
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        assert_eq!(
+            src.matches("sync_exports(").count(),
+            0,
+            "место доставки осталось на кратком вызове: список переименованных там недоступен \
+             в принципе, и развилка снова видна только журналу"
+        );
+        let sites: Vec<usize> = src
+            .match_indices("sync_exports_reported(")
+            .map(|(i, _)| i)
+            .collect();
+        assert_eq!(
+            sites.len(),
+            3,
+            "мест доставки три (конвейер презентаций, ответ кабинета, шаг рабочего процесса), \
+             а найдено {} — сторож ослеп либо появилось непокрытое место",
+            sites.len()
+        );
+
+        // Окно берётся ПОСИМВОЛЬНО: в исходнике русские комментарии, и срез по байтовому
+        // смещению рвёт кириллицу посреди символа — сторож падал бы на своей же арифметике,
+        // а не на предмете проверки.
+        let окно = |from: usize, сколько: usize| -> String { src[from..].chars().take(сколько).collect() };
+
+        for at in sites {
+            let window = &окно(at, 3000);
+            assert!(
+                window.contains("delivery.saved_aside"),
+                "место доставки не читает список переименованных вовсе: {}",
+                window.lines().next().unwrap_or_default().trim()
+            );
+            // Каналы у мест РАЗНЫЕ: ответ кабинета сообщает событием `notice`, шаг рабочего
+            // процесса — предупреждением шага, поэтому годится любой из двух путей.
+            let в_поток = window.contains("saved_aside_notice(&delivery.saved_aside)")
+                && window.contains("\"type\": \"notice\"");
+            let в_предупреждение_шага = window.contains("renamed_beside = delivery.saved_aside;");
+            assert!(
+                в_поток || в_предупреждение_шага,
+                "список переименованных прочитан, но никуда не уходит — человек о развилке не \
+                 узнает: {}",
+                window.lines().next().unwrap_or_default().trim()
+            );
+        }
+
+        // Вторая половина цепочки для шага рабочего процесса: собранное значение обязано
+        // попасть именно в предупреждение шага, а оно — в событие, которое читает интерфейс.
+        let at = src
+            .find("renamed_beside.join")
+            .expect("собранный список переименованных нигде не разворачивается в текст");
+        let вокруг = окно(at, 800);
+        assert!(
+            вокруг.contains("step_warning = Some("),
+            "список переименованных разворачивается в текст, но не попадает в предупреждение \
+             шага — до человека он не доедет"
+        );
+        assert!(
+            src.contains("step_warning.as_deref()"),
+            "предупреждение шага не уходит в событие интерфейса: канал оборван на последнем шаге"
         );
     }
 }

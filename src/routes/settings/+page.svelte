@@ -960,7 +960,11 @@
         <div>
           <span class="app-info-name">{getProductName($productType)}</span>
           <span class="app-info-version">v{APP_VERSION}</span>
-          <p class="about-text copyright">© 2026 А. Сипович · www.sipovich.pro</p>
+          <!-- CPD-09: до 17.08 здесь стояло «© 2026 А. Сипович · www.sipovich.pro» –
+               имя частного лица и посторонний адрес на единственном экране, где клиент
+               ищет, чья это программа. Канон линейки взят из справки (13 страниц,
+               `help-econometrica/*.html`): правообладатель – ООО «Платформа Аврора». -->
+          <p class="about-text copyright">© 2026 ООО «Платформа Аврора» · auroraai.pro</p>
         </div>
       </div>
     </section>

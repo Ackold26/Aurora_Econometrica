@@ -2325,6 +2325,91 @@ def export_html(req: HtmlExportRequest):
         )
 
 
+class ParamsExportRequest(BaseModel):
+    """H-5: выгрузка параметров модели по запросу клиента (паспорт §«Полный набор
+    параметров модели… выгружается отдельно, по вашему запросу»,
+    `engines/methodology_cert.py::оговорка_о_выгрузке_параметров`).
+
+    🔴 Модель НЕ принимается от фронта голым словарём (в отличие от /export/pptx
+    и /export/html). Единственный источник – `load_model_with_compat(project_dir/
+    models/latest.pkl)`: только загрузчик заводит след подстановок
+    `_loader_injected_defaults` (Critical C-1 внешнего аудита 2026-08-16). Модель,
+    прошедшая через фронт как JSON, этот след не переживает надёжно – выгрузка
+    начала бы выдавать умолчания загрузчика (kpi_type='sales' и т.п.) за запись
+    обучения. См. `tests/test_json_export_loader_defaults.py`.
+    """
+    project_id: str
+    project_dir: str | None = None
+    pretty: bool = True
+
+
+@app.post('/export/params')
+def export_params(req: ParamsExportRequest):
+    """Выгрузить полный набор параметров обученной модели (json_export schema v3.0).
+
+    Формула, приоры, апостериорные сводки по каналам, нормировка, диагностика
+    обучения – документ для независимой проверки/воспроизведения сторонним
+    аналитиком. Честно называет поля, которых в модели нет (absent_fields), и
+    отличает подстановки загрузчика продукта от того, что реально записало
+    обучение (см. ParamsExportRequest.__doc__).
+    """
+    logger.info(f'Params export START project_id={req.project_id}')
+    try:
+        from engines.persistence import load_model_with_compat
+        from engines.json_export import export_model_params_to_file
+
+        project_path = _resolve_project_dir(req.project_dir, req.project_id)
+        model_path = project_path / 'models' / 'latest.pkl'
+        if not model_path.exists():
+            logger.info(f'Params export: модель не найдена ({model_path})')
+            return JSONResponse(status_code=404, content={
+                'status': 'error',
+                'error_code': 'MODEL_NOT_FOUND',
+                'message': 'Модель не найдена - обучите MMM перед выгрузкой параметров.',
+            })
+
+        model_data = load_model_with_compat(model_path)
+
+        # Диагностика — тем же путём, каким её берёт сертификат методологии
+        # (engines/decomposer.py:613): отдельный файл results/model-diagnostics.json,
+        # не поле внутри самой модели.
+        diagnostics: dict | None = None
+        diagnostics_path = project_path / 'results' / 'model-diagnostics.json'
+        if diagnostics_path.exists():
+            try:
+                diagnostics = json.loads(diagnostics_path.read_text(encoding='utf-8'))
+            except Exception as exc:  # noqa: BLE001 — диагностика необязательна, выгрузка не падает
+                logger.warning(
+                    f'Params export: диагностика не прочитана ({type(exc).__name__}): {exc}'
+                )
+
+        exports_dir = project_path / 'exports'
+        exports_dir.mkdir(parents=True, exist_ok=True)
+        ts = datetime.now().strftime('%Y%m%d_%H%M%S')
+        output_path = exports_dir / f'model_params_{ts}.json'
+
+        export_model_params_to_file(
+            model_data, output_path, pretty=req.pretty, diagnostics=diagnostics,
+        )
+        size_kb = output_path.stat().st_size / 1024.0
+        logger.info(f'Params export OK: {output_path} ({size_kb:.1f} KB)')
+        return JSONResponse(content={
+            'status': 'ok',
+            'path': str(output_path),
+            'size_kb': round(size_kb, 1),
+        })
+    except Exception as e:
+        logger.exception('Params export FAILED')
+        return JSONResponse(
+            status_code=500,
+            content={
+                'status': 'error',
+                'message': _friendly_error(e),
+                'type': type(e).__name__,
+            },
+        )
+
+
 # ─────────────────────────────────────────────────────
 # v1.3.0 endpoints (per ADR-014, ADR-015, ADR-016)
 # ─────────────────────────────────────────────────────

@@ -48,7 +48,7 @@ import pickle
 import re
 import tempfile
 from pathlib import Path
-from typing import Any
+from typing import Any, Mapping
 
 logger = logging.getLogger(__name__)
 
@@ -150,6 +150,24 @@ def _setdefault_tracked(model_data: dict[str, Any], key: str, value: Any) -> Non
     trace = _loader_defaults_trace(model_data)
     if key not in trace:
         trace.append(key)
+
+
+def is_loader_default(model_data: Mapping[str, Any], key: str) -> bool:
+    """Значение поля подставлено загрузчиком, а не записано обучением?
+
+    Единая точка чтения следа для всех, кто ЗАВЕРЯЕТ или ВЫДАЁТ поля модели.
+    Заводить след умеет только загрузчик, читать его обязан каждый, кто
+    утверждает «это записано в модели»: сертификат методологии, выгрузка
+    параметров, паспорт.
+
+    Модель без следа (обучена до его появления либо сохранена сторонним
+    инструментом) отвечает `False` – прежнее поведение, ничего не ломается.
+    Чужое содержимое ключа не роняет вызов: не список – считаем, что следа нет.
+    """
+    trace = model_data.get(LOADER_DEFAULTS_KEY)
+    if not isinstance(trace, list):
+        return False
+    return key in trace
 
 
 def load_model_with_compat(model_path: Path | str) -> dict[str, Any]:

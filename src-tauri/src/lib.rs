@@ -1181,28 +1181,50 @@ async fn send_message(
 
                                             let commented_pptx = exports_dir.join(format!("{}_commented.pptx", stem));
                                             let commentary_docx = exports_dir.join(format!("{}_commentary.docx", stem));
+                                            // 🔴 CPD-70: сборка в служебном каталоге, размещение в папке
+                                            // результатов — отдельным шагом со сверкой с тем, что там уже
+                                            // лежит. Имя выходного файла вычисляется из имени презентации,
+                                            // и повторный разбор той же презентации приходил по тому же
+                                            // пути, молча затирая готовый документ клиента.
+                                            let staged_pptx = preprocessed_dir.join(format!("{}_commented.pptx", stem));
+                                            let staged_docx = preprocessed_dir.join(format!("{}_commentary.docx", stem));
 
                                             // Inject notes into PPTX
-                                            if let Err(e) = commands::pptx_processor::inject_notes(&pptx_path, &notes_json_path, &commented_pptx) {
+                                            if let Err(e) = commands::pptx_processor::inject_notes(&pptx_path, &notes_json_path, &staged_pptx) {
                                                 warn!("Pipeline inject_notes failed: {e}");
                                             }
                                             // Generate DOCX with synthesis
                                             if synthesis_md.trim().is_empty() {
-                                                if let Err(e) = commands::pptx_processor::generate_docx(&pptx_path, &notes_json_path, &styles_json, &commentary_docx) {
+                                                if let Err(e) = commands::pptx_processor::generate_docx(&pptx_path, &notes_json_path, &styles_json, &staged_docx) {
                                                     warn!("Pipeline generate_docx failed: {e}");
                                                 }
-                                            } else if let Err(e) = commands::pptx_processor::generate_docx_with_synthesis(&pptx_path, &notes_json_path, &styles_json, &synthesis_path, &commentary_docx) {
+                                            } else if let Err(e) = commands::pptx_processor::generate_docx_with_synthesis(&pptx_path, &notes_json_path, &styles_json, &synthesis_path, &staged_docx) {
                                                 warn!("Pipeline generate_docx_with_synthesis failed: {e}");
                                             }
                                             // Add summary slides from synthesis
                                             if !synthesis_md.trim().is_empty() {
                                                 let slides_json_path = preprocessed_dir.join("slides.json");
                                                 match commands::pptx_processor::inject_summary_slides(
-                                                    &commented_pptx, &synthesis_path, &styles_json, &slides_json_path, &commented_pptx
+                                                    &staged_pptx, &synthesis_path, &styles_json, &slides_json_path, &staged_pptx
                                                 ) {
                                                     Ok(_) => info!("Summary slides added to {}", commented_pptx.display()),
                                                     Err(e) => warn!("inject_summary_slides failed (non-critical): {e}"),
                                                 }
+                                            }
+
+                                            let saved_aside = commands::place_generated_exports(&[
+                                                (staged_pptx, commented_pptx),
+                                                (staged_docx, commentary_docx),
+                                            ]);
+                                            if !saved_aside.is_empty() {
+                                                let _ = app_handle.emit(
+                                                    &format!("claude-stream-{cabinet_id}"),
+                                                    serde_json::json!({
+                                                        "type": "notice",
+                                                        "message": commands::saved_aside_notice(&saved_aside),
+                                                    })
+                                                    .to_string(),
+                                                );
                                             }
                                         }
 
@@ -1225,12 +1247,30 @@ async fn send_message(
                                         // Находка внешнего аудита: имена незаписанных файлов
                                         // отбрасывались молча — гарантия «отказ виден» держалась
                                         // на одном вызове из трёх.
-                                        match state.session_manager.sync_exports(&cabinet_id) {
-                                            Ok(blocked) if !blocked.is_empty() => warn!(
-                                                "Не обновлены в папке результатов [{cabinet_id}]: {}",
-                                                blocked.join(", ")
-                                            ),
-                                            Ok(_) => {}
+                                        match state.session_manager.sync_exports_reported(&cabinet_id) {
+                                            Ok(delivery) => {
+                                                if !delivery.blocked.is_empty() {
+                                                    warn!(
+                                                        "Не обновлены в папке результатов [{cabinet_id}]: {}",
+                                                        delivery.blocked.join(", ")
+                                                    );
+                                                }
+                                                // CPD-39: файл клиента с тем же именем отличается,
+                                                // поэтому новый лёг рядом. Развилку человек обязан
+                                                // видеть, а не вычитывать из журнала: он ждёт
+                                                // результат по прежнему имени. Пусто — молчим,
+                                                // лишнее сообщение на каждый ответ было бы шумом.
+                                                if !delivery.saved_aside.is_empty() {
+                                                    let _ = app_handle.emit(
+                                                        &format!("claude-stream-{cabinet_id}"),
+                                                        serde_json::json!({
+                                                            "type": "notice",
+                                                            "message": commands::saved_aside_notice(&delivery.saved_aside),
+                                                        })
+                                                        .to_string(),
+                                                    );
+                                                }
+                                            }
                                             Err(e) => warn!("Синхронизация выгрузок не прошла [{cabinet_id}]: {e}"),
                                         }
                                         let _ = app_handle.emit(&format!("exports-updated-{}", cabinet_id), ());
@@ -1435,35 +1475,60 @@ async fn send_message(
 
                 let commented_pptx = exports_dir.join(format!("{}_commented.pptx", stem));
                 let commentary_docx = exports_dir.join(format!("{}_commentary.docx", stem));
+                // 🔴 CPD-70: собираем в служебном каталоге, в папку результатов кладём отдельным
+                // шагом со сверкой. Имя выходного файла вычисляется из имени презентации, поэтому
+                // повторный разбор той же презентации приходил ровно по тому же пути и затирал
+                // готовый документ клиента молча. Досборка сводных слайдов ниже читает и пишет
+                // один и тот же файл — она тоже остаётся на служебной копии до размещения.
+                let staged_pptx = preprocessed_dir.join(format!("{}_commented.pptx", stem));
+                let staged_docx = preprocessed_dir.join(format!("{}_commentary.docx", stem));
                 let styles_json = preprocessed_dir.join("styles.json");
 
                 if pptx_path.exists() {
                     // Inject notes into PPTX
-                    match commands::pptx_processor::inject_notes(&pptx_path, &notes_json_path, &commented_pptx) {
+                    match commands::pptx_processor::inject_notes(&pptx_path, &notes_json_path, &staged_pptx) {
                         Ok(_) => info!("Auto-postprocess: created {}", commented_pptx.display()),
                         Err(e) => warn!("Auto-postprocess inject_notes failed: {e}"),
                     }
                     // Generate DOCX - with synthesis prefix if present
                     if synthesis_md.trim().is_empty() {
-                        match commands::pptx_processor::generate_docx(&pptx_path, &notes_json_path, &styles_json, &commentary_docx) {
+                        match commands::pptx_processor::generate_docx(&pptx_path, &notes_json_path, &styles_json, &staged_docx) {
                             Ok(_) => info!("Auto-postprocess: created {} (no synthesis)", commentary_docx.display()),
                             Err(e) => warn!("Auto-postprocess generate_docx failed: {e}"),
                         }
                     } else {
                         let synthesis_path = preprocessed_dir.join("synthesis.md");
                         let _ = std::fs::write(&synthesis_path, &synthesis_md);
-                        match commands::pptx_processor::generate_docx_with_synthesis(&pptx_path, &notes_json_path, &styles_json, &synthesis_path, &commentary_docx) {
+                        match commands::pptx_processor::generate_docx_with_synthesis(&pptx_path, &notes_json_path, &styles_json, &synthesis_path, &staged_docx) {
                             Ok(_) => info!("Auto-postprocess: created {} (with synthesis)", commentary_docx.display()),
                             Err(e) => warn!("Auto-postprocess generate_docx_with_synthesis failed: {e}"),
                         }
                         // Add summary slides from synthesis
                         let slides_json_path = preprocessed_dir.join("slides.json");
                         match commands::pptx_processor::inject_summary_slides(
-                            &commented_pptx, &synthesis_path, &styles_json, &slides_json_path, &commented_pptx
+                            &staged_pptx, &synthesis_path, &styles_json, &slides_json_path, &staged_pptx
                         ) {
                             Ok(_) => info!("Auto-postprocess: summary slides added to {}", commented_pptx.display()),
                             Err(e) => warn!("inject_summary_slides failed (non-critical): {e}"),
                         }
+                    }
+
+                    let saved_aside = commands::place_generated_exports(&[
+                        (staged_pptx, commented_pptx),
+                        (staged_docx, commentary_docx),
+                    ]);
+                    if !saved_aside.is_empty() {
+                        // Тип события — `notice`, а не `error`: ответ получен полностью, ничего
+                        // не потеряно, человеку сообщается развилка, а не отказ (см. соседний
+                        // блок про занятый файл ниже).
+                        let _ = app_handle.emit(
+                            &format!("claude-stream-{cabinet_id}"),
+                            serde_json::json!({
+                                "type": "notice",
+                                "message": commands::saved_aside_notice(&saved_aside),
+                            })
+                            .to_string(),
+                        );
                     }
                 }
             } else {
@@ -1478,29 +1543,49 @@ async fn send_message(
     // Word — os error 32) валил ВЕСЬ ответ, хотя работа советника уже сделана. Теперь отказ по
     // отдельным файлам не рвёт ответ, но и не проглатывается: клиент видит, что именно не
     // обновилось и почему (INV-50). Структурный отказ синхронизации по-прежнему отказ.
-    match state.session_manager.sync_exports(&cabinet_id) {
-        Ok(blocked) if !blocked.is_empty() => {
-            warn!("Не обновлены в папке результатов [{cabinet_id}]: {}", blocked.join(", "));
-            // 🔴 Тип события — `notice`, а НЕ `error` (находка внешнего аудита). Событие с типом
-            // `error` фронт проводит через `getEmpathyError`, и без кода `[CL-NN]` заголовок
-            // жёстко становится «Произошла ошибка», а точный текст уходит в подпись. Человек
-            // читает первую строку — «ошибка» там, где ответ получен полностью: ровно то ложное
-            // утверждение продукта о себе (INV-50), которое этот блок и выкорчёвывает.
-            let _ = app_handle.emit(
-                &format!("claude-stream-{cabinet_id}"),
-                serde_json::json!({
-                    "type": "notice",
-                    "message": format!(
-                        "Ответ получен. Не обновлены файлы в папке результатов: {}. \
-                         Вероятная причина – файл открыт в другой программе. Закройте его, \
-                         следующий ответ обновит файл.",
-                        blocked.join(", ")
-                    )
-                })
-                .to_string(),
-            );
+    match state.session_manager.sync_exports_reported(&cabinet_id) {
+        Ok(delivery) => {
+            if !delivery.blocked.is_empty() {
+                warn!(
+                    "Не обновлены в папке результатов [{cabinet_id}]: {}",
+                    delivery.blocked.join(", ")
+                );
+                // 🔴 Тип события — `notice`, а НЕ `error` (находка внешнего аудита). Событие с типом
+                // `error` фронт проводит через `getEmpathyError`, и без кода `[CL-NN]` заголовок
+                // жёстко становится «Произошла ошибка», а точный текст уходит в подпись. Человек
+                // читает первую строку — «ошибка» там, где ответ получен полностью: ровно то ложное
+                // утверждение продукта о себе (INV-50), которое этот блок и выкорчёвывает.
+                let _ = app_handle.emit(
+                    &format!("claude-stream-{cabinet_id}"),
+                    serde_json::json!({
+                        "type": "notice",
+                        "message": format!(
+                            "Ответ получен. Не обновлены файлы в папке результатов: {}. \
+                             Вероятная причина – файл открыт в другой программе. Закройте его, \
+                             следующий ответ обновит файл.",
+                            delivery.blocked.join(", ")
+                        )
+                    })
+                    .to_string(),
+                );
+            }
+            // CPD-39, вторая половина: файл клиента с тем же именем отличается — он оставлен
+            // нетронутым, а новый результат лёг рядом под другим именем. Человек ждёт его по
+            // ПРЕЖНЕМУ имени, поэтому о развилке ему говорят тем же событием `notice`, каким
+            // о ней уже сообщают генераторы выдачи (CPD-70), и тем же текстом. Переименований
+            // нет — сообщения нет вовсе: доставка идёт после каждого ответа, и лишняя строка
+            // превратилась бы в шум.
+            if !delivery.saved_aside.is_empty() {
+                let _ = app_handle.emit(
+                    &format!("claude-stream-{cabinet_id}"),
+                    serde_json::json!({
+                        "type": "notice",
+                        "message": commands::saved_aside_notice(&delivery.saved_aside),
+                    })
+                    .to_string(),
+                );
+            }
         }
-        Ok(_) => {}
         Err(e) => return Err(e.to_string()),
     }
 
@@ -1948,25 +2033,44 @@ fn pptx_postprocess(
 
     let commented_pptx = exports_dir.join(format!("{}_commented.pptx", stem));
     let commentary_docx = exports_dir.join(format!("{}_commentary.docx", stem));
+    // 🔴 CPD-70: сборка идёт в служебный каталог, в папку результатов файл кладётся
+    // отдельным шагом со сверкой с тем, что там уже лежит. Прежде генератор писал прямо
+    // в папку результатов по имени, вычисленному из имени презентации, и повторный
+    // разбор той же презентации молча затирал готовый документ клиента.
+    let staged_pptx = preprocessed_dir.join(format!("{}_commented.pptx", stem));
+    let staged_docx = preprocessed_dir.join(format!("{}_commentary.docx", stem));
     let styles_json = preprocessed_dir.join("styles.json");
 
     let mut results = Vec::new();
 
     // Inject notes into PPTX
-    match commands::pptx_processor::inject_notes(&pptx_path, &notes_json_path, &commented_pptx) {
+    match commands::pptx_processor::inject_notes(&pptx_path, &notes_json_path, &staged_pptx) {
         Ok(_) => results.push(format!("PPTX: {}", commented_pptx.display())),
         Err(e) => log::warn!("inject_notes failed: {e}"),
     }
 
     // Generate DOCX
-    match commands::pptx_processor::generate_docx(&pptx_path, &notes_json_path, &styles_json, &commentary_docx) {
+    match commands::pptx_processor::generate_docx(&pptx_path, &notes_json_path, &styles_json, &staged_docx) {
         Ok(_) => results.push(format!("DOCX: {}", commentary_docx.display())),
         Err(e) => log::warn!("generate_docx failed: {e}"),
     }
 
+    let saved_aside = commands::place_generated_exports(&[
+        (staged_pptx, commented_pptx),
+        (staged_docx, commentary_docx),
+    ]);
+
     Ok(serde_json::json!({
         "notes_count": notes.len(),
         "outputs": results,
+        // Развилка «прежний файл сохранён, новый лёг рядом» обязана дойти до человека,
+        // а не осесть в журнале: вызывающая сторона показывает этот текст как есть.
+        "saved_aside": saved_aside,
+        "saved_aside_notice": if saved_aside.is_empty() {
+            serde_json::Value::Null
+        } else {
+            serde_json::Value::String(commands::saved_aside_notice(&saved_aside))
+        },
     }).to_string())
 }
 
@@ -3266,12 +3370,20 @@ fn execute_workflow_steps(
                     }
 
                     // Находка внешнего аудита: отказ по отдельным файлам отбрасывался молча.
-                    match state.session_manager.sync_exports(cabinet_id) {
-                        Ok(blocked) if !blocked.is_empty() => warn!(
-                            "Не обновлены в папке результатов [{cabinet_id}]: {}",
-                            blocked.join(", ")
-                        ),
-                        Ok(_) => {}
+                    // CPD-39: имена, под которыми результаты легли РЯДОМ с отличающимися файлами
+                    // клиента, собираются здесь и уезжают человеку предупреждением шага ниже —
+                    // отдельного канала у шага нет, а журнала мало.
+                    let mut renamed_beside: Vec<String> = Vec::new();
+                    match state.session_manager.sync_exports_reported(cabinet_id) {
+                        Ok(delivery) => {
+                            if !delivery.blocked.is_empty() {
+                                warn!(
+                                    "Не обновлены в папке результатов [{cabinet_id}]: {}",
+                                    delivery.blocked.join(", ")
+                                );
+                            }
+                            renamed_beside = delivery.saved_aside;
+                        }
                         Err(e) => warn!("Синхронизация выгрузок не прошла [{cabinet_id}]: {e}"),
                     }
                     let _ = state.session_manager.auto_route_artifacts(cabinet_id);
@@ -3325,6 +3437,22 @@ fn execute_workflow_steps(
                             let summary = commands::campaign::summarize_step_exports(&exports_dir);
                             chain_lock.step_summaries.push((label.clone(), summary));
                         }
+                    }
+
+                    // CPD-39: новые результаты легли рядом, потому что одноимённые файлы клиента
+                    // отличаются. Прежний признак не затирается, а дополняется: потеря выгрузок
+                    // важнее переименования, но знать человеку нужно про обе. Переименований нет
+                    // — предупреждения нет вовсе, шаг закрывается обычным «готово».
+                    if !renamed_beside.is_empty() {
+                        let notice = format!(
+                            "файлы с такими именами у вас уже есть и отличаются, поэтому новые \
+                             результаты сохранены рядом: {} – ваши прежние файлы не изменены",
+                            renamed_beside.join(", ")
+                        );
+                        step_warning = Some(match step_warning {
+                            Some(prev) => format!("{prev}; {notice}"),
+                            None => notice,
+                        });
                     }
 
                     let _ = state.session_manager.close_session(cabinet_id);
@@ -3955,6 +4083,7 @@ fn build_app() -> Result<(), String> {
             commands::econometrica::econ_data_preview,
             commands::econometrica::econ_export_pptx,
             commands::econometrica::econ_export_html,
+            commands::econometrica::econ_export_params,
             commands::econometrica::econ_adstock_select,
             // Trust Level 3 (v1.1.0) - channel categorization
             commands::econometrica::econ_categorize_channels,

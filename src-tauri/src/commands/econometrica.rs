@@ -526,6 +526,31 @@ pub async fn econ_export_html(
     post_json("/export/html", &body, quick_client()).await
 }
 
+/// H-5: выгрузка полного набора параметров модели по запросу клиента (паспорт
+/// обещает эту выгрузку отдельно от отчёта - см. server.py::ParamsExportRequest).
+///
+/// В отличие от econ_export_pptx/econ_export_html модель НЕ передаётся телом
+/// запроса: sidecar сам перечитывает её с диска через load_model_with_compat,
+/// чтобы не потерять след подстановок загрузчика (Critical C-1). Rust здесь
+/// нужен только чтобы разрешить project_dir с учётом Settings override -
+/// как у соседних export-команд.
+#[tauri::command]
+pub async fn econ_export_params(
+    project_id: String,
+    pretty: Option<bool>,
+) -> Result<Value, String> {
+    info!("econ_export_params: project={project_id}");
+    let project_dir = crate::commands::project::project_dir(&project_id)
+        .map(|p| p.to_string_lossy().to_string())
+        .ok();
+    let body = serde_json::json!({
+        "project_id": project_id,
+        "project_dir": project_dir,
+        "pretty": pretty.unwrap_or(true),
+    });
+    post_json("/export/params", &body, quick_client()).await
+}
+
 // ──────────────────────────────────────────────────────────────────
 // Sprint 3 Pharma Causal - frontend invokers (per ADR §1 EXTEND-not-rewrite)
 // All causal endpoints вызываются через единый pass-through pattern: frontend

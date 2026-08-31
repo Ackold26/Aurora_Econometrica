@@ -501,6 +501,55 @@ fn ensure_launchable(installer_path: &std::path::Path) -> Result<()> {
     Ok(())
 }
 
+/// Доступен ли каталог на запись — проверяется ФАКТИЧЕСКОЙ попыткой создать в нём
+/// временный файл (создали → удалили). Разбор строки пути («начинается с Program
+/// Files») здесь не годится: это гадание, а у части клиентов права на каталог
+/// программы выданы политикой, и повышение им не нужно.
+fn dir_is_writable(dir: &std::path::Path) -> bool {
+    let probe = dir.join(format!(".aurora-update-probe-{}.tmp", std::process::id()));
+    match std::fs::File::create(&probe) {
+        Ok(_) => {
+            let _ = std::fs::remove_file(&probe);
+            true
+        }
+        Err(_) => false,
+    }
+}
+
+/// Нужно ли повышение прав, чтобы установщик смог перезаписать нашу копию.
+///
+/// CPD-116: после перехода на установку в профиль пользователя
+/// (`installMode: currentUser` → `%LOCALAPPDATA%\Optimizer MMM`) каталог программы
+/// доступен на запись, и обновление проходит без прав администратора. Но у клиента,
+/// поставившего программу по-старому, файлы лежат в `Program Files` — там без прав
+/// обновление просто не встанет, поэтому прежний путь остаётся запасным.
+fn needs_elevation(install_dir: &std::path::Path) -> bool {
+    !dir_is_writable(install_dir)
+}
+
+/// Команда PowerShell, запускающая установщик.
+///
+/// Оба пути обязаны сохранять:
+/// - CPD-83: флаги `/S` (тихо) и `/R` (перезапуск после установки) — без `/R`
+///   программа после тихого обновления сама не стартует;
+/// - CPD-51: `-ErrorAction Stop` + `catch { exit 1 }` — блокирующий `.status()`
+///   вызывающей стороны читает отказ (в том числе отказ от повышения прав) как
+///   ошибку, движок при этом остаётся жив.
+///
+/// Различие ровно одно: с повышением — `-Verb RunAs` (окно контроля учётных записей
+/// на защищённом рабочем столе), без повышения — обычный запуск скрытым окном.
+fn installer_launch_command(installer_str: &str, elevate: bool) -> String {
+    let launch_mode = if elevate {
+        "-Verb RunAs"
+    } else {
+        "-WindowStyle Hidden"
+    };
+    format!(
+        "try {{ Start-Process -FilePath '{}' -ArgumentList '/S','/R' {} -ErrorAction Stop }} catch {{ exit 1 }}",
+        installer_str, launch_mode
+    )
+}
+
 /// Launch the installer silently and exit the current process.
 ///
 /// Phase 3.1 (2026-05-23): stop sidecar before launching installer.
@@ -522,17 +571,38 @@ pub fn apply_update(installer_path: &std::path::Path) -> Result<()> {
 
     info!("Applying update: {}", installer_path.display());
 
-    // Launch installer with elevation. Block until PowerShell confirms UAC granted +
-    // installer process actually spawned. PS exits 1 если UAC denied OR Start-Process
+    // CPD-116: повышение прав запрашиваем не всегда, а только если наш каталог
+    // недоступен на запись (прежняя машинная установка в Program Files). Решение
+    // принимается фактической пробой записи, не разбором строки пути. Если каталог
+    // определить не удалось — идём прежним путём с повышением: это безопасный отказ,
+    // он совпадает с поведением до правки.
+    // CPD-83/CPD-51 (флаги '/S','/R' и обработка отказа блокирующим .status() с
+    // -ErrorAction Stop) сохранены в ОБЕИХ ветках — см. installer_launch_command.
+    let elevate = match std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.to_path_buf())) {
+        Some(install_dir) => {
+            let needed = needs_elevation(&install_dir);
+            info!(
+                "Install dir {} writable: {} → elevation: {}",
+                install_dir.display(),
+                !needed,
+                needed
+            );
+            needed
+        }
+        None => {
+            info!("Install dir undetectable → falling back to elevated launch");
+            true
+        }
+    };
+
+    // Block until PowerShell confirms the installer process actually spawned (в ветке
+    // с повышением — что UAC подтверждён). PS exits 1 если UAC denied OR Start-Process
     // fails for any other reason → we return Err, sidecar stays alive, app functional.
     let installer_str = installer_path.display().to_string().replace('\'', "''");
     let mut ps_cmd = std::process::Command::new("powershell");
     ps_cmd.args([
         "-NoProfile", "-Command",
-        &format!(
-            "try {{ Start-Process -FilePath '{}' -ArgumentList '/S' -Verb RunAs -ErrorAction Stop }} catch {{ exit 1 }}",
-            installer_str
-        ),
+        &installer_launch_command(&installer_str, elevate),
     ]);
     #[cfg(windows)]
     ps_cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW - hides PS host console, UAC prompt (separate secure desktop) still shows
@@ -541,13 +611,20 @@ pub fn apply_update(installer_path: &std::path::Path) -> Result<()> {
         .map_err(|e| coded_err(ErrorCode::UP004, &format!("Failed to launch PowerShell: {e}")))?;
 
     if !ps_status.success() {
+        // Текст зависит от ветки: в прежнем пути отказ почти всегда означает отказ от
+        // повышения прав, в новом — прав никто не спрашивал, и подсказка про них сбила
+        // бы человека с толку.
         return Err(coded_err(
             ErrorCode::UP004,
-            "Установщик не запустился (отказ в правах администратора). Приложение продолжает работать — повторите обновление и подтвердите запрос прав.",
+            if elevate {
+                "Установщик не запустился (отказ в правах администратора). Приложение продолжает работать — повторите обновление и подтвердите запрос прав."
+            } else {
+                "Установщик не запустился. Приложение продолжает работать — повторите обновление."
+            },
         ));
     }
 
-    info!("Installer elevated successfully; stopping sidecar to release file locks");
+    info!("Installer launched successfully; stopping sidecar to release file locks");
 
     // PS confirmed: installer process spawned with elevation, actively extracting in background.
     // NSIS PREINSTALL hook will kill sidecar via taskkill when extraction begins — этот
@@ -834,6 +911,82 @@ mod tests {
             ensure_launchable(&abs).is_ok(),
             "верифицированный неизменённый .exe допускается к запуску"
         );
+    }
+
+    // CPD-116: обновление без прав администратора. Каталог программы доступен на запись
+    // (пользовательская установка в %LOCALAPPDATA%) → установщик запускается обычным
+    // способом, окна повышения прав нет вовсе.
+    #[test]
+    fn writable_install_dir_launches_without_elevation() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(
+            dir_is_writable(dir.path()),
+            "свежий временный каталог обязан быть доступен на запись"
+        );
+        assert!(
+            !needs_elevation(dir.path()),
+            "каталог доступен на запись — повышение прав не требуется"
+        );
+    }
+
+    // Вторая половина той же ветки, отдельным тестом: решение «не повышать» обязано
+    // доходить до самой команды запуска, иначе окно контроля учётных записей всё равно
+    // появится. Тихо, без окна, без повышения.
+    #[test]
+    fn launch_command_without_elevation_has_no_runas() {
+        let cmd = installer_launch_command("C:\\tmp\\setup.exe", false);
+        assert!(
+            !cmd.contains("RunAs"),
+            "в ветке без повышения прав не должно быть -Verb RunAs: {cmd}"
+        );
+        assert!(
+            cmd.contains("-WindowStyle Hidden"),
+            "запуск без повышения прав обязан быть без видимого окна: {cmd}"
+        );
+    }
+
+    // Обратная ветка: прежний клиент в Program Files. Каталог на запись недоступен →
+    // сохраняется прежний путь с повышением прав, иначе обновление просто не встанет.
+    #[test]
+    fn unwritable_install_dir_keeps_elevation() {
+        let dir = tempfile::tempdir().unwrap();
+        // Несуществующий подкаталог — гарантированно недоступен на запись, и проверка
+        // не зависит от прав запускающего (под администратором Program Files писуем).
+        let missing = dir.path().join("no-such-dir");
+        assert!(
+            !dir_is_writable(&missing),
+            "несуществующий каталог не может быть доступен на запись"
+        );
+        assert!(
+            needs_elevation(&missing),
+            "каталог недоступен на запись — обязано остаться повышение прав"
+        );
+        let cmd = installer_launch_command("C:\\tmp\\setup.exe", true);
+        assert!(
+            cmd.contains("-Verb RunAs"),
+            "ветка с повышением прав обязана сохранить -Verb RunAs: {cmd}"
+        );
+    }
+
+    // CPD-83 (флаги тихого запуска) и CPD-51 (отказ ловится блокирующим .status()
+    // с -ErrorAction Stop) обязаны пережить разделение на две ветки.
+    #[test]
+    fn both_launch_paths_keep_silent_flags_and_error_stop() {
+        for elevate in [false, true] {
+            let cmd = installer_launch_command("C:\\tmp\\setup.exe", elevate);
+            assert!(
+                cmd.contains("'/S','/R'"),
+                "CPD-83: флаги '/S','/R' обязательны (elevate={elevate}): {cmd}"
+            );
+            assert!(
+                cmd.contains("-ErrorAction Stop"),
+                "CPD-51: -ErrorAction Stop обязателен (elevate={elevate}): {cmd}"
+            );
+            assert!(
+                cmd.contains("catch") && cmd.contains("exit 1"),
+                "провал запуска обязан давать код возврата 1 (elevate={elevate}): {cmd}"
+            );
+        }
     }
 
     // SEC-04 defense-in-depth: доменная валидация download_url (к «checksum из манифеста»).

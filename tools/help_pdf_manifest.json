@@ -1,6 +1,6 @@
 {
   "version": "2.5.0",
-  "generated": "2026-08-16T20:26:29Z",
+  "generated": "2026-08-17T07:17:05Z",
   "sources": {
     "about.html": "d341856678790fe296783eb6296b499fde5df8ec32c5cbd5d74caf7c2a1707b0",
     "data-preparation.html": "c094135d2cfa18b3af4f9894478c8c3df363649423eed3fd004151972c259fa4",
@@ -10,13 +10,13 @@
     "features.html": "06a8884f6e159b187e01107dcb0e6834847394ecc01bf5afeec791ee4258b78b",
     "glossary.html": "5380cdb0dfbd9434bb9d5406fd835ce3de1cc7d1b098ec151071c939f2452065",
     "index.html": "0a0f1e080479e057c339a8b008069ab1e4d98a520747a885bcb4f8584f2c2713",
-    "install.html": "bd5adefad2cbf37329a8a47be3240757a2f7efa02f94cfe191db07439716a8d4",
+    "install.html": "37cf6b88b0afdc067fe5fcf8d5049a5cdaa84c26f0723c94583737efb41371f7",
     "interpretation.html": "fbc86093348c511c9e17a3576973023dcb12ee95cb1311491529f779df8b10b5",
     "methodology.html": "1cf743634c196251126b82e065237f97a1ca198bc498772b722f7bf2458988df",
     "pipeline.html": "e8ba03e772c61a1ca7fbe87662947674895e83df23306f8a13c4923fb25e3faf",
-    "system-requirements.html": "1ebeedbb7eaf542b8fed1977f7d3de0d9f35e74a89ad28b8a5c9727934b26a71",
+    "system-requirements.html": "c3a525b900541739d08d2fd7aad3b711bb694e2db8c15bfb6e772bec7fe0ee9a",
     "user-guide.html": "9988c946d062d4a82e3a9c387ff89c552009cd4bf92d1602c86b1a28549ebbc4",
     "whats-new.html": "5c8eb343cb112d565a14b67239e330682338c64c9c082472556b44f9f44c8f13",
-    "econ-nav.js": "c5d018620648af031594547ebb48891a0807c92beaec5fe35e6d0eb74a087461"
+    "econ-nav.js": "7e50aff58f8df0ce9b433ae40111d4e29a430a77708155ccd3e923f8c50a2244"
   }
 }

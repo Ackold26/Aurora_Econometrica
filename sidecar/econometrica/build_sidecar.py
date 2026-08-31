@@ -171,24 +171,53 @@ def regenerate_tokens():
     CSS + JS for HTML). All are gitignored so must be regenerated on every
     build. Skipping any one causes ImportError or broken theming at runtime.
     """
-    standards_build = ROOT.parent.parent.parent / 'Standards' / 'tokens' / 'build.py'
-    if not standards_build.exists():
-        print(f'WARNING: {standards_build} not found - tokens may be stale')
+    # Standards лежит рядом с Dev/, а не внутри него. Прежний путь
+    # (ROOT.parent.parent.parent == Dev/Standards) не существовал никогда:
+    # шаг молча уходил в WARNING, и оформление отставало на месяц (14.07 против
+    # 02.08 в каноническом чекауте). Ищем оба варианта, чтобы правка пережила
+    # и перенос дерева.
+    product_root = ROOT.parent.parent                     # корень рабочего дерева продукта
+    standards_build = None
+    for candidate in (
+        product_root.parent / 'Standards' / 'tokens' / 'build.py',          # Dev/Standards
+        product_root.parent.parent / 'Standards' / 'tokens' / 'build.py',   # Aurora_Ai/Standards
+    ):
+        if candidate.exists():
+            standards_build = candidate
+            break
+    if standards_build is None:
+        print('WARNING: Standards/tokens/build.py not found - tokens may be stale')
         return
-    print(f'Regenerating tokens artifacts from tokens.json...')
+    print(f'Regenerating tokens artifacts from tokens.json ({standards_build})...')
+    tokens_target = ROOT / 'aurora_tokens.py'
+    html_css_target = ROOT / 'aurora_html' / 'templates' / 'aurora_html.css'
+    html_js_target = ROOT / 'aurora_html' / 'templates' / 'aurora_html_tokens.js'
+    targets = (tokens_target, html_css_target, html_js_target)
+    before = {t: (t.stat().st_mtime_ns if t.exists() else None) for t in targets}
+    # CPD-98: без --product-root генератор пишет в КАНОНИЧЕСКИЙ чекаут
+    # (PRODUCT_PATHS['econometrica'] → Dev/Aurora_Econometrica), а не в это
+    # рабочее дерево. Тогда сборка забирает старые файлы, а генератор
+    # рапортует '[OK] wrote'.
     result = subprocess.run(
-        [sys.executable, str(standards_build), '--target', 'all'],
+        [
+            sys.executable, str(standards_build),
+            '--target', 'all',
+            '--product', 'econometrica',
+            '--product-root', str(product_root),
+        ],
         cwd=standards_build.parent,
     )
     if result.returncode != 0:
         print('ERROR: tokens regeneration failed')
         sys.exit(1)
-    tokens_target = ROOT / 'aurora_tokens.py'
-    html_css_target = ROOT / 'aurora_html' / 'templates' / 'aurora_html.css'
-    html_js_target = ROOT / 'aurora_html' / 'templates' / 'aurora_html_tokens.js'
-    for t in (tokens_target, html_css_target, html_js_target):
+    for t in targets:
         if not t.exists():
             print(f'ERROR: {t} not produced by build.py')
+            sys.exit(1)
+        # Наличие файла ничего не доказывает: он мог пролежать здесь с прошлого
+        # раза, пока генератор писал в чужое дерево. Требуем изменившийся след.
+        if before[t] is not None and t.stat().st_mtime_ns == before[t]:
+            print(f'ERROR: {t} не перезаписан генератором (адресат вывода чужой?)')
             sys.exit(1)
         print(f'  [OK] {t.name} ({t.stat().st_size} bytes)')
 
@@ -386,6 +415,13 @@ def main():
             # Игнорируем build_tmp/ (если вдруг остался), dist/ и _internal/
             if any(part in ('build_tmp', 'dist', '_internal') for part in p.parts):
                 continue
+            # И себя: этот скрипт СОБИРАЕТ поставку, но в неё не входит. Правка
+            # комментария в нём объявляла движок протухшим и требовала лишней
+            # пересборки на семь минут. Исключение ровно одно и названо явно —
+            # расширять его нельзя: ложная тревога тут безопасна, а ложное
+            # «свежий» отправило бы клиенту старый движок (инцидент 2026-04-21).
+            if p.name == 'build_sidecar.py':
+                continue
             if p.stat().st_mtime > exe_mtime:
                 stale.append(p)
         if stale:
@@ -399,7 +435,12 @@ def main():
             sys.exit(1)
         print(f'  [OK] Freshness verified (exe newer than all .py sources)')
 
-    print(f'\nNext step: cd .. && npm run tauri build')
+    # 🔴 Распоряжение владельца 17.08.2026: поставка клиенту идёт ТОЛЬКО со шлюзом
+    # (CPD-115). Штатная `npm run tauri build` собирает БЕЗ него — шлюз закрыт
+    # признаком сборки `thin`, которого в базовом манифесте нет намеренно (ADR-048).
+    # Прежняя подсказка вела ровно к той ошибке, от которой заведена запись.
+    print('\nNext step: cd .. && npm run tauri:build:thin   (поставка со шлюзом, CPD-115)')
+    print('           обычная сборка npm run tauri build даёт поставку БЕЗ шлюза')
 
 
 if __name__ == '__main__':

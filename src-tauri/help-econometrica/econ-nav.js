@@ -14,7 +14,7 @@
     { id: 'system-requirements', title: 'Системные требования',  group: 'start',    keywords: 'требования компьютер оборудование ОС windows RAM CPU диск python jax numpyro зависимости' },
     { id: 'faq',               title: 'FAQ и troubleshooting',   group: 'start',    keywords: 'вопросы проблемы troubleshooting python mcmc' },
     { id: 'error-codes',       title: 'Коды ошибок',             group: 'start',    keywords: 'ошибка код диагностика проблема' },
-    { id: 'install',           title: 'Установка и удаление',    group: 'start',    keywords: 'установка удаление деинсталляция инструкция WebView2 брандмауэр firewall loopback perMachine активация лицензия uninstall-cleanup' },
+    { id: 'install',           title: 'Установка и удаление',    group: 'start',    keywords: 'установка удаление деинсталляция инструкция WebView2 брандмауэр firewall loopback без прав администратора активация лицензия uninstall-cleanup' },
 
     { id: 'data-preparation',  title: 'Подготовка данных',       group: 'data',     keywords: 'данные подготовка структура столбцы kpi media control date формат недельные помесячные FMCG pharma фарма объём ratio csv xlsx' },
     { id: 'pipeline',          title: 'Pipeline: 7 шагов',       group: 'data',     keywords: 'pipeline import validate train decompose optimize planning report импорт валидация шаги процесс планирование горизонт инфляция backtest сценарии' },

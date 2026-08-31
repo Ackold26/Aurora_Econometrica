@@ -149,6 +149,14 @@
   /** @type {string | null} */
   let executiveSummary = $state(null);
 
+  /** H-5: выгрузка параметров модели - самостоятельное действие, не один из
+   *  трёх форматов отчёта, поэтому со своим состоянием (не delит stepState с
+   *  generateSelected, чтобы не прятать всю карточку на время генерации). */
+  let paramsPath = $state(/** @type {string | null} */ (null));
+  let paramsGenerating = $state(false);
+  /** @type {string | null} */
+  let paramsError = $state(null);
+
   /** v1.0.16: unified «Создать отчёт» - selector chooses one format per click,
    *  prevents simultaneous generation of all formats (token/CPU economy).
    *  @type {'pptx' | 'xlsx' | 'html'} */
@@ -781,6 +789,33 @@
     }
   }
 
+  /** H-5: выгрузка параметров модели по запросу клиента (паспорт методологии
+   *  обещает эту выгрузку отдельно от отчёта). Модель не передаётся телом
+   *  запроса - sidecar сам перечитывает её с диска, см. server.py::ParamsExportRequest. */
+  async function exportParams() {
+    const pid = get(activeProjectId);
+    if (!pid || !hasData) return;
+
+    paramsGenerating = true;
+    paramsError = null;
+
+    try {
+      const result = /** @type {any} */ (await invoke('econ_export_params', {
+        projectId: pid,
+      }));
+
+      if (result.status === 'ok') {
+        paramsPath = result.path ?? null;
+      } else {
+        paramsError = result.message ?? 'Не удалось выгрузить параметры модели';
+      }
+    } catch (/** @type {any} */ e) {
+      paramsError = String(e?.message || e);
+    } finally {
+      paramsGenerating = false;
+    }
+  }
+
   async function openFolder() {
     const pid = get(activeProjectId);
     if (!pid) return;
@@ -1008,6 +1043,35 @@
             {/if}
           {/if}
         </button>
+
+        <!-- H-5: выгрузка параметров модели - самостоятельное действие,
+             не один из трёх форматов отчёта, поэтому вне format-selector.
+             Видна сразу при наличии данных, не после первого экспорта отчёта. -->
+        <div class="params-export">
+          <button
+            type="button"
+            class="btn-export-params"
+            onclick={exportParams}
+            disabled={!hasData || paramsGenerating}
+            title="Полный список параметров модели в отдельном файле – для независимой проверки или переноса в другой инструмент"
+          >
+            {#if paramsGenerating}
+              <span class="btn-spinner btn-spinner-muted"></span>
+              Выгружаю…
+            {:else if paramsPath}
+              <Check size={14} strokeWidth={2} style="vertical-align: -0.15em" /> Выгрузить заново
+            {:else}
+              Выгрузить параметры модели
+            {/if}
+          </button>
+          {#if paramsError}
+            <span class="params-export-error">
+              <TriangleAlert size={12} strokeWidth={1.5} style="vertical-align: -0.15em" /> {paramsError}
+            </span>
+          {:else if paramsPath}
+            <span class="params-export-path">{paramsPath}</span>
+          {/if}
+        </div>
       </div>
 
       <div class="format-cards" data-tour="report-formats">
@@ -1565,6 +1629,59 @@
     animation: spin 0.8s linear infinite;
   }
   @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* H-5: выгрузка параметров модели - вторичное действие рядом с основной
+     кнопкой отчёта, поэтому outline-стиль (как .btn-folder), не accent. */
+  .params-export {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+  }
+  .btn-export-params {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    padding: 10px 16px;
+    background: transparent;
+    border: 1px solid var(--border, rgba(255,255,255,0.14));
+    border-radius: 8px;
+    color: var(--text-secondary, #94a3b8);
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.15s ease;
+    white-space: nowrap;
+  }
+  .btn-export-params:hover:not(:disabled) {
+    border-color: rgba(255,255,255,0.3);
+    color: var(--text-primary, #e2e8f0);
+  }
+  .btn-export-params:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  .btn-spinner-muted {
+    width: 14px;
+    height: 14px;
+    border: 2px solid color-mix(in srgb, var(--text-secondary, #94a3b8) 30%, transparent);
+    border-top-color: var(--text-secondary, #94a3b8);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+  .params-export-error {
+    font-size: 12px;
+    color: var(--danger, #ef4444);
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+  }
+  .params-export-path {
+    font-size: 12px;
+    color: var(--text-muted, #64748b);
+    word-break: break-all;
+  }
 
   .export-hint {
     font-size: 12px;

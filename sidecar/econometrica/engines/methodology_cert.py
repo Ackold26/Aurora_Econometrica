@@ -161,6 +161,10 @@ def _extract_v13_payload(
     diagnostics = model_data.get('diagnostics') or {}
     model_spec_raw = diagnostics.get('model_spec') or {}
     if not model_spec_raw:
+        # Отложенный импорт, как и у `is_v20_compatible` ниже: модуль
+        # сертификата не тянет хранилище на уровне файла.
+        from engines.persistence import is_loader_default  # type: ignore[import]
+
         config = model_data.get('config') or {}
         это_ols = str(model_data.get('model_version') or '').endswith('ols')
         # Конфигурация обучения — первичный источник: там лежит то, что выбрал
@@ -170,8 +174,15 @@ def _extract_v13_payload(
         # одному и тому же значению. А вот у режима малых данных обучение
         # верхний уровень не пишет вовсе — там всё, что видно, подставил
         # загрузчик, и доверять ему нельзя (в этом и была находка F-01).
+        # 🔴 Продолжение той же находки (проверка класса 2026-08-17): запасной
+        # путь по-прежнему читал `model_data` голым `.get`, а туда подстановка
+        # загрузчика попадает и в байесовской ветке — например после
+        # `save_v20_diagnostics`, который сохраняет УЖЕ ЗАГРУЖЕННУЮ модель
+        # обратно в файл вместе с умолчаниями. С этого мгновения подставленное
+        # неотличимо от записанного ничем, кроме следа загрузчика, — поэтому
+        # спрашиваем именно след, а не наличие ключа.
         kpi_type = config.get('kpi_type')
-        if not kpi_type and not это_ols:
+        if not kpi_type and not это_ols and not is_loader_default(model_data, 'kpi_type'):
             kpi_type = model_data.get('kpi_type')
         if not kpi_type:
             raise CertificateUnavailable(
@@ -188,7 +199,9 @@ def _extract_v13_payload(
         # формула МНК его не использует, и печатать «normal» для неё значило бы
         # описывать модель, которой нет.
         if not str(model_data.get('model_version') or '').endswith('ols'):
-            likelihood = config.get('kpi_likelihood') or model_data.get('kpi_likelihood')
+            likelihood = config.get('kpi_likelihood')
+            if not likelihood and not is_loader_default(model_data, 'kpi_likelihood'):
+                likelihood = model_data.get('kpi_likelihood')
             if likelihood:
                 model_spec_raw['kpi_likelihood'] = str(likelihood)
 
@@ -342,6 +355,39 @@ def _extract_v13_payload(
     }
 
 
+def _величины(
+    источник: Any,
+    правила: tuple[tuple[str, tuple[str, ...]], ...],
+) -> dict[str, Any]:
+    """Записанные числа по правилам «имя в документе ← имена в модели».
+
+    Величина, которой в источнике нет, ключа не получает: `or 0` в заверяемом
+    документе запрещён дважды — он превращает отсутствие измерения в измеренный
+    ноль и заодно съедает настоящий ноль (нулевая ошибка, нулевой Дарбин-Уотсон
+    — величины вырожденные, но записанные).
+
+    `nan`/`inf` отбрасываются: канонизация RFC 8785 их не умеет, и сертификат
+    упал бы уже на подсчёте хеша (та же грабля, что у `_конечное` выше).
+    """
+    if not isinstance(источник, dict):
+        return {}
+    итог: dict[str, Any] = {}
+    for имя_в_документе, имена_в_модели in правила:
+        for имя in имена_в_модели:
+            значение = источник.get(имя)
+            if значение is None or isinstance(значение, bool):
+                continue
+            try:
+                число = float(значение)
+            except (TypeError, ValueError):
+                continue
+            if число != число or число in (float('inf'), float('-inf')):
+                continue
+            итог[имя_в_документе] = число
+            break
+    return итог
+
+
 def _extract_v20_fields(
     model_data: dict[str, Any],
     decompose_result: dict[str, Any],
@@ -360,10 +406,46 @@ def _extract_v20_fields(
         mcmc_diagnostics: r_hat_max, ess_min (convergence indicators)
         backtest_results: mape, rmse, r2 (holdout validation)
         ppc_results: r2, durbin_watson (posterior predictive check)
+
+    🔴 Ключи этого блока НЕОБЯЗАТЕЛЬНЫ. Заверяется только записанное обучением;
+    подставленное загрузчиком и незаписанное никем в payload не кладутся вовсе.
+    Причина — проверка класса C-1 (2026-08-17): величины собирались через
+    `or 0`, а обучение НЕ ПИШЕТ ни `mcmc_diagnostics`, ни `backtest_results`,
+    ни `ppc_results`, ни `holiday_dummies_injected`, ни `analysis_mode` (свип по
+    `modeler.py` даёт ноль упоминаний) — их кладёт загрузчик заглушками. Клиент
+    читал в заверенном документе «ошибка ретро-проверки 0 %, R² 0, R-hat 0», то
+    есть модель, идеальную по построению. Ноль в заверенной величине — это
+    утверждение об измерении, которого не было; отсутствие ключа честнее.
     """
-    # analysisMode — recorded at train time (ADR-019 §1). Default 'roi' if
-    # absent (pre-v2.0.0 pickle migrated into default per _inject_v20_defaults).
-    analysis_mode = str(model_data.get('analysis_mode') or 'roi')
+    # Единая точка чтения следа подстановок (`persistence.LOADER_DEFAULTS_KEY`).
+    # Отложенный импорт — как у `is_v20_compatible` ниже. Запасное определение
+    # держит блок работоспособным на том же пути, где отказывает импорт
+    # хранилища (`build_cert_payload` этот случай уже предусматривает).
+    try:
+        from engines.persistence import is_loader_default  # type: ignore[import]
+    except ImportError:  # pragma: no cover — модуль лежит рядом
+        def is_loader_default(данные, ключ):  # type: ignore[misc]
+            след = данные.get('_loader_injected_defaults')
+            return isinstance(след, list) and ключ in след
+
+    def записанное(имя: str) -> Any:
+        """Значение поля, если его записало ОБУЧЕНИЕ.
+
+        Подставленное загрузчиком и отсутствующее — оба `None`: заверять
+        нечего ни в том, ни в другом случае, и различать их клиенту незачем.
+        """
+        if is_loader_default(model_data, имя):
+            return None
+        return model_data.get(имя)
+
+    payload: dict[str, Any] = {}
+
+    # analysisMode — записывается при обучении (ADR-019 §1). Подстановки нет:
+    # прежнее `or 'roi'` объявляло режимом окупаемости любую модель, у которой
+    # режим не записан, — включая модель режима эффективности.
+    analysis_mode = записанное('analysis_mode')
+    if analysis_mode:
+        payload['analysisMode'] = str(analysis_mode)
 
     # signed_factor_contributions — full breakdown from decomposer v2.0.0 output.
     # Key: factor name. Value: {value, pct, type, beta_mean}.
@@ -398,52 +480,51 @@ def _extract_v20_fields(
             for k, v in (factor_data or {}).items()
         }
 
-    # holiday_dummies_injected — list of holiday dummy column names present in
-    # training data (from persistence._inject_v20_defaults or set at train time).
-    holidays_raw = model_data.get('holiday_dummies_injected') or []
-    holidays_cert = sorted(str(h) for h in holidays_raw)  # sorted for JCS stability
+    payload['signed_factor_contributions'] = signed_factors_cert
+
+    # holiday_dummies_injected — имена праздничных признаков, реально попавших в
+    # обучающую таблицу. Пустой список означал бы «праздники не учитывались», а
+    # обучение их инжектирует всегда (`modeler.py`, 12 признаков РФ): выдавать
+    # заглушку загрузчика за такое утверждение нельзя.
+    holidays_raw = записанное('holiday_dummies_injected')
+    if isinstance(holidays_raw, (list, tuple)) and holidays_raw:
+        payload['holiday_dummies_injected'] = sorted(  # sorted for JCS stability
+            str(h) for h in holidays_raw
+        )
 
     # mcmc_diagnostics — r_hat_max + ess_min summary.
-    mcmc_raw = model_data.get('mcmc_diagnostics') or {}
-    if isinstance(mcmc_raw, dict):
-        mcmc_cert: dict[str, Any] = {
-            'r_hat_max': float(mcmc_raw.get('r_hat_max') or 0),
-            'ess_min': float(mcmc_raw.get('ess_min') or 0),
-        }
-    else:
-        mcmc_cert = {'r_hat_max': 0.0, 'ess_min': 0.0}
+    mcmc_cert = _величины(записанное('mcmc_diagnostics'), (
+        ('r_hat_max', ('r_hat_max',)),
+        ('ess_min', ('ess_min',)),
+    ))
+    if mcmc_cert:
+        payload['mcmc_diagnostics'] = mcmc_cert
 
     # backtest_results — summary metrics only (not per-period predictions, те
     # слишком большие для cert payload и не нужны для verification).
-    backtest_raw = model_data.get('backtest_results') or {}
+    backtest_raw = записанное('backtest_results')
     if isinstance(backtest_raw, dict):
-        metrics_raw = backtest_raw.get('metrics') or backtest_raw  # supports nested or flat
-        backtest_cert: dict[str, Any] = {
-            'mape': float(metrics_raw.get('mape') or metrics_raw.get('mape_pct') or 0),
-            'rmse': float(metrics_raw.get('rmse') or 0),
-            'r2': float(metrics_raw.get('r2') or metrics_raw.get('r_squared') or 0),
-        }
-    else:
-        backtest_cert = {'mape': 0.0, 'rmse': 0.0, 'r2': 0.0}
+        # Поддерживаются обе записи: вложенная под `metrics` и плоская.
+        metrics_raw = backtest_raw.get('metrics')
+        if not isinstance(metrics_raw, dict):
+            metrics_raw = backtest_raw
+        backtest_cert = _величины(metrics_raw, (
+            ('mape', ('mape', 'mape_pct')),
+            ('rmse', ('rmse',)),
+            ('r2', ('r2', 'r_squared')),
+        ))
+        if backtest_cert:
+            payload['backtest_results'] = backtest_cert
 
     # ppc_results — r2 + durbin_watson summary.
-    ppc_raw = model_data.get('ppc_results') or {}
-    if isinstance(ppc_raw, dict):
-        ppc_cert: dict[str, Any] = {
-            'r2': float(ppc_raw.get('r2') or ppc_raw.get('r_squared') or 0),
-            'durbin_watson': float(ppc_raw.get('durbin_watson') or ppc_raw.get('residual_durbin_watson') or 0),
-        }
-    else:
-        ppc_cert = {'r2': 0.0, 'durbin_watson': 0.0}
+    ppc_cert = _величины(записанное('ppc_results'), (
+        ('r2', ('r2', 'r_squared')),
+        ('durbin_watson', ('durbin_watson', 'residual_durbin_watson')),
+    ))
+    if ppc_cert:
+        payload['ppc_results'] = ppc_cert
 
-    return {
-        'analysisMode': analysis_mode,
-        'signed_factor_contributions': signed_factors_cert,
-        'holiday_dummies_injected': holidays_cert,
-        'mcmc_diagnostics': mcmc_cert,
-        'backtest_results': backtest_cert,
-        'ppc_results': ppc_cert,
-    }
+    return payload
 
 
 def build_cert_payload(
@@ -480,20 +561,27 @@ def build_cert_payload(
         is_v20 = model_ver.startswith('2.')
 
     if is_v20:
-        # 🔴 ВЕТКА НЕДОСТИЖИМА И СЛОМАНА ПО КОНТРАКТУ — оставлена как есть,
-        # решение о ней за владельцем (зонды 2026-08-03):
-        #   1. Недостижима: `model_version` при обучении равен '1.2'/'1.3'
-        #      (`modeler.py:1673`), до '2.0.0' его поднимает только
-        #      `save_v20_diagnostics`, у которой нет ни одного живого
-        #      вызывающего. У всех четырёх клиентских моделей на машине —
-        #      '1.2', то есть `is_v20_compatible` всегда False.
-        #   2. Сломана: ключ режима кладётся как `analysisMode` (строка ниже),
-        #      а парсер проверяющей стороны объявлен как `analysis_mode` без
-        #      переименования (`docs/v2_0_0_design/VERIFIER_SCHEMA_v2.md:227`) —
-        #      при десериализации поле выпадает, пересериализация даёт другой
+        # 🔴 ВЕТКА ДОСТИЖИМА, НО СЕГОДНЯ НЕ ВЫЗЫВАЕТСЯ, И СЛОМАНА ПО КОНТРАКТУ.
+        # Уточнено зондом 2026-08-17 (проверка класса C-1); прежняя запись
+        # «недостижима» была неверна:
+        #   1. Достижимость: `is_v20_compatible` отвечает True при
+        #      `model_version='2.0.0'` и записанном `analysis_mode` — зонд на
+        #      живой модели это подтвердил. В такое состояние модель приводит
+        #      `save_v20_diagnostics`; живых вызывающих у неё сейчас нет, но
+        #      структурного запрета на ветку тоже нет. При обучении версия
+        #      равна '1.2'/'1.3' (`modeler.py:1673`), у всех четырёх клиентских
+        #      моделей на машине — '1.2', поэтому сегодня ветка не срабатывает.
+        #      Первое же включение диагностики v2.0 её откроет.
+        #   2. Сломана: ключ режима кладётся как `analysisMode`
+        #      (`_extract_v20_fields`), а парсер проверяющей стороны объявлен
+        #      как `analysis_mode` без переименования
+        #      (`docs/v2_0_0_design/VERIFIER_SCHEMA_v2.md:227`) — при
+        #      десериализации поле выпадает, пересериализация даёт другой
         #      payload, и хеш не сойдётся НИКОГДА.
         # Чинить написание — правка внешнего контракта; без ответа проверяющей
-        # стороны схему не трогаем (шаг 13 плана P0.7).
+        # стороны схему не трогаем (шаг 13 плана P0.7). Состав ключей блока при
+        # этом уже необязателен: заверяется только записанное обучением, см.
+        # `_extract_v20_fields`.
         payload.update(_extract_v20_fields(model_data, decompose_result))
         payload['certificate_version'] = CERT_VERSION_V20
     else:
