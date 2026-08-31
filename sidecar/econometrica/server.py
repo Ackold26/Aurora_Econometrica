@@ -1062,7 +1062,6 @@ def preflight(req: PreflightRequest):
             'message': f'Не удалось прочитать файл: {type(e).__name__}: {e}',
         })
 
-    n_obs = len(df)
     missing_cols = [c for c in req.media_columns + [req.kpi_column] if c not in df.columns]
     if missing_cols:
         return JSONResponse(content={
@@ -1070,6 +1069,27 @@ def preflight(req: PreflightRequest):
             'message': f'Колонки не найдены в файле: {missing_cols}',
             'available_columns': df.columns.tolist(),
         })
+
+    # L-08 (2026-09-01, пробой team lead): строки медиаплана вперёд (KPI пуст,
+    # инвестиции заполнены) — не training-наблюдения. validate_data() уже
+    # обрезает их ДО статистики (validator.py:450-451); preflight читал файл
+    # заново и считал n_obs по нему целиком — хвост плана раздувал n_obs, и
+    # вердикт надёжности (overall_tier/recommended_mode) считался по
+    # завышенному числу. Тот же вызов, что и в validate_data (validator.py:436),
+    # не своя копия логики — SSOT для границы истории/будущего одна.
+    if req.date_column in df.columns:
+        try:
+            from engines.planning import detect_media_plan_tail
+            _tail = detect_media_plan_tail(df, req.date_column, req.kpi_column, req.media_columns)
+            if _tail.get('found'):
+                df = _tail['history_df'].reset_index(drop=True)
+        except Exception:
+            _preflight_logger.warning(
+                'media_plan tail detection failed in preflight — proceeding with full df',
+                exc_info=True,
+            )
+
+    n_obs = len(df)
 
     # Step 2: engine recommendation
     from engines.ols_modeler import recommend_engine

@@ -213,7 +213,7 @@
         <span class="meta-key">Период:</span>
         <span class="meta-val">
           {#if nObs > 0}
-            {nObs} наблюдений
+            {nObs} наблюдений истории
             {#if dateStats?.min_date && dateStats?.max_date}
               <span class="date-range">
                 (с {fmtDate(dateStats.min_date)} по {fmtDate(dateStats.max_date)})
@@ -362,8 +362,8 @@
       </div>
 
       <!-- Период -->
-      <div class="quality-card {periodWarn ? 'tone-warn' : 'tone-ok'}" aria-label="Период">
-        <span class="qc-label">Период</span>
+      <div class="quality-card {periodWarn ? 'tone-warn' : 'tone-ok'}" aria-label="Недель истории для обучения">
+        <span class="qc-label">Недель истории</span>
         <span class="qc-value">{nObs > 0 ? nObs + ' нед' : '–'}</span>
         <span class="qc-status">{periodWarn ? '< 52 нед' : nObs >= 104 ? 'Отлично' : 'Достаточно'}</span>
       </div>

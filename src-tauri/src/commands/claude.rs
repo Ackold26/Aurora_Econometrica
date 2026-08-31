@@ -955,7 +955,13 @@ fn convert_to_xlsx(md_path: &std::path::Path) {
                 if is_numeric {
                     let col_letter = col_to_letter(col);
                     let formula_str = format!("=SUM({}2:{}{})", col_letter, col_letter, table.len());
-                    let formula = rust_xlsxwriter::Formula::new(&formula_str);
+                    // CPD-104 01.09: set_result — сохранённый результат формулы, иначе
+                    // читатели без движка Excel видят 0 в кэше вместо суммы столбца.
+                    let col_sum: f64 = table.iter().skip(1)
+                        .filter_map(|row| row.get(col))
+                        .filter_map(|cell| cell.replace(',', ".").replace(['%', ' ', '\u{a0}'], "").parse::<f64>().ok())
+                        .sum();
+                    let formula = rust_xlsxwriter::Formula::new(&formula_str).set_result(col_sum.to_string());
                     let _ = worksheet.write_formula_with_format(
                         sum_row, col as u16, &formula, &sum_format,
                     );
@@ -1576,6 +1582,47 @@ mod tests {
         assert!(line.contains(" --print "), "простой флаг обрамлять не нужно: {line}");
         assert!(line.contains("\"имя со пробелом\""), "аргумент с пробелом обязан быть в кавычках: {line}");
         assert!(line.contains("\"a&b\""), "аргумент со знаком & обязан быть в кавычках: {line}");
+    }
+
+    /// CPD-104 (2026-09-01): SUM-формула по числовому столбцу в xlsx-выгрузке
+    /// переписки обязана нести сохранённый результат в кэше XML - `rust_xlsxwriter`
+    /// сам формулы не считает, и без `Formula::set_result()` в `<v>` остаётся
+    /// дефолтный `0`. Excel формулу пересчитает и покажет верно, но потребитель
+    /// без движка формул (импорт, скрипт) читает кэш и молча получает ноль.
+    /// Проверено на реальном XML внутри xlsx: для столбца [100, 200, 300]
+    /// кэш обязан содержать `<f>SUM(B2:B4)</f><v>600</v>`.
+    #[test]
+    fn convert_to_xlsx_sum_formula_result_is_cached_not_zero() {
+        use std::io::Read as _;
+
+        let md_path = std::env::temp_dir().join("aurora_cpd104_convert_xlsx_test.md");
+        std::fs::write(
+            &md_path,
+            "| Канал | Расход |\n|---|---|\n| TV | 100 |\n| Digital | 200 |\n| OLV | 300 |\n",
+        ).expect("write md");
+        let xlsx_path = md_path.with_extension("xlsx");
+        let _ = std::fs::remove_file(&xlsx_path); // не наследовать xlsx от прошлого прогона
+
+        convert_to_xlsx(&md_path);
+
+        let bytes = std::fs::read(&xlsx_path).expect("read xlsx (convert_to_xlsx обязан был создать файл)");
+        let mut archive = zip::read::ZipArchive::new(std::io::Cursor::new(bytes)).expect("open xlsx zip");
+        let mut all = String::new();
+        for i in 0..archive.len() {
+            let mut entry = archive.by_index(i).expect("zip entry");
+            let mut content = String::new();
+            if entry.read_to_string(&mut content).is_ok() {
+                all.push_str(&content);
+            }
+        }
+        assert!(
+            all.contains("<f>SUM(B2:B4)</f><v>600</v>"),
+            "сумма столбца «Расход» (100+200+300=600) обязана нести сохранённый результат \
+             в кэше формулы, а не дефолтный 0\nXML: {all}"
+        );
+
+        let _ = std::fs::remove_file(&md_path);
+        let _ = std::fs::remove_file(&xlsx_path);
     }
 }
 

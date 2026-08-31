@@ -135,7 +135,7 @@
 
     {#if file}
       <div class="file-info">
-        <span class="file-stat">{file.rows} строк</span>
+        <span class="file-stat">{file.rows} строк истории</span>
         <span class="file-sep">·</span>
         <span class="file-stat">{file.cols} столбцов</span>
         <span class="file-sep">·</span>

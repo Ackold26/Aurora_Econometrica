@@ -155,7 +155,7 @@
     <div class="expert-block">
       <div class="expert-label">EXPERT BREAKDOWN</div>
       <dl class="expert-stats">
-        <div><dt>Наблюдений</dt><dd>{nObs}</dd></div>
+        <div><dt>Наблюдений (история)</dt><dd>{nObs}</dd></div>
         <div><dt>Переменных в модели</dt><dd>{nPredictors}</dd></div>
         <!-- F-004 pilot (2026-05-18): single source of truth precision —
              везде .toFixed(1), как в big visual + ratio-value. -->

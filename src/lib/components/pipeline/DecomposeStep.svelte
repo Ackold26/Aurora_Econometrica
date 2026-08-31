@@ -252,6 +252,27 @@
     modelHonestyVerdict === 'unreliable' || modelHonestyVerdict === 'uncertain'
   );
 
+  // H-4 (2026-08-31): критерий совпадения для сторонней перепроверки расчёта.
+  // Данные приезжают бесплатно внутри decompose-ответа (decomposer.py:1517 →
+  // methodology_certificate), ветвь допуска выбирает backend сам, автоматически
+  // (repro_tolerance.py, applicable_mode) - по объёму фактического расчёта. Нет
+  // поля, ветви или чисел (старый пикл без сертификата) - блок не рисуем вовсе,
+  // без заглушки и без нулей.
+  const reproApplicable = $derived(data?.methodology_certificate?.repro_tolerance?.applicable ?? null);
+  const reproTolerance = $derived(
+    reproApplicable
+      && typeof reproApplicable.title === 'string'
+      && typeof reproApplicable.tolerances?.roi === 'number'
+      && typeof reproApplicable.tolerances?.contribution_pct === 'number'
+      ? reproApplicable
+      : null
+  );
+
+  /** @param {number} n */
+  function fmtTolerance(n) {
+    return Number.isInteger(n) ? String(n) : n.toFixed(1);
+  }
+
   // Пояснение базы окупаемости. Подсказки ниже говорят «окупается» и «убыточен»,
   // но в режиме выручки это окупаемость ПО ОБОРОТУ, из которой прибыльность не
   // следует. Базу считает общий `roiBaseNote` — тот же, что у советника и у
@@ -541,6 +562,23 @@
       </div>
     {/if}
 
+    <!-- H-4 (2026-08-31): критерий совпадения - отдельно от плашки ненадёжности
+         выше: та про качество ОДНОГО расчёта, эта про повторяемость расчёта
+         независимым специалистом. Нет данных сертификата - блок не рисуем. -->
+    {#if reproTolerance}
+      <div class="card repro-tolerance-card" data-testid="repro-tolerance-card">
+        <div class="card-title">Критерий совпадения</div>
+        <p class="repro-lead">Насколько числа обязаны сойтись, если расчёт повторит независимый специалист.</p>
+        <p class="repro-branch">Для этого расчёта действует ветвь: <strong>{reproTolerance.title}</strong>.</p>
+        <ul class="repro-tolerances">
+          <li>Окупаемость, коэффициент канала, перенос и насыщение – расхождение до <strong>{fmtTolerance(reproTolerance.tolerances.roi)} %</strong>.</li>
+          <li>Доля канала во вкладе – до <strong>{fmtTolerance(reproTolerance.tolerances.contribution_pct)} процентного пункта</strong>.</li>
+        </ul>
+        <p class="repro-basis">Пределы получены измерением повторных прогонов, а не назначены.</p>
+        <p class="repro-caveat">Окупаемость канала и его долю во вкладе по паспорту не сверить: это не параметры модели, а результат разбивки продаж. Их берут из таблицы «Портфель каналов».</p>
+      </div>
+    {/if}
+
     <!-- Insight banner -->
     {#if data.insight}
       <div class="insight-banner">
@@ -812,6 +850,45 @@
     font-size: 13px;
     line-height: 1.45;
     color: var(--text-primary, #e2e8f0);
+  }
+  /* H-4 (2026-08-31): критерий совпадения. Переиспользует .card/.card-title
+     (см. ниже, «Детализация по каналам») - только внутренние отступы свои. */
+  .repro-tolerance-card {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .repro-lead {
+    margin: 0;
+    font-size: 12.5px;
+    line-height: 1.5;
+    color: var(--text-secondary, #94a3b8);
+  }
+  .repro-branch {
+    margin: 0;
+    font-size: 13px;
+    line-height: 1.5;
+    color: var(--text-primary, #e2e8f0);
+  }
+  .repro-tolerances {
+    margin: 0;
+    padding-left: 18px;
+    font-size: 12.5px;
+    line-height: 1.55;
+    color: var(--text-primary, #e2e8f0);
+  }
+  .repro-tolerances li { margin-bottom: 2px; }
+  .repro-basis {
+    margin: 0;
+    font-size: 12px;
+    font-style: italic;
+    color: var(--text-muted, #64748b);
+  }
+  .repro-caveat {
+    margin: 0;
+    font-size: 11.5px;
+    line-height: 1.5;
+    color: var(--text-muted, #64748b);
   }
   .error-icon { font-size: 16px; flex-shrink: 0; }
   .error-text { flex: 1; font-size: 13px; color: #ef4444; }

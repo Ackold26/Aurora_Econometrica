@@ -1607,6 +1607,9 @@ fn build_xlsx(
         ws.write_with_format(2, 1, "Вклад, ₽",    &header_fmt).map_err(|e| format!("{e}"))?;
         ws.write_with_format(2, 2, "% от общего", &header_fmt).map_err(|e| format!("{e}"))?;
 
+        // CPD-104 01.09: сумма всех вкладов — заранее, чтобы проставить кэш результата
+        // формул ниже (без него не-Excel читатели видят 0 вместо доли/итого).
+        let total_value: f64 = wf.iter().map(|item| item["value"].as_f64().unwrap_or(0.0)).sum();
         for (i, item) in wf.iter().enumerate() {
             let row = (i + 3) as u32; // header at row 2 → data starts row 3
             let cat = clean_label(item["category"].as_str().unwrap_or("-"));
@@ -1615,12 +1618,17 @@ fn build_xlsx(
             ws.write_with_format(row, 1, val, &num_fmt).map_err(|e| format!("{e}"))?;
             // Formula: contribution / total. Excel 1-based ref = row+1; total at total_row+1.
             let total_xlsx = wf.len() as u32 + 4; // ИТОГО row Excel 1-based
-            ws.write_formula_with_format(row, 2, Formula::new(format!("=B{}/B${}", row + 1, total_xlsx)), &pct_fmt).map_err(|e| format!("{e}"))?;
+            // CPD-104 01.09: set_result — сохранённый результат формулы для читателей без движка Excel.
+            let pct_result = if total_value != 0.0 { val / total_value } else { 0.0 };
+            let pct_formula = Formula::new(format!("=B{}/B${}", row + 1, total_xlsx)).set_result(pct_result.to_string());
+            ws.write_formula_with_format(row, 2, pct_formula, &pct_fmt).map_err(|e| format!("{e}"))?;
         }
         // Total row (zero-based = wf.len() + 3 since data starts at 3 and runs wf.len() rows)
         let total_row = wf.len() as u32 + 3;
         ws.write_with_format(total_row, 0, "ИТОГО", &bold).map_err(|e| format!("{e}"))?;
-        ws.write_formula_with_format(total_row, 1, Formula::new(format!("=SUM(B4:B{})", total_row)), &bold).map_err(|e| format!("{e}"))?;
+        // CPD-104 01.09: set_result — сохранённый результат формулы для читателей без движка Excel.
+        let total_formula = Formula::new(format!("=SUM(B4:B{})", total_row)).set_result(total_value.to_string());
+        ws.write_formula_with_format(total_row, 1, total_formula, &bold).map_err(|e| format!("{e}"))?;
 
         // Bar chart - categories at rows 3..wf.len()+2 (zero-based), values col B
         let mut chart = Chart::new(ChartType::Bar);
@@ -3728,5 +3736,52 @@ mod tests {
              Отдельная точка чтения снова превратит отсутствующий вердикт в пустую \
              строку, и плашка честности молча пропадёт (решение владельца 2026-08-10)."
         );
+    }
+
+    /// CPD-104 (2026-09-01): формулы листа «Декомпозиция» (доля канала
+    /// `=B{row}/B${total}` и итог `=SUM(B4:B{total_row})`) обязаны нести
+    /// сохранённый результат вычисления в кэше XML - `rust_xlsxwriter` сам
+    /// не считает формулы, и без `Formula::set_result()` в `<v>` остаётся
+    /// дефолтный `0`. Excel формулу пересчитает и покажет верно, но любой
+    /// другой потребитель (импорт в учётную систему, скрипт без движка
+    /// формул) читает кэш и молча получает нули в долях и в итоговой строке.
+    /// Проверено на реальном XML внутри xlsx (не догадка): для waterfall
+    /// [TV=300, Digital=700] кэш обязан содержать `<f>B4/B$6</f><v>0.3</v>`
+    /// и `<f>SUM(B4:B5)</f><v>1000</v>`.
+    #[test]
+    fn waterfall_formula_results_are_cached_not_zero() {
+        fn xlsx_all_text(path: &Path) -> String {
+            let bytes = std::fs::read(path).expect("read xlsx");
+            let mut archive = zip::read::ZipArchive::new(Cursor::new(bytes)).expect("open xlsx zip");
+            let mut all = String::new();
+            for i in 0..archive.len() {
+                let mut entry = archive.by_index(i).expect("zip entry");
+                let mut content = String::new();
+                if entry.read_to_string(&mut content).is_ok() {
+                    all.push_str(&content);
+                }
+            }
+            all
+        }
+        let decompose = json!({"waterfall": [
+            {"category": "TV", "value": 300.0},
+            {"category": "Digital", "value": 700.0}
+        ]});
+        let path = std::env::temp_dir().join("aurora_cpd104_waterfall_test.xlsx");
+        build_xlsx(&json!({}), &decompose, &json!({}), &[], None, "test", &path, None)
+            .expect("build_xlsx waterfall");
+        let text = xlsx_all_text(&path);
+        assert!(
+            text.contains("<f>B4/B$6</f><v>0.3</v>"),
+            "доля канала TV (300/1000=0.3) обязана нести сохранённый результат в кэше \
+             формулы, а не дефолтный 0 - иначе нечитающий формулы потребитель увидит \
+             ложный ноль вместо доли\nXML: {text}"
+        );
+        assert!(
+            text.contains("<f>SUM(B4:B5)</f><v>1000</v>"),
+            "итоговая сумма (300+700=1000) обязана нести сохранённый результат в кэше \
+             формулы\nXML: {text}"
+        );
+        let _ = std::fs::remove_file(&path);
     }
 }
