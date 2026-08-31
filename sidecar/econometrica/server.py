@@ -1089,7 +1089,18 @@ def preflight(req: PreflightRequest):
                 exc_info=True,
             )
 
-    n_obs = len(df)
+    # 🔴 Внешний аудит блока (01.09, High): обрезки хвоста НЕДОСТАТОЧНО.
+    # `detect_media_plan_tail` отдаёт `found=False` не только когда плана нет, но и когда
+    # истории нет вовсе (`no_history`) либо KPI рвётся посреди ряда (`internal_gaps`) — тогда
+    # обрезка не срабатывает и наблюдениями снова считаются строки без целевой величины.
+    # Проверено пробой: файл с полностью пустым KPI давал n_obs=35 и вердикт «надёжно» при
+    # НУЛЕ наблюдений. Наблюдение — это строка с известной целевой величиной, и определяется
+    # оно так же, как при обучении (`ols_modeler.py:94`, `modeler.py:365`: `notna()`);
+    # обрезка выше остаётся, она задаёт границу истории для прочих расчётов этой функции.
+    if req.kpi_column in df.columns:
+        n_obs = int(df[req.kpi_column].notna().sum())
+    else:
+        n_obs = len(df)
 
     # Step 2: engine recommendation
     from engines.ols_modeler import recommend_engine

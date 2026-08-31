@@ -111,3 +111,48 @@ def test_preflight_reliable_verdict_unchanged_on_demo_shaped_file(tmp_path: Path
     result = _preflight_result(tmp_path, n_history=104, n_future=26)
     assert result['n_obs'] == 104
     assert result['overall_tier'] == 'reliable'
+
+
+def test_preflight_counts_only_rows_with_known_kpi(tmp_path):
+    """Внешний аудит 01.09 (High): обрезки хвоста мало.
+
+    `detect_media_plan_tail` отдаёт `found=False` не только когда плана нет, но и когда
+    истории нет вовсе (`no_history`) или KPI рвётся посреди ряда (`internal_gaps`) —
+    тогда обрезка не срабатывает. Пробой подтверждено: файл с полностью пустым KPI
+    давал n_obs=35 и вердикт «надёжно» при НУЛЕ наблюдений.
+
+    Наблюдение — строка с известной целевой величиной; так же считает обучение
+    (`ols_modeler.py:94`, `modeler.py:365`).
+    """
+    import json
+    import pandas as pd
+    import numpy as np
+    from server import preflight, PreflightRequest
+
+    def _probe(revenue, tmp_name):
+        n = len(revenue)
+        dates = pd.date_range('2025-01-06', periods=n, freq='W-MON')
+        path = tmp_path / tmp_name
+        pd.DataFrame({
+            'Дата': dates,
+            'Выручка': revenue,
+            'ТВ бюджет': np.linspace(1e6, 5e6, n),
+            'Диджитал бюджет': np.linspace(5e5, 3e6, n),
+        }).to_excel(path, index=False)
+        resp = preflight(PreflightRequest(
+            project_dir=str(tmp_path), file_path=str(path), kpi_column='Выручка',
+            media_columns=['ТВ бюджет', 'Диджитал бюджет'], control_columns=[],
+            date_column='Дата', skip_prior_predictive=True,
+        ))
+        return json.loads(resp.body.decode('utf-8'))
+
+    # Целевой столбец пуст целиком: наблюдений ноль, вердикт не может быть «надёжно»
+    empty = _probe([np.nan] * 35, 'empty_kpi.xlsx')
+    assert empty['n_obs'] == 0, f"пустой KPI: наблюдений {empty['n_obs']}, ожидали 0"
+    assert empty['overall_tier'] != 'reliable', 'при нуле наблюдений вердикт «надёжно» недопустим'
+
+    # Пропуск в середине истории: строка без KPI наблюдением не считается
+    hist = list(np.linspace(1e7, 2e7, 15))
+    hist[7] = np.nan
+    gap = _probe(hist + [np.nan] * 20, 'gap.xlsx')
+    assert gap['n_obs'] == 14, f"дыра в середине: наблюдений {gap['n_obs']}, ожидали 14"
