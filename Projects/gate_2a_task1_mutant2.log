@@ -1,0 +1,49 @@
+   Compiling aurora-econometrica-gui v2.4.5 (D:\Docs\Aurora_Ai\Dev\Aurora_Econometrica_thinwt\src-tauri)
+warning: type alias `PathLocks` is never used
+   --> src-tauri\src\commands\content_updater.rs:967:6
+    |
+967 | type PathLocks = std::sync::Mutex<HashMap<PathBuf, std::sync::Arc<tokio::sync::Mutex<()>>>>;
+    |      ^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `vault_write_locks` is never used
+   --> src-tauri\src\commands\content_updater.rs:969:4
+    |
+969 | fn vault_write_locks() -> &'static PathLocks {
+    |    ^^^^^^^^^^^^^^^^^
+
+warning: function `vault_lock_for` is never used
+   --> src-tauri\src\commands\content_updater.rs:975:4
+    |
+975 | fn vault_lock_for(dest: &Path) -> std::sync::Arc<tokio::sync::Mutex<()>> {
+    |    ^^^^^^^^^^^^^^
+
+warning: `aurora-econometrica-gui` (lib) generated 3 warnings
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 30.15s
+     Running unittests src\lib.rs (D:/cargo-targets/ai-agency\debug\deps\aurora_econometrica_lib-38014719dd52fc59.exe)
+
+running 7 tests
+test commands::content_updater::tests::vault_lock_is_keyed_by_target_file ... ok
+test commands::content_updater::tests::rejected_preparation_never_touches_the_existing_vault ... ok
+test commands::project::atomic_write_tests::project_mutex_serializes_concurrent_locks_same_id ... ok
+test commands::content_updater::tests::concurrent_updates_of_one_vault_keep_the_reported_contents ... ok
+test commands::content_updater::tests::concurrent_failed_updates_leave_the_cabinet_in_place ... FAILED
+test metrics::ratings::tests::concurrent_ratings_do_not_lose_any_of_them ... ok
+test session::history::tests::concurrent_save_message_does_not_lose_writes ... ok
+
+failures:
+
+---- commands::content_updater::tests::concurrent_failed_updates_leave_the_cabinet_in_place stdout ----
+
+thread 'commands::content_updater::tests::concurrent_failed_updates_leave_the_cabinet_in_place' (29408) panicked at src-tauri\src\commands\content_updater.rs:2509:9:
+кабинет клиента обязан остаться на диске
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    commands::content_updater::tests::concurrent_failed_updates_leave_the_cabinet_in_place
+
+test result: FAILED. 6 passed; 1 failed; 0 ignored; 0 measured; 392 filtered out; finished in 1.81s
+
+error: test failed, to rerun pass `--lib`

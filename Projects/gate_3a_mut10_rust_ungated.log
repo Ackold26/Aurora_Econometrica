@@ -1,0 +1,10 @@
+.F..                                                                     [100%]
+================================== FAILURES ===================================
+_ test_rust_endorsements_are_gated_by_refusal[\u0440\u0435\u0437\u0443\u043b\u044c\u0442\u0430\u0442\u044b \u043c\u043e\u0434\u0435\u043b\u0438 \u043d\u0430\u0434\u0451\u0436\u043d\u044b \u0434\u043b\u044f \u043f\u0440\u0438\u043d\u044f\u0442\u0438\u044f \u0440\u0435\u0448\u0435\u043d\u0438\u0439] _
+sidecar\econometrica\tests\test_reliability_statement_mirror.py:98: in test_rust_endorsements_are_gated_by_refusal
+    assert "mr_refused" in window, (
+E   AssertionError: утверждение «результаты модели надёжны для принятия решений» (строка 795 report.rs) печатается без проверки признака отказа — это ровно тот дефект, который чинили: при несошедшемся расчёте отчёт одновременно отключает переброску и обещает надёжность.
+E   assert 'mr_refused' in '            } else {\n                md.push_str("- [СРЕДНЯЯ] MQS Score на уровне «Приемлемое» – результаты пригодны...  md.push_str("- [ВЫСОКАЯ] MQS Score на уровне «Хорошее» и выше – результаты модели надёжны для принятия решений\\n");'
+=========================== short test summary info ===========================
+FAILED sidecar/econometrica/tests/test_reliability_statement_mirror.py::test_rust_endorsements_are_gated_by_refusal[\u0440\u0435\u0437\u0443\u043b\u044c\u0442\u0430\u0442\u044b \u043c\u043e\u0434\u0435\u043b\u0438 \u043d\u0430\u0434\u0451\u0436\u043d\u044b \u0434\u043b\u044f \u043f\u0440\u0438\u043d\u044f\u0442\u0438\u044f \u0440\u0435\u0448\u0435\u043d\u0438\u0439]
+1 failed, 3 passed in 0.30s

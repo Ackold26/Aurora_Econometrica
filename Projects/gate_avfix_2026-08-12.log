@@ -1,0 +1,40 @@
+test sidecar_runtime::tests::read_state_file_missing_returns_none ... ok
+test sidecar_runtime::tests::session_id_unique ... ok
+test sidecar_runtime::tests::read_state_file_corrupt_returns_none ... ok
+test metrics::collector::tests::metrics_read_before_write_refuses_when_file_cannot_be_read ... ok
+test sidecar_runtime::tests::user_scoped_port_different_bases ... ok
+test sidecar_runtime::tests::user_scoped_port_stable ... ok
+test sidecar_runtime::tests::state_file_roundtrip ... ok
+test metrics::ratings::tests::rating_read_before_write_refuses_when_file_cannot_be_read ... ok
+test metrics::collector::tests::metrics_cycle_refuses_on_unreadable_file_even_after_the_first_cycle ... ok
+test metrics::ratings::tests::rating_is_appended_to_existing_ones_when_file_is_readable ... ok
+test metrics::collector::tests::metrics_cycle_rereads_from_disk_and_does_not_roll_back_another_window ... ok
+test metrics::collector::tests::metrics_cycle_refuses_when_lock_is_held_by_another_owner ... ok
+test metrics::collector::tests::metrics_cycle_writes_when_file_is_readable ... ok
+test session::manager::wipe_tests::one_undeletable_file_does_not_abort_the_rest_of_the_sweep ... ok
+test session::history::tests::save_message_at_refuses_to_write_when_history_cannot_be_read ... ok
+test session::history::tests::model_answer_is_parked_when_lock_is_busy_and_returns_on_next_successful_save ... ok
+test metrics::ratings::tests::rating_refuses_when_lock_is_held_by_another_owner ... ok
+test session::history::tests::save_message_at_refuses_when_history_lock_is_held_by_another_owner ... ok
+test metrics::ratings::tests::concurrent_ratings_do_not_lose_any_of_them ... ok
+test session::history::tests::concurrent_save_message_does_not_lose_writes ... ok
+test commands::content_updater::tests::ranged_download_rejects_empty_chunk ... ok
+test commands::content_updater::tests::ranged_download_rejects_shifting_total ... ok
+test commands::content_updater::tests::whole_file_download_fails_at_the_same_threshold ... ok
+test commands::content_updater::tests::truncated_body_is_not_accepted_as_success ... ok
+
+test result: ok. 409 passed; 0 failed; 3 ignored; 0 measured; 0 filtered out; finished in 38.15s
+
+     Running unittests src\main.rs (D:/cargo-targets/econ-thin\debug\deps\aurora_econometrica_gui-6aef58060d4eded6.exe)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests aurora_econometrica_lib
+
+running 1 test
+test src-tauri\src\sidecar_runtime.rs - sidecar_runtime (line 26) ... ignored
+
+test result: ok. 0 passed; 0 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

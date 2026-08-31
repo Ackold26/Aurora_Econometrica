@@ -1,0 +1,22 @@
+   Compiling aurora-econometrica-gui v2.4.5 (D:\Docs\Aurora_Ai\Dev\Aurora_Econometrica_thinwt\src-tauri)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 15.92s
+     Running unittests src\lib.rs (D:/cargo-targets/ai-agency\debug\deps\aurora_econometrica_lib-38014719dd52fc59.exe)
+
+running 1 test
+test econ_sidecar::identifier_dir_tests::identifier_dir_tracks_build_edition_not_hardcoded ... FAILED
+
+failures:
+
+---- econ_sidecar::identifier_dir_tests::identifier_dir_tracks_build_edition_not_hardcoded stdout ----
+
+thread 'econ_sidecar::identifier_dir_tests::identifier_dir_tracks_build_edition_not_hardcoded' (86780) panicked at src-tauri\src\econ_sidecar.rs:736:9:
+identifier_dir снова захардкожен строковым литералом — регресс общего state-файла редакций
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    econ_sidecar::identifier_dir_tests::identifier_dir_tracks_build_edition_not_hardcoded
+
+test result: FAILED. 0 passed; 1 failed; 0 ignored; 0 measured; 404 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `--lib`

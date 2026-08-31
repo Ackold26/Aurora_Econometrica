@@ -1,0 +1,10 @@
+....F.                                                                   [100%]
+================================== FAILURES ===================================
+___________________ test_js_endorsement_is_gated_by_refusal ___________________
+sidecar\econometrica\tests\test_reliability_statement_mirror.py:189: in test_js_endorsement_is_gated_by_refusal
+    assert ("modelRefused" in window) or ("reportRefused" in window), (
+E   AssertionError: утверждение о надёжности (строка 1409 insights-rules.js) выведено из ступени MQS без проверки признака отказа — это ровно тот дефект: при несошедшемся расчёте программа отключает переброску и тут же обещает надёжность.
+E   assert ('modelRefused' in "    });\n  }\n\n   \n   \n   \n   \n\n  const thinSuffix = isThin ? ' Учитывайте, что данных мало – правдоподобный ди...`MQS = ${mqs.toFixed(0)} (${label}) – высокое качество модели. Результаты надёжны для принятия решений.${thinSuffix}`," or 'reportRefused' in "    });\n  }\n\n   \n   \n   \n   \n\n  const thinSuffix = isThin ? ' Учитывайте, что данных мало – правдоподобный ди...`MQS = ${mqs.toFixed(0)} (${label}) – высокое качество модели. Результаты надёжны для принятия решений.${thinSuffix}`,")
+=========================== short test summary info ===========================
+FAILED sidecar/econometrica/tests/test_reliability_statement_mirror.py::test_js_endorsement_is_gated_by_refusal
+1 failed, 5 passed in 0.46s

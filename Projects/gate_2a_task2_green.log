@@ -1,0 +1,24 @@
+   Compiling aurora-econometrica-gui v2.4.5 (D:\Docs\Aurora_Ai\Dev\Aurora_Econometrica_thinwt\src-tauri)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 27.50s
+     Running unittests src\lib.rs (D:/cargo-targets/ai-agency\debug\deps\aurora_econometrica_lib-38014719dd52fc59.exe)
+
+running 4 tests
+test commands::content_updater::tests::backup_beside_working_file_is_left_untouched ... ok
+test commands::content_updater::tests::orphaned_backup_is_restored_when_working_file_missing ... ok
+test commands::content_updater::tests::restore_orphaned_backups_ignores_foreign_files ... ok
+test commands::content_updater::tests::restore_orphaned_backups_is_quiet_without_vaults_dir ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 391 filtered out; finished in 0.01s
+
+     Running unittests src\main.rs (D:/cargo-targets/ai-agency\debug\deps\aurora_econometrica_gui-26716960da1b2eac.exe)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests aurora_econometrica_lib
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s
+

@@ -1,0 +1,12 @@
+.................F.........                                              [100%]
+================================== FAILURES ===================================
+__________________ test_pptx_carries_statement_when_refused ___________________
+sidecar\econometrica\tests\test_reliability_statement_single_source.py:274: in test_pptx_carries_statement_when_refused
+    assert txt.count(RELIABILITY_STATEMENT_REFUSED) >= 2, (
+E   AssertionError: фраза обязана стоять и в выводах, и у карточки MQS — обе поверхности печатают ступень. Найдено вхождений: 1
+E   assert 1 >= 2
+E    +  where 1 = <built-in method count of str object at 0x000001AC56639040>('Расчёт не сошёлся – цифры показаны как есть, но опираться на них при распределении бюджета рано; переобучите модель.')
+E    +    where <built-in method count of str object at 0x000001AC56639040> = 'MARKETING MIX MODEL REPORT\nДекомпозиция медиабюджета\nи рекомендации по оптимизации\nПОДГОТОВЛЕНО ДЛЯ\nKagocel\nДАТА... от одной позиции до портфеля брендов.\n© 2026 Aurora AI.  Не подлежит распространению без письменного согласия\n12/12'.count
+=========================== short test summary info ===========================
+FAILED sidecar/econometrica/tests/test_reliability_statement_single_source.py::test_pptx_carries_statement_when_refused
+1 failed, 26 passed in 6.90s

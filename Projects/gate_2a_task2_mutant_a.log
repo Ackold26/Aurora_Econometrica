@@ -1,0 +1,47 @@
+   Compiling aurora-econometrica-gui v2.4.5 (D:\Docs\Aurora_Ai\Dev\Aurora_Econometrica_thinwt\src-tauri)
+warning: unreachable statement
+   --> src-tauri\src\commands\content_updater.rs:930:5
+    |
+929 |     return 0; // МУТАЦИЯ: прежнее состояние — подбора сироты нет вовсе
+    |     -------- any code following this expression is unreachable
+930 |     let vaults_dir = vault::vaults_dir(app_data_dir);
+    |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^ unreachable statement
+    |
+    = note: `#[warn(unreachable_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: unused variable: `app_data_dir`
+   --> src-tauri\src\commands\content_updater.rs:927:39
+    |
+927 | pub fn restore_orphaned_vault_backups(app_data_dir: &Path) -> usize {
+    |                                       ^^^^^^^^^^^^ help: if this is intentional, prefix it with an underscore: `_app_data_dir`
+    |
+    = note: `#[warn(unused_variables)]` (part of `#[warn(unused)]`) on by default
+
+warning: `aurora-econometrica-gui` (lib test) generated 2 warnings (2 duplicates)
+warning: `aurora-econometrica-gui` (lib) generated 2 warnings (run `cargo fix --lib -p aurora-econometrica-gui` to apply 1 suggestion)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 26.90s
+     Running unittests src\lib.rs (D:/cargo-targets/ai-agency\debug\deps\aurora_econometrica_lib-38014719dd52fc59.exe)
+
+running 4 tests
+test commands::content_updater::tests::backup_beside_working_file_is_left_untouched ... ok
+test commands::content_updater::tests::orphaned_backup_is_restored_when_working_file_missing ... FAILED
+test commands::content_updater::tests::restore_orphaned_backups_ignores_foreign_files ... ok
+test commands::content_updater::tests::restore_orphaned_backups_is_quiet_without_vaults_dir ... ok
+
+failures:
+
+---- commands::content_updater::tests::orphaned_backup_is_restored_when_working_file_missing stdout ----
+
+thread 'commands::content_updater::tests::orphaned_backup_is_restored_when_working_file_missing' (14872) panicked at src-tauri\src\commands\content_updater.rs:2206:9:
+assertion `left == right` failed: осиротевший резерв обязан вернуться на место
+  left: 0
+ right: 1
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    commands::content_updater::tests::orphaned_backup_is_restored_when_working_file_missing
+
+test result: FAILED. 3 passed; 1 failed; 0 ignored; 0 measured; 391 filtered out; finished in 0.02s
+
+error: test failed, to rerun pass `--lib`

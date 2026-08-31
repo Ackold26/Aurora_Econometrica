@@ -1,0 +1,102 @@
+============================= test session starts =============================
+platform win32 -- Python 3.12.10, pytest-9.0.3, pluggy-1.6.0
+rootdir: D:\Docs\Aurora_Ai\Dev\Aurora_Econometrica_thinwt
+configfile: pytest.ini
+testpaths: tools
+plugins: anyio-4.12.1, hypothesis-6.152.4, asyncio-1.3.0, httpx-0.36.2, xdist-3.8.0
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+created: 4/4 workers
+4 workers [2295 items]
+
+........................................................................ [  3%]
+........................................................................ [  6%]
+........................................................................ [  9%]
+........................................................................ [ 12%]
+........................................................................ [ 15%]
+........................................................................ [ 18%]
+........................................................................ [ 21%]
+........................................................................ [ 25%]
+........................................................................ [ 28%]
+........................................................................ [ 31%]
+........................................................................ [ 34%]
+........................................................................ [ 37%]
+........................................................................ [ 40%]
+........................................................................ [ 43%]
+........................................................................ [ 47%]
+............s........................................................... [ 50%]
+........................................................................ [ 53%]
+........................................................................ [ 56%]
+.....................................................................s.. [ 59%]
+........................................................................ [ 62%]
+........................................................................ [ 65%]
+...............ssss..................................................... [ 69%]
+........................................................................ [ 72%]
+........................................................................ [ 75%]
+........................................................................ [ 78%]
+........................................................................ [ 81%]
+.........................s.............................................. [ 84%]
+........................................................................ [ 87%]
+........................................................................ [ 90%]
+........................................................................ [ 94%]
+........................................................................ [ 97%]
+...............................................................          [100%]
+============================== warnings summary ===============================
+sidecar\econometrica\server.py:235
+sidecar\econometrica\server.py:235
+sidecar\econometrica\server.py:235
+sidecar\econometrica\server.py:235
+  D:\Docs\Aurora_Ai\Dev\Aurora_Econometrica_thinwt\sidecar\econometrica\server.py:235: DeprecationWarning: 
+          on_event is deprecated, use lifespan event handlers instead.
+  
+          Read more about it in the
+          [FastAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/).
+          
+    @app.on_event('startup')
+
+C:\Users\ackol\AppData\Local\Programs\Python\Python312\Lib\site-packages\fastapi\applications.py:4599
+C:\Users\ackol\AppData\Local\Programs\Python\Python312\Lib\site-packages\fastapi\applications.py:4599
+C:\Users\ackol\AppData\Local\Programs\Python\Python312\Lib\site-packages\fastapi\applications.py:4599
+C:\Users\ackol\AppData\Local\Programs\Python\Python312\Lib\site-packages\fastapi\applications.py:4599
+  C:\Users\ackol\AppData\Local\Programs\Python\Python312\Lib\site-packages\fastapi\applications.py:4599: DeprecationWarning: 
+          on_event is deprecated, use lifespan event handlers instead.
+  
+          Read more about it in the
+          [FastAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/).
+          
+    return self.router.on_event(event_type)
+
+tools/test_dirty_import_files.py::test_dirty_mutations_no_exceptions[double_header]
+  D:\Docs\Aurora_Ai\Dev\Aurora_Econometrica_thinwt\sidecar\econometrica\engines\planning.py:118: UserWarning: Could not infer format, so each element will be parsed individually, falling back to `dateutil`. To ensure parsing is consistent and as-expected, please specify a format.
+    work[date_col] = pd.to_datetime(work[date_col], errors="coerce")
+
+tools/test_dirty_import_files.py::test_dirty_mutations_no_exceptions[double_header]
+  D:\Docs\Aurora_Ai\Dev\Aurora_Econometrica_thinwt\sidecar\econometrica\engines\validator.py:549: UserWarning: Could not infer format, so each element will be parsed individually, falling back to `dateutil`. To ensure parsing is consistent and as-expected, please specify a format.
+    _dates = pd.to_datetime(df[col], errors='coerce').dropna()
+
+tools/test_dirty_import_files.py::test_dirty_mutations_no_exceptions[double_header]
+  D:\Docs\Aurora_Ai\Dev\Aurora_Econometrica_thinwt\sidecar\econometrica\engines\validator.py:274: UserWarning: Could not infer format, so each element will be parsed individually, falling back to `dateutil`. To ensure parsing is consistent and as-expected, please specify a format.
+    dates = pd.to_datetime(series.dropna()).sort_values()
+
+tools/test_dirty_import_files.py::test_dirty_mutations_no_exceptions[double_header]
+  D:\Docs\Aurora_Ai\Dev\Aurora_Econometrica_thinwt\sidecar\econometrica\engines\validator.py:882: UserWarning: Could not infer format, so each element will be parsed individually, falling back to `dateutil`. To ensure parsing is consistent and as-expected, please specify a format.
+    df[date_col] = pd.to_datetime(df[date_col])
+
+tools/test_fourier_integration.py: 18 warnings
+tools/test_scenario_seasonality.py: 1 warning
+  D:\Docs\Aurora_Ai\Dev\Aurora_Econometrica_thinwt\sidecar\econometrica\engines\modeler.py:931: DeprecationWarning: Scan return signature will change. Updates dict will not be returned, only the first argument. Pass `return_updates=False` to conform to the new API and avoid this warning
+    adstock_seq, _ = pt_scan(
+
+tools/test_scenario_seasonality.py::test_predict_scenario_carries_seasonal_wave
+  C:\Users\ackol\AppData\Local\Programs\Python\Python312\Lib\site-packages\pytensor\tensor\rewriting\elemwise.py:881: UserWarning: Loop fusion failed because the resulting node would exceed the kernel argument limit.
+    warn(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ===========================
+SKIPPED [1] tools\test_collapse_top_groups.py:105: фикстура mmx_4groups недоступна
+SKIPPED [1] tools\test_sprint_buffer_43_44_45_polish.py:68: aurora_pptx not importable in test env
+SKIPPED [1] tools\test_weibull_recovery.py:282: Requires B2 - learnable Weibull в modeler.py. Un-skip after B2 ship.
+SKIPPED [1] tools\test_weibull_recovery.py:291: Requires B2 - learnable Weibull в modeler.py.
+SKIPPED [1] tools\test_weibull_recovery.py:303: Requires B2 + JAX backend.
+SKIPPED [1] tools\test_weibull_recovery.py:309: Requires B2 + scipy MLE warm-start.
+SKIPPED [1] tools\test_phase2_synergies.py:96: Conformal not available in this env
+========== 2288 passed, 7 skipped, 32 warnings in 162.95s (0:02:42) ===========

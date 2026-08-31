@@ -1,0 +1,10 @@
+............F..............                                              [100%]
+================================== FAILURES ===================================
+_______________ test_html_findings_carry_statement_when_refused _______________
+sidecar\econometrica\tests\test_reliability_statement_single_source.py:229: in test_html_findings_carry_statement_when_refused
+    assert RELIABILITY_STATEMENT_REFUSED in html, (
+E   AssertionError: подпись под баллом не несёт согласованную фразу при отказе
+E   assert 'Расчёт не сошёлся – цифры показаны как есть, но опираться на них при распределении бюджета рано; переобучите модель.' in '<section id="findings" class="section section-findings">\n<div class="section-kicker">ОТЧЁТ ЗА 60 СЕКУНД</div>\n\n<h2...rfall" style="height:320px;">\n    <div class="chart-skeleton" aria-hidden="true"></div>\n  </div>\n</div>\n</section>'
+=========================== short test summary info ===========================
+FAILED sidecar/econometrica/tests/test_reliability_statement_single_source.py::test_html_findings_carry_statement_when_refused
+1 failed, 26 passed in 3.82s

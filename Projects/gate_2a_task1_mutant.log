@@ -1,0 +1,51 @@
+   Compiling aurora-econometrica-gui v2.4.5 (D:\Docs\Aurora_Ai\Dev\Aurora_Econometrica_thinwt\src-tauri)
+warning: type alias `PathLocks` is never used
+   --> src-tauri\src\commands\content_updater.rs:940:6
+    |
+940 | type PathLocks = std::sync::Mutex<HashMap<PathBuf, std::sync::Arc<tokio::sync::Mutex<()>>>>;
+    |      ^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `vault_write_locks` is never used
+   --> src-tauri\src\commands\content_updater.rs:942:4
+    |
+942 | fn vault_write_locks() -> &'static PathLocks {
+    |    ^^^^^^^^^^^^^^^^^
+
+warning: function `vault_lock_for` is never used
+   --> src-tauri\src\commands\content_updater.rs:948:4
+    |
+948 | fn vault_lock_for(dest: &Path) -> std::sync::Arc<tokio::sync::Mutex<()>> {
+    |    ^^^^^^^^^^^^^^
+
+warning: `aurora-econometrica-gui` (lib) generated 3 warnings
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 41.17s
+     Running unittests src\lib.rs (D:/cargo-targets/ai-agency\debug\deps\aurora_econometrica_lib-38014719dd52fc59.exe)
+
+running 7 tests
+test commands::content_updater::tests::vault_lock_is_keyed_by_target_file ... ok
+test commands::content_updater::tests::rejected_preparation_never_touches_the_existing_vault ... ok
+test commands::project::atomic_write_tests::project_mutex_serializes_concurrent_locks_same_id ... ok
+test commands::content_updater::tests::concurrent_failed_updates_leave_the_cabinet_in_place ... ok
+test commands::content_updater::tests::concurrent_updates_of_one_vault_keep_the_reported_contents ... FAILED
+test metrics::ratings::tests::concurrent_ratings_do_not_lose_any_of_them ... ok
+test session::history::tests::concurrent_save_message_does_not_lose_writes ... ok
+
+failures:
+
+---- commands::content_updater::tests::concurrent_updates_of_one_vault_keep_the_reported_contents stdout ----
+
+thread 'commands::content_updater::tests::concurrent_updates_of_one_vault_keep_the_reported_contents' (89124) panicked at src-tauri\src\commands\content_updater.rs:2411:9:
+assertion `left == right` failed: на диске обязано лежать содержимое того вызова, что доложил об успешной записи
+  left: [93, 137, 211, 177, 39, 29, 7, 108, 245, 32, 245, 134, 247, 200, 126, 154, 3, 90, 213, 157, 33, 121, 105, 67, 102, 15, 173, 128, 144, 193, 235, 97, 224, 239, 141, 152, 254, 148, 205, 69, 44, 125, 7, 118, 133, 120, 105, 61, 154, 221, 245, 101, 239]
+ right: [217, 11, 33, 11, 241, 224, 60, 119, 42, 153, 19, 8, 34, 36, 148, 227, 113, 155, 62, 196, 223, 168, 149, 30, 158, 66, 134, 233, 230, 88, 87, 36, 45, 41, 76, 118, 172, 133, 30, 205, 164, 105, 50, 163, 104, 12, 121, 231, 162, 182]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+
+failures:
+    commands::content_updater::tests::concurrent_updates_of_one_vault_keep_the_reported_contents
+
+test result: FAILED. 6 passed; 1 failed; 0 ignored; 0 measured; 392 filtered out; finished in 2.15s
+
+error: test failed, to rerun pass `--lib`

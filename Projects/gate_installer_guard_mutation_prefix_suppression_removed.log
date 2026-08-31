@@ -1,0 +1,103 @@
+
+ RUN  v4.1.2 D:/Docs/Aurora_Ai/Dev/Aurora_Econometrica_thinwt
+
+ × tools/__tests__/check-installer-edition.test.mjs > countBoundedOccurrences — ловушка префикса > короткий identifier НЕ засчитывается, если он на деле начало длинного 6ms
+   → expected 1 to be +0 // Object.is equality
+ × tools/__tests__/check-installer-edition.test.mjs > countBoundedOccurrences — ловушка префикса > та же ловушка для отставного .thin 1ms
+   → expected 1 to be +0 // Object.is equality
+ ✓ tools/__tests__/check-installer-edition.test.mjs > countBoundedOccurrences — ловушка префикса > живая форма бинарника: identifier без разделителя рядом с ЧУЖОЙ строкой на букву — считается 0ms
+ ✓ tools/__tests__/check-installer-edition.test.mjs > countBoundedOccurrences — ловушка префикса > самостоятельный короткий identifier засчитывается, когда за ним нет продолжения из реестра 0ms
+ ✓ tools/__tests__/check-installer-edition.test.mjs > checkInstallerEdition > ожидаемая редакция найдена → успех 3ms
+ ✓ tools/__tests__/check-installer-edition.test.mjs > checkInstallerEdition > чужая редакция найдена → провал 1ms
+ ✓ tools/__tests__/check-installer-edition.test.mjs > checkInstallerEdition > ожидаемая редакция отсутствует → провал 2ms
+ × tools/__tests__/check-installer-edition.test.mjs > checkInstallerEdition > префиксный случай: локальный установщик, проверенный КАК универсальный, → провал 4ms
+   → expected 'в артефакте редакции «universal» найд…' to contain 'не нашёлся'
+ × tools/__tests__/check-installer-edition.test.mjs > checkInstallerEdition > тот же установщик, проверенный как локальный, → успех (несмотря на общий префикс) 2ms
+   → expected false to be true // Object.is equality
+ ✓ tools/__tests__/check-installer-edition.test.mjs > checkInstallerEdition > UTF-16LE находится наравне с UTF-8 2ms
+ ✓ tools/__tests__/check-installer-edition.test.mjs > checkInstallerEdition > неизвестная редакция на входе → провал с понятным сообщением 1ms
+ ✓ tools/__tests__/check-installer-edition.test.mjs > checkInstallerEdition > файл не найден → провал, не исключение 0ms
+ ✓ tools/__tests__/check-installer-edition.test.mjs > countAcrossEncodings > суммирует вхождения из ОБЕИХ кодировок сразу 0ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 4 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tools/__tests__/check-installer-edition.test.mjs > countBoundedOccurrences — ловушка префикса > короткий identifier НЕ засчитывается, если он на деле начало длинного
+AssertionError: expected 1 to be +0 // Object.is equality
+
+- Expected
++ Received
+
+- 0
++ 1
+
+ ❯ tools/__tests__/check-installer-edition.test.mjs:57:65
+     55|     // физически (она первая половина длинной), но как отдельной сущно…
+     56|     const buffer = Buffer.concat([NUL, ascii(LOCAL), NUL]);
+     57|     expect(countBoundedOccurrences(buffer, UNIVERSAL, 'ascii')).toBe(0…
+       |                                                                 ^
+     58|     expect(countBoundedOccurrences(buffer, LOCAL, 'ascii')).toBe(1);
+     59|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/4]⎯
+
+ FAIL  tools/__tests__/check-installer-edition.test.mjs > countBoundedOccurrences — ловушка префикса > та же ловушка для отставного .thin
+AssertionError: expected 1 to be +0 // Object.is equality
+
+- Expected
++ Received
+
+- 0
++ 1
+
+ ❯ tools/__tests__/check-installer-edition.test.mjs:63:65
+     61|   it('та же ловушка для отставного .thin', () => {
+     62|     const buffer = Buffer.concat([NUL, ascii(THIN), NUL]);
+     63|     expect(countBoundedOccurrences(buffer, UNIVERSAL, 'ascii')).toBe(0…
+       |                                                                 ^
+     64|     expect(countBoundedOccurrences(buffer, THIN, 'ascii')).toBe(1);
+     65|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/4]⎯
+
+ FAIL  tools/__tests__/check-installer-edition.test.mjs > checkInstallerEdition > префиксный случай: локальный установщик, проверенный КАК универсальный, → провал
+AssertionError: expected 'в артефакте редакции «universal» найд…' to contain 'не нашёлся'
+
+Expected: "не нашёлся"
+Received: "в артефакте редакции «universal» найден чужой identifier «com.aurora.econometrica.local» (1 вхожд.) — сборка велась в обход штатного скрипта, с наложенной настройкой чужой редакции; клиент получит вторую программу с пустым профилем вместо обновления"
+
+ ❯ tools/__tests__/check-installer-edition.test.mjs:111:21
+    109|     const { ok, message } = checkInstallerEdition(path, 'universal');
+    110|     expect(ok).toBe(false);
+    111|     expect(message).toContain('не нашёлся');
+       |                     ^
+    112|   });
+    113|
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/4]⎯
+
+ FAIL  tools/__tests__/check-installer-edition.test.mjs > checkInstallerEdition > тот же установщик, проверенный как локальный, → успех (несмотря на общий префикс)
+AssertionError: expected false to be true // Object.is equality
+
+- Expected
++ Received
+
+- true
++ false
+
+ ❯ tools/__tests__/check-installer-edition.test.mjs:117:16
+    115|     const path = tempInstaller(Buffer.concat([NUL, ascii(LOCAL), NUL])…
+    116|     const { ok, message } = checkInstallerEdition(path, 'local');
+    117|     expect(ok).toBe(true);
+       |                ^
+    118|     expect(message).toContain(LOCAL);
+    119|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/4]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  4 failed | 9 passed (13)
+   Start at  22:22:01
+   Duration  1.27s (transform 57ms, setup 111ms, import 55ms, tests 23ms, environment 925ms)
+
+EXIT_CODE=1

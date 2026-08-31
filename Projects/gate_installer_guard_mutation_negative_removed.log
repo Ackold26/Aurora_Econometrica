@@ -1,0 +1,46 @@
+
+ RUN  v4.1.2 D:/Docs/Aurora_Ai/Dev/Aurora_Econometrica_thinwt
+
+ ✓ tools/__tests__/check-installer-edition.test.mjs > countBoundedOccurrences — ловушка префикса > короткий identifier НЕ засчитывается, если он на деле начало длинного 1ms
+ ✓ tools/__tests__/check-installer-edition.test.mjs > countBoundedOccurrences — ловушка префикса > та же ловушка для отставного .thin 0ms
+ ✓ tools/__tests__/check-installer-edition.test.mjs > countBoundedOccurrences — ловушка префикса > живая форма бинарника: identifier без разделителя рядом с ЧУЖОЙ строкой на букву — считается 0ms
+ ✓ tools/__tests__/check-installer-edition.test.mjs > countBoundedOccurrences — ловушка префикса > самостоятельный короткий identifier засчитывается, когда за ним нет продолжения из реестра 0ms
+ ✓ tools/__tests__/check-installer-edition.test.mjs > checkInstallerEdition > ожидаемая редакция найдена → успех 2ms
+ × tools/__tests__/check-installer-edition.test.mjs > checkInstallerEdition > чужая редакция найдена → провал 7ms
+   → expected true to be false // Object.is equality
+ ✓ tools/__tests__/check-installer-edition.test.mjs > checkInstallerEdition > ожидаемая редакция отсутствует → провал 2ms
+ ✓ tools/__tests__/check-installer-edition.test.mjs > checkInstallerEdition > префиксный случай: локальный установщик, проверенный КАК универсальный, → провал 1ms
+ ✓ tools/__tests__/check-installer-edition.test.mjs > checkInstallerEdition > тот же установщик, проверенный как локальный, → успех (несмотря на общий префикс) 1ms
+ ✓ tools/__tests__/check-installer-edition.test.mjs > checkInstallerEdition > UTF-16LE находится наравне с UTF-8 1ms
+ ✓ tools/__tests__/check-installer-edition.test.mjs > checkInstallerEdition > неизвестная редакция на входе → провал с понятным сообщением 1ms
+ ✓ tools/__tests__/check-installer-edition.test.mjs > checkInstallerEdition > файл не найден → провал, не исключение 0ms
+ ✓ tools/__tests__/check-installer-edition.test.mjs > countAcrossEncodings > суммирует вхождения из ОБЕИХ кодировок сразу 0ms
+
+⎯⎯⎯⎯⎯⎯⎯ Failed Tests 1 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  tools/__tests__/check-installer-edition.test.mjs > checkInstallerEdition > чужая редакция найдена → провал
+AssertionError: expected true to be false // Object.is equality
+
+- Expected
++ Received
+
+- false
++ true
+
+ ❯ tools/__tests__/check-installer-edition.test.mjs:94:16
+     92|     const path = tempInstaller(Buffer.concat([NUL, ascii(UNIVERSAL), N…
+     93|     const { ok, message } = checkInstallerEdition(path, 'universal');
+     94|     expect(ok).toBe(false);
+       |                ^
+     95|     expect(message).toContain(THIN);
+     96|   });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/1]⎯
+
+
+ Test Files  1 failed (1)
+      Tests  1 failed | 12 passed (13)
+   Start at  22:20:59
+   Duration  1.03s (transform 49ms, setup 100ms, import 55ms, tests 19ms, environment 696ms)
+
+EXIT_CODE=1

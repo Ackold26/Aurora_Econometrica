@@ -1,0 +1,23 @@
+
+ RUN  v4.1.2 D:/Docs/Aurora_Ai/Dev/Aurora_Econometrica_thinwt
+
+ ✓ tools/__tests__/check-installer-edition.test.mjs > countBoundedOccurrences — ловушка префикса > короткий identifier НЕ засчитывается, если он на деле начало длинного 1ms
+ ✓ tools/__tests__/check-installer-edition.test.mjs > countBoundedOccurrences — ловушка префикса > та же ловушка для отставного .thin 0ms
+ ✓ tools/__tests__/check-installer-edition.test.mjs > countBoundedOccurrences — ловушка префикса > живая форма бинарника: identifier без разделителя рядом с ЧУЖОЙ строкой на букву — считается 0ms
+ ✓ tools/__tests__/check-installer-edition.test.mjs > countBoundedOccurrences — ловушка префикса > самостоятельный короткий identifier засчитывается, когда за ним нет продолжения из реестра 0ms
+ ✓ tools/__tests__/check-installer-edition.test.mjs > checkInstallerEdition > ожидаемая редакция найдена → успех 2ms
+ ✓ tools/__tests__/check-installer-edition.test.mjs > checkInstallerEdition > чужая редакция найдена → провал 1ms
+ ✓ tools/__tests__/check-installer-edition.test.mjs > checkInstallerEdition > ожидаемая редакция отсутствует → провал 1ms
+ ✓ tools/__tests__/check-installer-edition.test.mjs > checkInstallerEdition > префиксный случай: локальный установщик, проверенный КАК универсальный, → провал 2ms
+ ✓ tools/__tests__/check-installer-edition.test.mjs > checkInstallerEdition > тот же установщик, проверенный как локальный, → успех (несмотря на общий префикс) 2ms
+ ✓ tools/__tests__/check-installer-edition.test.mjs > checkInstallerEdition > UTF-16LE находится наравне с UTF-8 2ms
+ ✓ tools/__tests__/check-installer-edition.test.mjs > checkInstallerEdition > неизвестная редакция на входе → провал с понятным сообщением 1ms
+ ✓ tools/__tests__/check-installer-edition.test.mjs > checkInstallerEdition > файл не найден → провал, не исключение 0ms
+ ✓ tools/__tests__/check-installer-edition.test.mjs > countAcrossEncodings > суммирует вхождения из ОБЕИХ кодировок сразу 0ms
+
+ Test Files  1 passed (1)
+      Tests  13 passed (13)
+   Start at  22:20:32
+   Duration  998ms (transform 45ms, setup 94ms, import 47ms, tests 14ms, environment 583ms)
+
+EXIT_CODE=0

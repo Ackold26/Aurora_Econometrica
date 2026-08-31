@@ -1,0 +1,9 @@
+
+ RUN  v4.1.2 D:/Docs/Aurora_Ai/Dev/Aurora_Econometrica_thinwt
+
+
+ Test Files  1 passed (1)
+      Tests  13 passed (13)
+   Start at  22:35:22
+   Duration  1.72s (transform 56ms, setup 127ms, import 52ms, tests 17ms, environment 1.34s)
+

@@ -1,0 +1,14 @@
+   Compiling aurora-econometrica-gui v2.4.5 (D:\Docs\Aurora_Ai\Dev\Aurora_Econometrica_thinwt\src-tauri)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 48.33s
+     Running unittests src\lib.rs (target\debug\deps\aurora_econometrica_lib-38014719dd52fc59.exe)
+
+running 6 tests
+test commands::report::tests::markdown_refused_model_drops_reliability_endorsement ... ok
+test commands::report::tests::markdown_converged_model_keeps_endorsement ... ok
+test commands::report::tests::markdown_refused_acceptable_tier_drops_usability_claim ... ok
+test commands::report::tests::markdown_refused_model_keeps_mqs_numbers ... ok
+test commands::report::tests::markdown_refused_model_omits_reallocation_directive ... ok
+test commands::report::tests::xlsx_mqs_row_refused_carries_statement_next_to_tier ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 398 filtered out; finished in 0.01s
+

@@ -1,0 +1,10 @@
+...............F...........                                              [100%]
+================================== FAILURES ===================================
+____________ test_html_sources_card_carries_statement_when_refused ____________
+sidecar\econometrica\tests\test_reliability_statement_single_source.py:257: in test_html_sources_card_carries_statement_when_refused
+    assert RELIABILITY_STATEMENT_REFUSED in html, (
+E   AssertionError: карточка печатает ступень «Отличное» без единого слова об отказе
+E   assert 'Расчёт не сошёлся – цифры показаны как есть, но опираться на них при распределении бюджета рано; переобучите модель.' in '<section id="sources" class="section section-sources">\n<div class="section-kicker">КАЧЕСТВО МОДЕЛИ</div>\n\n<h2 clas...м уровне продаж</li>\n      <li>Bayesian MMM · posterior means · 90% HDI</li>\n    </ul>\n  </div>\n</div>\n</section>'
+=========================== short test summary info ===========================
+FAILED sidecar/econometrica/tests/test_reliability_statement_single_source.py::test_html_sources_card_carries_statement_when_refused
+1 failed, 26 passed in 4.13s

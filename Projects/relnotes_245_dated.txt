@@ -1,0 +1,690 @@
+1934e1a 2026-08-09 fix(honesty): текст режима «только локально» приведён к фактическому охвату
+d897362 2026-08-09 fix(routing): корректный запуск Claude Code через cmd и честный резолв бинаря
+325ad31 2026-08-09 fix: audit findings дельты — задача 2б в промт, High подтверждена зондом
+d7e2993 2026-08-09 docs: вторая волна CPD-53 — задача 2а в промт, чинить до выпуска
+dc66325 2026-08-09 docs: единая методология кабинета — задача 3б в промт (решение владельца)
+2fae4ee 2026-08-09 merge: правка зонда локального режима (35dc827) из линии облачного контура
+35dc827 2026-08-09 Зонд локального режима больше не считает рабочий Claude Code сломанным
+2fe0741 2026-08-09 docs: убрать самоопровергающийся хеш из промта
+fad08bb 2026-08-09 docs: свести промт с фактом — master eea6bcf + проверка состояния первым шагом
+eea6bcf 2026-08-09 docs: Medium из аудита (гейт vs MQS-лестница) в бэклог промта
+ed8d481 2026-08-09 docs: передача блока 09.08 — handoff, промт следующей сессии, журналы гейтов
+93be76d 2026-08-09 fix: audit findings — честность отчётов, блок 09.08
+e38d594 2026-08-09 fix(honesty): переброска бюджета не строится на несошедшейся модели
+c2c664d 2026-08-09 fix(ci): починить CI, красный на 8 из 9 прогонов подряд
+ee7e355 2026-08-09 fix(honesty): вернуть тон McElreath при тонких данных — регресс от 8c78e65
+1ad70d6 2026-08-09 merge: журналы гейтов сведённой ветки (1e780a4) в master
+1e780a4 2026-08-09 docs: журналы гейтов сведённой ветки 09.08 (до слияния в master)
+95f2dfe 2026-08-09 docs: журналы приёмки сведения 09.08 — четыре гейта на master
+49c09b2 2026-08-09 merge: сведение feat/econ-canon-p0 (CPD-53, CPD-54, линия отчётов CPD-52)
+0e72ec6 2026-08-09 merge: fix/econ-gw-sign-prefix в feat/econ-canon-p0
+4d6c5c4 2026-08-09 docs: журналы блока 08.08 — handoff, состояние надёжности, следы аудита
+221e6f8 2026-08-09 chore: замок зависимостей до версии 2.4.5
+3ab7b6f 2026-08-09 fix(report): сверка вердиктов не падает на испорченном model_reliability
+70fd90b 2026-08-08 docs: памятка прогона — искать заголовок клиента по архивам журнала
+13e31a7 2026-08-08 Целостность доставки кабинетов: суммы доезжают до сверки, запись защищена откатом
+9195983 2026-08-08 docs: памятка по живому прогону на PC204
+ab87eb1 2026-08-08 chore: версия 2.4.5 — тонкая поставка с починкой подписи облака и блоком честности отчётов
+4979540 2026-08-08 fix: переход облачной поставки на aurora_gateway-v0.6.4
+4b478b7 2026-08-08 fix: переход облачной поставки на aurora_gateway-v0.6.5
+ab40375 2026-08-08 docs: журнал блока — круг внешнего аудита и что вынесено владельцу
+c342cab 2026-08-08 fix: правки по внешнему аудиту — дыра в замысле сверки и слепота сторожей
+2f49ba2 2026-08-08 fix: переход облачной поставки на aurora_gateway-v0.6.4
+62b3cde 2026-08-07 fix: единый источник вердикта надёжности + происхождение данных в отчёте
+1f49cc6 2026-08-04 docs: находки второго внешнего аудита (durable-журнал)
+06083e1 2026-08-04 fix: audit findings — сторожа обманывались, все три обхода закрыты
+3071d69 2026-08-04 docs: handoff блока и пульсы внешних аудиторов
+0b2f5ec 2026-08-04 fix: имя реального клиента и его цифры продаж утекали в глоссарий продукта
+200b86a 2026-08-04 chore: убрать в корзину устаревшее, воскрешённое слиянием (решение владельца)
+91bddc0 2026-08-04 fix: короткое тире в оговорке о тонких данных — по обе стороны зеркала
+43e5e4f 2026-08-04 fix: проводку перенесённых функций не стерёг никто + зеркало Rust↔Python разошлось
+9bf18ab 2026-08-04 fix: комментарий в CSS съедал правила — продукт больше месяца рисовался системным шрифтом
+f83d78f 2026-08-04 test: сторож паритета шва глоссария — покрытие было односторонним
+5f862f4 2026-08-04 docs: durable-файлы сведения веток под контроль версий
+31114a3 2026-08-04 fix: причина ненадёжности доезжает до клиента дословно + поправка к записи 53f6e2b
+53f6e2b 2026-08-04 fix: возврат функций, потерянных при развитии линии + починка разрывов, вскрытых слиянием
+84a95df 2026-08-04 merge: майская вершина install-lock-3.1 (5 оставшихся записей) — шаг 6 из 6
+76f7213 2026-08-04 merge: майская вершина v2.0.0-explicit-mode-wizard (459 записей) — шаг 5 из 6
+771bcb5 2026-08-04 merge: ветка ai-insights-tier2 (44 записи) — шаг 4 из 6
+d0bae5f 2026-08-04 merge: линия SEC-1 (порт Ed25519 проверки ответа входа) — шаг 3 из 6
+f9e78b5 2026-08-04 merge: устойчивая загрузка материалов (CPD-25, INV-104/105) — шаг 2 из 6
+642075f 2026-08-04 merge: облачная линия master в универсальную линию (5 записей)
+ed73f21 2026-08-04 docs: handoff блока S5 по канонической конвенции
+b8e8a19 2026-08-04 chore: pnpm-файлы вне контроля версий
+fd9a257 2026-08-03 Гейт лица продукта: судит по факту применения наложения, стоит вплотную к запуску
+dcf19e2 2026-08-03 fix: находки внешнего аудита блока S5 — 15 разобрано, 11 закрыто, 3 в долг
+c411123 2026-08-03 docs: handoff и diff блока S5 — вход внешнего аудита
+a2532ee 2026-08-03 fix(CPD-40): подпись ответа входа проверяется, поддельный грант не переживает сессию
+19a4e67 2026-08-03 fix: хвост находок внешнего аудита P0.9 — четыре закрыты, High понижен зондом
+3223480 2026-08-03 docs: находки внешнего аудита блока P0.9 (3 High + 4 Medium)
+8071fce 2026-08-03 fix: audit findings блока P0.9 — три находки внешнего аудита закрыты
+8301cd7 2026-08-03 docs: handoff и diff блока P0.9 — вход внешнего аудита
+f507ff0 2026-08-03 fix(CPD-10): отказ по квоте и протухшему входу перестал уходить клиенту сырой строкой
+0e6c68d 2026-08-03 fix(CPD-32): сообщение об обрыве канала перестало сохраняться как результат
+9ae4ceb 2026-08-03 fix: находки аудита блока — хвост остановленной работы больше не продолжает ленту
+5b61149 2026-08-03 fix(CPD-41): отказ сохранения переписки перестал быть успешным экраном
+da71ef2 2026-08-03 fix(CPD-39): выгрузки клиента перестали стираться зеркальной синхронизацией
+fea2fec 2026-08-03 Отказ прошлого хода не гасит индикацию текущего (CPD-42, второй путь)
+3709d4a 2026-08-03 fix: audit findings хвост P0.7 — семь из семи закрыты
+dda915b 2026-08-03 Хвост остановленной работы разбирается раньше признака отмены (аудит правок)
+221c882 2026-08-03 docs: handoff и diff хвоста блока — вход третьего аудита
+34aea8f 2026-08-03 Хвост остановленной работы больше не правит чужой ответ (CPD-42)
+9f88bb7 2026-08-03 docs: долг продукта — модель хранит настройку адстока, а не результат её применения
+b5e3e7c 2026-08-03 fix: находки аудита ПОЧИНКИ P0.7 — девять из девяти закрыты
+fd4429d 2026-08-03 P0.8 шаг 17: сокращения в шапке расшифрованы, три термина заведены в глоссарий
+44f28f9 2026-08-03 fix: находки внешнего аудита P0.7 — сертификат перестал заверять выдуманное
+91450cf 2026-08-03 docs: handoff и diff блока P0.7 — вход внешнего аудита
+5ed4cdb 2026-08-03 P0.7 шаг 15: блок «Воспроизводимость и сертификат» в отчёте и презентации
+1f5a1f1 2026-08-03 docs: вход шага 15 — места вставки и клиентские формулировки блока сертификата
+d571c91 2026-08-03 P0.7 шаг 14: сертификат методологии подключён и говорит правду о себе
+09e03c8 2026-08-03 fix: длинное тире из подтяга master + вход шага P0.7-14
+1e6e440 2026-08-03 Merge remote-tracking branch 'origin/master' into feat/econ-canon-p0
+5c1ec80 2026-08-03 docs: diff блока P0.6 — вход внешнего аудита
+278a3af 2026-08-03 fix: audit findings P0.6 — проверка базы не гаснет от одного отсчёта и не врёт на убыточном KPI
+23c059d 2026-08-03 docs: handoff блока P0.6 для внешнего аудита
+fbb5cf6 2026-08-03 P0.6: проверка канона честно объявляет, применима ли она на этих данных
+0b1db62 2026-08-03 P0.6: проверка канона — отрицательный базовый уровень
+28742b8 2026-08-03 fix: находки внешнего аудита починки — одно число запаса данных на экране
+975404e 2026-08-03 test: сторож границы «ценность единицы задана» на стороне движка
+a129506 2026-08-03 fix: находки внешнего аудита P0.2-P0.5 — гейт не строже движка, знаменатель знает праздники и режим
+fb826a6 2026-08-03 Merge remote-tracking branch 'origin/master' into feat/econ-canon-p0
+5c59605 2026-08-03 docs: полный отчёт внешнего аудита блока P0.2-P0.5 в общий файл находок
+e60a556 2026-08-03 docs: находки внешнего аудита блока P0.2-P0.5 (1 Critical, 4 High, 2 Medium)
+8f79b62 2026-08-03 docs: handoff блока P0.2-P0.5 для внешнего аудита
+ea4c669 2026-08-03 P0.5 шаг 10: торнадо чувствительности подключён — движок и график были без единого вызывающего
+97ccec4 2026-08-03 P0.4 шаг 9г: справка обращается на «вы» — три файла сбоили на «ты»
+a6ce8df 2026-08-03 P0.4 шаг 9а-в: снять три ложных обещания — PPTX, «6 шагов», NRMSE
+ee134e9 2026-08-03 P0.3 шаг 8: доля пропусков доезжает до экранов, продукт о них не молчит
+c817bf2 2026-08-03 P0.3 шаг 7: «Запас данных» считается по одному знаменателю — эффективному
+2433786 2026-08-02 fix(P0.2): раскладка цепей доезжает до сэмплера, логика перестала быть мёртвой
+5803cf4 2026-08-02 fix(P0.2): зерно MCMC доезжает через HTTP-схему обучения
+cfe5443 2026-08-02 P0.2 шаги 3-5: расчёт воспроизводим — зерно сэмплера и паспорт среды
+cefc2ff 2026-08-02 fix(typography): короткое тире в тексте про режим эффективности
+abd357f 2026-08-02 Merge remote-tracking branch 'origin/master' into feat/econ-canon-p0
+54534cd 2026-08-02 docs: diff и находки внешнего аудита блока P0.1
+9417f07 2026-08-02 fix: audit findings P0.1 — 2 High и 2 Medium внешнего аудита
+9d15fc3 2026-08-02 docs: handoff блока P0.1 для внешнего аудита
+23d51c2 2026-08-02 P0.1 шаг 1 (финал): экран говорит, когда пороги окупаемости отключены
+4291684 2026-08-02 P0.1 шаг 2: снято ложное обещание про «зелёную зону» коридора
+2f49430 2026-08-02 P0.1 шаг 1: база окупаемости названа на экранах, один источник на весь фронт
+253c91e 2026-08-02 P0.1 шаг 1: советник называет базу окупаемости, а не судит о прибыли безусловно
+8a87516 2026-08-02 merge: линия аудита v2.3.0 в канон P0 — 68 записей, конфликтов ноль
+63f72ff 2026-07-30 Батч High: оценки и счётчики получили контракт C4, очистка каталога перестала бросать остаток
+a942979 2026-07-30 Батч C: очистка сессий перестаёт сносить живое окно + отказ чтения перестаёт быть пустой историей
+1d8aa5d 2026-07-30 docs: предупреждение у мины миграции лицензий — не переводить на AURORA_APP_IDENTIFIER без решения владельца
+daf9055 2026-07-29 fix: audit findings (вторая волна) — идентификатор приложения кладёт build.rs, а не несуществующая переменная
+de3c713 2026-07-29 fix: изолировать конкурентный тест save_message от живого профиля
+eee3ee2 2026-07-29 fix: audit findings — возвращены защитные примитивы донора (атомарная запись, карантин битого JSON, ротация журнала)
+42b6c4d 2026-07-29 fix: audit findings (повтор) — неполный перенос больше не молчит; у Smart Analytica сессии не переезжали
+d84d7db 2026-07-29 fix: audit findings — блок CPD-30/CPD-31 (2 Critical, 3 High внешнего аудита)
+c4199e8 2026-07-29 fix(campaign): единственный источник пути кампаний — превентивно, до переезда корня (CPD-31)
+76be3a7 2026-07-29 fix(testleak): сторож общей константы удовлетворялся упоминанием в КОММЕНТАРИИ
+855f58b 2026-07-29 fix(testleak): убрать побочный эффект теста-инварианта sessions в живом профиле
+b633348 2026-07-29 feat(durable-store): CPD-30 запись 3/3 — каталоги сессий (SessionManager + cleanup)
+157ceab 2026-07-29 feat(durable-store): CPD-30 запись 2/3 — метрики (audit.log/usage.json/ratings.json)
+f19a3b9 2026-07-29 feat(durable-store): CPD-30 запись 1/3 — история чата в per-app каталог
+cd4b77c 2026-07-29 fix(typography): П8-1/П8-4 в src/**/*.js — гейт слепой был только к .svelte
+f277638 2026-07-29 feat(gates): гейт паритета проверяет ТРАНСПОРТ поля, а не только объявление
+f91dc80 2026-07-29 fix(gates): гейт паритета полей сверял ЧУЖОЙ тип — якорь границы имени ChatMsg
+d17ba62 2026-07-28 fix: audit findings — три теста сверяли клиентскую строку со СТАРЫМ знаком (High) + реестр исключений для П8-4
+782038a 2026-07-27 fix(econ): дефис вместо тире в клиентских строках отчёта закрыт правилом гейта, не 14 правками
+0bd5dbe 2026-07-27 fix(econ): служебные признаки сообщений переживают перезагрузку + гейт паритета полей
+e15daae 2026-07-27 fix(econ): вердикт для уровня «Приемлемое» + короткое тире в рекомендациях
+ea1e24c 2026-07-27 test(econ-sidecar): проверка и доп-покрытие К-4 (default_response_class)
+c8e5a05 2026-07-27 fix(mqs): внешний ярлык уровня сверяется с баллом, не только с набором канона
+9720e51 2026-07-27 fix(econ-sidecar): голый словарь ответа тоже дезинфицируется от NaN/Inf
+2416051 2026-07-27 fix(econ-sidecar): проверка приоров зависит от РЕАЛЬНОГО движка обучения
+58ebfb6 2026-07-27 fix(mqs-tiers-guard): ловит голое score, деструктуризацию и обёртку вокруг поля
+5455336 2026-07-27 fix(econ-sidecar): non-finite в JSON-ответах закрыт классом, не точкой
+42db180 2026-07-27 Econometrica: единый источник порогов MQS в Rust-слое отчётов
+0e0a266 2026-07-27 fix(econ-sidecar): короткое тире в новом объяснении вердикта, а не дефис
+158adb2 2026-07-27 fix(econ-sidecar): дефолт движка не выдаётся за выбор пользователя + честные нули
+ea0dce8 2026-07-27 fix(mqs-tiers): гард видит mqs_score/mqs.score, узкое правило старой шкалы 80/60, текст границ без визуального пересечения
+af49f08 2026-07-27 fix: audit findings — проверка типов зелёная, карточка секции не печатает чужой ярлык
+016d32e 2026-07-26 fix(econ): проверка клиентского текста видит литералы, разорванные переносом
+5262167 2026-07-26 fix(econ): нечисло читается как отсутствие оценки, а не как низкий балл
+0b1e95c 2026-07-26 fix(econ): ярлык уровня, пришедший извне, проверяется по набору канона
+70b5d99 2026-07-26 feat(econ): проверка охвата поверхностей — несчитанная оценка нигде не станет нулём
+02ac47b 2026-07-26 merge: честное отсутствие оценки на всех клиентских поверхностях + заглушки тире
+a978d60 2026-07-26 fix(econ): длинное тире больше не служит заглушкой отсутствующего значения
+a7b0c7d 2026-07-26 fix(econ): «нет числа – нет подписи» доведено до XLSX, markdown и HTML-карточки
+667e224 2026-07-26 feat(econ): интерфейс переведён на единый источник порогов качества модели
+90749f8 2026-07-26 fix(econ): объём наблюдений больше не помечается надёжным без проверки
+a3c4ec2 2026-07-26 fix(econ): карточка оценки на слайде берёт уровень из единого источника, а не из поля бэкенда
+b153a13 2026-07-26 fix(econ): гейт мёртвых селекторов перестал быть слепым, мёртвое правило меры строки убрано
+90eda78 2026-07-26 feat(econ): онбординг в два уровня, типографика справки — тире и неразрывные пробелы
+526827f 2026-07-26 feat(econ): типографский канон линейки в интерфейсе и справке — без одиноких слов на строке
+5596c5c 2026-07-26 fix(econ): устойчивая загрузка материалов + anon-ключ в /app-update
+b2c434f 2026-07-26 fix(econ): карточка качества не рисует пустую шкалу, заглушки длинным тире убраны, скан Rust не обрывается на первом тестовом модуле
+3315390 2026-07-26 fix(econ): проверка гигиены видит текст внутри скриптов — дыра была структурной, не пограничной
+6a787e0 2026-07-26 fix(econ): честное отсутствие оценки на экране, единый источник порогов, разметка источника предварительной проверки
+ceff766 2026-07-26 fix: audit findings — тесты интерфейса сломаны массовой заменой тире (Critical)
+ff34ba3 2026-07-25 merge: Фаза 3 — покрытие проверок гигиены клиентского текста на три стека
+eac3cb1 2026-07-25 docs(econ): план и итог Фазы 3 покрытия гигиены клиентского текста
+14c99dc 2026-07-25 test(econ): лёгкая проверка гигиены текста интерфейса (Svelte) + чистка
+1480fc5 2026-07-25 test(econ): лёгкая проверка гигиены текста для XLSX-таблицы (Rust)
+bbddca9 2026-07-25 test(econ): полное покрытие HTML-секций П8-1/П8-2 (было 2/17, стало 17/17)
+62ac25e 2026-07-25 fix(econ): убрать внутреннее имя провайдера из клиентского текста Data Chat
+8f5856c 2026-07-25 test(econ): регресс-тест «нет числа - нет подписи» для MQS (HTML+PPTX)
+754e13b 2026-07-25 fix(econ): нет числа - нет подписи для MQS в PPTX-слайдах (зеркало HTML-фикса)
+c844dee 2026-07-25 fix(econ): нет числа - нет подписи для MQS в HTML-отчёте + единый источник порогов
+225e5d8 2026-07-25 fix(honesty): справка – убираем «без внешних серверов» из таблицы характеристик
+aeb9a14 2026-07-25 fix(honesty): справка – доводим до конца обещание полной локальности
+beadd17 2026-07-25 fix(honesty): справка Econometrica — расчёт локален, помощник обращается к внешней модели
+01fda1e 2026-07-25 fix(ci): проверка кода возврата gh api в release-задании перед печатью успеха (CPD-20)
+34ffb1b 2026-07-25 ci(workflows): включить sidecar/econometrica/tests в облачную проверку (INV-99)
+3360ea6 2026-07-25 docs(econometrica-engines): устранить внутреннее противоречие - третье вхождение 13-slide в pptx_export.py
+59df5a4 2026-07-25 docs(econometrica-engines): актуализировать счёт слайдов/разделов + пометить утраченную ссылку на Standards/
+5c85d89 2026-07-25 fix(econometrica-report): унифицировать saturation/насыщение + интерфейсные подписи + счёт секций в html_export.py
+a527f90 2026-07-25 fix(econometrica-report): убрать англицизмы из клиентского вывода + актуализировать счёт section renderers
+6a0feda 2026-07-24 fix(econometrica): suppress_export — снять рудимент starts_with('/') (CPD-17)
+aa3bcde 2026-07-18 fix(sec1): проверка соответствия product кэша текущему бинарю (анти cross-product replay)
+dbed3fd 2026-07-18 feat(sec1): порт Ed25519 verify /auth (Soft) — auth_sig + AuthResponse.signature + кэш + A1
+5a8a028 2026-06-21 Wrap-up: промт следующей сессии — оба трека закрыты, точка решения по выпуску
+ddda116 2026-06-21 Дизайн (live-подгонка с Антоном через мост): таймер вверх, hero-логотип, чипы
+187e6c5 2026-06-21 Таймер: оставить лайм-цвет без смены на исходе (решение Антона)
+42e525b 2026-06-21 Таймер сессии: обратный отсчёт + сквозной на всех страницах
+32a1e5a 2026-06-21 Дизайн-трек: широкий проход компонентов закрыт (выравнивать-не-портировать)
+444c502 2026-06-21 Дизайн: InsightCard severity-tint в тёмной теме (8%) + типизация getAllTerms
+25d8e3c 2026-06-21 Отчётность: guard на пустую коллекцию каналов + чистка `\n` в insight-нарративе
+23099fe 2026-06-21 Отчётность XLSX/MD: live-проверка на реальном файле + 2 фикса гигиены/INV-50
+b8aa28c 2026-06-20 Wrap-up: промты — дизайн-серия (чип/таймер/glow) закрыта, остаток трека
+d711129 2026-06-20 Дизайн: чип названия (electric-blue, 2 строки, EN) + таймер сессии + hero-glow
+d53ddb0 2026-06-20 Wrap-up: промт-роутер следующей сессии (отчётность закрыта, дизайн-трек основной)
+da330d1 2026-06-20 Дизайн-трек: alias-слой канон-namespace + промт следующей сессии (наработка)
+7a39879 2026-06-20 Аудит сессии: робастность waterfall (Rust) + частота (Python)
+796c1df 2026-06-20 Волна 3: глоссарий XLSX 11→47 из единого источника glossary.js (SSOT)
+b694283 2026-06-20 Волна 3 хвост: метки режима анализа и типа KPI во всех отчётах
+1235656 2026-06-20 Волна 3: гигиена клиентского текста — версия, англицизмы, имя клиента
+9ecd00c 2026-06-20 Волна 2: фактические ошибки отчётов — лист декомпозиции, период, наблюдения, ESS
+e125521 2026-06-20 Волна 1 п.3: синхрон вердиктов — honesty-потолок (решение 2a)
+aaeaca8 2026-06-20 Волна 1 п.2: плашка надёжности модели во все 4 отчёта (HTML/PPTX/XLSX/MD)
+d3fff90 2026-06-20 docs(reports): точка входа — добавлено направление доработок дизайна приложения
+4a411d5 2026-06-20 docs(reports): wrap-up сессии — заглушка ROI завершена + точка входа Волны 1
+d733d47 2026-06-20 fix(reports): заглушка битого ROI в XLSX + Markdown (Rust-билдер)
+d0ea3aa 2026-06-20 fix(reports): системная data-level заглушка битого ROI (HTML+PPTX чисты)
+7b20b5a 2026-06-20 docs(reports): durable — аудит отчётности + Волна 1 (Шаг 1 запушен, Шаг 2 ядро)
+18d47d4 2026-06-20 fix(reports): заглушка битого ROI — hero-гард + флаг + HTML (Волна 1 Шаг 2, частично)
+072a6ca 2026-06-20 fix(reports): единый честный тон оговорки + honesty-поля через мост (Волна 1)
+1555a8d 2026-06-20 fix(insights): блок «Что если» только на шаге Оптимизация
+48e626a 2026-06-20 docs(insights): durable — push, справка в контекст, методология roadmap (2 пункта)
+1bfa62f 2026-06-20 feat(insights): методология — caveat коллинеарности + тон honesty при тонких данных
+2230977 2026-06-20 feat(insights): справка программы в контекст Авроры (Tier 2)
+b0a6581 2026-06-20 docs(insights): промт следующей сессии — Аврора + мета-урок
+9dc7832 2026-06-20 feat(insights): стиль Авроры по live-feedback — деловой тон + границы
+22ff45f 2026-06-20 feat(insights): Аврора наверх панели + Фаза 3.3 live-verified
+1b42952 2026-06-20 feat(insights): методология первоисточников в промпт Авроры
+900f9a1 2026-06-20 feat(insights): Tier 2 Фаза 3.2 — UI советчика «Что если»
+23be07b 2026-06-20 feat(insights): Tier 2 Фаза 3.1 — ядро советчика «сценарии словами»
+8e43681 2026-06-20 fix(insights): запрет производных чисел в промпте Авроры (находка live E2E)
+ce9a92b 2026-06-20 fix(ux): убрать имя вендора из согласия + скрыть выбор модели в Optimizer
+3dbe7a8 2026-06-20 feat(insights): имя ассистента — «Аврора» (Спросить Аврору)
+ca079a1 2026-06-20 feat(insights): Tier 2 Фаза 2 — runtime-тумблер «только локально»
+5fbf1f0 2026-06-20 feat(insights): Tier 2 Фаза 1.3 — UI «Спросить ИИ» + аудит-фиксы
+8041ef6 2026-06-20 feat(insights): Tier 2 Фаза 1.2 — Rust-мост econ_ask_insight
+401eb6c 2026-06-20 feat(insights): Tier 2 Фаза 1.1 — grounding-контекст + промпт
+a4c4e14 2026-06-20 feat(insights): Tier 2 Фаза 0 — INV-50 grounding guard + прокси-гейт
+f8e632e 2026-05-23 feat(econometrica): Sprint Buffer #43/#44/#45 polish — counter + semantic text + warning
+1dc1114 2026-05-23 feat(econometrica): Phase 2.7 followup — lift SSOT + y_actual repair + money-axis cleanup
+26d98a5 2026-05-23 docs(smoke-test): Phase 3.1 VERIFIED — header status badge added [P3.1-verified]
+0cf95c3 2026-05-23 docs(smoke-test): Phase 3.1 smoke test plan для customer-side verification
+eb51614 2026-05-23 chore(cabinets): strengthen number verification rule per INV-50 [Smart Analytica]
+a603bfa 2026-05-23 fix(install-lock): audit hardening — UAC denial recovery + RDP safety + ASCII NSIS [P3.1-audit]
+6fa0381 2026-05-23 fix(install-lock): stop sidecar before NSIS update + PREINSTALL safety net [P3.1]
+798b950 2026-05-23 docs(smoke-test): Phase 3.1 VERIFIED — header status badge added [P3.1-verified]
+18dd7f0 2026-05-23 docs(smoke-test): Phase 3.1 smoke test plan для customer-side verification
+2dadd3a 2026-05-23 chore(cabinets): strengthen number verification rule per INV-50 [Smart Analytica]
+e6c9999 2026-05-23 fix(install-lock): audit hardening — UAC denial recovery + RDP safety + ASCII NSIS [P3.1-audit]
+59bb751 2026-05-23 fix(install-lock): stop sidecar before NSIS update + PREINSTALL safety net [P3.1]
+da06a5a 2026-05-18 hardening(audit-2026-05-18): F-019 legacy pickle guard + F-003 conditional
+ca6d06e 2026-05-18 fix(pilot-p2-p3): закрытие batch P2/P3 findings — 7 fixes
+a17222a 2026-05-18 fix(pilot-f019): money channels auto-covered в scenario units check
+2a4eaa2 2026-05-18 hardening(pilot-f018): race guard + 6 regression tests
+7093991 2026-05-18 fix(pilot-f018): persist budgetManuallyEdited флаг через reload
+0ddac37 2026-05-18 fix(pilot-f017): HTML report what-if Hill saturation per-period scaling
+56ed888 2026-05-18 fix(pilot-f012-display): separate display fields from math baseline
+0bf2c21 2026-05-18 fix(pilot-f015-v2-reset-gate): resetStep gates auto-rerun
+6949874 2026-05-18 fix(pilot-f015-v2): расширить slider auto-rerun на per-channel constraints
+4dad538 2026-05-18 fix(pilot-f012): planner-mode horizon scale — закрытие negative lift artifact
+695d952 2026-05-18 fix(pilot-f015): auto-rerun optimizer на Min%/Max% slider changes
+74cf411 2026-05-18 fix(pilot-f001-f002): validation UX guards — KPI mutex + sub-step error gating
+349677c 2026-05-17 ux(model-config): Adstock help icon с описанием Geometric/Weibull/Авто
+d319ab2 2026-05-17 test(phase-a): ADR-020/021 chain invariants — numerical regression suite
+967cafa 2026-05-17 fix(pilot-r4-batch): close ADR-020 hidden gaps + planning context wiring
+ec4acdd 2026-05-17 fix(pilot-r3-batch): close P1 round 3 findings — predictKPI n_periods, BudgetOptimizer ucTrain, ForecastHorizonPicker hydrate, compare money primary
+a9f9583 2026-05-17 fix(pilot-r2-math): close ADR-020 chain в 4 unaudited paths + scenario kpi_unit_cost engine
+52c5028 2026-05-17 fix(pilot-r2-wiring): close 3 kpiUnitCost callsite gaps + forecastConfig persist
+09af620 2026-05-17 ux(pilot-r2-polish): new-channel slider + project-scoped engine override + count types sync
+a06a480 2026-05-17 fix(virtual-pilot-audit): 5-pilot consolidated batch — math + UX + guards
+876a59a 2026-05-17 fix(report-3-bugs): SSOT ratio в email + PPTX KeyError + what-if KPI 0%
+6be95e6 2026-05-17 ux(validate-confirm): «Вы готовы переходить к обучению модели»
+96fccb2 2026-05-17 test(kpi-unit-cost): ADR-021 Phase 4 - 4 functional tests + kpi_kind resolver fix
+16a5b37 2026-05-17 feat(kpi-unit-cost-display): ADR-021 Phase 3b - money equivalents в UI
+559f688 2026-05-17 feat(kpi-unit-cost-wiring): ADR-021 Phase 3a - frontend→Rust→backend wiring
+397f313 2026-05-17 feat(kpi-unit-cost-optimizer): ADR-021 Phase 2 - optimizer money equivalents
+cd5aa38 2026-05-17 feat(kpi-unit-cost-backend): ADR-021 backend Phase 1 - schemas + pickle + decomposer money ROI
+4b03a8b 2026-05-17 feat(kpi-flow-sync): backend available_kpi_types + KPISelector disabled cards
+78c185a 2026-05-17 feat(tooltip-grouping): Динамика по периодам - 5 групп + Итого
+d7c1232 2026-05-17 feat(unit-costs-at-training): ADR-020 mixed mode mathematical correctness
+9a344e3 2026-05-17 docs(adr-020): unit_costs применяются при тренировке (mixed mode math)
+9d4470c 2026-05-17 fix(audit-batch-12-items): закрытие audit findings из 3 параллельных virtual-pilot agents
+9718baa 2026-05-17 fix(ssot-mqs-final-points): ExpertModelPanel + ReportStep + HTML themes fallback
+530ce78 2026-05-17 feat(backlog-sweep): закрытие 5 отложенных задач (rc2 retry)
+aa016fe 2026-05-16 fix(mqs-ssot-everywhere): MQS из SSOT в banner / плитка / инсайт / Ratio-details (rc2 retry)
+ea70949 2026-05-16 fix(decomp-signed-factors-always-visible): signed_competitor виден даже при beta>0 (rc2 retry)
+2776812 2026-05-16 fix(mqs-verdict-ssot): MQSBadge verdict / score из frontend SSOT ratio (rc2 retry)
+432bc10 2026-05-16 feat(decomp-competitors): отрицательный вклад конкурентов в декомпозицию (rc2 retry)
+388e712 2026-05-16 fix(model-ratio-ssot): frontend SSOT ratio для modelInsights (rc2 retry)
+83cd879 2026-05-16 fix(model-cta-deduplication): «Перейти к моделированию» теперь info-строка (rc2 retry)
+8842e1a 2026-05-16 fix(zeros-vs-mode-aware): >80% нулей → «Исключить» до mode-aware (rc2 retry)
+8c0eef3 2026-05-16 fix(sidecar-import): ImportError на Оптимизации - relative path (rc2 retry)
+7084ecf 2026-05-16 fix(model-step-sync): active-channels SSOT + ratio classifier + adstock re-fetch (rc2 retry)
+9a91037 2026-05-16 feat(ratio-ssot): SSOT-классификатор ratio в 5 коридорах (rc2 retry)
+3c1294f 2026-05-16 fix(next-btn-block): «Далее» disabled до подтверждения ролей (rc2 retry)
+a6024ba 2026-05-16 feat(volume-column): «Объём за период» в подтверждении ролей (rc2 retry)
+eaef60b 2026-05-16 feat(terminology): унификация ролей колонок везде (rc2 retry)
+4d997ba 2026-05-16 fix(insights-status): effective status пересчитывается на frontend (rc2 retry)
+45997ec 2026-05-16 feat(recommendations-hierarchy): mode-aware иерархия + hard-block 1 KPI (rc2 retry)
+adff4c2 2026-05-16 fix(validator): ratio severity «минимум 4:1» -> «минимум 2:1» (rc2 retry)
+90c2378 2026-05-16 fix(critical-media-regex): word-boundary не матчил «TRPs» / «TRPM»
+8f6e529 2026-05-16 fix(insights-text): убраны бартер/W25-54, защита TRP/GRP от исключения (rc2 retry)
+afea1e1 2026-05-16 feat(insights-routing): контекстные инсайты по под-шагам Валидации (U-05, rc2)
+79028d3 2026-05-16 docs(rc2): final report - 6 шагов алгоритма Антона завершены автономно
+cc69049 2026-05-16 fix(rc2-audit): закрыты 7 находок red-team аудита (Шаг 6, rc2)
+00e0a8d 2026-05-16 docs(audit): RC2 red-team audit report — 2 High + 3 Medium findings
+805fd6e 2026-05-16 fix(i18n-cleanup): убраны англицизмы из user-facing текстов (M-03/M-05, rc2)
+3f7b9a5 2026-05-16 docs(master-plan): RC2 цикл доработок завершён, ждём red-team аудит
+f9a3ccd 2026-05-16 docs(rc2): implementation report - 9 задач закрыты, ждём аудит
+892d2f0 2026-05-16 fix(insights): иерархия ratio-fix - конверсия first, не исключение (U-03/4f, rc2)
+ebd5853 2026-05-16 fix(state): single source of truth для validation metrics (B-02/4b + B-03/4c, rc2)
+f0116a6 2026-05-16 feat(validation-summary): полная сводка перед обучением модели (U-04/4g, rc2)
+975ec0d 2026-05-16 feat(column-mapper): кнопка «Применить все рекомендации» (M-01/4i, rc2)
+d7f0921 2026-05-16 fix(decomposer): re-injection РФ holiday колонок (B-01/4a, rc2)
+128606b 2026-05-16 fix(per-channel-selector): mode-aware тексты (U-02/4e, rc2)
+a698c89 2026-05-16 feat(pilot-ux): live-фиксы пилота 2026-05-16 (v2.1.0)
+dd1b1ee 2026-05-16 docs(build): Windows Sandbox как основной путь для smoke-теста
+a1b52ed 2026-05-16 docs(master-plan): финальный апдейт — все 5 партий + security fixes + commits log
+e395731 2026-05-16 fix(security): закрытие 5 находок red-team аудита aurora-model (v2.1.0)
+7aaffa9 2026-05-16 security: red-team audit report aurora-model format (v2.1.0 Batch 2)
+08539e3 2026-05-16 docs(master-plan): mark п.6.1+6.2 DONE, update commits log + metrics
+c024c50 2026-05-16 feat(onboarding): первый запуск с пошаговым туром (v2.1.0 п.6.2)
+dce4d2a 2026-05-16 feat(tooltips): подсказки при наведении на ключевые элементы (v2.1.0 п.6.1)
+c8e35b7 2026-05-16 docs(changelog): v2.1.0-rc1 release notes — 5 партий завершены
+3050de8 2026-05-16 docs(pilot): сценарий пилотной проверки Кагоцел РФ+ (v2.1.0 п.1.2)
+b382082 2026-05-16 chore(release): bump до 2.1.0-rc1 + signtool infrastructure (v2.1.0 п.9.1+9.4)
+986fe34 2026-05-16 feat(wizard-transitions): плавные переходы между шагами (v2.1.0 п.5.3)
+5873025 2026-05-16 docs(master-plan): п.5.6+5.7 DONE — anti-pulse + focus-visible завершены
+662ae57 2026-05-16 feat(persistence): lazy migration + extended security tests + спецификация (v2.1.0 п.4.1.6-4.1.8)
+86c19c8 2026-05-16 feat(a11y-focus): focus-visible ring + dialog instant appearance (v2.1.0 п.5.7)
+3dba7cf 2026-05-16 docs(master-plan): update статус п.5.1+5.2 DONE, commits log + metrics
+54ac5e7 2026-05-16 feat(animations): stagger copy-flash при applyToSameType (v2.1.0 п.5.2)
+e8d6966 2026-05-16 feat(persistence): wire безопасный формат aurora-model (v2.1.0 п.4.1)
+c22911c 2026-05-16 docs(master-plan): update status п.5.4+5.5 DONE, commits log + metrics
+4459b65 2026-05-16 fix(theme-warm): correct contrast pairs k WCAG AA (v2.1.0 p.5.5)
+00d2ce6 2026-05-16 fix(theme-light): correct contrast pairs k WCAG AA (v2.1.0 p.5.4)
+6aa9a1c 2026-05-16 docs(master-plan): обновление статуса Партии 4 после docs-agent
+28e894d 2026-05-16 docs(contrast): WCAG AA audit svetloy i tyoploy tem (v2.1.0 p.5.4+5.5)
+fa28f29 2026-05-16 docs(user-guide): краткое руководство пользователя v2.1.0 (п.6.5)
+b82d039 2026-05-16 docs(glossary): глоссарий 37 терминов v2.1.0 (п.6.4)
+0cccf11 2026-05-16 docs(video-script): сценарий 5-минутного демо (v2.1.0 п.6.3)
+d80d76d 2026-05-15 docs(sprint-tracker): v2.1.0 cycle accepted
+b87aa68 2026-05-15 docs(roadmap): v2.1.0 plan + v2.2.0 backlog после анкеты Антона
+0746a21 2026-05-15 feat(i18n): infrastructure foundation — svelte-i18n + ru/en skeletons
+03826d2 2026-05-15 feat(reorder): KPI before Roles в Validate wizard (pilot 2026-05-15)
+aa062b2 2026-05-15 fix(h-01-pilot-2): Path wrap для _sidecar_root в dev fallback root
+cb45c8f 2026-05-15 fix(h-01-pilot): accept project_dir under any of N projects roots
+22285b7 2026-05-15 docs(sprint-tracker): v2.0.1-rc2 extended sprint COMPLETE
+0b92b71 2026-05-15 refactor(h-17): rebuild snapshot tests на semantic queries
+95fc856 2026-05-15 fix(h-16): wire Phase 1.3 stores к econ_save_kpi_settings persistence
+19daf90 2026-05-15 test(h-21): E2E migration on realistic 30+ column pharma project
+3273f77 2026-05-15 test(h-08): INV-05 attack scenario suite aggregator
+774a40d 2026-05-15 feat(h-10b): wire LoadingSkeleton при classifier-patterns cold-start
+8c75b64 2026-05-15 feat(h-10a): wire EmptyState к AppliedModeSummary no-channels placeholder
+f768456 2026-05-15 docs(sprint-tracker): Партия 3 complete (3 commits), starting Партия 4
+f1082fa 2026-05-15 feat(h-09-frontend): industry selector + UnitCostEditor suggestion hints
+c48fcc6 2026-05-15 feat(h-09-backend): project.industry field + schema migration v2.0.2
+1d5d02f 2026-05-15 fix(c-04): atomic write_project + per-project mutex (Rust side)
+298be32 2026-05-15 docs(sprint-tracker): Партия 2 complete (5 commits), starting Партия 3
+65a9fcd 2026-05-15 fix(h-20a): surface migration errors к UI вместо silent console.warn
+e335502 2026-05-15 fix(c-05a): pickle SHA-256 sidecar for tamper detection
+20c158d 2026-05-15 fix(h-04+h-05): atomic backup restore + numpy sanitize в diagnostics
+db49d3d 2026-05-15 fix(c-03): wire JCS canonical hash to project.json save/load (INV-06)
+5f1f4ca 2026-05-15 fix(c-02): wire project_lock to 4 production callsites
+95c65fe 2026-05-15 docs(sprint-tracker): Партия 1 complete (8 commits), starting Партия 2
+b264294 2026-05-15 fix(h-13+h-14+h-15): a11y — focus ring, motion guard, muted contrast
+e4fca9d 2026-05-15 fix(h-11+h-12): applyToSameType visible в budget mode + copies source mode
+7bc3d9d 2026-05-15 fix(h-07): wire cleanup_stale_backups to sidecar startup
+2e69ef5 2026-05-15 fix(h-01): path traversal guard for project_dir (Rust + Python)
+11743c9 2026-05-15 fix(h-03): value_per_count_unit field_validator rejects Inf/NaN/oob
+ce0e9c2 2026-05-15 fix(h-19): detect_column_role gracefully handles None / non-string
+69d95e0 2026-05-15 fix(h-02): atomic_write_json rejects Infinity/NaN (allow_nan=False)
+c75e6cd 2026-05-15 fix(c-01): bundle rfc8785 + filelock in PyInstaller spec
+4252591 2026-05-15 docs(sprint-research): sub-agent planning sheets H-09 + H-17
+7b9fe01 2026-05-15 docs(sprint-tracker): v2.0.1-rc2 extended recovery sprint track
+3dee1eb 2026-05-15 feat(phase-4.1): industry CPP lookup table for smart unit_cost suggestions
+c580b60 2026-05-15 refactor(phase-2.1): extract UnitCostEditor component from AppliedModeSummary
+7ce805f 2026-05-15 feat(phase-2.7): smart batch — «Применить ко всем такого же типа»
+12fac00 2026-05-15 feat(phase-2.9): inline «Вернуть» button for excluded channels
+0881cf6 2026-05-15 fix(phase-2.5): JSDoc «@type annotations» parsed as type tag (per feedback memory)
+224e95d 2026-05-15 refactor(phase-2.13): slugify data-testid for channel names (Cyrillic compat)
+9326ae4 2026-05-15 docs(phase-2.8): defer «31 ед.» disambiguation
+1bf3aa6 2026-05-15 feat(phase-2.6): Russian pluralization via Intl.PluralRules
+fe228a7 2026-05-15 feat(phase-2.15): reusable EmptyState / LoadingSkeleton / ErrorState components
+c28e0ad 2026-05-15 feat(phase-2.4): debounce input handlers 150ms for AppliedModeSummary
+9128f81 2026-05-15 test(phase-2.11): input robustness + locale parsing baseline tests
+d754f7a 2026-05-15 feat(phase-2.2): default unit cost input mode to 'budget' (was 'unit')
+0e815a9 2026-05-15 feat(phase-2.5): shared column role enum (audit P-shared-enum)
+cc6dea4 2026-05-15 feat(phase-2.16): trust-signal toast for completed project migration
+453f5dd 2026-05-15 feat(phase-1.4): project.json schema migration to v2.0.1 (sync)
+293c206 2026-05-15 chore(phase-1.5): sanitize customer brand names in markdown docs
+93f2629 2026-05-15 feat(phase-1.3): persistence promotion for unit cost input mode + budgetInputs
+34aac85 2026-05-15 feat(phase-1.6): JCS canonical hash module (INV-06)
+ab808da 2026-05-15 feat(phase-1.7): cross-platform file locking via filelock (multi-tab safety)
+dbce408 2026-05-15 feat(phase-1.2): backend validation gate for /project/save_kpi_settings
+9939df1 2026-05-15 feat(phase-1.1): SSOT classifier patterns endpoint + frontend cache
+27770dc 2026-05-15 feat(phase-0.3): atomic write + fsync + checksum helper (safe_io)
+0d5c757 2026-05-15 feat(phase-0.2): add structured JSON logging foundation
+7d972b8 2026-05-15 test(phase-0.1): add snapshot regression baselines for AppliedModeSummary
+43a7939 2026-05-14 docs(v2.0.1): CHANGELOG draft + REORDER_SUBSTEPS_v2.1.0 design doc
+26879f1 2026-05-14 fix(v2.0.1): UX gap excluded channels + BUG #3 SOM/SOV endogeneity
+61feac7 2026-05-14 fix(v2.0.1 BUG #2): unit-aware UI for physical channels in ROI mode
+3bfca24 2026-05-14 feat(v2.0.0 Phase E2+E5): unblock priors validation + Methodology Cert
+52d2d62 2026-05-14 feat(v2.0.0): audit-3 — error boundary + help docs + 123 Phase D tests
+6f5263e 2026-05-14 fix(v2.0.0 audit-2): runes capture + compare route + CHANGELOG + migration guide
+f0912b3 2026-05-14 feat(v2.0.0): Phase C finish + Phase D + Vitest
+737f6e6 2026-05-14 feat(v2.0.0): Phase B finish + Phase C visualization foundation
+0494c1c 2026-05-14 fix(v2.0.0 audit): HIGH severity fixes — backend math + frontend $state
+9aedcd6 2026-05-14 fix(v2.0.0 audit): integrate Steps 4-6 + resolve \$state prop antipattern
+5f799c7 2026-05-14 feat(v2.0.0): Phase B.2 — ScenarioWizard orchestrator + 6 step components
+75acb3d 2026-05-14 feat(v2.0.0): Phase A.3 (tests) + Phase B.1 (wizard foundation)
+b912e53 2026-05-14 feat(v2.0.0): Phase A.2 — backend math + diagnostics + forecast task profile
+ec2acd9 2026-05-14 feat(v2.0.0): Phase A.1 — variable classifier + signed factors + holidays
+913dc39 2026-05-14 docs(v2.0.0): pre-flight design cycle + audit + ADR-019
+a3c9490 2026-05-13 feat(v1.3.2): Task #27 - replace emoji with Lucide icons (premium pictograms)
+8a7297a 2026-05-13 feat(v1.3.2): stats badges per column + pair-metric quality preview
+d5effa7 2026-05-13 feat(v1.3.2): hard-block «Подтвердить роли» при ratio <2:1
+d7a6631 2026-05-13 feat(v1.3.2): RatioInfoCard - help-icon с объяснением Ratio
+0dea1c4 2026-05-13 copy(v1.3.2): RatioInfoCard critical-state copy refinement
+f534f98 2026-05-13 feat(v1.3.2): RatioInfoCard - critical data quality signal (manager+expert)
+449ab10 2026-05-13 style(v1.3.2): em-dash → hyphen во всех текстах
+f9f162d 2026-05-13 fix(v1.3.2): «Зачем это?» buttons теперь раскрывают объяснение
+f017649 2026-05-13 feat(v1.3.2): «Сбросить шаг» — reset button в ValidateStepV13
+4269f8c 2026-05-13 fix(v1.3.2): insightExcludeMap фильтрует только warning+error severity
+2eaab81 2026-05-13 feat(v1.3.2): insights consistency + sort columns by role priority
+aa39ef9 2026-05-13 feat(v1.3.2): ColumnMapperConfirm ↔ InsightsPanel взаимосвязь
+c32826e 2026-05-13 feat(v1.3.2): ColumnMapperConfirm — Рекомендация column с insights
+c1cac9a 2026-05-13 fix(v1.3.2): ValidateStepV13 auto-validate race condition
+9655387 2026-05-13 fix(v1.3.2): ColumnMapperConfirm — header tooltips + humanize dtype
+872d0dd 2026-05-13 fix(v1.3.2): ColumnMapperConfirm select — dark color-scheme + option styling
+b2475da 2026-05-13 fix(v1.3.2): ValidateStepV13 auto-validate + correct title
+87f26d5 2026-05-13 ux(v1.3.2): ColumnMapperConfirm lead — split на 2 параграфа
+037a249 2026-05-13 ux(v1.3.2): «Зачем шаг» panel — collapsed по умолчанию на всех шагах
+21d4117 2026-05-13 fix(v1.3.2): WhyThisStep <details> infinite re-render loop
+946b9a9 2026-05-13 fix(v1.3.2): ColumnMapperConfirm defensive role mapping + tests catchup
+111e9c1 2026-05-12 style(v1.3.2): premium tier-1 refinement — remove glossary FAB + restyle ColumnMapperConfirm
+a19cfb7 2026-05-12 quality(v1.3.2): идеальность — audit followup (6 improvements)
+a776060 2026-05-12 audit(v1.3.2): red-team fixes — 4 BLOCKER + 5 HIGH
+5b9bd07 2026-05-12 feat(v1.3.2): ColumnMapperConfirm pipeline integration в ValidateStepV13
+55b3939 2026-05-12 test(v1.3.2): Vitest unit tests для kpi-aware-formatting helpers
+a0d5d42 2026-05-12 polish(v1.3.2): Focus C UX backlog — sticky header + chart label rotation
+074bbb4 2026-05-12 feat(v1.3.2): RecommendationCard в OptimizeStep (forward + goal-seek)
+e9ccb13 2026-05-12 refactor(v1.3.2): rename ROIComparison → ChannelComparisonChart
+d2142ae 2026-05-12 feat(v1.3.2): insights-rules KPI/mode-aware (decompose+optimize+report)
+65a00b3 2026-05-12 feat(v1.3.2): aurora_pptx builder KPI/mode-aware rewrite
+3fb73df 2026-05-12 feat(v1.3.2): aurora_html sections KPI/mode-aware rewrite
+68c59b6 2026-05-12 docs(v1.3.1): hotfix report — 4 fixed items + deferred to v1.3.2 with mitigation
+7f11eef 2026-05-12 feat(v1.3.1): hotfix — Recommendation Card + Goal-Seek monotonicity + ColumnMapperConfirm + IntroTutorial keys
+226de06 2026-05-12 fix(v1.3.0): UX red-team audit fixes — CRITICAL + HIGH severity (9 issues)
+46d42ab 2026-05-12 fix(v1.3.0): red-team audit fixes — BLOCKER + HIGH severity (8 issues)
+52c9801 2026-05-12 feat(v1.3.0): Stage 3 Phase B — KPI/mode-aware report metadata pipeline
+b932164 2026-05-12 feat(v1.3.0): Stage 4 Phase B — Educational integration через layout + Settings
+2b08f22 2026-05-12 docs(v1.3.0): CHANGELOG.md top-level entry
+2475a14 2026-05-12 docs(v1.3.0): RELEASE_NOTES + CHANGELOG entry
+7c917b2 2026-05-12 feat(v1.3.0): Stage 4 Educational system — Intro tutorial + Glossary panel + contextual help
+79cb2fd 2026-05-12 feat(v1.3.0): Stage 3 Phase A — Goal-Seek UI integration in OptimizeStep
+e780bbe 2026-05-12 feat(v1.3.0): DecomposeStep KPI-aware metric column (ROI/CPU/share)
+d4b1500 2026-05-12 feat(v1.3.0): integrate ValidateStepV13 in pipeline через useDerivedModeUX feature flag
+dcf63f7 2026-05-12 feat(v1.3.0): Stage 2 UI components + KPI-aware verdicts engine
+79b6b2f 2026-05-12 feat(v1.3.0): optimize package + persistence v1.3 defaults + Rust IPC bindings
+e53a561 2026-05-12 feat(v1.3.0): KPI registry v1.3 + mode inference + column auto-detection
+aa0aede 2026-05-12 docs(v1.3.0): Stage 0 audits + glossary 20 terms + performance budget
+98b81bc 2026-05-12 docs(v1.3.0): add ADR-014..018 foundation for next-gen MMM Optimizer
+4451e51 2026-05-12 ui: rename window title and onboarding intro to Aurora AI Econometrica - MMM Optimizer
+d383636 2026-05-04 release: v1.2.0 — Phase 2 Planning Mode + Phase 2.7 audit cluster
+8ea81aa 2026-05-04 fix(aurora_html): fun theme uses light brand mark variant (navy + gold)
+b20a5fb 2026-05-04 fix(xlsx): 10-space leading в Обзор title не overlap'ит logo
+2408136 2026-05-04 fix(deliverables): cuted compact PNG для PPTX cover + XLSX top-left + back cover full
+5125a5d 2026-05-04 fix(aurora_html): theme-aware brand mark — sigil invisible на dark theme
+3ef3288 2026-05-04 fix(phase-2.7): audit findings — y_std scale, CI mixed-scale, listener cleanup, UX pillars
+e3d8806 2026-05-04 feat(phase-2.7): lift% canonical + XLSX bugs + UX polish + brand logo
+d7ac143 2026-05-03 feat(forecast_validation): Math Audit v2.0 Part 2 — L4 obsolete + L5 hierarchical threshold (Этап 5)
+a207140 2026-05-03 test(scenario+decomposer): 5-фазный audit extension — 302 new tests + 2 inline fixes
+c51ff70 2026-05-03 test(optimizer): real-pickle integration smoke (Phase 5 follow-up etap 3)
+d8e19fd 2026-05-03 fix(optimizer F1): cumulative anchor seeding для transitive chain monotonicity (I5b)
+a89b37a 2026-05-03 test(optimizer): 5-фазный proactive audit — invariants + edge cases + smoke matrix + error-path scan + docs
+05af45f 2026-05-03 fix(optimizer pass 18): UnboundLocalError _default_anchor_enabled при infeasible
+2da767f 2026-05-03 chore(sessions): compressed log Phase 2 audits 6-17 + live QA Кагоцел
+2a0b1b0 2026-05-03 fix(optimizer pass 17): full multi-start anchor — true monotonic guarantee
+5dcec9d 2026-05-03 fix(optimizer pass 16): default-anchor full precision + multi-start
+eee37bd 2026-05-03 fix(audit pass 15): avgROI scale fix + per-channel response curve range
+28c559d 2026-05-03 fix(decompose pass 14): rounding sum 100% + hide stray legend
+5b8bcee 2026-05-03 fix(optimizer pass 13): response curves extend к global x-axis max
+88600d4 2026-05-03 fix(optimizer pass 12): default-anchor as DIRECT candidate (not start point)
+6df9c50 2026-05-03 fix(DecomposeStep table): proper column widths + missing Decay col
+fd3ee70 2026-05-03 fix(ConvergenceDashboard): compact Y-axis formatter (avoids label clipping)
+4d62bf1 2026-05-03 fix(audit pass 9): three-way mROAS unification + scale-correct adaptive x-axis
+27d3244 2026-05-03 fix(audit pass 8): unified mROAS source + What-if uses planning budget
+e75fa39 2026-05-03 fix(optimizer audit pass 7): default-bounds anchor для monotonic improvement
+3fbc3a2 2026-05-03 feat(OptimizeStep): step-level «Сбросить расчёты» кнопка в header
+4a7e153 2026-05-03 fix(phase-2 audit pass 6): money mismatch + adaptive Response Curves x-axis
+8b8bd44 2026-05-03 fix(ConvergenceDashboard): fullscreen + theme-contrastable R²/MAPE overlay
+1670f53 2026-05-02 fix: rawSum null guard в adjusted preview computation
+25c350b 2026-05-02 feat(phase-2.3 ux): per-year cost breakdown в preview UnitCostsPanel
+7cdb9d7 2026-05-02 fix(phase-2 audit pass 5 cont): detect multi-year directly from validator stats
+308e995 2026-05-02 fix(phase-2 audit pass 5): 5 critical bugs в свежей inflation feature
+7fb4731 2026-05-02 feat(phase-2 audit pass 4 cont): per-channel CPP/CPM inflation в money conversion
+255a315 2026-05-02 feat(phase-2.3 audit pass 4): planning budget threading + scenario integration + multi-year UI
+fc309f2 2026-05-02 fix(phase-2.3 ux): visual coupling picker → optimization (was disconnected)
+2d08662 2026-05-02 fix(phase-2.3 ux): match Aurora .block surface tokens + null guard для seasonality
+14e9354 2026-05-02 fix(phase-2.3 ux): preset click always recomputes budget proportional to period
+98f8c8d 2026-05-02 fix(phase-2.3 ux): theme-aware contrast + ru-RU thousands formatting
+979f227 2026-05-02 fix(phase-2 audit pass 3): 4 material bugs found in critical re-review
+36c2e0e 2026-05-02 chore(sessions): Phase 2 (Planning Mode v1.2.0) backend + frontend shipped
+bbe5274 2026-05-02 test(phase-2.7+2.8): synergy integration tests + customer methodology doc
+0527211 2026-05-02 feat(phase-2.3): planning mode UI foundation — toggle + horizon picker
+2e0cc2e 2026-05-02 feat(phase-2.1): API + Tauri shim + preview endpoints (Step 4)
+8f88e7b 2026-05-02 feat(phase-2.1): pickle additive fields + G2 legacy migration (Step 3)
+b84bec8 2026-05-02 feat(phase-2.1): forecast validation helpers + S3/S7 synergies (Step 2)
+224d882 2026-05-02 feat(phase-2.1): planning mode dispatch — Option C math layer (Step 1)
+edcdb5f 2026-05-02 docs(phase-2.0): audit pass 2 — L1 REVISED to Option C + 8 synergies
+5b6438a 2026-05-02 docs(phase-2.0): math audit — forecast horizon kernel decision LOCK
+6b7b273 2026-05-02 chore(sessions): compressed log live-test polish + Phase 2 plan session
+6460a24 2026-05-02 fix(live-test): UX polish + critical bug fixes из live test session 2026-05-02
+5bbab49 2026-05-01 test(d.3): integration test для optimizer + ConstraintBundle (9 cases)
+7af795f 2026-05-01 fix(audit): post-D+F hardening — 5 critical findings closed
+33d50b8 2026-05-01 feat(f.1+f.2+f.3): per-group sliders в OptimizeStep — Trust 3 brand vs perf
+733aa04 2026-05-01 feat(d.3): activate ConstraintBundle in optimizer.py — per-group brand/perf
+50b3ce9 2026-05-01 feat(d.1+d.2): activate KPI_REGISTRY + JAX backend check in modeler.py
+5281562 2026-04-28 docs(math-ref): extend living doc with 12 new sections + audit fixes
+3964f89 2026-04-28 fix(audit): foundation hardening — 24 issues from critical review
+28896c2 2026-04-28 feat(a3.1): per-group optimizer constraints helper (precedence + feasibility + lock)
+3fdb5cf 2026-04-28 feat(b2.1): Weibull learnable math layer (numpy reference impl + helpers)
+ef9e001 2026-04-28 feat(b1): Weibull recovery framework + MATH_REFERENCE.md living doc
+743a6e9 2026-04-28 feat(b0): foundation — KPI registry + JAX check + pickle v2.0 + regression pin
+b019c18 2026-04-27 chore(sessions): compressed log Sprint 4 Trust 3 + Sprint 5 Infrastructure
+384f67e 2026-04-27 fix(sprint5-audit): CI Python tests missing numpy/pandas — fixture init would fail
+4b794d6 2026-04-27 feat(sprint5): CI Python tests + help sync auto-inject + multi-client integration
+09858b4 2026-04-27 feat(sprint5): Phase 1 foundation — pytest harness + svelte-check 0 errors + composite CI action
+fce2490 2026-04-27 feat(trust3): strong-perf override for programmatic/DSP/CPC over brand hints
+3e1e239 2026-04-27 feat(trust3): OLV → brand category by default (Антон 2026-04-27)
+1ee260c 2026-04-27 chore(sessions): session logs from v1.0.16 ship + audit work
+9571ad3 2026-04-27 fix(trust3): persist sync activeProject + invalidate downstream + PPTX disclosure
+cd7617a 2026-04-27 fix(trust3): post-audit critical regression + UI synergy + simplifications
+269a683 2026-04-27 docs(trust3): math audit + CHANGELOG v1.1.0 + brand_perf_split tests
+e864716 2026-04-27 feat(trust3): Decompose grouping + decay column + HTML methodology auto-gen
+eb3f4f9 2026-04-27 feat(trust3): Validate UI badges + ChannelCategoriesPanel + Tauri schema
+f45f97b 2026-04-27 feat(trust3): hierarchical Bayesian priors brand vs performance + R-hat gate
+c8efaa5 2026-04-27 feat(trust3): channel categorization util + pickle compat helper (Sprint 4 foundation)
+af709ca 2026-04-27 docs(release): v1.0.16 SHIPPED — final ship details
+d5adb05 2026-04-27 docs(v1.0.16): finalize CHANGELOG + GH Release с NSIS SHA256
+90de35d 2026-04-27 fix(report): info-block spacing + HTML format insight (Венарус live-test)
+58423aa 2026-04-27 fix(narrative): L22+L23 SCQAR consistency (Венарус live-test)
+9bd0b49 2026-04-27 feat(import+optimize): engine selector + Block C/D refactor (live UX session)
+08af2a3 2026-04-27 feat(import): движок selector Bayesian / OLS на Import шаге (v1.0.16)
+dee18e5 2026-04-26 feat(report): unified «Создать отчёт» button с выбором формата (v1.0.16)
+b3120e2 2026-04-26 fix(audit): Day 2-5 post-audit hardening — 4 issues from independent review
+5858844 2026-04-26 release(v1.0.16-prep): version bump + draft ship docs (Day 6 prep)
+27f3089 2026-04-26 docs(help): Day 5 v1.0.16 documentation update
+cf67bc9 2026-04-26 fix(ui): L9+L16+L18-L20 Settings cleanup + budget mode forward-compat (Day 4)
+541a41f 2026-04-26 fix(narrative): L11+L12+L13+L14+L15+L2 narrative cluster (Day 3)
+df42fbd 2026-04-26 fix(validate): L1 unified state sync + excluded_columns persistence (Day 2)
+e59009d 2026-04-26 docs: DAYS_PROGRESS.md tracker для autonomous Day 2-6 execution
+c7b2dbc 2026-04-26 fix(audit): Day 1 post-audit hardening — 4 issues from independent review
+ba69a18 2026-04-26 fix(optimize): L7+L8 UX banners — edge-case state + per-channel override warning
+9fec700 2026-04-26 fix(optimize): L5 auto-apply optimal к sliders + KPI live + Response Curves markers
+601940e 2026-04-26 docs(backlog): L21 — lift_pct=None в optimization.json при real Kagocel
+8dca35c 2026-04-26 fix(mroas): L4 three-way alignment — decompose+optimize+narrative single source of truth
+00be01b 2026-04-26 fix(optimizer): L10 lift_pct regression в What-if scenarios + help docs privacy update
+da90f34 2026-04-26 release(v1.0.15): version bump + NSIS installer + customer ship docs
+6834571 2026-04-26 fix(narrative): single source of truth для action labels (math-fix v1.4 Section B)
+fe42e7f 2026-04-26 fix(optimizer): money-axis rescaling + channel-pivot multi-start (math-fix v1.4)
+b714f85 2026-04-26 chore(cargo): lock version bump 1.0.13 → 1.0.14 (auto)
+0eeb715 2026-04-26 fix(validate-model-sync): user role reassignments persist к ConfigPanel
+aaea054 2026-04-26 release(v1.0.14): NSIS installer built — 189MB SHA256 31822fae...
+e43ab46 2026-04-26 docs(help): update help system для v1.0.14 — Causal раздел + panel-data guide
+c091e4e 2026-04-26 release(v1.0.14): GH Release draft template + Pre-Ship checklist
+fa6618f 2026-04-26 release(v1.0.14): SBC + version bumps + CHANGELOG + DiD small-sample caveat
+c57bc81 2026-04-26 fix(audit-of-sprint3): B1-B10 — 5 HIGH + 5 MEDIUM hidden bugs caught fresh-eyes pass
+ffae564 2026-04-26 docs(sprint3): Materia Medica geo data request template для v1.0.15
+16b3a46 2026-04-26 feat(sprint3-ui): Causal cabinet — route + 3 components + 6 Tauri pass-throughs
+9f6b39c 2026-04-26 feat(sprint3-m4): integration — preflight + list + cross-method consistency
+9e2a974 2026-04-26 feat(sprint3-m3): Causal Forest endpoint — Wager-Athey 2018 + 23 MIN-LIVE tests
+5ac8352 2026-04-26 feat(sprint3-m2): SCM endpoint — Abadie classic via manual scipy SLSQP + 34 tests
+cd13021 2026-04-26 feat(sprint3-m1): DiD endpoint — TWFE via linearmodels + 25 MIN-LIVE assertions
+8a35680 2026-04-26 feat(sprint3-m0): Pharma Causal stack scaffolding — namespace + deps + 39 tests
+08bf0da 2026-04-26 docs(sprint3): Pharma Causal ADR draft — EXTEND-not-rewrite declaration
+f04b85c 2026-04-26 test(payloads): add kagocel_scenario.json — exercises A1 fix path
+c926aee 2026-04-26 fix(audit-of-audit): A1+A2 — F1 scenario fallback bug + F5 OR semantic
+3813386 2026-04-26 test(min-live): MIN-LIVE acceptance gates 1-4+5 PASS — F1-F5 validated via FastAPI
+8d6c7e8 2026-04-26 fix(audit-2026-04-27): F1+F2+F3+F4+F5 — math drift Phase 1.1 + conformal honesty
+fb569e2 2026-04-26 docs(session): compressed log — Phase 0.1 ship + Sprint 3 prep
+066f2dd 2026-04-26 docs(sprint3-progress): Step D complete — 6 findings, 3 HIGH-severity
+b951428 2026-04-26 docs: add SPRINT3_PROGRESS + strategic advisory session log
+e660034 2026-04-26 docs(session): strategic advisory 2026-04-27 — D→MIN-LIVE→B sequence
+92108dc 2026-04-26 docs(progress): Sprint 2 audit fix-session done — 6 issues + conformal prediction shipped
+aeb137f 2026-04-26 fix(audit-sprint2): bootstrap real ROI + presence mask + HDI + conformal + untrained guard + ci_method
+0e86ff0 2026-04-26 feat(sprint-2-ext): bootstrap ROI CI + predictive intervals + OLS diagnostics
+7741017 2026-04-26 docs(progress): audit fix-session complete — 9 issues closed, 4 commits
+9cb5751 2026-04-26 feat(audit-s1): unified /compute/preflight endpoint orchestrating all reliability checks
+f678463 2026-04-26 fix(audit-h2+h3+h4+m1): DRY adstock_factor + OLS untrained exclude + verdict gate + decay key
+79dde5f 2026-04-26 fix(audit-h5+h1+c2+c3): mode validation + scenario logging + ROAS guard + spend=0 semantics
+1b29c6d 2026-04-26 fix(audit-c1): Phase 1.1 mean-normalization mathematical drift eliminated
+3b1de51 2026-04-26 docs(progress): Sprint 2 + 1.5 backend complete — 6 commits today
+99487a5 2026-04-26 feat(b7): backtest framework — out-of-sample validation skeleton
+e4bce20 2026-04-26 feat(a4): prior predictive + Nott KL divergence (A4.1 + A4.2 backend)
+1a6066d 2026-04-26 feat(sprint-2): horseshoe priors opt-in для sparse channel selection (A3)
+669369c 2026-04-26 feat(sprint-2): server endpoints + decomposer banner для OLS path
+f385c77 2026-04-26 feat(sprint-2): OLS small-data fallback engine + auto-recommend
+22d1410 2026-04-26 docs(progress): final sweep — Phase 1.9+1.1 backend done, A4 quick proxy started
+9cbba78 2026-04-26 feat(a4): pre-MCMC reliability quick proxy + Phase 1.1 full-mode pilot
+0306d19 2026-04-26 docs(progress): Phase 1.1 backend complete — 16+ commits, 329 tests PASS
+243a2c9 2026-04-26 feat(phase-1.1): model_version migration banner для legacy pickles
+54fc39b 2026-04-26 test(phase-1.1): 26 new assertions for sampled adstock decay (72/72 PASS)
+a072276 2026-04-26 test(phase-1.1): extend E2E demo for v1.2 pickle (sampled decay)
+dbabdb3 2026-04-26 feat(phase-1.1): hierarchical learnable adstock decay (logit-normal)
+731141d 2026-04-26 docs(progress): E2E demo verified — 13 commits today, ready for live-test
+2269d10 2026-04-26 test(phase-1.9): E2E demo smoke test — synthetic pickle → decompose/scenario
+8c5415e 2026-04-26 docs(progress): Phase 1.1 pilot validated logit-normal — Phase 1.9 + prep done
+3929ce6 2026-04-26 test(phase-1.1): pilot results — logit-normal wins on convergence
+91677c2 2026-04-26 test(phase-1.1): pilot script — logit-normal vs Beta-Beta hierarchy
+dea15d9 2026-04-26 docs(progress): Phase 1.9 backend complete — 9 commits ready for live-test
+1e77421 2026-04-26 test(phase-1.9): comprehensive CI propagation test suite (46 assertions)
+de945c1 2026-04-26 feat(phase-1.9): PPTX portfolio table CI brackets via _rich multi-run
+edc8a2e 2026-04-26 feat(phase-1.9): HTML portfolio table CI brackets + tier color badges
+a31c5f5 2026-04-26 feat(phase-1.9): _merge_channels preserves CI fields decompose+optimize
+9ae2b01 2026-04-26 feat(phase-1.9): scenario CI on predicted_kpi/roas/lift_pct via posterior samples
+80a266f 2026-04-26 feat(phase-1.9): decomposer CI propagation — activates dormant verdict Step 1
+63a78c4 2026-04-26 feat(phase-1.9): optimizer mROAS posterior CI via vectorized samples
+11c3cda 2026-04-26 feat(phase-1.9): vectorized hill_function_batch + hill_derivative_batch
+8f96a7f 2026-04-26 docs(adr): Sprint 1 Foundation ADR — Phase 1.9/1.1/A4 architecture
+1757873 2026-04-26 feat(phase-1.9): persist posterior samples + posterior_propagation utility
+f4da62d 2026-04-26 docs(session): Phase 0.1 fix-session + v1.0.13 ship complete
+f9e6953 2026-04-26 docs: release notes v1.0.13
+75872db 2026-04-26 release: bump v1.0.10 → v1.0.13 + help system actualization
+a3662a0 2026-04-26 fix(hotfix): live-test Phase 0.1 — money mode + per-channel sync + multi-start (#17/#18/#19)
+56984ec 2026-04-26 fix(N+O): narrative format + recommendations + bounds + sidecar hardening (#1-#9, #15)
+e567a37 2026-04-25 fix(F0): mROAS canonical chain rule + typo + JS deprecate (#5/#11/#12/#13/#14/#16)
+f277bb2 2026-04-25 chore(live-test): Phase 0.1 prep — dev-server fix + UI refinements + v1.3 regression tests
+3da0b1d 2026-04-25 feat(xlsx): полный hybrid pass + Validate sticky metrics + HTML cover compact
+33269fe 2026-04-25 feat(report): tier-1 quality pass для PPTX/HTML/XLSX (v1.0.13 session 2)
+adb3047 2026-04-25 feat(decomposer): hybrid ROI threshold recalibration (Phase 0.2 / L4 fix)
+c89b1c8 2026-04-25 fix(math-audit): post-fix v1.2 critical review — A1+B1+B3 closed
+aef2106 2026-04-25 docs(sessions): /compress snapshot — math-fix-v1.0.13 ALL phases + post-audit hardening
+5e97e6d 2026-04-25 test+docs(math-audit): post-audit hardening session log + bounds test
+58e6cf1 2026-04-25 fix(math-audit): post-audit hardening — 4 issues found in self-review
+7ecd9a2 2026-04-25 docs(memory): math-fix-v1.0.13 ALL Phases 1-7 SHIPPED
+3a654f2 2026-04-25 docs(math-audit): v1.0.13 release CHANGELOG + ship gate documentation
+13a0d9c 2026-04-25 fix(math-audit): Phase 6 — scenario adstock + incremental ROAS (P1-3/4/5)
+128a9d5 2026-04-25 docs(memory+session): math-fix-v1.0.13 Phases 1-5 SHIPPED
+2ed4d1f 2026-04-25 test(math-audit): Phase 5 ship gate validation suite
+7daa7c4 2026-04-25 fix(math-audit): optimizer Hill spend/mean + raw gamma + P0-11 (P0-5/6/11)
+40fe0e4 2026-04-25 docs(memory): reflect Phase 2 (Hill normalization) shipped
+b072411 2026-04-25 fix(math-audit): decomposer uses Hill+adstock+spend (P0-3/4/10)
+89fb9cd 2026-04-25 docs(sessions): /compress snapshot - math audit complete + Phase 1 shipped
+c065868 2026-04-25 fix(math-audit): Hill normalization spend/mean Robyn-style (P0-1/2/9)
+b6f6400 2026-04-25 fix(math-audit): reconstruction Hill matches training (P0-7)
+d45d4d6 2026-04-25 docs(math-audit): fix execution plan to v1.0.13-math-audited
+1182338 2026-04-25 audit(R5): exec summary + 3 new fix tasks queued + memory updates
+5e36769 2026-04-25 audit(R4): Hill-fix coordination doc + post-fix validation test plan
+12addcf 2026-04-25 audit(R3): numpy-based prior predictive checks + P0-2 regression
+e260362 2026-04-25 audit(R2): math correctness tests + P0-5/6/7 regression detectors
+0414306 2026-04-25 audit(R1): consolidated math audit inventory + findings
+fcc4492 2026-04-25 docs(sessions): /compress snapshot - Stage C complete + post-audit hardening
+a2fa0bc 2026-04-25 fix(audit): 7 high-severity defects found in post-C.6 review
+6844d57 2026-04-25 feat(stage-c): PPTX section dividers 13→16 slides (C.6.3 Option B)
+13b7d28 2026-04-25 test(stage-c): PPTX verify overhaul - English ban-list + slug + period (C.6.4)
+5243bfc 2026-04-25 refactor(stage-c): PPTX dynamic section numbering (C.6.2)
+bf7939d 2026-04-25 fix(stage-c): PPTX McKinsey action titles (C.5)
+30fadbc 2026-04-25 docs(sessions): /compress snapshot - Stage A+B+C.1-4+C.6.1 shipped
+425a27c 2026-04-25 fix(stage-c): PPTX text overlap (C.4) + TOC swap (C.6.1) + RU localization (C.3)
+533597a 2026-04-25 fix(stage-c): PPTX data hygiene + channel name normalization (C.1+C.2)
+e69cf1b 2026-04-25 fix(stage-b): PPTX critical brand leaks (slug / version / header / page counter / closing)
+cb85457 2026-04-25 fix(stage-a): XLSX sheetPr XSD fix + HTML CSP hash coverage
+bed6195 2026-04-25 fix(live-test): 6 sidecar + pipeline UI fixes uncovered in session
+9b0c3c0 2026-04-24 docs(sessions): live-test preflight - 137/137 PASS + test datasets centralized
+9b778de 2026-04-24 docs(sessions): /compress snapshot - HTML tier-1 program complete + post-audit
+65ec26f 2026-04-24 docs(sessions): HTML tier-1 session log - post-ship audit appendix
+b68cf5b 2026-04-24 fix(html-tier1): post-ship audit - 8 defects (XSS defense, edge cases, cleanup)
+3be60e4 2026-04-24 feat(html-tier1): M5 verification + ship - 3 verify tools + em dash cleanup
+88adcac 2026-04-24 feat(html-tier1): M4 themes + polish - WCAG AA + haptic + favicon
+a1b2943 2026-04-24 feat(html-tier1): M3 interactivity + charts - full tier-1 experience
+9a757b2 2026-04-24 feat(html-tier1): M2 narrative + layout - full static report
+7a0e4af 2026-04-24 feat(html-tier1): M1 foundation - aurora_html skeleton + shared adapter
+43b3883 2026-04-24 docs(sessions): S7 post-audit hardening section + typo fix in log
+85d21f6 2026-04-24 fix(aurora_pptx): S7 post-audit hardening - 7 defects
+a81dbbc 2026-04-24 docs(sessions): compressed log for S7 Kagocel cleanup
+be3d689 2026-04-24 fix(aurora_pptx): S7 Kagocel cleanup - eliminate multi-client LEAKs
+44d142b 2026-04-24 docs(sessions): compressed log for Sessions B + C + post-audit hardening
+6e39c9c 2026-04-24 fix(post-audit): em dashes + None guards + canonical channel order + dynamic year
+1c4e3df 2026-04-24 test(aurora_pptx): C6 narrative parametrization verification (23/23 PASS)
+b004b08 2026-04-24 feat(aurora_pptx): C5 s09 SCQAR + s08 timeline slot-fill
+9dbab3f 2026-04-24 feat(aurora_pptx): C4 s02+s04+s05 narrative slot-fill from facts
+8660c80 2026-04-24 feat(aurora_pptx): C3 s06 action chart bars + commentary data-driven
+fc3aac6 2026-04-24 feat(aurora_pptx): C2 s07 action table data-driven from channels
+654f58b 2026-04-24 feat(aurora_pptx): C1 adapter channel merge + 5-way verdict + narrative facts
+853a754 2026-04-24 feat(xlsx): B3 freeze panes + print setup + named ranges (Session B)
+4c6e714 2026-04-24 feat(xlsx): B2 Arial cascade + brand conditional formatting (Session B)
+1daa870 2026-04-24 feat(xlsx): B1 cover sheet + DocProperties + tier-1 filename (Session B)
+a9376a2 2026-04-24 feat(aurora_pptx): s03 TOC consumes meta.toc_page_refs (audit M3)
+ff084cc 2026-04-24 test(aurora_pptx): brand compliance verification script (audit L4)
+d511edd 2026-04-24 feat(pptx_pipeline): P0.5b DOCX signature-lime under action-titles (Session 4)
+6d2d092 2026-04-24 feat(ReportStep): M5a Open PPTX button with PDF-export tooltip (Session 4)
+a095e65 2026-04-24 refactor(pptx_export): M4.2b delegate to aurora_pptx.build_pptx (703→213 LOC)
+9926540 2026-04-24 feat(aurora_pptx): M4.2a parametrize diagnostic callouts (MQS, R², MAPE, R-hat, ESS)
+f205c78 2026-04-24 feat(aurora_pptx): M4.1 parametrize builder meta + lang guard (Session 4)
+8837f3d 2026-04-24 fix(aurora_pptx): session audit fixes — PyInstaller bundle + cleanup
+3af07b2 2026-04-24 feat(aurora_pptx): M3 builder port + build_pptx() orchestrator
+bba9a8b 2026-04-24 feat(aurora_pptx): skeleton for client-ready PPTX helpers + generated tokens gitignore
+2019071 2026-04-24 docs(sessions): compressed logs for v1.0.10 stable and v1.0.11-rc2 hybrid-ship
+36f7445 2026-04-24 fix(hybrid): signature-lime in REAL Econometrica PPTX engine (post-live-test)
+3b7ca43 2026-04-24 feat(hybrid): PPTX signature-lime #CCFF00 under action-titles (P0.5)

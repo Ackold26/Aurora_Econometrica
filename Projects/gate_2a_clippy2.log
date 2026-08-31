@@ -1,0 +1,97 @@
+    Checking aurora-econometrica-gui v2.4.5 (D:\Docs\Aurora_Ai\Dev\Aurora_Econometrica_thinwt\src-tauri)
+error: items after a test module
+   --> src-tauri\src\commands\license.rs:267:1
+    |
+267 | mod tests {
+    | ^^^^^^^^^
+...
+460 | pub fn import_license(source_path: &str, app_config_dir: &Path) -> Result<()> {
+    | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.96.0/index.html#items_after_test_module
+    = note: `-D clippy::items-after-test-module` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::items_after_test_module)]`
+    = help: move the items to before the test module was defined
+
+error: items after a test module
+    --> src-tauri\src\commands\online_auth.rs:782:1
+     |
+ 782 | mod tests {
+     | ^^^^^^^^^
+...
+1193 | pub async fn send_heartbeat(app_config_dir: &Path) -> Result<HeartbeatResponse> {
+     | ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.96.0/index.html#items_after_test_module
+     = help: move the items to before the test module was defined
+
+error: field assignment outside of initializer for an instance created with Default::default()
+   --> src-tauri\src\commands\user_config.rs:222:9
+    |
+222 |         config.local_only = true;
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+note: consider initializing the variable with `commands::user_config::UserConfig { local_only: true, ..Default::default() }` and removing relevant reassignments
+   --> src-tauri\src\commands\user_config.rs:221:9
+    |
+221 |         let mut config = UserConfig::default();
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.96.0/index.html#field_reassign_with_default
+    = note: `-D clippy::field-reassign-with-default` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::field_reassign_with_default)]`
+
+error: the borrowed expression implements the required traits
+    --> src-tauri\src\durable_store.rs:1254:45
+     |
+1254 |         migrate_once(&dir, &legacy, "test", &counting).unwrap();
+     |                                             ^^^^^^^^^ help: change this to: `counting`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.96.0/index.html#needless_borrows_for_generic_args
+     = note: `-D clippy::needless-borrows-for-generic-args` implied by `-D warnings`
+     = help: to override `-D warnings` add `#[allow(clippy::needless_borrows_for_generic_args)]`
+
+error: the borrowed expression implements the required traits
+    --> src-tauri\src\durable_store.rs:1262:45
+     |
+1262 |         migrate_once(&dir, &legacy, "test", &counting).unwrap();
+     |                                             ^^^^^^^^^ help: change this to: `counting`
+     |
+     = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.96.0/index.html#needless_borrows_for_generic_args
+
+error: field assignment outside of initializer for an instance created with Default::default()
+   --> src-tauri\src\metrics\collector.rs:290:9
+    |
+290 |         from_other_window.total_messages = 100;
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+note: consider initializing the variable with `metrics::collector::UsageMetrics { total_messages: 100, total_exports: 7, ..Default::default() }` and removing relevant reassignments
+   --> src-tauri\src\metrics\collector.rs:289:9
+    |
+289 |         let mut from_other_window = UsageMetrics::default();
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.96.0/index.html#field_reassign_with_default
+
+error: field assignment outside of initializer for an instance created with Default::default()
+   --> src-tauri\src\metrics\collector.rs:401:9
+    |
+401 |         original.total_sessions = 42;
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    |
+note: consider initializing the variable with `metrics::collector::UsageMetrics { total_sessions: 42, total_messages: 100, total_exports: 5, ..Default::default() }` and removing relevant reassignments
+   --> src-tauri\src\metrics\collector.rs:400:9
+    |
+400 |         let mut original = UsageMetrics::default();
+    |         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.96.0/index.html#field_reassign_with_default
+
+error: manual `Range::contains` implementation
+   --> src-tauri\src\sidecar_runtime.rs:594:13
+    |
+594 |             p1 >= 7430 && p1 < 7530,
+    |             ^^^^^^^^^^^^^^^^^^^^^^^ help: use: `(7430..7530).contains(&p1)`
+    |
+    = help: for further information visit https://rust-lang.github.io/rust-clippy/rust-1.96.0/index.html#manual_range_contains
+    = note: `-D clippy::manual-range-contains` implied by `-D warnings`
+    = help: to override `-D warnings` add `#[allow(clippy::manual_range_contains)]`
+
+error: could not compile `aurora-econometrica-gui` (lib test) due to 8 previous errors

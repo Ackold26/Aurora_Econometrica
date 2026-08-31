@@ -1,0 +1,62 @@
+    Blocking waiting for file lock on package cache
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 4.78s
+     Running unittests src\lib.rs (D:/cargo-targets/ai-agency\debug\deps\aurora_econometrica_lib-38014719dd52fc59.exe)
+
+running 54 tests
+test commands::content_updater::tests::backup_beside_working_file_is_left_untouched ... ok
+test commands::content_updater::tests::client_error_is_not_retried ... ok
+test commands::content_updater::tests::concurrent_failed_updates_leave_the_cabinet_in_place ... ok
+test commands::content_updater::tests::concurrent_updates_of_one_vault_keep_the_reported_contents ... ok
+test commands::content_updater::tests::content_range_total_is_parsed ... ok
+test commands::content_updater::tests::download_survives_broken_stream ... ok
+test commands::content_updater::tests::forget_vault_version_clears_only_that_cabinet ... ok
+test commands::content_updater::tests::forget_vault_version_is_quiet_when_nothing_to_forget ... ok
+test commands::content_updater::tests::forget_vault_version_maps_file_stem_to_cabinet ... ok
+test commands::content_updater::tests::normalize_checksum_bare_hex_unchanged ... ok
+test commands::content_updater::tests::normalize_checksum_empty_string ... ok
+test commands::content_updater::tests::normalize_checksum_lowercases_uppercase_hex ... ok
+test commands::content_updater::tests::normalize_checksum_prefixed_and_bare_forms_match ... ok
+test commands::content_updater::tests::normalize_checksum_strips_mixed_case_prefix ... ok
+test commands::content_updater::tests::normalize_checksum_strips_sha256_prefix ... ok
+test commands::content_updater::tests::normalize_checksum_strips_uppercase_prefix ... ok
+test commands::content_updater::tests::orphaned_backup_is_restored_when_working_file_missing ... ok
+test commands::content_updater::tests::parallel_downloads_of_same_file_reach_server_once ... ok
+test commands::content_updater::tests::ranged_download_against_production ... ignored, ходит в сеть, нужна действующая лицензия
+test commands::content_updater::tests::ranged_download_assembles_file_above_proxy_threshold ... ok
+test commands::content_updater::tests::ranged_download_rejects_empty_chunk ... ok
+test commands::content_updater::tests::ranged_download_rejects_shifting_total ... ok
+test commands::content_updater::tests::rejected_preparation_never_touches_the_existing_vault ... ok
+test commands::content_updater::tests::resolve_vault_version_prefers_per_cabinet_over_global ... ok
+test commands::content_updater::tests::restore_orphaned_backups_ignores_foreign_files ... ok
+test commands::content_updater::tests::restore_orphaned_backups_is_quiet_without_vaults_dir ... ok
+test commands::content_updater::tests::server_error_is_retried ... ok
+test commands::content_updater::tests::server_without_range_support_still_works ... ok
+test commands::content_updater::tests::small_file_needs_one_request ... ok
+test commands::content_updater::tests::test_check_update_per_cabinet_empty_server ... ok
+test commands::content_updater::tests::test_check_update_per_cabinet_needs_update ... ok
+test commands::content_updater::tests::test_check_update_per_cabinet_no_local_version ... ok
+test commands::content_updater::tests::test_check_update_per_cabinet_up_to_date ... ok
+test commands::content_updater::tests::test_get_local_content_pack_version_from_manifest ... ok
+test commands::content_updater::tests::test_get_local_content_pack_version_no_manifest ... ok
+test commands::content_updater::tests::test_get_local_frontend_version_from_file ... ok
+test commands::content_updater::tests::test_get_local_frontend_version_no_file ... ok
+test commands::content_updater::tests::test_get_local_frontend_version_without_v_prefix ... ok
+test commands::content_updater::tests::test_get_local_version_no_file ... ok
+test commands::content_updater::tests::test_get_vault_versions_no_file ... ok
+test commands::content_updater::tests::test_migrate_creates_vault_versions_from_legacy ... ok
+test commands::content_updater::tests::test_migrate_noop_if_no_legacy_version ... ok
+test commands::content_updater::tests::test_migrate_noop_if_vault_versions_exists ... ok
+test commands::content_updater::tests::test_migrate_skips_non_vault_files ... ok
+test commands::content_updater::tests::test_set_and_get_local_version ... ok
+test commands::content_updater::tests::test_set_and_get_vault_versions ... ok
+test commands::content_updater::tests::test_set_vault_version_overwrites_previous ... ok
+test commands::content_updater::tests::truncated_body_is_not_accepted_as_success ... ok
+test commands::content_updater::tests::vault_lock_is_keyed_by_target_file ... ok
+test commands::content_updater::tests::whole_file_download_fails_at_the_same_threshold ... ok
+test commands::content_updater::tests::write_vault_rollback_does_not_touch_vault_versions_json_on_failure ... ok
+test commands::content_updater::tests::write_vault_rollback_removes_new_file_when_no_previous_existed ... ok
+test commands::content_updater::tests::write_vault_rollback_restores_previous_on_bad_decrypt ... ok
+test commands::content_updater::tests::write_vault_rollback_succeeds_with_valid_ciphertext ... ok
+
+test result: ok. 53 passed; 0 failed; 1 ignored; 0 measured; 350 filtered out; finished in 153.76s
+

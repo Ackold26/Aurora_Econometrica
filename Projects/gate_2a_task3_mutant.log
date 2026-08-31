@@ -1,0 +1,38 @@
+   Compiling aurora-econometrica-gui v2.4.5 (D:\Docs\Aurora_Ai\Dev\Aurora_Econometrica_thinwt\src-tauri)
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 18.15s
+     Running unittests src\lib.rs (D:/cargo-targets/ai-agency\debug\deps\aurora_econometrica_lib-38014719dd52fc59.exe)
+
+running 7 tests
+test commands::content_updater::tests::normalize_checksum_bare_hex_unchanged ... ok
+test commands::content_updater::tests::normalize_checksum_empty_string ... ok
+test commands::content_updater::tests::normalize_checksum_lowercases_uppercase_hex ... ok
+test commands::content_updater::tests::normalize_checksum_prefixed_and_bare_forms_match ... ok
+test commands::content_updater::tests::normalize_checksum_strips_mixed_case_prefix ... FAILED
+test commands::content_updater::tests::normalize_checksum_strips_sha256_prefix ... ok
+test commands::content_updater::tests::normalize_checksum_strips_uppercase_prefix ... FAILED
+
+failures:
+
+---- commands::content_updater::tests::normalize_checksum_strips_mixed_case_prefix stdout ----
+
+thread 'commands::content_updater::tests::normalize_checksum_strips_mixed_case_prefix' (75948) panicked at src-tauri\src\commands\content_updater.rs:2023:9:
+assertion `left == right` failed
+  left: "sha256:abc123"
+ right: "abc123"
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- commands::content_updater::tests::normalize_checksum_strips_uppercase_prefix stdout ----
+
+thread 'commands::content_updater::tests::normalize_checksum_strips_uppercase_prefix' (65912) panicked at src-tauri\src\commands\content_updater.rs:2016:9:
+assertion `left == right` failed
+  left: "sha256:abc123"
+ right: "abc123"
+
+
+failures:
+    commands::content_updater::tests::normalize_checksum_strips_mixed_case_prefix
+    commands::content_updater::tests::normalize_checksum_strips_uppercase_prefix
+
+test result: FAILED. 5 passed; 2 failed; 0 ignored; 0 measured; 384 filtered out; finished in 0.00s
+
+error: test failed, to rerun pass `--lib`

@@ -1,0 +1,101 @@
+   Compiling aurora-econometrica-gui v2.4.5 (D:\Docs\Aurora_Ai\Dev\Aurora_Econometrica_thinwt\src-tauri)
+error[E0061]: this function takes 3 arguments but 2 arguments were supplied
+    --> src-tauri\src\commands\report.rs:1306:52
+     |
+1306 |         let (mqs_cell, mqs_grade, mqs_tier_line) = mqs_xlsx_row(mqs, mqs_label);
+     |                                                    ^^^^^^^^^^^^---------------- argument #3 of type `bool` is missing
+     |
+note: function defined here
+    --> src-tauri\src\commands\report.rs:315:4
+     |
+ 315 | fn mqs_xlsx_row(mqs: Option<f64>, mqs_label: Option<&str>, refused: bool)
+     |    ^^^^^^^^^^^^                                            -------------
+help: provide the argument
+     |
+1306 |         let (mqs_cell, mqs_grade, mqs_tier_line) = mqs_xlsx_row(mqs, mqs_label, /* bool */);
+     |                                                                               ++++++++++++
+
+error[E0061]: this function takes 3 arguments but 2 arguments were supplied
+    --> src-tauri\src\commands\report.rs:2561:40
+     |
+2561 |         let (cell, grade, tier_line) = mqs_xlsx_row(None, None);
+     |                                        ^^^^^^^^^^^^------------ argument #3 of type `bool` is missing
+     |
+note: function defined here
+    --> src-tauri\src\commands\report.rs:315:4
+     |
+ 315 | fn mqs_xlsx_row(mqs: Option<f64>, mqs_label: Option<&str>, refused: bool)
+     |    ^^^^^^^^^^^^                                            -------------
+help: provide the argument
+     |
+2561 |         let (cell, grade, tier_line) = mqs_xlsx_row(None, None, /* bool */);
+     |                                                               ++++++++++++
+
+error[E0061]: this function takes 3 arguments but 2 arguments were supplied
+    --> src-tauri\src\commands\report.rs:2569:40
+     |
+2569 |         let (cell, grade, tier_line) = mqs_xlsx_row(Some(70.0), Some("Хорошее"));
+     |                                        ^^^^^^^^^^^^----------------------------- argument #3 of type `bool` is missing
+     |
+note: function defined here
+    --> src-tauri\src\commands\report.rs:315:4
+     |
+ 315 | fn mqs_xlsx_row(mqs: Option<f64>, mqs_label: Option<&str>, refused: bool)
+     |    ^^^^^^^^^^^^                                            -------------
+help: provide the argument
+     |
+2569 |         let (cell, grade, tier_line) = mqs_xlsx_row(Some(70.0), Some("Хорошее"), /* bool */);
+     |                                                                                ++++++++++++
+
+error[E0061]: this function takes 3 arguments but 2 arguments were supplied
+    --> src-tauri\src\commands\report.rs:2582:41
+     |
+2582 |         let (_cell, grade, tier_line) = mqs_xlsx_row(Some(70.0), Some("Хорошо"));
+     |                                         ^^^^^^^^^^^^---------------------------- argument #3 of type `bool` is missing
+     |
+note: function defined here
+    --> src-tauri\src\commands\report.rs:315:4
+     |
+ 315 | fn mqs_xlsx_row(mqs: Option<f64>, mqs_label: Option<&str>, refused: bool)
+     |    ^^^^^^^^^^^^                                            -------------
+help: provide the argument
+     |
+2582 |         let (_cell, grade, tier_line) = mqs_xlsx_row(Some(70.0), Some("Хорошо"), /* bool */);
+     |                                                                                ++++++++++++
+
+error[E0061]: this function takes 3 arguments but 2 arguments were supplied
+    --> src-tauri\src\commands\report.rs:2591:41
+     |
+2591 |         let (_cell, grade, tier_line) = mqs_xlsx_row(Some(92.0), None);
+     |                                         ^^^^^^^^^^^^------------------ argument #3 of type `bool` is missing
+     |
+note: function defined here
+    --> src-tauri\src\commands\report.rs:315:4
+     |
+ 315 | fn mqs_xlsx_row(mqs: Option<f64>, mqs_label: Option<&str>, refused: bool)
+     |    ^^^^^^^^^^^^                                            -------------
+help: provide the argument
+     |
+2591 |         let (_cell, grade, tier_line) = mqs_xlsx_row(Some(92.0), None, /* bool */);
+     |                                                                      ++++++++++++
+
+error[E0061]: this function takes 3 arguments but 2 arguments were supplied
+    --> src-tauri\src\commands\report.rs:2599:41
+     |
+2599 |         let (cell, grade, _tier_line) = mqs_xlsx_row(Some(0.0), Some("Ненадёжное"));
+     |                                         ^^^^^^^^^^^^------------------------------- argument #3 of type `bool` is missing
+     |
+note: function defined here
+    --> src-tauri\src\commands\report.rs:315:4
+     |
+ 315 | fn mqs_xlsx_row(mqs: Option<f64>, mqs_label: Option<&str>, refused: bool)
+     |    ^^^^^^^^^^^^                                            -------------
+help: provide the argument
+     |
+2599 |         let (cell, grade, _tier_line) = mqs_xlsx_row(Some(0.0), Some("Ненадёжное"), /* bool */);
+     |                                                                                   ++++++++++++
+
+For more information about this error, try `rustc --explain E0061`.
+error: could not compile `aurora-econometrica-gui` (lib) due to 1 previous error
+warning: build failed, waiting for other jobs to finish...
+error: could not compile `aurora-econometrica-gui` (lib test) due to 6 previous errors

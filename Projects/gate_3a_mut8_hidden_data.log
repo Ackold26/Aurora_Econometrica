@@ -1,0 +1,16 @@
+.............F.............                                              [100%]
+================================== FAILURES ===================================
+_________________ test_html_findings_keep_score_when_refused __________________
+sidecar\econometrica\tests\test_reliability_statement_single_source.py:241: in test_html_findings_keep_score_when_refused
+    assert "MQS 88/100" in html, html[:400]
+E   AssertionError: <section id="findings" class="section section-findings">
+E     <div class="section-kicker">ОТЧЁТ ЗА 60 СЕКУНД</div>
+E     
+E     <h2 class="action-title">Пять ключевых находок по результатам моделирования</h2>
+E     <div class="sacred-lime" aria-hidden="true"></div>
+E     <ol class="findings-list">
+E     <li><div class="finding-headline">Performance - 31% медиа-вклада при 1% бюджета</div><p class="finding-support">ROI 0.8× средневзв
+E   assert 'MQS 88/100' in '<section id="findings" class="section section-findings">\n<div class="section-kicker">ОТЧЁТ ЗА 60 СЕКУНД</div>\n\n<h2...rfall" style="height:320px;">\n    <div class="chart-skeleton" aria-hidden="true"></div>\n  </div>\n</div>\n</section>'
+=========================== short test summary info ===========================
+FAILED sidecar/econometrica/tests/test_reliability_statement_single_source.py::test_html_findings_keep_score_when_refused
+1 failed, 26 passed in 4.28s

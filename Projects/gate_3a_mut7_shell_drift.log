@@ -1,0 +1,16 @@
+.FF........................                                              [100%]
+================================== FAILURES ===================================
+____________ test_predicate_matches_optimizer_refusal[1.06-0-4000] ____________
+sidecar\econometrica\tests\test_reliability_statement_single_source.py:153: in test_predicate_matches_optimizer_refusal
+    assert actual == expected, (
+E   AssertionError: предикат отказа разошёлся с вердиктом при R-hat 1.06, дивергенций 0, черновиков 4000: предикат True, вердикт False
+E   assert True == False
+____________ test_predicate_matches_optimizer_refusal[1.05-0-4000] ____________
+sidecar\econometrica\tests\test_reliability_statement_single_source.py:153: in test_predicate_matches_optimizer_refusal
+    assert actual == expected, (
+E   AssertionError: предикат отказа разошёлся с вердиктом при R-hat 1.05, дивергенций 0, черновиков 4000: предикат True, вердикт False
+E   assert True == False
+=========================== short test summary info ===========================
+FAILED sidecar/econometrica/tests/test_reliability_statement_single_source.py::test_predicate_matches_optimizer_refusal[1.06-0-4000]
+FAILED sidecar/econometrica/tests/test_reliability_statement_single_source.py::test_predicate_matches_optimizer_refusal[1.05-0-4000]
+2 failed, 25 passed in 3.70s

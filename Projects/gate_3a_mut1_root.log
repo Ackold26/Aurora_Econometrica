@@ -1,0 +1,13 @@
+........F..................                                              [100%]
+================================== FAILURES ===================================
+___________ test_root_verdict_drops_reliability_claim_when_refused ____________
+sidecar\econometrica\tests\test_reliability_statement_single_source.py:187: in test_root_verdict_drops_reliability_claim_when_refused
+    assert RELIABILITY_STATEMENT_DEPENDABLE not in verdict, (
+E   AssertionError: расчёт не сошёлся, а вердикт утверждает надёжность: Модель объясняет 97% вариации продаж (R²). Надёжный результат для принятия бюджетных решений.
+E   assert 'Надёжный ре...ных решений.' not in 'Модель объя...ных решений.'
+E     
+E     'Надёжный результат... бюджетных решений.' is contained here:
+E       Модель объясняет 97% вариации продаж (R²). Надёжный результат для принятия бюджетных решений.
+=========================== short test summary info ===========================
+FAILED sidecar/econometrica/tests/test_reliability_statement_single_source.py::test_root_verdict_drops_reliability_claim_when_refused
+1 failed, 26 passed in 3.36s

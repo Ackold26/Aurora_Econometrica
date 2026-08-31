@@ -1,0 +1,8 @@
+﻿Линтер четверного совпадения (econometrist): cabinet.rs <-> cabinets.json <-> .claude/commands/*.md <-> command-meta-data.json
+
+Источник                         команд  
+cabinet.rs (econometrist)        8       
+cabinets.json (econometrist)     8       
+command-meta-data.json (покрыто) 8       
+
+OK: команды econometrist согласованы (cabinet.rs = cabinets.json = файлы промптов = описания в command-meta-data.json), U+2014 не найден в content-packs/*.json.

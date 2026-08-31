@@ -1,0 +1,154 @@
+   Compiling aurora-econometrica-gui v2.4.5 (D:\Docs\Aurora_Ai\Dev\Aurora_Econometrica_thinwt\src-tauri)
+warning: type alias `PathLocks` is never used
+   --> src-tauri\src\commands\content_updater.rs:978:6
+    |
+978 | type PathLocks = std::sync::Mutex<HashMap<PathBuf, std::sync::Arc<tokio::sync::Mutex<()>>>>;
+    |      ^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `vault_write_locks` is never used
+   --> src-tauri\src\commands\content_updater.rs:980:4
+    |
+980 | fn vault_write_locks() -> &'static PathLocks {
+    |    ^^^^^^^^^^^^^^^^^
+
+warning: function `vault_lock_for` is never used
+   --> src-tauri\src\commands\content_updater.rs:986:4
+    |
+986 | fn vault_lock_for(dest: &Path) -> std::sync::Arc<tokio::sync::Mutex<()>> {
+    |    ^^^^^^^^^^^^^^
+
+warning: `aurora-econometrica-gui` (lib) generated 3 warnings
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 41.48s
+     Running unittests src\lib.rs (D:/cargo-targets/ai-agency\debug\deps\aurora_econometrica_lib-38014719dd52fc59.exe)
+
+running 2 tests
+test commands::content_updater::tests::concurrent_updates_of_one_vault_keep_the_reported_contents ... FAILED
+test commands::content_updater::tests::concurrent_failed_updates_leave_the_cabinet_in_place ... FAILED
+
+failures:
+
+---- commands::content_updater::tests::concurrent_updates_of_one_vault_keep_the_reported_contents stdout ----
+
+thread 'commands::content_updater::tests::concurrent_updates_of_one_vault_keep_the_reported_contents' (60816) panicked at src-tauri\src\commands\content_updater.rs:2529:9:
+assertion `left == right` failed: на диске обязано лежать содержимое того вызова, что доложил об успешной записи
+  left: [153, 121, 134, 83, 41, 30, 254, 225, 122, 55, 177, 79, 64, 108, 129, 50, 90, 175, 212, 11, 95, 45, 80, 19, 19, 86, 164, 40, 180, 98, 180, 73, 1, 192, 105, 154, 37, 116, 211, 117, 70, 202, 7, 191, 84, 8, 202, 141, 92, 124, 75, 130, 82]
+ right: [169, 67, 167, 97, 86, 15, 178, 109, 146, 31, 37, 101, 220, 73, 165, 174, 183, 38, 141, 64, 76, 242, 86, 212, 191, 192, 227, 180, 196, 157, 0, 36, 242, 28, 225, 109, 23, 72, 10, 77, 216, 116, 37, 137, 65, 30, 81, 107, 2, 91]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- commands::content_updater::tests::concurrent_failed_updates_leave_the_cabinet_in_place stdout ----
+
+thread 'commands::content_updater::tests::concurrent_failed_updates_leave_the_cabinet_in_place' (59620) panicked at src-tauri\src\commands\content_updater.rs:2603:9:
+кабинет клиента обязан остаться на диске
+
+
+failures:
+    commands::content_updater::tests::concurrent_failed_updates_leave_the_cabinet_in_place
+    commands::content_updater::tests::concurrent_updates_of_one_vault_keep_the_reported_contents
+
+test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 402 filtered out; finished in 0.30s
+
+error: test failed, to rerun pass `--lib`
+warning: type alias `PathLocks` is never used
+   --> src-tauri\src\commands\content_updater.rs:978:6
+    |
+978 | type PathLocks = std::sync::Mutex<HashMap<PathBuf, std::sync::Arc<tokio::sync::Mutex<()>>>>;
+    |      ^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `vault_write_locks` is never used
+   --> src-tauri\src\commands\content_updater.rs:980:4
+    |
+980 | fn vault_write_locks() -> &'static PathLocks {
+    |    ^^^^^^^^^^^^^^^^^
+
+warning: function `vault_lock_for` is never used
+   --> src-tauri\src\commands\content_updater.rs:986:4
+    |
+986 | fn vault_lock_for(dest: &Path) -> std::sync::Arc<tokio::sync::Mutex<()>> {
+    |    ^^^^^^^^^^^^^^
+
+warning: `aurora-econometrica-gui` (lib) generated 3 warnings
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.69s
+     Running unittests src\lib.rs (D:/cargo-targets/ai-agency\debug\deps\aurora_econometrica_lib-38014719dd52fc59.exe)
+
+running 2 tests
+test commands::content_updater::tests::concurrent_updates_of_one_vault_keep_the_reported_contents ... FAILED
+test commands::content_updater::tests::concurrent_failed_updates_leave_the_cabinet_in_place ... FAILED
+
+failures:
+
+---- commands::content_updater::tests::concurrent_updates_of_one_vault_keep_the_reported_contents stdout ----
+
+thread 'commands::content_updater::tests::concurrent_updates_of_one_vault_keep_the_reported_contents' (14528) panicked at src-tauri\src\commands\content_updater.rs:2529:9:
+assertion `left == right` failed: на диске обязано лежать содержимое того вызова, что доложил об успешной записи
+  left: [142, 12, 19, 73, 231, 193, 188, 50, 145, 100, 34, 133, 60, 98, 52, 252, 110, 226, 85, 209, 162, 94, 200, 101, 105, 78, 96, 119, 143, 215, 250, 12, 171, 99, 184, 222, 43, 76, 27, 156, 7, 101, 214, 143, 188, 212, 11, 69, 138, 188, 125, 122, 72]
+ right: [142, 85, 48, 142, 218, 227, 26, 163, 129, 82, 13, 28, 120, 154, 54, 13, 30, 11, 152, 203, 118, 241, 235, 52, 253, 221, 240, 132, 223, 213, 160, 44, 63, 219, 166, 16, 1, 158, 114, 123, 45, 199, 61, 63, 21, 83, 248, 249, 185, 123]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- commands::content_updater::tests::concurrent_failed_updates_leave_the_cabinet_in_place stdout ----
+
+thread 'commands::content_updater::tests::concurrent_failed_updates_leave_the_cabinet_in_place' (3272) panicked at src-tauri\src\commands\content_updater.rs:2603:9:
+кабинет клиента обязан остаться на диске
+
+
+failures:
+    commands::content_updater::tests::concurrent_failed_updates_leave_the_cabinet_in_place
+    commands::content_updater::tests::concurrent_updates_of_one_vault_keep_the_reported_contents
+
+test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 402 filtered out; finished in 0.31s
+
+error: test failed, to rerun pass `--lib`
+warning: type alias `PathLocks` is never used
+   --> src-tauri\src\commands\content_updater.rs:978:6
+    |
+978 | type PathLocks = std::sync::Mutex<HashMap<PathBuf, std::sync::Arc<tokio::sync::Mutex<()>>>>;
+    |      ^^^^^^^^^
+    |
+    = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: function `vault_write_locks` is never used
+   --> src-tauri\src\commands\content_updater.rs:980:4
+    |
+980 | fn vault_write_locks() -> &'static PathLocks {
+    |    ^^^^^^^^^^^^^^^^^
+
+warning: function `vault_lock_for` is never used
+   --> src-tauri\src\commands\content_updater.rs:986:4
+    |
+986 | fn vault_lock_for(dest: &Path) -> std::sync::Arc<tokio::sync::Mutex<()>> {
+    |    ^^^^^^^^^^^^^^
+
+warning: `aurora-econometrica-gui` (lib) generated 3 warnings
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.57s
+     Running unittests src\lib.rs (D:/cargo-targets/ai-agency\debug\deps\aurora_econometrica_lib-38014719dd52fc59.exe)
+
+running 2 tests
+test commands::content_updater::tests::concurrent_updates_of_one_vault_keep_the_reported_contents ... FAILED
+test commands::content_updater::tests::concurrent_failed_updates_leave_the_cabinet_in_place ... FAILED
+
+failures:
+
+---- commands::content_updater::tests::concurrent_updates_of_one_vault_keep_the_reported_contents stdout ----
+
+thread 'commands::content_updater::tests::concurrent_updates_of_one_vault_keep_the_reported_contents' (46860) panicked at src-tauri\src\commands\content_updater.rs:2529:9:
+assertion `left == right` failed: на диске обязано лежать содержимое того вызова, что доложил об успешной записи
+  left: [149, 223, 198, 164, 223, 160, 147, 32, 233, 129, 138, 196, 33, 220, 236, 244, 138, 107, 71, 87, 184, 94, 64, 126, 206, 114, 111, 177, 188, 197, 248, 177, 132, 146, 133, 163, 119, 214, 129, 113, 14, 231, 26, 8, 10, 170, 48, 195, 78, 251, 16, 158, 168]
+ right: [117, 76, 52, 201, 114, 250, 93, 158, 150, 171, 15, 217, 117, 89, 195, 181, 44, 117, 110, 2, 155, 130, 222, 76, 178, 159, 65, 167, 25, 167, 122, 135, 74, 233, 71, 1, 115, 54, 105, 66, 118, 63, 191, 217, 84, 227, 2, 199, 171, 85]
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+---- commands::content_updater::tests::concurrent_failed_updates_leave_the_cabinet_in_place stdout ----
+
+thread 'commands::content_updater::tests::concurrent_failed_updates_leave_the_cabinet_in_place' (77496) panicked at src-tauri\src\commands\content_updater.rs:2603:9:
+кабинет клиента обязан остаться на диске
+
+
+failures:
+    commands::content_updater::tests::concurrent_failed_updates_leave_the_cabinet_in_place
+    commands::content_updater::tests::concurrent_updates_of_one_vault_keep_the_reported_contents
+
+test result: FAILED. 0 passed; 2 failed; 0 ignored; 0 measured; 402 filtered out; finished in 0.30s
+
+error: test failed, to rerun pass `--lib`

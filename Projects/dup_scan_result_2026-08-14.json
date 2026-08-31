@@ -1,0 +1,2451 @@
+{
+  "products_scanned": {
+    "Econometrica": "Aurora_Econometrica_thinwt",
+    "Legal": "_wt_legal_master",
+    "CreativeHub": "Aurora_Creative_Hub",
+    "Oracle": "_wt_oracle_gwsign",
+    "DocsLab": "ROSST_AI_DocMaster",
+    "SmartAnalytica": "ROSST_AI_Media",
+    "PRStudio": "Aurora_PR_Master",
+    "AIAgency": "AI_APP_AGENCY",
+    "MediaRadar": "Aurora_Parser"
+  },
+  "file_counts_per_product": {
+    "Econometrica": 46,
+    "Legal": 47,
+    "CreativeHub": 46,
+    "Oracle": 43,
+    "DocsLab": 51,
+    "SmartAnalytica": 51,
+    "PRStudio": 36,
+    "AIAgency": 35,
+    "MediaRadar": 46
+  },
+  "identical_files": [
+    {
+      "path": "commands/pptx_processor.rs",
+      "n_copies": 2,
+      "products": [
+        "AIAgency",
+        "PRStudio"
+      ],
+      "lines": 1418,
+      "cost": 1418
+    },
+    {
+      "path": "commands/vault.rs",
+      "n_copies": 6,
+      "products": [
+        "AIAgency",
+        "CreativeHub",
+        "Legal",
+        "MediaRadar",
+        "PRStudio",
+        "SmartAnalytica"
+      ],
+      "lines": 183,
+      "cost": 915
+    },
+    {
+      "path": "commands/license.rs",
+      "n_copies": 4,
+      "products": [
+        "AIAgency",
+        "DocsLab",
+        "MediaRadar",
+        "PRStudio"
+      ],
+      "lines": 241,
+      "cost": 723
+    },
+    {
+      "path": "commands/data_migration.rs",
+      "n_copies": 4,
+      "products": [
+        "AIAgency",
+        "CreativeHub",
+        "DocsLab",
+        "PRStudio"
+      ],
+      "lines": 200,
+      "cost": 600
+    },
+    {
+      "path": "crypto/content_sig.rs",
+      "n_copies": 3,
+      "products": [
+        "AIAgency",
+        "DocsLab",
+        "PRStudio"
+      ],
+      "lines": 296,
+      "cost": 592
+    },
+    {
+      "path": "crypto/auth_sig.rs",
+      "n_copies": 3,
+      "products": [
+        "DocsLab",
+        "Legal",
+        "SmartAnalytica"
+      ],
+      "lines": 286,
+      "cost": 572
+    },
+    {
+      "path": "commands/content_pack.rs",
+      "n_copies": 5,
+      "products": [
+        "AIAgency",
+        "CreativeHub",
+        "DocsLab",
+        "PRStudio",
+        "SmartAnalytica"
+      ],
+      "lines": 132,
+      "cost": 528
+    },
+    {
+      "path": "errors.rs",
+      "n_copies": 4,
+      "products": [
+        "AIAgency",
+        "Legal",
+        "MediaRadar",
+        "PRStudio"
+      ],
+      "lines": 174,
+      "cost": 522
+    },
+    {
+      "path": "commands/feedback.rs",
+      "n_copies": 7,
+      "products": [
+        "AIAgency",
+        "CreativeHub",
+        "DocsLab",
+        "Legal",
+        "MediaRadar",
+        "PRStudio",
+        "SmartAnalytica"
+      ],
+      "lines": 75,
+      "cost": 450
+    },
+    {
+      "path": "commands/model_backend.rs",
+      "n_copies": 4,
+      "products": [
+        "CreativeHub",
+        "MediaRadar",
+        "Oracle",
+        "PRStudio"
+      ],
+      "lines": 128,
+      "cost": 384
+    },
+    {
+      "path": "commands/parser.rs",
+      "n_copies": 4,
+      "products": [
+        "AIAgency",
+        "CreativeHub",
+        "Legal",
+        "PRStudio"
+      ],
+      "lines": 119,
+      "cost": 357
+    },
+    {
+      "path": "crypto/ed25519.rs",
+      "n_copies": 8,
+      "products": [
+        "AIAgency",
+        "CreativeHub",
+        "DocsLab",
+        "Econometrica",
+        "Legal",
+        "MediaRadar",
+        "PRStudio",
+        "SmartAnalytica"
+      ],
+      "lines": 51,
+      "cost": 357
+    },
+    {
+      "path": "crypto/fingerprint.rs",
+      "n_copies": 2,
+      "products": [
+        "CreativeHub",
+        "Legal"
+      ],
+      "lines": 320,
+      "cost": 320
+    },
+    {
+      "path": "crypto/auth_sig.rs",
+      "n_copies": 2,
+      "products": [
+        "CreativeHub",
+        "Oracle"
+      ],
+      "lines": 286,
+      "cost": 286
+    },
+    {
+      "path": "crypto/aes.rs",
+      "n_copies": 7,
+      "products": [
+        "AIAgency",
+        "CreativeHub",
+        "DocsLab",
+        "Legal",
+        "MediaRadar",
+        "PRStudio",
+        "SmartAnalytica"
+      ],
+      "lines": 47,
+      "cost": 282
+    },
+    {
+      "path": "metrics/ratings.rs",
+      "n_copies": 3,
+      "products": [
+        "AIAgency",
+        "Legal",
+        "MediaRadar"
+      ],
+      "lines": 107,
+      "cost": 214
+    },
+    {
+      "path": "commands/data_migration.rs",
+      "n_copies": 2,
+      "products": [
+        "Oracle",
+        "SmartAnalytica"
+      ],
+      "lines": 200,
+      "cost": 200
+    },
+    {
+      "path": "metrics/collector.rs",
+      "n_copies": 2,
+      "products": [
+        "AIAgency",
+        "MediaRadar"
+      ],
+      "lines": 190,
+      "cost": 190
+    },
+    {
+      "path": "metrics/audit.rs",
+      "n_copies": 3,
+      "products": [
+        "AIAgency",
+        "Legal",
+        "MediaRadar"
+      ],
+      "lines": 68,
+      "cost": 136
+    },
+    {
+      "path": "crypto/hkdf.rs",
+      "n_copies": 8,
+      "products": [
+        "AIAgency",
+        "CreativeHub",
+        "DocsLab",
+        "Econometrica",
+        "Legal",
+        "MediaRadar",
+        "PRStudio",
+        "SmartAnalytica"
+      ],
+      "lines": 15,
+      "cost": 105
+    },
+    {
+      "path": "session/history.rs",
+      "n_copies": 2,
+      "products": [
+        "AIAgency",
+        "MediaRadar"
+      ],
+      "lines": 101,
+      "cost": 101
+    },
+    {
+      "path": "session/mod.rs",
+      "n_copies": 2,
+      "products": [
+        "DocsLab",
+        "PRStudio"
+      ],
+      "lines": 84,
+      "cost": 84
+    },
+    {
+      "path": "session/cleanup.rs",
+      "n_copies": 3,
+      "products": [
+        "AIAgency",
+        "Legal",
+        "MediaRadar"
+      ],
+      "lines": 26,
+      "cost": 52
+    },
+    {
+      "path": "metrics/mod.rs",
+      "n_copies": 6,
+      "products": [
+        "AIAgency",
+        "CreativeHub",
+        "DocsLab",
+        "Legal",
+        "MediaRadar",
+        "SmartAnalytica"
+      ],
+      "lines": 4,
+      "cost": 20
+    },
+    {
+      "path": "session/mod.rs",
+      "n_copies": 3,
+      "products": [
+        "AIAgency",
+        "Legal",
+        "MediaRadar"
+      ],
+      "lines": 4,
+      "cost": 8
+    },
+    {
+      "path": "crypto/mod.rs",
+      "n_copies": 2,
+      "products": [
+        "DocsLab",
+        "Econometrica"
+      ],
+      "lines": 7,
+      "cost": 7
+    },
+    {
+      "path": "crypto/mod.rs",
+      "n_copies": 2,
+      "products": [
+        "AIAgency",
+        "PRStudio"
+      ],
+      "lines": 6,
+      "cost": 6
+    }
+  ],
+  "near_identical_files": [
+    {
+      "path": "commands/brand.rs",
+      "n_products": 9,
+      "majority_products": [
+        "Econometrica"
+      ],
+      "majority_lines": 998,
+      "variants": [
+        {
+          "product": "Econometrica",
+          "lines": 999,
+          "diff_lines": 0
+        },
+        {
+          "product": "Legal",
+          "lines": 1001,
+          "diff_lines": 9
+        },
+        {
+          "product": "CreativeHub",
+          "lines": 1094,
+          "diff_lines": 123
+        },
+        {
+          "product": "Oracle",
+          "lines": 1010,
+          "diff_lines": 31
+        },
+        {
+          "product": "DocsLab",
+          "lines": 1000,
+          "diff_lines": 8
+        },
+        {
+          "product": "SmartAnalytica",
+          "lines": 1023,
+          "diff_lines": 46
+        },
+        {
+          "product": "PRStudio",
+          "lines": 999,
+          "diff_lines": 7
+        },
+        {
+          "product": "AIAgency",
+          "lines": 1000,
+          "diff_lines": 16
+        },
+        {
+          "product": "MediaRadar",
+          "lines": 998,
+          "diff_lines": 7
+        }
+      ]
+    },
+    {
+      "path": "commands/cabinet.rs",
+      "n_products": 9,
+      "majority_products": [
+        "Econometrica"
+      ],
+      "majority_lines": 636,
+      "variants": [
+        {
+          "product": "Econometrica",
+          "lines": 637,
+          "diff_lines": 0
+        },
+        {
+          "product": "Legal",
+          "lines": 679,
+          "diff_lines": 167
+        },
+        {
+          "product": "CreativeHub",
+          "lines": 660,
+          "diff_lines": 149
+        },
+        {
+          "product": "Oracle",
+          "lines": 331,
+          "diff_lines": 389
+        },
+        {
+          "product": "DocsLab",
+          "lines": 711,
+          "diff_lines": 173
+        },
+        {
+          "product": "SmartAnalytica",
+          "lines": 880,
+          "diff_lines": 351
+        },
+        {
+          "product": "PRStudio",
+          "lines": 602,
+          "diff_lines": 62
+        },
+        {
+          "product": "AIAgency",
+          "lines": 603,
+          "diff_lines": 64
+        },
+        {
+          "product": "MediaRadar",
+          "lines": 407,
+          "diff_lines": 259
+        }
+      ]
+    },
+    {
+      "path": "commands/campaign.rs",
+      "n_products": 9,
+      "majority_products": [
+        "Econometrica"
+      ],
+      "majority_lines": 912,
+      "variants": [
+        {
+          "product": "Econometrica",
+          "lines": 913,
+          "diff_lines": 0
+        },
+        {
+          "product": "Legal",
+          "lines": 787,
+          "diff_lines": 190
+        },
+        {
+          "product": "CreativeHub",
+          "lines": 1097,
+          "diff_lines": 420
+        },
+        {
+          "product": "Oracle",
+          "lines": 766,
+          "diff_lines": 215
+        },
+        {
+          "product": "DocsLab",
+          "lines": 811,
+          "diff_lines": 138
+        },
+        {
+          "product": "SmartAnalytica",
+          "lines": 1231,
+          "diff_lines": 649
+        },
+        {
+          "product": "PRStudio",
+          "lines": 826,
+          "diff_lines": 96
+        },
+        {
+          "product": "AIAgency",
+          "lines": 752,
+          "diff_lines": 188
+        },
+        {
+          "product": "MediaRadar",
+          "lines": 751,
+          "diff_lines": 180
+        }
+      ]
+    },
+    {
+      "path": "commands/claude.rs",
+      "n_products": 9,
+      "majority_products": [
+        "Econometrica"
+      ],
+      "majority_lines": 1807,
+      "variants": [
+        {
+          "product": "Econometrica",
+          "lines": 1808,
+          "diff_lines": 0
+        },
+        {
+          "product": "Legal",
+          "lines": 4531,
+          "diff_lines": 4695
+        },
+        {
+          "product": "CreativeHub",
+          "lines": 2233,
+          "diff_lines": 2323
+        },
+        {
+          "product": "Oracle",
+          "lines": 1030,
+          "diff_lines": 1249
+        },
+        {
+          "product": "DocsLab",
+          "lines": 1629,
+          "diff_lines": 1790
+        },
+        {
+          "product": "SmartAnalytica",
+          "lines": 1201,
+          "diff_lines": 1326
+        },
+        {
+          "product": "PRStudio",
+          "lines": 750,
+          "diff_lines": 1182
+        },
+        {
+          "product": "AIAgency",
+          "lines": 749,
+          "diff_lines": 1223
+        },
+        {
+          "product": "MediaRadar",
+          "lines": 716,
+          "diff_lines": 1230
+        }
+      ]
+    },
+    {
+      "path": "commands/content_updater.rs",
+      "n_products": 9,
+      "majority_products": [
+        "Econometrica"
+      ],
+      "majority_lines": 2758,
+      "variants": [
+        {
+          "product": "Econometrica",
+          "lines": 2759,
+          "diff_lines": 0
+        },
+        {
+          "product": "Legal",
+          "lines": 1589,
+          "diff_lines": 1711
+        },
+        {
+          "product": "CreativeHub",
+          "lines": 1797,
+          "diff_lines": 1827
+        },
+        {
+          "product": "Oracle",
+          "lines": 2828,
+          "diff_lines": 3138
+        },
+        {
+          "product": "DocsLab",
+          "lines": 2127,
+          "diff_lines": 2245
+        },
+        {
+          "product": "SmartAnalytica",
+          "lines": 2251,
+          "diff_lines": 2228
+        },
+        {
+          "product": "PRStudio",
+          "lines": 1293,
+          "diff_lines": 1939
+        },
+        {
+          "product": "AIAgency",
+          "lines": 986,
+          "diff_lines": 2004
+        },
+        {
+          "product": "MediaRadar",
+          "lines": 384,
+          "diff_lines": 2440
+        }
+      ]
+    },
+    {
+      "path": "commands/feedback.rs",
+      "n_products": 9,
+      "majority_products": [
+        "AIAgency",
+        "CreativeHub",
+        "DocsLab",
+        "Legal",
+        "MediaRadar",
+        "PRStudio",
+        "SmartAnalytica"
+      ],
+      "majority_lines": 74,
+      "variants": [
+        {
+          "product": "Econometrica",
+          "lines": 75,
+          "diff_lines": 2
+        },
+        {
+          "product": "Oracle",
+          "lines": 75,
+          "diff_lines": 0
+        }
+      ]
+    },
+    {
+      "path": "commands/license.rs",
+      "n_products": 9,
+      "majority_products": [
+        "AIAgency",
+        "DocsLab",
+        "MediaRadar",
+        "PRStudio"
+      ],
+      "majority_lines": 240,
+      "variants": [
+        {
+          "product": "Econometrica",
+          "lines": 482,
+          "diff_lines": 278
+        },
+        {
+          "product": "Legal",
+          "lines": 368,
+          "diff_lines": 191
+        },
+        {
+          "product": "CreativeHub",
+          "lines": 247,
+          "diff_lines": 41
+        },
+        {
+          "product": "Oracle",
+          "lines": 282,
+          "diff_lines": 103
+        },
+        {
+          "product": "SmartAnalytica",
+          "lines": 354,
+          "diff_lines": 171
+        }
+      ]
+    },
+    {
+      "path": "commands/mod.rs",
+      "n_products": 9,
+      "majority_products": [
+        "Econometrica"
+      ],
+      "majority_lines": 90,
+      "variants": [
+        {
+          "product": "Econometrica",
+          "lines": 91,
+          "diff_lines": 0
+        },
+        {
+          "product": "Legal",
+          "lines": 28,
+          "diff_lines": 79
+        },
+        {
+          "product": "CreativeHub",
+          "lines": 31,
+          "diff_lines": 81
+        },
+        {
+          "product": "Oracle",
+          "lines": 32,
+          "diff_lines": 77
+        },
+        {
+          "product": "DocsLab",
+          "lines": 33,
+          "diff_lines": 84
+        },
+        {
+          "product": "SmartAnalytica",
+          "lines": 29,
+          "diff_lines": 82
+        },
+        {
+          "product": "PRStudio",
+          "lines": 17,
+          "diff_lines": 74
+        },
+        {
+          "product": "AIAgency",
+          "lines": 18,
+          "diff_lines": 74
+        },
+        {
+          "product": "MediaRadar",
+          "lines": 18,
+          "diff_lines": 93
+        }
+      ]
+    },
+    {
+      "path": "commands/online_auth.rs",
+      "n_products": 9,
+      "majority_products": [
+        "Econometrica"
+      ],
+      "majority_lines": 1218,
+      "variants": [
+        {
+          "product": "Econometrica",
+          "lines": 1219,
+          "diff_lines": 0
+        },
+        {
+          "product": "Legal",
+          "lines": 1073,
+          "diff_lines": 1234
+        },
+        {
+          "product": "CreativeHub",
+          "lines": 958,
+          "diff_lines": 1161
+        },
+        {
+          "product": "Oracle",
+          "lines": 1063,
+          "diff_lines": 1148
+        },
+        {
+          "product": "DocsLab",
+          "lines": 1107,
+          "diff_lines": 1368
+        },
+        {
+          "product": "SmartAnalytica",
+          "lines": 895,
+          "diff_lines": 1117
+        },
+        {
+          "product": "PRStudio",
+          "lines": 451,
+          "diff_lines": 797
+        },
+        {
+          "product": "AIAgency",
+          "lines": 498,
+          "diff_lines": 892
+        },
+        {
+          "product": "MediaRadar",
+          "lines": 388,
+          "diff_lines": 854
+        }
+      ]
+    },
+    {
+      "path": "commands/parser.rs",
+      "n_products": 9,
+      "majority_products": [
+        "AIAgency",
+        "CreativeHub",
+        "Legal",
+        "PRStudio"
+      ],
+      "majority_lines": 118,
+      "variants": [
+        {
+          "product": "Econometrica",
+          "lines": 70,
+          "diff_lines": 49
+        },
+        {
+          "product": "Oracle",
+          "lines": 77,
+          "diff_lines": 61
+        },
+        {
+          "product": "DocsLab",
+          "lines": 150,
+          "diff_lines": 86
+        },
+        {
+          "product": "SmartAnalytica",
+          "lines": 150,
+          "diff_lines": 86
+        },
+        {
+          "product": "MediaRadar",
+          "lines": 182,
+          "diff_lines": 164
+        }
+      ]
+    },
+    {
+      "path": "commands/pptx_processor.rs",
+      "n_products": 9,
+      "majority_products": [
+        "AIAgency",
+        "PRStudio"
+      ],
+      "majority_lines": 1417,
+      "variants": [
+        {
+          "product": "Econometrica",
+          "lines": 1390,
+          "diff_lines": 93
+        },
+        {
+          "product": "Legal",
+          "lines": 1425,
+          "diff_lines": 34
+        },
+        {
+          "product": "CreativeHub",
+          "lines": 1671,
+          "diff_lines": 285
+        },
+        {
+          "product": "Oracle",
+          "lines": 1639,
+          "diff_lines": 335
+        },
+        {
+          "product": "DocsLab",
+          "lines": 1420,
+          "diff_lines": 8
+        },
+        {
+          "product": "SmartAnalytica",
+          "lines": 1921,
+          "diff_lines": 547
+        },
+        {
+          "product": "MediaRadar",
+          "lines": 629,
+          "diff_lines": 824
+        }
+      ]
+    },
+    {
+      "path": "commands/updater.rs",
+      "n_products": 9,
+      "majority_products": [
+        "Econometrica"
+      ],
+      "majority_lines": 859,
+      "variants": [
+        {
+          "product": "Econometrica",
+          "lines": 860,
+          "diff_lines": 0
+        },
+        {
+          "product": "Legal",
+          "lines": 627,
+          "diff_lines": 448
+        },
+        {
+          "product": "CreativeHub",
+          "lines": 793,
+          "diff_lines": 492
+        },
+        {
+          "product": "Oracle",
+          "lines": 1618,
+          "diff_lines": 1179
+        },
+        {
+          "product": "DocsLab",
+          "lines": 1170,
+          "diff_lines": 1053
+        },
+        {
+          "product": "SmartAnalytica",
+          "lines": 758,
+          "diff_lines": 573
+        },
+        {
+          "product": "PRStudio",
+          "lines": 554,
+          "diff_lines": 416
+        },
+        {
+          "product": "AIAgency",
+          "lines": 281,
+          "diff_lines": 650
+        },
+        {
+          "product": "MediaRadar",
+          "lines": 294,
+          "diff_lines": 618
+        }
+      ]
+    },
+    {
+      "path": "commands/user_config.rs",
+      "n_products": 9,
+      "majority_products": [
+        "Econometrica"
+      ],
+      "majority_lines": 235,
+      "variants": [
+        {
+          "product": "Econometrica",
+          "lines": 236,
+          "diff_lines": 0
+        },
+        {
+          "product": "Legal",
+          "lines": 234,
+          "diff_lines": 278
+        },
+        {
+          "product": "CreativeHub",
+          "lines": 130,
+          "diff_lines": 162
+        },
+        {
+          "product": "Oracle",
+          "lines": 276,
+          "diff_lines": 238
+        },
+        {
+          "product": "DocsLab",
+          "lines": 267,
+          "diff_lines": 310
+        },
+        {
+          "product": "SmartAnalytica",
+          "lines": 163,
+          "diff_lines": 181
+        },
+        {
+          "product": "PRStudio",
+          "lines": 65,
+          "diff_lines": 171
+        },
+        {
+          "product": "AIAgency",
+          "lines": 122,
+          "diff_lines": 165
+        },
+        {
+          "product": "MediaRadar",
+          "lines": 59,
+          "diff_lines": 177
+        }
+      ]
+    },
+    {
+      "path": "commands/vault.rs",
+      "n_products": 9,
+      "majority_products": [
+        "AIAgency",
+        "CreativeHub",
+        "Legal",
+        "MediaRadar",
+        "PRStudio",
+        "SmartAnalytica"
+      ],
+      "majority_lines": 182,
+      "variants": [
+        {
+          "product": "Econometrica",
+          "lines": 183,
+          "diff_lines": 1
+        },
+        {
+          "product": "Oracle",
+          "lines": 183,
+          "diff_lines": 2
+        },
+        {
+          "product": "DocsLab",
+          "lines": 474,
+          "diff_lines": 292
+        }
+      ]
+    },
+    {
+      "path": "crypto/aes.rs",
+      "n_products": 9,
+      "majority_products": [
+        "AIAgency",
+        "CreativeHub",
+        "DocsLab",
+        "Legal",
+        "MediaRadar",
+        "PRStudio",
+        "SmartAnalytica"
+      ],
+      "majority_lines": 46,
+      "variants": [
+        {
+          "product": "Econometrica",
+          "lines": 47,
+          "diff_lines": 1
+        },
+        {
+          "product": "Oracle",
+          "lines": 47,
+          "diff_lines": 0
+        }
+      ]
+    },
+    {
+      "path": "crypto/ed25519.rs",
+      "n_products": 9,
+      "majority_products": [
+        "AIAgency",
+        "CreativeHub",
+        "DocsLab",
+        "Econometrica",
+        "Legal",
+        "MediaRadar",
+        "PRStudio",
+        "SmartAnalytica"
+      ],
+      "majority_lines": 50,
+      "variants": [
+        {
+          "product": "Oracle",
+          "lines": 51,
+          "diff_lines": 0
+        }
+      ]
+    },
+    {
+      "path": "crypto/fingerprint.rs",
+      "n_products": 9,
+      "majority_products": [
+        "CreativeHub",
+        "Legal"
+      ],
+      "majority_lines": 319,
+      "variants": [
+        {
+          "product": "Econometrica",
+          "lines": 276,
+          "diff_lines": 70
+        },
+        {
+          "product": "Oracle",
+          "lines": 229,
+          "diff_lines": 131
+        },
+        {
+          "product": "DocsLab",
+          "lines": 374,
+          "diff_lines": 59
+        },
+        {
+          "product": "SmartAnalytica",
+          "lines": 320,
+          "diff_lines": 0
+        },
+        {
+          "product": "PRStudio",
+          "lines": 248,
+          "diff_lines": 83
+        },
+        {
+          "product": "AIAgency",
+          "lines": 320,
+          "diff_lines": 4
+        },
+        {
+          "product": "MediaRadar",
+          "lines": 234,
+          "diff_lines": 101
+        }
+      ]
+    },
+    {
+      "path": "crypto/hkdf.rs",
+      "n_products": 9,
+      "majority_products": [
+        "AIAgency",
+        "CreativeHub",
+        "DocsLab",
+        "Econometrica",
+        "Legal",
+        "MediaRadar",
+        "PRStudio",
+        "SmartAnalytica"
+      ],
+      "majority_lines": 14,
+      "variants": [
+        {
+          "product": "Oracle",
+          "lines": 15,
+          "diff_lines": 0
+        }
+      ]
+    },
+    {
+      "path": "crypto/mod.rs",
+      "n_products": 9,
+      "majority_products": [
+        "DocsLab",
+        "Econometrica"
+      ],
+      "majority_lines": 6,
+      "variants": [
+        {
+          "product": "Legal",
+          "lines": 8,
+          "diff_lines": 1
+        },
+        {
+          "product": "CreativeHub",
+          "lines": 8,
+          "diff_lines": 3
+        },
+        {
+          "product": "Oracle",
+          "lines": 7,
+          "diff_lines": 0
+        },
+        {
+          "product": "SmartAnalytica",
+          "lines": 8,
+          "diff_lines": 1
+        },
+        {
+          "product": "MediaRadar",
+          "lines": 5,
+          "diff_lines": 2
+        }
+      ]
+    },
+    {
+      "path": "errors.rs",
+      "n_products": 9,
+      "majority_products": [
+        "AIAgency",
+        "Legal",
+        "MediaRadar",
+        "PRStudio"
+      ],
+      "majority_lines": 173,
+      "variants": [
+        {
+          "product": "Econometrica",
+          "lines": 181,
+          "diff_lines": 8
+        },
+        {
+          "product": "CreativeHub",
+          "lines": 228,
+          "diff_lines": 55
+        },
+        {
+          "product": "Oracle",
+          "lines": 177,
+          "diff_lines": 3
+        },
+        {
+          "product": "DocsLab",
+          "lines": 225,
+          "diff_lines": 52
+        },
+        {
+          "product": "SmartAnalytica",
+          "lines": 223,
+          "diff_lines": 49
+        }
+      ]
+    },
+    {
+      "path": "lib.rs",
+      "n_products": 9,
+      "majority_products": [
+        "Econometrica"
+      ],
+      "majority_lines": 4284,
+      "variants": [
+        {
+          "product": "Econometrica",
+          "lines": 4285,
+          "diff_lines": 0
+        },
+        {
+          "product": "Legal",
+          "lines": 5036,
+          "diff_lines": 2667
+        },
+        {
+          "product": "CreativeHub",
+          "lines": 5995,
+          "diff_lines": 3678
+        },
+        {
+          "product": "Oracle",
+          "lines": 3966,
+          "diff_lines": 1888
+        },
+        {
+          "product": "DocsLab",
+          "lines": 3776,
+          "diff_lines": 1712
+        },
+        {
+          "product": "SmartAnalytica",
+          "lines": 7214,
+          "diff_lines": 5113
+        },
+        {
+          "product": "PRStudio",
+          "lines": 3447,
+          "diff_lines": 1269
+        },
+        {
+          "product": "AIAgency",
+          "lines": 3551,
+          "diff_lines": 1441
+        },
+        {
+          "product": "MediaRadar",
+          "lines": 179,
+          "diff_lines": 4248
+        }
+      ]
+    },
+    {
+      "path": "main.rs",
+      "n_products": 9,
+      "majority_products": [
+        "Econometrica"
+      ],
+      "majority_lines": 6,
+      "variants": [
+        {
+          "product": "Econometrica",
+          "lines": 7,
+          "diff_lines": 0
+        },
+        {
+          "product": "Legal",
+          "lines": 7,
+          "diff_lines": 1
+        },
+        {
+          "product": "CreativeHub",
+          "lines": 7,
+          "diff_lines": 2
+        },
+        {
+          "product": "Oracle",
+          "lines": 7,
+          "diff_lines": 1
+        },
+        {
+          "product": "DocsLab",
+          "lines": 7,
+          "diff_lines": 1
+        },
+        {
+          "product": "SmartAnalytica",
+          "lines": 7,
+          "diff_lines": 1
+        },
+        {
+          "product": "PRStudio",
+          "lines": 7,
+          "diff_lines": 1
+        },
+        {
+          "product": "AIAgency",
+          "lines": 7,
+          "diff_lines": 1
+        },
+        {
+          "product": "MediaRadar",
+          "lines": 7,
+          "diff_lines": 1
+        }
+      ]
+    },
+    {
+      "path": "metrics/audit.rs",
+      "n_products": 9,
+      "majority_products": [
+        "AIAgency",
+        "Legal",
+        "MediaRadar"
+      ],
+      "majority_lines": 67,
+      "variants": [
+        {
+          "product": "Econometrica",
+          "lines": 72,
+          "diff_lines": 10
+        },
+        {
+          "product": "CreativeHub",
+          "lines": 142,
+          "diff_lines": 88
+        },
+        {
+          "product": "Oracle",
+          "lines": 68,
+          "diff_lines": 1
+        },
+        {
+          "product": "DocsLab",
+          "lines": 76,
+          "diff_lines": 14
+        },
+        {
+          "product": "SmartAnalytica",
+          "lines": 233,
+          "diff_lines": 173
+        },
+        {
+          "product": "PRStudio",
+          "lines": 74,
+          "diff_lines": 12
+        }
+      ]
+    },
+    {
+      "path": "metrics/collector.rs",
+      "n_products": 9,
+      "majority_products": [
+        "AIAgency",
+        "MediaRadar"
+      ],
+      "majority_lines": 189,
+      "variants": [
+        {
+          "product": "Econometrica",
+          "lines": 423,
+          "diff_lines": 269
+        },
+        {
+          "product": "Legal",
+          "lines": 192,
+          "diff_lines": 6
+        },
+        {
+          "product": "CreativeHub",
+          "lines": 287,
+          "diff_lines": 135
+        },
+        {
+          "product": "Oracle",
+          "lines": 192,
+          "diff_lines": 13
+        },
+        {
+          "product": "DocsLab",
+          "lines": 431,
+          "diff_lines": 279
+        },
+        {
+          "product": "SmartAnalytica",
+          "lines": 273,
+          "diff_lines": 119
+        },
+        {
+          "product": "PRStudio",
+          "lines": 392,
+          "diff_lines": 237
+        }
+      ]
+    },
+    {
+      "path": "metrics/mod.rs",
+      "n_products": 9,
+      "majority_products": [
+        "AIAgency",
+        "CreativeHub",
+        "DocsLab",
+        "Legal",
+        "MediaRadar",
+        "SmartAnalytica"
+      ],
+      "majority_lines": 3,
+      "variants": [
+        {
+          "product": "Econometrica",
+          "lines": 101,
+          "diff_lines": 97
+        },
+        {
+          "product": "Oracle",
+          "lines": 4,
+          "diff_lines": 0
+        },
+        {
+          "product": "PRStudio",
+          "lines": 78,
+          "diff_lines": 74
+        }
+      ]
+    },
+    {
+      "path": "metrics/ratings.rs",
+      "n_products": 9,
+      "majority_products": [
+        "AIAgency",
+        "Legal",
+        "MediaRadar"
+      ],
+      "majority_lines": 106,
+      "variants": [
+        {
+          "product": "Econometrica",
+          "lines": 321,
+          "diff_lines": 245
+        },
+        {
+          "product": "CreativeHub",
+          "lines": 201,
+          "diff_lines": 123
+        },
+        {
+          "product": "Oracle",
+          "lines": 107,
+          "diff_lines": 1
+        },
+        {
+          "product": "DocsLab",
+          "lines": 361,
+          "diff_lines": 283
+        },
+        {
+          "product": "SmartAnalytica",
+          "lines": 183,
+          "diff_lines": 110
+        },
+        {
+          "product": "PRStudio",
+          "lines": 300,
+          "diff_lines": 223
+        }
+      ]
+    },
+    {
+      "path": "session/cleanup.rs",
+      "n_products": 9,
+      "majority_products": [
+        "AIAgency",
+        "Legal",
+        "MediaRadar"
+      ],
+      "majority_lines": 25,
+      "variants": [
+        {
+          "product": "Econometrica",
+          "lines": 488,
+          "diff_lines": 477
+        },
+        {
+          "product": "CreativeHub",
+          "lines": 457,
+          "diff_lines": 446
+        },
+        {
+          "product": "Oracle",
+          "lines": 26,
+          "diff_lines": 1
+        },
+        {
+          "product": "DocsLab",
+          "lines": 482,
+          "diff_lines": 471
+        },
+        {
+          "product": "SmartAnalytica",
+          "lines": 487,
+          "diff_lines": 474
+        },
+        {
+          "product": "PRStudio",
+          "lines": 388,
+          "diff_lines": 377
+        }
+      ]
+    },
+    {
+      "path": "session/history.rs",
+      "n_products": 9,
+      "majority_products": [
+        "AIAgency",
+        "MediaRadar"
+      ],
+      "majority_lines": 100,
+      "variants": [
+        {
+          "product": "Econometrica",
+          "lines": 800,
+          "diff_lines": 734
+        },
+        {
+          "product": "Legal",
+          "lines": 266,
+          "diff_lines": 165
+        },
+        {
+          "product": "CreativeHub",
+          "lines": 879,
+          "diff_lines": 809
+        },
+        {
+          "product": "Oracle",
+          "lines": 307,
+          "diff_lines": 262
+        },
+        {
+          "product": "DocsLab",
+          "lines": 884,
+          "diff_lines": 815
+        },
+        {
+          "product": "SmartAnalytica",
+          "lines": 842,
+          "diff_lines": 776
+        },
+        {
+          "product": "PRStudio",
+          "lines": 744,
+          "diff_lines": 675
+        }
+      ]
+    },
+    {
+      "path": "session/manager.rs",
+      "n_products": 9,
+      "majority_products": [
+        "Econometrica"
+      ],
+      "majority_lines": 1249,
+      "variants": [
+        {
+          "product": "Econometrica",
+          "lines": 1250,
+          "diff_lines": 0
+        },
+        {
+          "product": "Legal",
+          "lines": 899,
+          "diff_lines": 1003
+        },
+        {
+          "product": "CreativeHub",
+          "lines": 985,
+          "diff_lines": 866
+        },
+        {
+          "product": "Oracle",
+          "lines": 674,
+          "diff_lines": 894
+        },
+        {
+          "product": "DocsLab",
+          "lines": 904,
+          "diff_lines": 889
+        },
+        {
+          "product": "SmartAnalytica",
+          "lines": 725,
+          "diff_lines": 701
+        },
+        {
+          "product": "PRStudio",
+          "lines": 917,
+          "diff_lines": 952
+        },
+        {
+          "product": "AIAgency",
+          "lines": 585,
+          "diff_lines": 894
+        },
+        {
+          "product": "MediaRadar",
+          "lines": 518,
+          "diff_lines": 865
+        }
+      ]
+    },
+    {
+      "path": "session/mod.rs",
+      "n_products": 9,
+      "majority_products": [
+        "AIAgency",
+        "Legal",
+        "MediaRadar"
+      ],
+      "majority_lines": 3,
+      "variants": [
+        {
+          "product": "Econometrica",
+          "lines": 102,
+          "diff_lines": 98
+        },
+        {
+          "product": "CreativeHub",
+          "lines": 112,
+          "diff_lines": 108
+        },
+        {
+          "product": "Oracle",
+          "lines": 70,
+          "diff_lines": 66
+        },
+        {
+          "product": "SmartAnalytica",
+          "lines": 117,
+          "diff_lines": 113
+        }
+      ]
+    },
+    {
+      "path": "commands/content_pack.rs",
+      "n_products": 8,
+      "majority_products": [
+        "AIAgency",
+        "CreativeHub",
+        "DocsLab",
+        "PRStudio",
+        "SmartAnalytica"
+      ],
+      "majority_lines": 131,
+      "variants": [
+        {
+          "product": "Econometrica",
+          "lines": 132,
+          "diff_lines": 1
+        },
+        {
+          "product": "Legal",
+          "lines": 132,
+          "diff_lines": 0
+        },
+        {
+          "product": "Oracle",
+          "lines": 183,
+          "diff_lines": 53
+        }
+      ]
+    },
+    {
+      "path": "commands/data_migration.rs",
+      "n_products": 8,
+      "majority_products": [
+        "AIAgency",
+        "CreativeHub",
+        "DocsLab",
+        "PRStudio"
+      ],
+      "majority_lines": 199,
+      "variants": [
+        {
+          "product": "Econometrica",
+          "lines": 200,
+          "diff_lines": 1
+        },
+        {
+          "product": "Legal",
+          "lines": 200,
+          "diff_lines": 0
+        }
+      ]
+    },
+    {
+      "path": "commands/diagnostics.rs",
+      "n_products": 8,
+      "majority_products": [
+        "Econometrica"
+      ],
+      "majority_lines": 391,
+      "variants": [
+        {
+          "product": "Econometrica",
+          "lines": 392,
+          "diff_lines": 0
+        },
+        {
+          "product": "Legal",
+          "lines": 393,
+          "diff_lines": 13
+        },
+        {
+          "product": "CreativeHub",
+          "lines": 388,
+          "diff_lines": 15
+        },
+        {
+          "product": "Oracle",
+          "lines": 392,
+          "diff_lines": 17
+        },
+        {
+          "product": "DocsLab",
+          "lines": 387,
+          "diff_lines": 22
+        },
+        {
+          "product": "SmartAnalytica",
+          "lines": 401,
+          "diff_lines": 27
+        },
+        {
+          "product": "PRStudio",
+          "lines": 388,
+          "diff_lines": 22
+        },
+        {
+          "product": "AIAgency",
+          "lines": 387,
+          "diff_lines": 21
+        }
+      ]
+    },
+    {
+      "path": "crypto/content_sig.rs",
+      "n_products": 8,
+      "majority_products": [
+        "AIAgency",
+        "DocsLab",
+        "PRStudio"
+      ],
+      "majority_lines": 295,
+      "variants": [
+        {
+          "product": "Econometrica",
+          "lines": 296,
+          "diff_lines": 3
+        },
+        {
+          "product": "Legal",
+          "lines": 296,
+          "diff_lines": 0
+        },
+        {
+          "product": "CreativeHub",
+          "lines": 296,
+          "diff_lines": 7
+        },
+        {
+          "product": "Oracle",
+          "lines": 300,
+          "diff_lines": 4
+        },
+        {
+          "product": "SmartAnalytica",
+          "lines": 338,
+          "diff_lines": 42
+        }
+      ]
+    },
+    {
+      "path": "commands/execution_mode.rs",
+      "n_products": 6,
+      "majority_products": [
+        "Econometrica"
+      ],
+      "majority_lines": 696,
+      "variants": [
+        {
+          "product": "Econometrica",
+          "lines": 697,
+          "diff_lines": 0
+        },
+        {
+          "product": "Legal",
+          "lines": 761,
+          "diff_lines": 129
+        },
+        {
+          "product": "CreativeHub",
+          "lines": 695,
+          "diff_lines": 70
+        },
+        {
+          "product": "Oracle",
+          "lines": 793,
+          "diff_lines": 167
+        },
+        {
+          "product": "DocsLab",
+          "lines": 1064,
+          "diff_lines": 457
+        },
+        {
+          "product": "SmartAnalytica",
+          "lines": 695,
+          "diff_lines": 73
+        }
+      ]
+    },
+    {
+      "path": "commands/gateway_executor.rs",
+      "n_products": 6,
+      "majority_products": [
+        "Econometrica"
+      ],
+      "majority_lines": 1760,
+      "variants": [
+        {
+          "product": "Econometrica",
+          "lines": 1761,
+          "diff_lines": 0
+        },
+        {
+          "product": "Legal",
+          "lines": 1656,
+          "diff_lines": 420
+        },
+        {
+          "product": "CreativeHub",
+          "lines": 2338,
+          "diff_lines": 1199
+        },
+        {
+          "product": "Oracle",
+          "lines": 1961,
+          "diff_lines": 778
+        },
+        {
+          "product": "DocsLab",
+          "lines": 1788,
+          "diff_lines": 562
+        },
+        {
+          "product": "SmartAnalytica",
+          "lines": 2179,
+          "diff_lines": 1048
+        }
+      ]
+    },
+    {
+      "path": "commands/model_backend.rs",
+      "n_products": 6,
+      "majority_products": [
+        "CreativeHub",
+        "MediaRadar",
+        "Oracle",
+        "PRStudio"
+      ],
+      "majority_lines": 127,
+      "variants": [
+        {
+          "product": "Legal",
+          "lines": 128,
+          "diff_lines": 0
+        },
+        {
+          "product": "DocsLab",
+          "lines": 179,
+          "diff_lines": 54
+        }
+      ]
+    },
+    {
+      "path": "crypto/auth_sig.rs",
+      "n_products": 6,
+      "majority_products": [
+        "DocsLab",
+        "Legal",
+        "SmartAnalytica"
+      ],
+      "majority_lines": 285,
+      "variants": [
+        {
+          "product": "Econometrica",
+          "lines": 363,
+          "diff_lines": 79
+        }
+      ]
+    },
+    {
+      "path": "durable_store.rs",
+      "n_products": 5,
+      "majority_products": [
+        "Econometrica"
+      ],
+      "majority_lines": 1348,
+      "variants": [
+        {
+          "product": "Econometrica",
+          "lines": 1349,
+          "diff_lines": 0
+        },
+        {
+          "product": "CreativeHub",
+          "lines": 1409,
+          "diff_lines": 534
+        },
+        {
+          "product": "DocsLab",
+          "lines": 1457,
+          "diff_lines": 705
+        },
+        {
+          "product": "SmartAnalytica",
+          "lines": 1338,
+          "diff_lines": 549
+        },
+        {
+          "product": "PRStudio",
+          "lines": 1340,
+          "diff_lines": 530
+        }
+      ]
+    },
+    {
+      "path": "commands/standards.rs",
+      "n_products": 3,
+      "majority_products": [
+        "Legal"
+      ],
+      "majority_lines": 242,
+      "variants": [
+        {
+          "product": "Legal",
+          "lines": 243,
+          "diff_lines": 0
+        },
+        {
+          "product": "CreativeHub",
+          "lines": 247,
+          "diff_lines": 5
+        },
+        {
+          "product": "AIAgency",
+          "lines": 243,
+          "diff_lines": 0
+        }
+      ]
+    },
+    {
+      "path": "commands/bridge.rs",
+      "n_products": 2,
+      "majority_products": [
+        "Legal"
+      ],
+      "majority_lines": 403,
+      "variants": [
+        {
+          "product": "Legal",
+          "lines": 404,
+          "diff_lines": 0
+        },
+        {
+          "product": "DocsLab",
+          "lines": 389,
+          "diff_lines": 136
+        }
+      ]
+    },
+    {
+      "path": "commands/creative_processor.rs",
+      "n_products": 2,
+      "majority_products": [
+        "CreativeHub"
+      ],
+      "majority_lines": 889,
+      "variants": [
+        {
+          "product": "CreativeHub",
+          "lines": 890,
+          "diff_lines": 0
+        },
+        {
+          "product": "SmartAnalytica",
+          "lines": 783,
+          "diff_lines": 930
+        }
+      ]
+    },
+    {
+      "path": "commands/gateway.rs",
+      "n_products": 2,
+      "majority_products": [
+        "Legal"
+      ],
+      "majority_lines": 640,
+      "variants": [
+        {
+          "product": "Legal",
+          "lines": 641,
+          "diff_lines": 0
+        },
+        {
+          "product": "DocsLab",
+          "lines": 661,
+          "diff_lines": 65
+        }
+      ]
+    },
+    {
+      "path": "commands/gguf_model.rs",
+      "n_products": 2,
+      "majority_products": [
+        "Legal"
+      ],
+      "majority_lines": 327,
+      "variants": [
+        {
+          "product": "Legal",
+          "lines": 328,
+          "diff_lines": 0
+        },
+        {
+          "product": "DocsLab",
+          "lines": 328,
+          "diff_lines": 0
+        }
+      ]
+    },
+    {
+      "path": "commands/md_to_docx.rs",
+      "n_products": 2,
+      "majority_products": [
+        "Legal"
+      ],
+      "majority_lines": 1728,
+      "variants": [
+        {
+          "product": "Legal",
+          "lines": 1729,
+          "diff_lines": 0
+        },
+        {
+          "product": "CreativeHub",
+          "lines": 1854,
+          "diff_lines": 316
+        }
+      ]
+    },
+    {
+      "path": "commands/report_processor.rs",
+      "n_products": 2,
+      "majority_products": [
+        "Oracle"
+      ],
+      "majority_lines": 456,
+      "variants": [
+        {
+          "product": "Oracle",
+          "lines": 457,
+          "diff_lines": 0
+        },
+        {
+          "product": "SmartAnalytica",
+          "lines": 915,
+          "diff_lines": 1086
+        }
+      ]
+    },
+    {
+      "path": "commands/ru_resident_key.rs",
+      "n_products": 2,
+      "majority_products": [
+        "Legal"
+      ],
+      "majority_lines": 106,
+      "variants": [
+        {
+          "product": "Legal",
+          "lines": 107,
+          "diff_lines": 0
+        },
+        {
+          "product": "DocsLab",
+          "lines": 107,
+          "diff_lines": 2
+        }
+      ]
+    },
+    {
+      "path": "commands/whisper_model.rs",
+      "n_products": 2,
+      "majority_products": [
+        "CreativeHub"
+      ],
+      "majority_lines": 262,
+      "variants": [
+        {
+          "product": "CreativeHub",
+          "lines": 263,
+          "diff_lines": 0
+        },
+        {
+          "product": "SmartAnalytica",
+          "lines": 1435,
+          "diff_lines": 1230
+        }
+      ]
+    },
+    {
+      "path": "crypto/update_sig.rs",
+      "n_products": 2,
+      "majority_products": [
+        "CreativeHub"
+      ],
+      "majority_lines": 272,
+      "variants": [
+        {
+          "product": "CreativeHub",
+          "lines": 273,
+          "diff_lines": 0
+        },
+        {
+          "product": "SmartAnalytica",
+          "lines": 276,
+          "diff_lines": 21
+        }
+      ]
+    },
+    {
+      "path": "parser_sidecar.rs",
+      "n_products": 2,
+      "majority_products": [
+        "DocsLab"
+      ],
+      "majority_lines": 778,
+      "variants": [
+        {
+          "product": "DocsLab",
+          "lines": 779,
+          "diff_lines": 0
+        },
+        {
+          "product": "SmartAnalytica",
+          "lines": 719,
+          "diff_lines": 125
+        }
+      ]
+    },
+    {
+      "path": "port_discovery.rs",
+      "n_products": 2,
+      "majority_products": [
+        "DocsLab"
+      ],
+      "majority_lines": 1638,
+      "variants": [
+        {
+          "product": "DocsLab",
+          "lines": 1639,
+          "diff_lines": 0
+        },
+        {
+          "product": "SmartAnalytica",
+          "lines": 1455,
+          "diff_lines": 766
+        }
+      ]
+    },
+    {
+      "path": "rag_sidecar.rs",
+      "n_products": 2,
+      "majority_products": [
+        "DocsLab"
+      ],
+      "majority_lines": 826,
+      "variants": [
+        {
+          "product": "DocsLab",
+          "lines": 827,
+          "diff_lines": 0
+        },
+        {
+          "product": "SmartAnalytica",
+          "lines": 757,
+          "diff_lines": 146
+        }
+      ]
+    },
+    {
+      "path": "win_acl.rs",
+      "n_products": 2,
+      "majority_products": [
+        "Econometrica"
+      ],
+      "majority_lines": 438,
+      "variants": [
+        {
+          "product": "Econometrica",
+          "lines": 439,
+          "diff_lines": 0
+        },
+        {
+          "product": "SmartAnalytica",
+          "lines": 459,
+          "diff_lines": 78
+        }
+      ]
+    }
+  ],
+  "unique_files": [
+    {
+      "path": "commands/handoff.rs",
+      "product": "CreativeHub",
+      "lines": 436
+    },
+    {
+      "path": "commands/model_fetch.rs",
+      "product": "CreativeHub",
+      "lines": 373
+    },
+    {
+      "path": "commands/docbatch.rs",
+      "product": "DocsLab",
+      "lines": 408
+    },
+    {
+      "path": "commands/orders.rs",
+      "product": "DocsLab",
+      "lines": 355
+    },
+    {
+      "path": "commands/requisites.rs",
+      "product": "DocsLab",
+      "lines": 250
+    },
+    {
+      "path": "early_log.rs",
+      "product": "DocsLab",
+      "lines": 227
+    },
+    {
+      "path": "proc.rs",
+      "product": "DocsLab",
+      "lines": 38
+    },
+    {
+      "path": "commands/econometrica.rs",
+      "product": "Econometrica",
+      "lines": 1028
+    },
+    {
+      "path": "commands/mqs_tiers.rs",
+      "product": "Econometrica",
+      "lines": 255
+    },
+    {
+      "path": "commands/project.rs",
+      "product": "Econometrica",
+      "lines": 1322
+    },
+    {
+      "path": "commands/rag_client.rs",
+      "product": "Econometrica",
+      "lines": 186
+    },
+    {
+      "path": "commands/report.rs",
+      "product": "Econometrica",
+      "lines": 3733
+    },
+    {
+      "path": "econ_sidecar.rs",
+      "product": "Econometrica",
+      "lines": 789
+    },
+    {
+      "path": "sidecar_runtime.rs",
+      "product": "Econometrica",
+      "lines": 1387
+    },
+    {
+      "path": "commands/corpus_fetch.rs",
+      "product": "Legal",
+      "lines": 683
+    },
+    {
+      "path": "commands/legal_rag.rs",
+      "product": "Legal",
+      "lines": 542
+    },
+    {
+      "path": "crypto/corpus_sig.rs",
+      "product": "Legal",
+      "lines": 236
+    },
+    {
+      "path": "commands/alerts.rs",
+      "product": "MediaRadar",
+      "lines": 132
+    },
+    {
+      "path": "commands/brands.rs",
+      "product": "MediaRadar",
+      "lines": 115
+    },
+    {
+      "path": "commands/data.rs",
+      "product": "MediaRadar",
+      "lines": 180
+    },
+    {
+      "path": "commands/export.rs",
+      "product": "MediaRadar",
+      "lines": 475
+    },
+    {
+      "path": "commands/insights.rs",
+      "product": "MediaRadar",
+      "lines": 387
+    },
+    {
+      "path": "commands/integration.rs",
+      "product": "MediaRadar",
+      "lines": 110
+    },
+    {
+      "path": "commands/projects.rs",
+      "product": "MediaRadar",
+      "lines": 90
+    },
+    {
+      "path": "commands/rag.rs",
+      "product": "MediaRadar",
+      "lines": 116
+    },
+    {
+      "path": "commands/schedule.rs",
+      "product": "MediaRadar",
+      "lines": 113
+    },
+    {
+      "path": "commands/sources.rs",
+      "product": "MediaRadar",
+      "lines": 62
+    },
+    {
+      "path": "db/mod.rs",
+      "product": "MediaRadar",
+      "lines": 19
+    },
+    {
+      "path": "db/queries.rs",
+      "product": "MediaRadar",
+      "lines": 1502
+    },
+    {
+      "path": "db/schema.rs",
+      "product": "MediaRadar",
+      "lines": 197
+    },
+    {
+      "path": "scheduler.rs",
+      "product": "MediaRadar",
+      "lines": 205
+    },
+    {
+      "path": "sidecar.rs",
+      "product": "MediaRadar",
+      "lines": 184
+    },
+    {
+      "path": "commands/audience_library.rs",
+      "product": "Oracle",
+      "lines": 906
+    },
+    {
+      "path": "commands/persona_chat.rs",
+      "product": "Oracle",
+      "lines": 2003
+    },
+    {
+      "path": "commands/report_signer.rs",
+      "product": "Oracle",
+      "lines": 287
+    },
+    {
+      "path": "commands/service_discovery.rs",
+      "product": "Oracle",
+      "lines": 67
+    },
+    {
+      "path": "commands/critic_processor.rs",
+      "product": "SmartAnalytica",
+      "lines": 283
+    },
+    {
+      "path": "metrics/metrics/audit.rs",
+      "product": "SmartAnalytica",
+      "lines": 68
+    },
+    {
+      "path": "metrics/metrics/collector.rs",
+      "product": "SmartAnalytica",
+      "lines": 190
+    },
+    {
+      "path": "metrics/metrics/mod.rs",
+      "product": "SmartAnalytica",
+      "lines": 4
+    },
+    {
+      "path": "metrics/metrics/ratings.rs",
+      "product": "SmartAnalytica",
+      "lines": 107
+    }
+  ],
+  "summary": {
+    "total_paths_seen": 94,
+    "identical_group_count": 27,
+    "identical_total_lines_all_copies": 14197,
+    "total_dup_cost_lines": 9429,
+    "core_ge3_products_file_count": 18,
+    "core_ge3_lines_one_copy": 2156,
+    "core_ge3_dup_cost_lines": 6817,
+    "unique_file_count": 41
+  }
+}

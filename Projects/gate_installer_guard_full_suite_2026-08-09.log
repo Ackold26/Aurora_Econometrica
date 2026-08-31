@@ -1,0 +1,89 @@
+
+ RUN  v4.1.2 D:/Docs/Aurora_Ai/Dev/Aurora_Econometrica_thinwt
+
+ ✓ tools/__tests__/check-installer-edition.test.mjs > countBoundedOccurrences — ловушка префикса > короткий identifier НЕ засчитывается, если он на деле начало длинного 1ms
+ ✓ tools/__tests__/check-installer-edition.test.mjs > countBoundedOccurrences — ловушка префикса > та же ловушка для отставного .thin 0ms
+ ✓ tools/__tests__/check-installer-edition.test.mjs > countBoundedOccurrences — ловушка префикса > живая форма бинарника: identifier без разделителя рядом с ЧУЖОЙ строкой на букву — считается 0ms
+ ✓ tools/__tests__/check-installer-edition.test.mjs > countBoundedOccurrences — ловушка префикса > самостоятельный короткий identifier засчитывается, когда за ним нет продолжения из реестра 0ms
+ ✓ tools/__tests__/check-installer-edition.test.mjs > checkInstallerEdition > ожидаемая редакция найдена → успех 2ms
+ ✓ tools/__tests__/check-installer-edition.test.mjs > checkInstallerEdition > чужая редакция найдена → провал 3ms
+ ✓ tools/__tests__/check-installer-edition.test.mjs > checkInstallerEdition > ожидаемая редакция отсутствует → провал 2ms
+ ✓ tools/__tests__/check-installer-edition.test.mjs > checkInstallerEdition > префиксный случай: локальный установщик, проверенный КАК универсальный, → провал 2ms
+ ✓ tools/__tests__/check-installer-edition.test.mjs > checkInstallerEdition > тот же установщик, проверенный как локальный, → успех (несмотря на общий префикс) 1ms
+ ✓ tools/__tests__/check-installer-edition.test.mjs > checkInstallerEdition > UTF-16LE находится наравне с UTF-8 1ms
+ ✓ tools/__tests__/check-installer-edition.test.mjs > checkInstallerEdition > неизвестная редакция на входе → провал с понятным сообщением 1ms
+ ✓ tools/__tests__/check-installer-edition.test.mjs > checkInstallerEdition > файл не найден → провал, не исключение 0ms
+ ✓ tools/__tests__/check-installer-edition.test.mjs > countAcrossEncodings > суммирует вхождения из ОБЕИХ кодировок сразу 0ms
+stdout | tools/__tests__/build-cloud.test.mjs > verifyGatewaySource — ветка пути (регресс после выноса общей сверки в П-5) > молчит, когда каталог содержит нужный состав — имена и методы
+[облачная сборка] крейт шлюза проверен: C:\Users\ackol\AppData\Local\Temp\gw-path-oqM1Ce (продукт берёт 17 имён, все на месте)
+
+ ✓ tools/__tests__/build-cloud.test.mjs > gatewaySurface > извлекает имена и из pub use { … }, и из pub mod 1ms
+ ✓ tools/__tests__/build-cloud.test.mjs > assertContractSurface > молчит, когда поверхность содержит все имена, которые продукт реально зовёт 34ms
+ ✓ tools/__tests__/build-cloud.test.mjs > assertContractSurface > краснеет и называет имя, которого поверхность лишилась 14ms
+ ✓ tools/__tests__/build-cloud.test.mjs > verifyGatewaySource — ветка пути (регресс после выноса общей сверки в П-5) > молчит, когда каталог содержит нужный состав — имена и методы 35ms
+ ✓ tools/__tests__/build-cloud.test.mjs > verifyGatewaySource — ветка пути (регресс после выноса общей сверки в П-5) > краснеет, когда в каталоге не хватает имени, которое продукт зовёт 16ms
+stdout | tools/__tests__/build-cloud.test.mjs > verifyGatewaySource — ветка метки (находка П-5, аудит 4) > молчит на метке с полным составом контракта
+[облачная сборка] крейт шлюза берётся по метке good-tag (метка на месте, запись 4ffff58034f3)
+[облачная сборка] контракт по метке good-tag проверен (продукт берёт 17 имён, все на месте)
+
+ ✓ tools/__tests__/build-cloud.test.mjs > verifyGatewaySource — ветка метки (находка П-5, аудит 4) > молчит на метке с полным составом контракта 301ms
+stdout | tools/__tests__/build-cloud.test.mjs > verifyGatewaySource — ветка метки (находка П-5, аудит 4) > красит на метке, где не хватает имени, которое продукт реально зовёт
+[облачная сборка] крейт шлюза берётся по метке bad-tag (метка на месте, запись ebee26f6a800)
+
+ ✓ tools/__tests__/build-cloud.test.mjs > verifyGatewaySource — ветка метки (находка П-5, аудит 4) > красит на метке, где не хватает имени, которое продукт реально зовёт 271ms
+ ✓ tools/__tests__/build-cloud.test.mjs > verifyGatewaySource — ветка метки (находка П-5, аудит 4) > краснеет и на несуществующей метке — живость метки проверяется первым делом 96ms
+ ✓ tools/__tests__/build-cloud.test.mjs > definedFunctionNames > находит pub fn в любом файле дерева, включая вложенные каталоги и impl-блоки 3ms
+ ✓ tools/__tests__/build-cloud.test.mjs > usedGatewayMethods (находка П-5, продолжение — аудит 4) > находит хотя бы один реально вызванный метод из KNOWN_GATEWAY_METHODS 10ms
+ ✓ tools/__tests__/build-cloud.test.mjs > assertContractMethods > молчит, когда определения крейта содержат все вызванные методы на своих типах 20ms
+ ✓ tools/__tests__/build-cloud.test.mjs > assertContractMethods > краснеет и называет метод, которого крейт не содержит — ровно форма беды is_resend_inputs на v0.5.0 18ms
+ ✓ tools/__tests__/build-cloud.test.mjs > assertContractMethods > краснеет, когда метод есть, но на ЧУЖОМ типе 17ms
+stdout | tools/__tests__/build-cloud.test.mjs > verifyGatewaySource — метод общего слоя отсутствует в крейте (находка П-5, продолжение) > молчит на метке, где определены все вызванные методы
+[облачная сборка] крейт шлюза берётся по метке methods-good (метка на месте, запись 26c7a158a853)
+[облачная сборка] контракт по метке methods-good проверен (продукт берёт 17 имён, все на месте)
+
+ ✓ tools/__tests__/build-cloud.test.mjs > verifyGatewaySource — метод общего слоя отсутствует в крейте (находка П-5, продолжение) > молчит на метке, где определены все вызванные методы 298ms
+stdout | tools/__tests__/build-cloud.test.mjs > verifyGatewaySource — метод общего слоя отсутствует в крейте (находка П-5, продолжение) > красит на метке, где не хватает метода, который продукт реально зовёт
+[облачная сборка] крейт шлюза берётся по метке methods-bad (метка на месте, запись 6006fe718e36)
+
+ ✓ tools/__tests__/build-cloud.test.mjs > verifyGatewaySource — метод общего слоя отсутствует в крейте (находка П-5, продолжение) > красит на метке, где не хватает метода, который продукт реально зовёт 322ms
+stdout | tools/__tests__/build-cloud.test.mjs > assertBuiltFromTag (High пятого аудита: гейт сверял клон, cargo собирал по замку) > молчит, когда собрано ровно по той записи, на которую метка указывает сейчас
+[облачная сборка] сборка взяла крейт по метке v0.6.1 на записи aaaaaaaaaaaa — совпало с меткой в репозитории
+
+ ✓ tools/__tests__/build-cloud.test.mjs > checkFrontendTypes вызывается не только в --test (находка П-4, аудит 4) > main() зовёт её безусловно, а не только при testOnly 1ms
+ ✓ tools/__tests__/build-cloud.test.mjs > definedFunctionNames — три способа промолчать (High пятого аудита) > видит pub async fn и pub const fn — иначе ложное КРАСНОЕ на исправном крейте 2ms
+ ✓ tools/__tests__/build-cloud.test.mjs > definedFunctionNames — три способа промолчать (High пятого аудита) > видит pub extern "C" fn — кавычки к этому месту уже погашены 2ms
+ ✓ tools/__tests__/build-cloud.test.mjs > definedFunctionNames — три способа промолчать (High пятого аудита) > НЕ считает объявлением помощника из тестового модуля 2ms
+ ✓ tools/__tests__/build-cloud.test.mjs > definedFunctionNames — три способа промолчать (High пятого аудита) > различает одноимённые методы разных типов 2ms
+ ✓ tools/__tests__/build-cloud.test.mjs > definedFunctionNames — три способа промолчать (High пятого аудита) > НЕ считает объявлением pub(crate) fn — снаружи такой метод недоступен 2ms
+ ✓ tools/__tests__/build-cloud.test.mjs > definedFunctionNames — три способа промолчать (High пятого аудита) > не обманывается объявлением внутри строки или комментария 2ms
+ ✓ tools/__tests__/build-cloud.test.mjs > stripTestModules > гасит тело #[cfg(test)] и НЕ уносит с собой живой код ниже 0ms
+ ✓ tools/__tests__/build-cloud.test.mjs > stripTestModules > объявление БЕЗ тела (mod tests;) не прячет следующий блок 0ms
+ ✓ tools/__tests__/build-cloud.test.mjs > stripTestModules > гасит и второй тестовый модуль, а не только первый 0ms
+ ✓ tools/__tests__/build-cloud.test.mjs > implTypeName > снимает дженерики, путь и форму "for" 0ms
+ ✓ tools/__tests__/build-cloud.test.mjs > tagCommitFromLsRemote (High пятого аудита: запись метки) > у аннотированной метки берёт разыменованную запись, а не объект метки 0ms
+ ✓ tools/__tests__/build-cloud.test.mjs > tagCommitFromLsRemote (High пятого аудита: запись метки) > берёт запись по признаку ^{}, а не по месту строки в ответе 0ms
+ ✓ tools/__tests__/build-cloud.test.mjs > tagCommitFromLsRemote (High пятого аудита: запись метки) > у лёгкой метки берёт единственную строку 0ms
+ ✓ tools/__tests__/build-cloud.test.mjs > tagCommitFromLsRemote (High пятого аудита: запись метки) > не путает метку с чужой, чьё имя начинается так же 0ms
+ ✓ tools/__tests__/build-cloud.test.mjs > lockedGatewayCommit (High пятого аудита: чем собрано на самом деле) > читает метку и запись из строки источника 0ms
+ ✓ tools/__tests__/build-cloud.test.mjs > lockedGatewayCommit (High пятого аудита: чем собрано на самом деле) > отдаёт null, когда крейта в замке нет вовсе 0ms
+ ✓ tools/__tests__/build-cloud.test.mjs > lockedGatewayCommit (High пятого аудита: чем собрано на самом деле) > НЕ выдаёт запись, когда источник не по метке — форму, которую не понял, гейт обязан назвать 0ms
+ ✓ tools/__tests__/build-cloud.test.mjs > assertBuiltFromTag (High пятого аудита: гейт сверял клон, cargo собирал по замку) > молчит, когда собрано ровно по той записи, на которую метка указывает сейчас 1ms
+ ✓ tools/__tests__/build-cloud.test.mjs > assertBuiltFromTag (High пятого аудита: гейт сверял клон, cargo собирал по замку) > краснеет, когда замок держит ПРЕЖНЮЮ запись той же метки — метку переставили 0ms
+ ✓ tools/__tests__/build-cloud.test.mjs > assertBuiltFromTag (High пятого аудита: гейт сверял клон, cargo собирал по замку) > краснеет, когда собрано по ДРУГОЙ метке 0ms
+ ✓ tools/__tests__/build-cloud.test.mjs > assertBuiltFromTag (High пятого аудита: гейт сверял клон, cargo собирал по замку) > краснеет, когда крейта в замке нет вовсе — доказать нечем 0ms
+stdout | tools/__tests__/build-cloud.test.mjs > ветка метки на НАСТОЯЩЕМ вызове git (метки Core аннотированные) > возвращает запись КОММИТА, а не объекта метки
+[облачная сборка] крейт шлюза берётся по метке annotated-tag (метка на месте, запись 3a38c28be03e)
+[облачная сборка] контракт по метке annotated-tag проверен (продукт берёт 17 имён, все на месте)
+
+ ✓ tools/__tests__/build-cloud.test.mjs > ветка метки на НАСТОЯЩЕМ вызове git (метки Core аннотированные) > возвращает запись КОММИТА, а не объекта метки 427ms
+ ✓ tools/__tests__/build-cloud.test.mjs > порядок сверки в main (иначе доказывать нечем) > assertBuiltFromTag зовётся ДО восстановления дерева 1ms
+ ✓ tools/__tests__/build-cloud.test.mjs > startedDirectly (High пятого аудита: гард запуска на junction) > узнаёт прямой запуск по обычному пути 0ms
+ ✓ tools/__tests__/build-cloud.test.mjs > startedDirectly (High пятого аудита: гард запуска на junction) > не считает прямым запуском чужой файл 1ms
+ ✓ tools/__tests__/build-cloud.test.mjs > startedDirectly (High пятого аудита: гард запуска на junction) > узнаёт запуск через junction/символическую ссылку на каталог 32ms
+
+ Test Files  2 passed (2)
+      Tests  55 passed (55)
+   Start at  22:30:15
+   Duration  4.96s (transform 142ms, setup 211ms, import 165ms, tests 3.58s, environment 2.10s)
+
+EXIT_CODE=0

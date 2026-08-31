@@ -1,0 +1,20 @@
+﻿cargo :    Compiling aurora-econometrica-gui v2.4.5 (D:\Docs\Aurora_Ai\Dev\Aurora_Econometrica_thinw
+t\src-tauri)
+At line:1 char:429
++ ... rora_Econometrica_thinwt/src-tauri"; cargo check --tests 2>&1 | Out-F ...
++                                          ~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (   Compiling au...inwt\src-tauri):String) [], RemoteEx 
+   ception
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+warning: function `candidate_names` is never used
+    --> src-tauri\src\commands\claude.rs:1568:15
+     |
+1568 | pub(crate) fn candidate_names() -> &'static [&'static str] {
+     |               ^^^^^^^^^^^^^^^
+     |
+     = note: `#[warn(dead_code)]` (part of `#[warn(unused)]`) on by default
+
+warning: `aurora-econometrica-gui` (lib) generated 1 warning
+warning: `aurora-econometrica-gui` (lib test) generated 1 warning (1 duplicate)
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 27.90s

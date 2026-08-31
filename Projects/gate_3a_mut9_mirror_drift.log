@@ -1,0 +1,17 @@
+F...                                                                     [100%]
+================================== FAILURES ===================================
+_________________ test_rust_mirrors_python_statement_verbatim _________________
+sidecar\econometrica\tests\test_reliability_statement_mirror.py:71: in test_rust_mirrors_python_statement_verbatim
+    assert rust == RELIABILITY_STATEMENT_REFUSED, (
+E   AssertionError: фраза о применимости разошлась между Python и Rust — клиент получит РАЗНЫЙ текст по одной модели в разных форматах.
+E       Python: Расчёт не сошёлся – цифры показаны как есть, но опираться на них при распределении бюджета рано; переобучите модель.
+E       Rust:   Расчёт не сошёлся – цифры показаны как есть, но опираться на них при распределении бюджета рано; переобучите модель. Результаты использовать нельзя.
+E     Единый источник — utils/diagnostics.py::RELIABILITY_STATEMENT_REFUSED, правьте его и зеркальте в report.rs.
+E   assert 'Расчёт не со...овать нельзя.' == 'Расчёт не со...учите модель.'
+E     
+E     Skipping 105 identical leading characters in diff, use -v to show
+E     - ите модель.
+E     + ите модель. Результаты использовать нельзя.
+=========================== short test summary info ===========================
+FAILED sidecar/econometrica/tests/test_reliability_statement_mirror.py::test_rust_mirrors_python_statement_verbatim
+1 failed, 3 passed in 0.27s

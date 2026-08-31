@@ -1,0 +1,13 @@
+...........F...............                                              [100%]
+================================== FAILURES ===================================
+________________ test_long_chains_do_not_produce_false_refusal ________________
+sidecar\econometrica\tests\test_reliability_statement_single_source.py:222: in test_long_chains_do_not_produce_false_refusal
+    assert RELIABILITY_STATEMENT_REFUSED not in summary["verdict"], summary["verdict"]
+E   AssertionError: Модель объясняет 97% вариации продаж (R²). Расчёт не сошёлся – цифры показаны как есть, но опираться на них при распределении бюджета рано; переобучите модель.
+E   assert 'Расчёт не с...чите модель.' not in 'Модель объя...чите модель.'
+E     
+E     'Расчёт не сошёлся ...переобучите модель.' is contained here:
+E       Модель объясняет 97% вариации продаж (R²). Расчёт не сошёлся – цифры показаны как есть, но опираться на них при распределении бюджета рано; переобучите модель.
+=========================== short test summary info ===========================
+FAILED sidecar/econometrica/tests/test_reliability_statement_single_source.py::test_long_chains_do_not_produce_false_refusal
+1 failed, 26 passed in 4.09s

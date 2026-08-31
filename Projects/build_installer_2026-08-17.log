@@ -1,0 +1,30 @@
+
+> aurora-ai-agency@2.5.0 tauri:build:thin
+> node tools/build-cloud.mjs
+
+[облачная сборка] крейт шлюза берётся по метке aurora_gateway-v0.6.5 (метка на месте, запись bc955c0e74b5)
+[облачная сборка] контракт по метке aurora_gateway-v0.6.5 проверен (продукт берёт 17 имён, все на месте)
+[облачная сборка] проверяю типы фронта (svelte-check)
+[облачная сборка] типы фронта в порядке
+[облачная сборка] манифест собран (базовый + фрагмент), запускаю сборку
+[облачная сборка] ⚠ настройка сборки D:\Docs\Aurora_Ai\Dev\Aurora_Econometrica_thinwt\src-tauri\tauri.thin.conf.json переопределяет productName и identifier (productName="Optimizer MMM", identifier="com.aurora.econometrica.thin"), но сборкой НЕ накладывается (ADR-049 §2) — дефекта нет. Вернёте наложение — получите второй продукт у клиента, проверка станет отказом
+(node:29048) [DEP0190] DeprecationWarning: Passing args to a child process with shell option true can lead to security vulnerabilities, as the arguments are not escaped, only concatenated.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+        Info Looking up installed tauri packages to check mismatched versions...
+     Running beforeBuildCommand `npm run check:manifest && npm run build`
+
+> aurora-ai-agency@2.5.0 check:manifest
+> node tools/check-manifest-clean.mjs
+
+
+[проверка манифеста] ОТКАЗ: дерево хранит следы облачной сборки
+  – обычный манифест упоминает крейт шлюза — в дереве осталась подмена от облачной сборки. Верните файл из системы контроля версий: git checkout -- src-tauri/Cargo.toml
+  – остался служебный файл облачной сборки: D:\Docs\Aurora_Ai\Dev\Aurora_Econometrica_thinwt\src-tauri\Cargo.toml.pre-cloud
+  – остался служебный файл облачной сборки: D:\Docs\Aurora_Ai\Dev\Aurora_Econometrica_thinwt\Cargo.lock.pre-cloud
+  – облачная сборка идёт прямо сейчас (процесс 29048, начата 2026-08-17T08:36:40.561Z) — манифест подменён на время прогона. Дождитесь её окончания и повторите проверку
+
+beforeBuildCommand `npm run check:manifest && npm run build` failed with exit code 1
+       Error beforeBuildCommand `npm run check:manifest && npm run build` failed with exit code 1
+[облачная сборка] обычный манифест восстановлен (сборка закончена)
+
+[облачная сборка] ОТКАЗ: сборка завершилась с кодом 1

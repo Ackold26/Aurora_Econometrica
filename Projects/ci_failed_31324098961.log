@@ -1,0 +1,462 @@
+Python Tests	UNKNOWN STEP	﻿2026-08-09T16:33:32.3031540Z Current runner version: '2.336.0'
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:32.3055947Z ##[group]Runner Image Provisioner
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:32.3056924Z Hosted Compute Agent
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:32.3057537Z Version: 20260707.563
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:32.3058201Z Commit: 02667638d2b423fbc733a8e32a88b44996a3ba6e
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:32.3059003Z Build Date: 2026-07-07T19:33:50Z
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:32.3059949Z Worker ID: {7b71efbc-cd70-4e69-9d6f-19783fe7b1bb}
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:32.3060739Z Azure Region: westus
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:32.3061328Z ##[endgroup]
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:32.3062791Z ##[group]Operating System
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:32.3063548Z Ubuntu
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:32.3064116Z 24.04.4
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:32.3064658Z LTS
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:32.3065271Z ##[endgroup]
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:32.3065813Z ##[group]Runner Image
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:32.3066446Z Image: ubuntu-24.04
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:32.3067028Z Version: 20260720.247.2
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:32.3068359Z Included Software: https://github.com/actions/runner-images/blob/ubuntu24/20260720.247/images/ubuntu/Ubuntu2404-Readme.md
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:32.3070180Z Image Release: https://github.com/actions/runner-images/releases/tag/ubuntu24%2F20260720.247
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:32.3071566Z ##[endgroup]
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:32.3072721Z ##[group]GITHUB_TOKEN Permissions
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:32.3074699Z Contents: read
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:32.3075342Z Metadata: read
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:32.3075906Z Packages: read
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:32.3076526Z ##[endgroup]
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:32.3078561Z Secret source: Actions
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:32.3080009Z Prepare workflow directory
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:32.3478130Z Prepare all required actions
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:32.3525308Z Getting action download info
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:32.6890150Z Download action repository 'actions/checkout@v4' (SHA:11d5960a326750d5838078e36cf38b85af677262)
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:33.2070682Z Complete job name: Python Tests
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:33.2948856Z Node 20 is being deprecated. This workflow is running with Node 24 by default. If you need to temporarily use Node 20, you can set the ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION=true environment variable. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:33.2957507Z ##[group]Run actions/checkout@v4
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:33.2958266Z with:
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:33.2958749Z   repository: Ackold26/Aurora_Econometrica
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:33.2962859Z   token: ***
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:33.2963313Z   ssh-strict: true
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:33.2963812Z   ssh-user: git
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:33.2964276Z   persist-credentials: true
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:33.2964775Z   clean: true
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:33.2965244Z   sparse-checkout-cone-mode: true
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:33.2965776Z   fetch-depth: 1
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:33.2966220Z   fetch-tags: false
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:33.2966777Z   show-progress: true
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:33.2967246Z   lfs: false
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:33.2967712Z   submodules: false
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:33.2968168Z   set-safe-directory: true
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:33.2968687Z   allow-unsafe-pr-checkout: false
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:33.2969936Z env:
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:33.2970409Z   CARGO_TERM_COLOR: always
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:33.2970933Z ##[endgroup]
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:33.4052468Z Syncing repository: Ackold26/Aurora_Econometrica
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:33.4055388Z ##[group]Getting Git version info
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:33.4056827Z Working directory is '/home/runner/work/Aurora_Econometrica/Aurora_Econometrica'
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:33.4058656Z [command]/usr/bin/git version
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:33.4215597Z git version 2.54.0
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:33.4223807Z ##[endgroup]
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:33.4240571Z Temporarily overriding HOME='/home/runner/work/_temp/c0b654b5-6528-46c5-8a75-bba1ec321e7f' before making global git config changes
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:33.4243976Z Adding repository directory to the temporary git global config as a safe directory
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:33.4247074Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/Aurora_Econometrica/Aurora_Econometrica
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:33.4313645Z Deleting the contents of '/home/runner/work/Aurora_Econometrica/Aurora_Econometrica'
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:33.4319826Z ##[group]Initializing the repository
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:33.4323861Z [command]/usr/bin/git init /home/runner/work/Aurora_Econometrica/Aurora_Econometrica
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:33.4432469Z hint: Using 'master' as the name for the initial branch. This default branch name
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:33.4433623Z hint: will change to "main" in Git 3.0. To configure the initial branch name
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:33.4434620Z hint: to use in all of your new repositories, which will suppress this warning,
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:33.4435386Z hint: call:
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:33.4435796Z hint:
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:33.4436329Z hint: 	git config --global init.defaultBranch <name>
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:33.4436961Z hint:
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:33.4437569Z hint: Names commonly chosen instead of 'master' are 'main', 'trunk' and
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:33.4438578Z hint: 'development'. The just-created branch can be renamed via this command:
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:33.4439692Z hint:
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:33.4440142Z hint: 	git branch -m <name>
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:33.4440643Z hint:
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:33.4441296Z hint: Disable this message with "git config set advice.defaultBranchName false"
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:33.4451709Z Initialized empty Git repository in /home/runner/work/Aurora_Econometrica/Aurora_Econometrica/.git/
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:33.4467214Z [command]/usr/bin/git remote add origin https://github.com/Ackold26/Aurora_Econometrica
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:33.4514261Z ##[endgroup]
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:33.4515417Z ##[group]Disabling automatic garbage collection
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:33.4518418Z [command]/usr/bin/git config --local gc.auto 0
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:33.4551844Z ##[endgroup]
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:33.4552986Z ##[group]Setting up auth
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:33.4559382Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:33.4596718Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:33.4997064Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:33.5040253Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:33.5276807Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:33.5316400Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:33.5554724Z [command]/usr/bin/git config --local http.https://github.com/.extraheader AUTHORIZATION: basic ***
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:33.5595250Z ##[endgroup]
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:33.5596109Z ##[group]Fetching the repository
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:33.5607605Z [command]/usr/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +dc66325f7c4451fc4a04ad59f1101caf97c9430a:refs/remotes/origin/master
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:35.1923235Z From https://github.com/Ackold26/Aurora_Econometrica
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:35.1926097Z  * [new ref]         dc66325f7c4451fc4a04ad59f1101caf97c9430a -> origin/master
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:35.1969629Z ##[endgroup]
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:35.1972314Z ##[group]Determining the checkout info
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:35.1974815Z ##[endgroup]
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:35.1976274Z [command]/usr/bin/git sparse-checkout disable
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:35.2027195Z [command]/usr/bin/git config --local --unset-all extensions.worktreeConfig
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:35.2061913Z ##[group]Checking out the ref
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:35.2066531Z [command]/usr/bin/git checkout --progress --force -B master refs/remotes/origin/master
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:35.3953718Z Reset branch 'master'
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:35.3955579Z branch 'master' set up to track 'origin/master'.
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:35.3972120Z ##[endgroup]
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:35.4019615Z [command]/usr/bin/git log -1 --format=%H
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:35.4047415Z dc66325f7c4451fc4a04ad59f1101caf97c9430a
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:35.4393037Z Prepare all required actions
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:35.4393763Z Getting action download info
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:35.5809698Z Download action repository 'actions/setup-python@v5' (SHA:a26af69be951a213d495a4c3e4e4022e16d87065)
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:35.6629443Z Download action repository 'dtolnay/rust-toolchain@stable' (SHA:4360b52568e2003a75bf9bc1d59f33a8e3fc893c)
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:35.8411533Z Download action repository 'actions/cache@v4' (SHA:0057852bfaa89a56745cba8c7296529d2fc39830)
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:35.9921544Z ##[group]Run ./.github/actions/setup-aurora
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:35.9921877Z with:
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:35.9922082Z   install-test-deps: true
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:35.9922343Z   install-mcmc-deps: false
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:35.9922579Z   python-version: 3.12
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:35.9922798Z   install-rust: false
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:35.9923013Z   install-python: true
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:35.9923215Z env:
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:35.9923399Z   CARGO_TERM_COLOR: always
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:35.9923619Z ##[endgroup]
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:35.9982002Z ##[start-action display=Setup Python (with pip cache);id=__self.__actions_setup-python]
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:36.0072381Z Node 20 is being deprecated. This workflow is running with Node 24 by default. If you need to temporarily use Node 20, you can set the ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION=true environment variable. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:36.0074136Z ##[group]Run actions/setup-python@v5
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:36.0074416Z with:
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:36.0074619Z   python-version: 3.12
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:36.0074838Z   cache: pip
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:36.0075043Z   check-latest: false
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:36.0077646Z   token: ***
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:36.0077863Z   update-environment: true
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:36.0078106Z   allow-prereleases: false
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:36.0078342Z   freethreaded: false
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:36.0078547Z env:
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:36.0078741Z   CARGO_TERM_COLOR: always
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:36.0078975Z ##[endgroup]
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:36.1441667Z ##[group]Installed versions
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:36.1547029Z (node:2223) [DEP0040] DeprecationWarning: The `punycode` module is deprecated. Please use a userland alternative instead.
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:36.1548413Z (Use `node --trace-deprecation ...` to show where the warning was created)
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:36.1549500Z Successfully set up CPython (3.12.13)
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:36.1550424Z ##[endgroup]
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:36.4283436Z [command]/opt/hostedtoolcache/Python/3.12.13/x64/bin/pip cache dir
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:37.9494342Z /home/runner/.cache/pip
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:38.2286188Z Cache hit for: setup-python-Linux-x64-24.04-Ubuntu-python-3.12.13-pip-396c6d82bcaef58a9bce0ab1dbf43a1f2a01250303091eda005321bb7c32d388
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:38.2400807Z (node:2223) [DEP0169] DeprecationWarning: `url.parse()` behavior is not standardized and prone to errors that have security implications. Use the WHATWG URL API instead. CVEs are not issued for `url.parse()` vulnerabilities.
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:39.5152383Z Received 4194304 of 97035839 (4.3%), 4.0 MBs/sec
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:40.4718169Z Received 97035839 of 97035839 (100.0%), 47.3 MBs/sec
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:40.4719395Z Cache Size: ~93 MB (97035839 B)
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:40.4840159Z [command]/usr/bin/tar -xf /home/runner/work/_temp/7fff8488-9ff7-4eb6-9bc6-fb316841b417/cache.tzst -P -C /home/runner/work/Aurora_Econometrica/Aurora_Econometrica --use-compress-program unzstd
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:40.6402200Z Cache restored successfully
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:40.6454127Z Cache restored from key: setup-python-Linux-x64-24.04-Ubuntu-python-3.12.13-pip-396c6d82bcaef58a9bce0ab1dbf43a1f2a01250303091eda005321bb7c32d388
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:40.6588268Z ##[end-action id=__self.__actions_setup-python;outcome=success;conclusion=success;duration_ms=4660]
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:40.6592549Z ##[start-action display=Setup Python (no pip cache);id=__self.__actions_setup-python_2]
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:40.6602442Z ##[end-action id=__self.__actions_setup-python_2;outcome=skipped;conclusion=skipped;duration_ms=0]
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:40.6605092Z ##[start-action display=Install pytest deps (lightweight + medium);id=__self.__run]
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:40.6644027Z ##[group]Run python -m pip install --upgrade pip
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:40.6644488Z [36;1mpython -m pip install --upgrade pip[0m
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:40.6645015Z [36;1m# numpy + pandas нужны conftest fixtures (synthetic + kagocel pathology pickles).[0m
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:40.6645630Z [36;1m# 2026-05-23 CI infrastructure fix sprint: добавлены medium-weight deps что нужны[0m
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:40.6646198Z [36;1m# для pytest *discovery* (не только execution) на test files что import их at[0m
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:40.6646730Z [36;1m# module level: sklearn (test_priors_calibration / test_priors_real_data),[0m
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:40.6647295Z [36;1m# openpyxl (audit_v2 brand/perf constraint tests + test_lift_formula_canonical),[0m
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:40.6647866Z [36;1m# fastapi/httpx/pytest-asyncio (forecast_context endpoint tests). Без них[0m
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:40.6648452Z [36;1m# pytest collection падает с ImportError ДО -m marker фильтра, делая weighted[0m
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:40.6649003Z [36;1m# test selection бесполезным. Heavy PyMC/JAX/arviz stack остаётся gated за[0m
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:40.6649863Z [36;1m# install-mcmc-deps='true' для local + occasional integration runs.[0m
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:40.6650382Z [36;1m# filelock: sidecar импортит на уровне модуля (project-lock / persistence) →[0m
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:40.6650918Z [36;1m# без него pytest collection падает ImportError для многих тестов ДО -m фильтра.[0m
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:40.6651463Z [36;1mpip install pytest pytest-xdist pytest-asyncio httpx filelock \[0m
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:40.6651889Z [36;1m  'numpy>=1.24.0,<3.0' 'pandas>=2.0.0' \[0m
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:40.6652231Z [36;1m  scikit-learn openpyxl fastapi python-pptx[0m
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:40.6706339Z shell: /usr/bin/bash --noprofile --norc -e -o pipefail {0}
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:40.6706771Z env:
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:40.6706971Z   CARGO_TERM_COLOR: always
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:40.6707313Z   pythonLocation: /opt/hostedtoolcache/Python/3.12.13/x64
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:40.6707780Z   PKG_CONFIG_PATH: /opt/hostedtoolcache/Python/3.12.13/x64/lib/pkgconfig
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:40.6708218Z   Python_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.13/x64
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:40.6708620Z   Python2_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.13/x64
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:40.6709359Z   Python3_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.13/x64
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:40.6709791Z   LD_LIBRARY_PATH: /opt/hostedtoolcache/Python/3.12.13/x64/lib
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:40.6710141Z ##[endgroup]
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:42.5241277Z Requirement already satisfied: pip in /opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages (26.1.2)
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:42.7427784Z Collecting pip
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:42.8035739Z   Downloading pip-26.2.1-py3-none-any.whl.metadata (4.6 kB)
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:43.1258885Z Downloading pip-26.2.1-py3-none-any.whl (1.8 MB)
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:43.1878156Z    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 1.8/1.8 MB 61.7 MB/s  0:00:00
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:43.2528580Z Installing collected packages: pip
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:43.2530894Z   Attempting uninstall: pip
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:43.2551344Z     Found existing installation: pip 26.1.2
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:43.3237236Z     Uninstalling pip-26.1.2:
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:43.3301137Z       Successfully uninstalled pip-26.1.2
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:44.2066448Z Successfully installed pip-26.2.1
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:44.7871490Z Collecting pytest
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:44.7885405Z   Using cached pytest-9.1.1-py3-none-any.whl.metadata (7.6 kB)
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:44.8041074Z Collecting pytest-xdist
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:44.8054450Z   Using cached pytest_xdist-3.8.0-py3-none-any.whl.metadata (3.0 kB)
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:44.8215634Z Collecting pytest-asyncio
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:44.8228190Z   Using cached pytest_asyncio-1.4.0-py3-none-any.whl.metadata (4.1 kB)
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:44.8385178Z Collecting httpx
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:44.8398675Z   Using cached httpx-0.28.1-py3-none-any.whl.metadata (7.1 kB)
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:44.8604154Z Collecting filelock
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:44.8618454Z   Using cached filelock-3.32.2-py3-none-any.whl.metadata (2.0 kB)
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:45.0854349Z Collecting numpy<3.0,>=1.24.0
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:45.1306317Z   Downloading numpy-2.5.2-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl.metadata (6.6 kB)
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:45.2359663Z Collecting pandas>=2.0.0
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:45.2374457Z   Using cached pandas-3.0.5-cp312-cp312-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl.metadata (79 kB)
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:45.3320678Z Collecting scikit-learn
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:45.3334134Z   Using cached scikit_learn-1.9.0-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl.metadata (11 kB)
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:45.3516018Z Collecting openpyxl
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:45.3528881Z   Using cached openpyxl-3.1.5-py2.py3-none-any.whl.metadata (2.5 kB)
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:45.3960765Z Collecting fastapi
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:45.3973734Z   Using cached fastapi-0.141.1-py3-none-any.whl.metadata (27 kB)
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:45.4106663Z Collecting python-pptx
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:45.4119090Z   Using cached python_pptx-1.0.2-py3-none-any.whl.metadata (2.5 kB)
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:45.4205524Z Collecting iniconfig>=1.0.1 (from pytest)
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:45.4217827Z   Using cached iniconfig-2.3.0-py3-none-any.whl.metadata (2.5 kB)
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:45.4353135Z Collecting packaging>=22 (from pytest)
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:45.4383112Z   Downloading packaging-26.3-py3-none-any.whl.metadata (3.5 kB)
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:45.4499326Z Collecting pluggy<2,>=1.5 (from pytest)
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:45.4512093Z   Using cached pluggy-1.6.0-py3-none-any.whl.metadata (4.8 kB)
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:45.4661062Z Collecting pygments>=2.7.2 (from pytest)
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:45.4673655Z   Using cached pygments-2.20.0-py3-none-any.whl.metadata (2.5 kB)
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:45.4769343Z Collecting execnet>=2.1 (from pytest-xdist)
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:45.4782226Z   Using cached execnet-2.1.2-py3-none-any.whl.metadata (2.9 kB)
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:45.4951957Z Collecting typing-extensions>=4.12 (from pytest-asyncio)
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:45.4964479Z   Using cached typing_extensions-4.16.0-py3-none-any.whl.metadata (3.3 kB)
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:45.5128721Z Collecting anyio (from httpx)
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:45.5141461Z   Using cached anyio-4.14.2-py3-none-any.whl.metadata (4.6 kB)
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:45.5296389Z Collecting certifi (from httpx)
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:45.5308824Z   Using cached certifi-2026.7.22-py3-none-any.whl.metadata (2.5 kB)
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:45.5430526Z Collecting httpcore==1.* (from httpx)
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:45.5448653Z   Using cached httpcore-1.0.9-py3-none-any.whl.metadata (21 kB)
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:45.5577300Z Collecting idna (from httpx)
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:45.5589431Z   Using cached idna-3.18-py3-none-any.whl.metadata (6.1 kB)
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:45.5683882Z Collecting h11>=0.16 (from httpcore==1.*->httpx)
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:45.5696108Z   Using cached h11-0.16.0-py3-none-any.whl.metadata (8.3 kB)
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:45.5831225Z Collecting python-dateutil>=2.8.2 (from pandas>=2.0.0)
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:45.5843706Z   Using cached python_dateutil-2.9.0.post0-py2.py3-none-any.whl.metadata (8.4 kB)
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:45.7014989Z Collecting scipy>=1.10.0 (from scikit-learn)
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:45.7029786Z   Using cached scipy-1.18.0-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl.metadata (62 kB)
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:45.7314514Z Collecting joblib>=1.4.0 (from scikit-learn)
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:45.7327337Z   Using cached joblib-1.5.3-py3-none-any.whl.metadata (5.5 kB)
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:45.7596909Z Collecting narwhals>=2.0.1 (from scikit-learn)
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:45.7609455Z   Using cached narwhals-2.24.0-py3-none-any.whl.metadata (15 kB)
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:45.7711925Z Collecting threadpoolctl>=3.5.0 (from scikit-learn)
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:45.7724270Z   Using cached threadpoolctl-3.6.0-py3-none-any.whl.metadata (13 kB)
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:45.7828008Z Collecting et-xmlfile (from openpyxl)
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:45.7845947Z   Using cached et_xmlfile-2.0.0-py3-none-any.whl.metadata (2.7 kB)
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:45.8193514Z Collecting starlette>=0.46.0 (from fastapi)
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:45.8224063Z   Downloading starlette-1.6.0-py3-none-any.whl.metadata (6.4 kB)
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:45.9226171Z Collecting pydantic>=2.9.0 (from fastapi)
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:45.9238997Z   Using cached pydantic-2.13.4-py3-none-any.whl.metadata (109 kB)
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:45.9551152Z Collecting typing-inspection>=0.4.2 (from fastapi)
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:45.9563391Z   Using cached typing_inspection-0.4.2-py3-none-any.whl.metadata (2.6 kB)
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:45.9647742Z Collecting annotated-doc>=0.0.2 (from fastapi)
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:45.9660203Z   Using cached annotated_doc-0.0.5-py3-none-any.whl.metadata (6.5 kB)
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:46.1260230Z Collecting Pillow>=3.3.2 (from python-pptx)
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:46.1274880Z   Using cached pillow-12.3.0-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl.metadata (9.1 kB)
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:46.1568949Z Collecting XlsxWriter>=0.5.7 (from python-pptx)
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:46.1581793Z   Using cached xlsxwriter-3.2.9-py3-none-any.whl.metadata (2.7 kB)
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:46.3660148Z Collecting lxml>=3.1.0 (from python-pptx)
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:46.3676367Z   Using cached lxml-6.1.1-cp312-cp312-manylinux_2_26_x86_64.manylinux_2_28_x86_64.whl.metadata (3.5 kB)
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:46.3827720Z Collecting annotated-types>=0.6.0 (from pydantic>=2.9.0->fastapi)
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:46.3841432Z   Using cached annotated_types-0.8.0-py3-none-any.whl.metadata (15 kB)
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:47.0252623Z Collecting pydantic-core==2.46.4 (from pydantic>=2.9.0->fastapi)
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:47.0267668Z   Using cached pydantic_core-2.46.4-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl.metadata (6.6 kB)
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:47.0410003Z Collecting six>=1.5 (from python-dateutil>=2.8.2->pandas>=2.0.0)
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:47.0422963Z   Using cached six-1.17.0-py2.py3-none-any.whl.metadata (1.7 kB)
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:47.0597799Z Downloading numpy-2.5.2-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl (16.7 MB)
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:47.1498407Z    ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ 16.7/16.7 MB 229.4 MB/s  0:00:00
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:47.1513290Z Using cached pytest-9.1.1-py3-none-any.whl (386 kB)
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:47.1527356Z Using cached pluggy-1.6.0-py3-none-any.whl (20 kB)
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:47.1539461Z Using cached pytest_xdist-3.8.0-py3-none-any.whl (46 kB)
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:47.1551986Z Using cached pytest_asyncio-1.4.0-py3-none-any.whl (16 kB)
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:47.1564194Z Using cached httpx-0.28.1-py3-none-any.whl (73 kB)
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:47.1576688Z Using cached httpcore-1.0.9-py3-none-any.whl (78 kB)
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:47.1588833Z Using cached filelock-3.32.2-py3-none-any.whl (98 kB)
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:47.1601773Z Using cached pandas-3.0.5-cp312-cp312-manylinux_2_24_x86_64.manylinux_2_28_x86_64.whl (11.0 MB)
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:47.1652252Z Using cached scikit_learn-1.9.0-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl (9.1 MB)
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:47.1697557Z Using cached openpyxl-3.1.5-py2.py3-none-any.whl (250 kB)
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:47.1710531Z Using cached fastapi-0.141.1-py3-none-any.whl (131 kB)
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:47.1723399Z Using cached python_pptx-1.0.2-py3-none-any.whl (472 kB)
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:47.1736964Z Using cached annotated_doc-0.0.5-py3-none-any.whl (5.3 kB)
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:47.1748829Z Using cached execnet-2.1.2-py3-none-any.whl (40 kB)
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:47.1761258Z Using cached h11-0.16.0-py3-none-any.whl (37 kB)
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:47.1773443Z Using cached iniconfig-2.3.0-py3-none-any.whl (7.5 kB)
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:47.1785282Z Using cached joblib-1.5.3-py3-none-any.whl (309 kB)
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:47.1798407Z Using cached lxml-6.1.1-cp312-cp312-manylinux_2_26_x86_64.manylinux_2_28_x86_64.whl (5.2 MB)
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:47.1828871Z Using cached narwhals-2.24.0-py3-none-any.whl (461 kB)
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:47.1861215Z Downloading packaging-26.3-py3-none-any.whl (129 kB)
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:47.1903626Z Using cached pillow-12.3.0-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl (6.9 MB)
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:47.1939729Z Using cached pydantic-2.13.4-py3-none-any.whl (472 kB)
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:47.1954271Z Using cached pydantic_core-2.46.4-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl (2.1 MB)
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:47.1973318Z Using cached annotated_types-0.8.0-py3-none-any.whl (13 kB)
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:47.1985301Z Using cached pygments-2.20.0-py3-none-any.whl (1.2 MB)
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:47.2001602Z Using cached python_dateutil-2.9.0.post0-py2.py3-none-any.whl (229 kB)
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:47.2014288Z Using cached scipy-1.18.0-cp312-cp312-manylinux_2_27_x86_64.manylinux_2_28_x86_64.whl (35.3 MB)
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:47.2151358Z Using cached six-1.17.0-py2.py3-none-any.whl (11 kB)
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:47.2181336Z Downloading starlette-1.6.0-py3-none-any.whl (75 kB)
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:47.2224949Z Using cached anyio-4.14.2-py3-none-any.whl (125 kB)
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:47.2237267Z Using cached idna-3.18-py3-none-any.whl (65 kB)
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:47.2249420Z Using cached threadpoolctl-3.6.0-py3-none-any.whl (18 kB)
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:47.2261828Z Using cached typing_extensions-4.16.0-py3-none-any.whl (45 kB)
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:47.2273963Z Using cached typing_inspection-0.4.2-py3-none-any.whl (14 kB)
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:47.2285923Z Using cached xlsxwriter-3.2.9-py3-none-any.whl (175 kB)
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:47.2298272Z Using cached certifi-2026.7.22-py3-none-any.whl (136 kB)
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:47.2310866Z Using cached et_xmlfile-2.0.0-py3-none-any.whl (18 kB)
+Python Tests	UNKNOWN STEP	2026-08-09T16:33:47.5568598Z Installing collected packages: XlsxWriter, typing-extensions, threadpoolctl, six, pygments, pluggy, Pillow, packaging, numpy, narwhals, lxml, joblib, iniconfig, idna, h11, filelock, execnet, et-xmlfile, certifi, annotated-types, annotated-doc, typing-inspection, scipy, python-pptx, python-dateutil, pytest, pydantic-core, openpyxl, httpcore, anyio, starlette, scikit-learn, pytest-xdist, pytest-asyncio, pydantic, pandas, httpx, fastapi
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:04.4328680Z 
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:04.4369611Z Successfully installed Pillow-12.3.0 XlsxWriter-3.2.9 annotated-doc-0.0.5 annotated-types-0.8.0 anyio-4.14.2 certifi-2026.7.22 et-xmlfile-2.0.0 execnet-2.1.2 fastapi-0.141.1 filelock-3.32.2 h11-0.16.0 httpcore-1.0.9 httpx-0.28.1 idna-3.18 iniconfig-2.3.0 joblib-1.5.3 lxml-6.1.1 narwhals-2.24.0 numpy-2.5.2 openpyxl-3.1.5 packaging-26.3 pandas-3.0.5 pluggy-1.6.0 pydantic-2.13.4 pydantic-core-2.46.4 pygments-2.20.0 pytest-9.1.1 pytest-asyncio-1.4.0 pytest-xdist-3.8.0 python-dateutil-2.9.0.post0 python-pptx-1.0.2 scikit-learn-1.9.0 scipy-1.18.0 six-1.17.0 starlette-1.6.0 threadpoolctl-3.6.0 typing-extensions-4.16.0 typing-inspection-0.4.2
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:04.6097607Z ##[end-action id=__self.__run;outcome=success;conclusion=success;duration_ms=23949]
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:04.6100663Z ##[start-action display=Install full sidecar deps (PyMC + NumPyro);id=__self.__run_2]
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:04.6106244Z ##[end-action id=__self.__run_2;outcome=skipped;conclusion=skipped;duration_ms=0]
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:04.6108115Z ##[start-action display=Setup Rust toolchain;id=__self.__dtolnay_rust-toolchain]
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:04.6133268Z ##[end-action id=__self.__dtolnay_rust-toolchain;outcome=skipped;conclusion=skipped;duration_ms=0]
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:04.6135214Z ##[start-action display=Cache cargo;id=__self.__actions_cache]
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:04.6138699Z ##[end-action id=__self.__actions_cache;outcome=skipped;conclusion=skipped;duration_ms=0]
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:04.6173533Z ##[group]Run python -m pytest -n auto --tb=short -m "not requires_real_data and not slow"
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:04.6174191Z [36;1mpython -m pytest -n auto --tb=short -m "not requires_real_data and not slow"[0m
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:04.6219838Z shell: /usr/bin/bash -e {0}
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:04.6220091Z env:
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:04.6220285Z   CARGO_TERM_COLOR: always
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:04.6220594Z   pythonLocation: /opt/hostedtoolcache/Python/3.12.13/x64
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:04.6221048Z   PKG_CONFIG_PATH: /opt/hostedtoolcache/Python/3.12.13/x64/lib/pkgconfig
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:04.6221489Z   Python_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.13/x64
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:04.6221882Z   Python2_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.13/x64
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:04.6222280Z   Python3_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.13/x64
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:04.6222686Z   LD_LIBRARY_PATH: /opt/hostedtoolcache/Python/3.12.13/x64/lib
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:04.6223195Z ##[endgroup]
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:13.2415576Z ============================= test session starts ==============================
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:13.2456730Z platform linux -- Python 3.12.13, pytest-9.1.1, pluggy-1.6.0
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:13.2475977Z rootdir: /home/runner/work/Aurora_Econometrica/Aurora_Econometrica
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:13.2512376Z configfile: pytest.ini
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:13.2521169Z testpaths: tools
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:13.2521690Z plugins: anyio-4.14.2, xdist-3.8.0, asyncio-1.4.0
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:13.2525671Z asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:13.2530291Z created: 4/4 workers
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:13.2530730Z 4 workers [2295 items]
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:13.2531008Z 
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:13.3230167Z ........................................................................ [  3%]
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:13.5060349Z ........................................................................ [  6%]
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:13.7200100Z ........................................................................ [  9%]
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:13.9423839Z ........................................................................ [ 12%]
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:14.1211640Z ........................................................................ [ 15%]
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:15.9680246Z ........................................................................ [ 18%]
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:16.8730411Z .....................................................................s.. [ 21%]
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:19.0250228Z ........................................................................ [ 25%]
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:20.9832185Z ........................................................................ [ 28%]
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:22.4900313Z ........................................................................ [ 31%]
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:22.8588362Z ........................................................................ [ 34%]
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:23.2648584Z ........................................................................ [ 37%]
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:24.8722065Z ........................................................................ [ 40%]
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:25.4580358Z ........................................................................ [ 43%]
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:25.6710395Z ........................................................................ [ 47%]
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:25.8953754Z ........................................................................ [ 50%]
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:26.1427906Z ..s..................................................................... [ 53%]
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:26.3630310Z ........................................................................ [ 56%]
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:26.5590116Z ........................................................................ [ 59%]
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:26.9270351Z ........................................................................ [ 62%]
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:27.0415663Z ......................................................s................. [ 65%]
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:27.2063513Z ..................................ss..s.s..s..........................s. [ 69%]
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:27.3810176Z ........................................................................ [ 72%]
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:28.2100384Z .....F.........................................................ssss..... [ 75%]
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:29.1420221Z ........................................................................ [ 78%]
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:32.4207096Z ........................................................................ [ 81%]
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:35.4296286Z ........................................................................ [ 84%]
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:36.4490249Z ........................................................................ [ 87%]
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:36.7590601Z .........................................s.............................. [ 90%]
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:38.2050866Z ....................s................................................... [ 94%]
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:44.3362611Z ........................................................................ [ 97%]
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:55.6563470Z ...............................................................          [100%]
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:55.6564207Z =================================== FAILURES ===================================
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:55.6564967Z __________ TestValidateDataNumericGate.test_money_string_control_kept __________
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:55.6565812Z [gw0] linux -- Python 3.12.13 /opt/hostedtoolcache/Python/3.12.13/x64/bin/python
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:55.6566627Z tools/test_validator_numeric_role_gate.py:82: in test_money_string_control_kept
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:55.6567276Z     assert r['status'] != 'error'
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:55.6567691Z E   AssertionError: assert 'error' != 'error'
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:55.6568215Z =============================== warnings summary ===============================
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:55.6568731Z sidecar/econometrica/server.py:235
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:55.6569407Z sidecar/econometrica/server.py:235
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:55.6569844Z sidecar/econometrica/server.py:235
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:55.6570279Z sidecar/econometrica/server.py:235
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:55.6571169Z   /home/runner/work/Aurora_Econometrica/Aurora_Econometrica/sidecar/econometrica/server.py:235: DeprecationWarning: 
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:55.6572197Z           on_event is deprecated, use lifespan event handlers instead.
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:55.6572743Z   
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:55.6573038Z           Read more about it in the
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:55.6573726Z           [FastAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/).
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:55.6574409Z           
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:55.6574716Z     @app.on_event('startup')
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:55.6574962Z 
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:55.6575487Z ../../../../../opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/fastapi/applications.py:4681
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:55.6576659Z ../../../../../opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/fastapi/applications.py:4681
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:55.6577826Z ../../../../../opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/fastapi/applications.py:4681
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:55.6578961Z ../../../../../opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/fastapi/applications.py:4681
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:55.6580467Z   /opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/fastapi/applications.py:4681: DeprecationWarning: 
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:55.6581484Z           on_event is deprecated, use lifespan event handlers instead.
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:55.6582006Z   
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:55.6582305Z           Read more about it in the
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:55.6582967Z           [FastAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/).
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:55.6583632Z           
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:55.6584078Z     return self.router.on_event(event_type)  # ty: ignore[deprecated]
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:55.6584519Z 
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:55.6585020Z tools/test_dirty_import_files.py::test_dirty_mutations_no_exceptions[double_header]
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:55.6587595Z   /home/runner/work/Aurora_Econometrica/Aurora_Econometrica/sidecar/econometrica/engines/planning.py:118: UserWarning: Could not infer format, so each element will be parsed individually, falling back to `dateutil`. To ensure parsing is consistent and as-expected, please specify a format.
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:55.6589861Z     work[date_col] = pd.to_datetime(work[date_col], errors="coerce")
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:55.6590299Z 
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:55.6590692Z tools/test_dirty_import_files.py::test_dirty_mutations_no_exceptions[double_header]
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:55.6592734Z   /home/runner/work/Aurora_Econometrica/Aurora_Econometrica/sidecar/econometrica/engines/validator.py:549: UserWarning: Could not infer format, so each element will be parsed individually, falling back to `dateutil`. To ensure parsing is consistent and as-expected, please specify a format.
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:55.6594664Z     _dates = pd.to_datetime(df[col], errors='coerce').dropna()
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:55.6595076Z 
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:55.6595694Z tools/test_dirty_import_files.py::test_dirty_mutations_no_exceptions[double_header]
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:55.6597686Z   /home/runner/work/Aurora_Econometrica/Aurora_Econometrica/sidecar/econometrica/engines/validator.py:274: UserWarning: Could not infer format, so each element will be parsed individually, falling back to `dateutil`. To ensure parsing is consistent and as-expected, please specify a format.
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:55.6599692Z     dates = pd.to_datetime(series.dropna()).sort_values()
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:55.6600064Z 
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:55.6600442Z tools/test_dirty_import_files.py::test_dirty_mutations_no_exceptions[double_header]
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:55.6602489Z   /home/runner/work/Aurora_Econometrica/Aurora_Econometrica/sidecar/econometrica/engines/validator.py:882: UserWarning: Could not infer format, so each element will be parsed individually, falling back to `dateutil`. To ensure parsing is consistent and as-expected, please specify a format.
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:55.6604332Z     df[date_col] = pd.to_datetime(df[date_col])
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:55.6604663Z 
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:55.6605056Z tools/test_server_promises.py::test_full_cycle_create_list_check
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:55.6606540Z   /opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:55.6608128Z     from starlette.testclient import TestClient as TestClient  # noqa
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:55.6608574Z 
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:55.6608885Z -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:55.6609781Z =========================== short test summary info ============================
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:55.6610602Z SKIPPED [1] tools/test_mcmc_params_backend.py:48: could not import 'numpyro': No module named 'numpyro'
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:55.6611855Z SKIPPED [1] tools/test_collapse_top_groups.py:105: фикстура mmx_4groups недоступна
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:55.6612797Z SKIPPED [1] tools/test_sprint_buffer_43_44_45_polish.py:68: aurora_pptx not importable in test env
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:55.6613882Z SKIPPED [1] tools/test_fourier_integration.py:64: could not import 'pymc': No module named 'pymc'
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:55.6614934Z SKIPPED [1] tools/test_fourier_integration.py:83: could not import 'pymc': No module named 'pymc'
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:55.6616013Z SKIPPED [1] tools/test_fourier_integration.py:103: could not import 'pymc': No module named 'pymc'
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:55.6617062Z SKIPPED [1] tools/test_fourier_integration.py:121: could not import 'pymc': No module named 'pymc'
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:55.6618104Z SKIPPED [1] tools/test_fourier_integration.py:162: could not import 'pymc': No module named 'pymc'
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:55.6619361Z SKIPPED [1] tools/test_fourier_integration.py:198: could not import 'pymc': No module named 'pymc'
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:55.6620678Z SKIPPED [1] tools/test_weibull_recovery.py:282: Requires B2 - learnable Weibull в modeler.py. Un-skip after B2 ship.
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:55.6621936Z SKIPPED [1] tools/test_weibull_recovery.py:291: Requires B2 - learnable Weibull в modeler.py.
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:55.6623060Z SKIPPED [1] tools/test_weibull_recovery.py:303: Requires B2 + JAX backend.
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:55.6623897Z SKIPPED [1] tools/test_weibull_recovery.py:309: Requires B2 + scipy MLE warm-start.
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:55.6624772Z SKIPPED [1] tools/test_phase2_synergies.py:96: Conformal not available in this env
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:55.6625749Z SKIPPED [1] tools/test_scenario_seasonality.py:108: could not import 'pymc': No module named 'pymc'
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:55.6627294Z FAILED tools/test_validator_numeric_role_gate.py::TestValidateDataNumericGate::test_money_string_control_kept - AssertionError: assert 'error' != 'error'
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:55.6628539Z =========== 1 failed, 2279 passed, 15 skipped, 13 warnings in 49.91s ===========
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:55.7158399Z ##[error]Process completed with exit code 1.
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:55.7312110Z Post job cleanup.
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:55.7316315Z ##[start-action display=Setup Python (with pip cache);id=__26a11f50-cd90-49e7-b1d2-0737f0da62fc.__actions_setup-python]
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:55.7318845Z ##[end-action id=__26a11f50-cd90-49e7-b1d2-0737f0da62fc.__actions_setup-python;outcome=skipped;conclusion=skipped;duration_ms=0]
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:55.7403416Z Node 20 is being deprecated. This workflow is running with Node 24 by default. If you need to temporarily use Node 20, you can set the ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION=true environment variable. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:55.7404698Z Post job cleanup.
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:55.8260885Z [command]/usr/bin/git version
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:55.8305522Z git version 2.54.0
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:55.8346476Z Temporarily overriding HOME='/home/runner/work/_temp/4b94629a-fed7-440f-bd24-211d8717b47d' before making global git config changes
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:55.8347781Z Adding repository directory to the temporary git global config as a safe directory
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:55.8352711Z [command]/usr/bin/git config --global --add safe.directory /home/runner/work/Aurora_Econometrica/Aurora_Econometrica
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:55.8392291Z [command]/usr/bin/git config --local --name-only --get-regexp core\.sshCommand
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:55.8428139Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'core\.sshCommand' && git config --local --unset-all 'core.sshCommand' || :"
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:55.8717257Z [command]/usr/bin/git config --local --name-only --get-regexp http\.https\:\/\/github\.com\/\.extraheader
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:55.8746043Z http.https://github.com/.extraheader
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:55.8758294Z [command]/usr/bin/git config --local --unset-all http.https://github.com/.extraheader
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:55.8804869Z [command]/usr/bin/git submodule foreach --recursive sh -c "git config --local --name-only --get-regexp 'http\.https\:\/\/github\.com\/\.extraheader' && git config --local --unset-all 'http.https://github.com/.extraheader' || :"
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:55.9063947Z [command]/usr/bin/git config --local --name-only --get-regexp ^includeIf\.gitdir:
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:55.9105167Z [command]/usr/bin/git submodule foreach --recursive git config --local --show-origin --name-only --get-regexp remote.origin.url
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:55.9501944Z Cleaning up orphan processes
+Python Tests	UNKNOWN STEP	2026-08-09T16:34:55.9898680Z ##[warning]Node.js 20 is deprecated. The following actions target Node.js 20 but are being forced to run on Node.js 24: actions/checkout@v4, actions/setup-python@v5. For more information see: https://github.blog/changelog/2025-09-19-deprecation-of-node-20-on-github-actions-runners/

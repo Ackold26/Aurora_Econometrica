@@ -1,0 +1,701 @@
+Loaded tokens from D:\Docs\Aurora_Ai\Standards\tokens\tokens.json
+  [OK] wrote D:\Docs\Aurora_Ai\Dev\Aurora_Econometrica_thinwt\src\tokens.generated.css (5450 bytes)
+  [OK] wrote D:\Docs\Aurora_Ai\Dev\Aurora_Econometrica_thinwt\sidecar\econometrica\aurora_tokens.py (6539 bytes)
+  [OK] wrote D:\Docs\Aurora_Ai\Dev\Aurora_Econometrica_thinwt\sidecar\econometrica\aurora_html\templates\aurora_html.css (3505 bytes)
+  [OK] wrote D:\Docs\Aurora_Ai\Dev\Aurora_Econometrica_thinwt\sidecar\econometrica\aurora_html\templates\aurora_html_tokens.js (1847 bytes)
+Done.
+160 DEPRECATION: Running PyInstaller as admin is not necessary nor sensible. Run PyInstaller from a non-administrator terminal. PyInstaller 7.0 will block this.
+511 INFO: PyInstaller: 6.19.0, contrib hooks: 2026.3
+511 INFO: Python: 3.12.10
+592 INFO: Platform: Windows-11-10.0.26200-SP0
+592 INFO: Python environment: C:\Users\ackol\AppData\Local\Programs\Python\Python312
+592 INFO: wrote D:\Docs\Aurora_Ai\Dev\Aurora_Econometrica_thinwt\sidecar\econometrica\build_tmp\econometrica-sidecar.spec
+601 INFO: Removing temporary files and cleaning cache in C:\Users\ackol\AppData\Local\pyinstaller
+1541 INFO: Found 'auto' as default backend, checking available backends
+1543 INFO: Matplotlib is available, defining as default backend
+1548 INFO: arviz_base available, exposing its functions as part of arviz.preview
+2777 INFO: arviz_stats available, exposing its functions as part of arviz.preview
+2824 INFO: arviz_plots available, exposing its functions as part of arviz.preview
+4230 WARNING: Failed to collect submodules for 'arviz.plots.backends.bokeh' because importing 'arviz.plots.backends.bokeh' raised: ModuleNotFoundError: No module named 'bokeh'
+805 INFO: Found 'auto' as default backend, checking available backends
+894 INFO: Matplotlib is available, defining as default backend
+557 INFO: Found 'auto' as default backend, checking available backends
+641 INFO: Matplotlib is available, defining as default backend
+586 INFO: Found 'auto' as default backend, checking available backends
+679 INFO: Matplotlib is available, defining as default backend
+1727 WARNING: Failed to collect submodules for 'arviz_plots.backend.plotly' because importing 'arviz_plots.backend.plotly' raised: ModuleNotFoundError: No module named 'plotly'
+249 WARNING: g++ not available, if using conda: `conda install gxx`
+250 WARNING: g++ not detected!  PyTensor will be unable to compile C-implementations and will default to Python. Performance may be severely degraded. To remove this warning, set PyTensor flags cxx to an empty string.
+2103 INFO: Found 'auto' as default backend, checking available backends
+2103 INFO: Matplotlib is available, defining as default backend
+2110 INFO: arviz_base available, exposing its functions as part of arviz.preview
+2136 INFO: arviz_stats available, exposing its functions as part of arviz.preview
+2159 INFO: arviz_plots available, exposing its functions as part of arviz.preview
+C:\Users\ackol\AppData\Local\Programs\Python\Python312\Lib\site-packages\pymc\dims\__init__.py:66: UserWarning: The `pymc.dims` module is experimental and may contain critical bugs (p=0.053).
+Please report any issues you encounter at https://github.com/pymc-devs/pymc/issues.
+API changes are expected in future releases.
+
+  __init__()
+244 WARNING: g++ not available, if using conda: `conda install gxx`
+244 WARNING: g++ not detected!  PyTensor will be unable to compile C-implementations and will default to Python. Performance may be severely degraded. To remove this warning, set PyTensor flags cxx to an empty string.
+1979 INFO: Found 'auto' as default backend, checking available backends
+1979 INFO: Matplotlib is available, defining as default backend
+1984 INFO: arviz_base available, exposing its functions as part of arviz.preview
+2009 INFO: arviz_stats available, exposing its functions as part of arviz.preview
+2035 INFO: arviz_plots available, exposing its functions as part of arviz.preview
+251 WARNING: g++ not available, if using conda: `conda install gxx`
+251 WARNING: g++ not detected!  PyTensor will be unable to compile C-implementations and will default to Python. Performance may be severely degraded. To remove this warning, set PyTensor flags cxx to an empty string.
+C:\Users\ackol\AppData\Local\Programs\Python\Python312\Lib\site-packages\pytensor\xtensor\__init__.py:14: UserWarning: xtensor module is experimental and full of bugs
+  warnings.warn("xtensor module is experimental and full of bugs")
+2086 WARNING: Failed to collect submodules for 'pytensor.link.mlx.dispatch' because importing 'pytensor.link.mlx.dispatch' raised: ModuleNotFoundError: No module named 'mlx'
+965 WARNING: Failed to collect submodules for 'numpyro.contrib.tfp' because importing 'numpyro.contrib.tfp' raised: ImportError: To use this module, please install TensorFlow Probability. It can be installed with `pip install tensorflow_probability`
+962 WARNING: Failed to collect submodules for 'jax.experimental.source_mapper' because importing 'jax.experimental.source_mapper' raised: ModuleNotFoundError: No module named 'absl'
+11229 WARNING: Failed to collect submodules for 'econml.automated_ml' because importing 'econml.automated_ml' raised: ModuleNotFoundError: No module named 'azureml'
+130920 INFO: Module search paths (PYTHONPATH):
+['D:\\Docs\\Aurora_Ai\\Dev\\Aurora_Econometrica_thinwt\\sidecar\\econometrica',
+ 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\python312.zip',
+ 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\DLLs',
+ 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib',
+ 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312',
+ 'C:\\Users\\ackol\\AppData\\Roaming\\Python\\Python312\\site-packages',
+ 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages',
+ 'D:\\Docs\\Aurora_Ai\\aurora-platform-core\\aurora_common\\src',
+ 'D:\\Docs\\Aurora_Ai\\aurora-platform-core\\aurora_inference\\src',
+ 'D:\\Docs\\Aurora_Ai\\aurora-platform-core\\aurora_reporting\\src',
+ 'D:\\Docs\\Aurora_Ai\\aurora-platform-core\\aurora_schema_registry\\src',
+ 'D:\\Docs\\Aurora_Ai\\aurora-platform-core\\aurora_studio\\src',
+ 'D:\\Docs\\Aurora_Ai\\aurora-platform-core\\aurora_workflow\\src',
+ 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\win32',
+ 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\win32\\lib',
+ 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\Pythonwin',
+ 'D:\\Docs\\Aurora_Ai\\Dev\\Aurora_Econometrica_thinwt\\sidecar\\econometrica']
+132020 INFO: Appending 'binaries' from .spec
+132020 INFO: Appending 'datas' from .spec
+132820 INFO: checking Analysis
+132822 INFO: Building Analysis because Analysis-00.toc is non existent
+132822 INFO: Looking for Python shared library...
+132822 INFO: Using Python shared library: C:\Users\ackol\AppData\Local\Programs\Python\Python312\python312.dll
+132822 INFO: Running Analysis Analysis-00.toc
+132822 INFO: Target bytecode optimization level: 0
+132822 INFO: Initializing module dependency graph...
+132824 INFO: Initializing module graph hook caches...
+132923 INFO: Analyzing modules for base_library.zip ...
+134332 INFO: Processing standard module hook 'hook-heapq.py' from 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\PyInstaller\\hooks'
+134470 INFO: Processing standard module hook 'hook-encodings.py' from 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\PyInstaller\\hooks'
+136948 INFO: Processing standard module hook 'hook-pickle.py' from 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\PyInstaller\\hooks'
+139342 INFO: Caching module dependency graph...
+139401 INFO: Analyzing D:\Docs\Aurora_Ai\Dev\Aurora_Econometrica_thinwt\sidecar\econometrica\server.py
+140186 INFO: Processing standard module hook 'hook-platform.py' from 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\PyInstaller\\hooks'
+140358 INFO: Processing standard module hook 'hook-anyio.py' from 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+141242 INFO: Processing pre-safe-import-module hook 'hook-typing_extensions.py' from 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\PyInstaller\\hooks\\pre_safe_import_module'
+141255 INFO: SetuptoolsInfo: initializing cached setuptools info...
+144504 INFO: Processing standard module hook 'hook-multiprocessing.util.py' from 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\PyInstaller\\hooks'
+144662 INFO: Processing standard module hook 'hook-xml.py' from 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\PyInstaller\\hooks'
+145181 INFO: Processing standard module hook 'hook-_ctypes.py' from 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\PyInstaller\\hooks'
+147215 INFO: Processing standard module hook 'hook-pydantic.py' from 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+148996 INFO: Processing standard module hook 'hook-rich.py' from 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+150428 INFO: Processing standard module hook 'hook-pygments.py' from 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\PyInstaller\\hooks'
+154856 INFO: Processing standard module hook 'hook-sysconfig.py' from 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\PyInstaller\\hooks'
+155897 INFO: Processing standard module hook 'hook-zoneinfo.py' from 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+157108 INFO: Processing standard module hook 'hook-certifi.py' from 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+158851 INFO: Processing standard module hook 'hook-difflib.py' from 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\PyInstaller\\hooks'
+159534 INFO: Processing standard module hook 'hook-dns.rdata.py' from 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+161028 INFO: Processing standard module hook 'hook-pythoncom.py' from 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+161204 INFO: Processing standard module hook 'hook-pywintypes.py' from 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+163616 INFO: Processing standard module hook 'hook-numpy.py' from 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\PyInstaller\\hooks'
+169289 INFO: Processing standard module hook 'hook-charset_normalizer.py' from 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+170024 INFO: Processing standard module hook 'hook-pandas.py' from 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\PyInstaller\\hooks'
+173485 INFO: Processing standard module hook 'hook-scipy.py' from 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\PyInstaller\\hooks'
+174614 INFO: Processing standard module hook 'hook-pytest.py' from 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+175152 INFO: Processing standard module hook 'hook-py.py' from 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+175515 INFO: Processing pre-safe-import-module hook 'hook-packaging.py' from 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\PyInstaller\\hooks\\pre_safe_import_module'
+175842 INFO: Processing pre-safe-import-module hook 'hook-tomli.py' from 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\PyInstaller\\hooks\\pre_safe_import_module'
+177669 INFO: Processing standard module hook 'hook-pkg_resources.py' from 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\PyInstaller\\hooks'
+178460 INFO: Processing pre-safe-import-module hook 'hook-jaraco.py' from 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\PyInstaller\\hooks\\pre_safe_import_module'
+178466 INFO: Setuptools: 'jaraco' appears to be a partial setuptools-vendored copy - extending search paths to ['C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\jaraco', 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\setuptools\\_vendor\\jaraco']!
+178466 INFO: Processing pre-safe-import-module hook 'hook-jaraco.text.py' from 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\PyInstaller\\hooks\\pre_safe_import_module'
+178472 INFO: Setuptools: 'jaraco.text' appears to be a setuptools-vendored copy - creating alias to 'setuptools._vendor.jaraco.text'!
+178489 INFO: Processing standard module hook 'hook-setuptools.py' from 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\PyInstaller\\hooks'
+178533 INFO: Processing pre-safe-import-module hook 'hook-distutils.py' from 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\PyInstaller\\hooks\\pre_safe_import_module'
+178615 INFO: Processing pre-safe-import-module hook 'hook-jaraco.functools.py' from 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\PyInstaller\\hooks\\pre_safe_import_module'
+178643 INFO: Processing pre-safe-import-module hook 'hook-more_itertools.py' from 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\PyInstaller\\hooks\\pre_safe_import_module'
+179371 INFO: Processing pre-safe-import-module hook 'hook-importlib_metadata.py' from 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\PyInstaller\\hooks\\pre_safe_import_module'
+179425 INFO: Processing standard module hook 'hook-importlib_metadata.py' from 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\PyInstaller\\hooks'
+179520 INFO: Processing pre-safe-import-module hook 'hook-zipp.py' from 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\PyInstaller\\hooks\\pre_safe_import_module'
+180759 INFO: Processing pre-safe-import-module hook 'hook-wheel.py' from 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\PyInstaller\\hooks\\pre_safe_import_module'
+180764 INFO: Setuptools: 'wheel' appears to be a setuptools-vendored copy - creating alias to 'setuptools._vendor.wheel'!
+180867 INFO: Processing standard module hook 'hook-setuptools._vendor.jaraco.text.py' from 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\PyInstaller\\hooks'
+180874 INFO: Processing pre-safe-import-module hook 'hook-importlib_resources.py' from 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\PyInstaller\\hooks\\pre_safe_import_module'
+180890 INFO: Processing standard module hook 'hook-importlib_resources.py' from 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\PyInstaller\\hooks'
+181003 INFO: Processing pre-safe-import-module hook 'hook-jaraco.context.py' from 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\PyInstaller\\hooks\\pre_safe_import_module'
+181019 INFO: Processing pre-safe-import-module hook 'hook-backports.py' from 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\PyInstaller\\hooks\\pre_safe_import_module'
+181023 INFO: Setuptools: 'backports' appears to be a full setuptools-vendored copy - creating alias to 'setuptools._vendor.backports'!
+181209 INFO: Processing pre-safe-import-module hook 'hook-platformdirs.py' from 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\PyInstaller\\hooks\\pre_safe_import_module'
+181240 INFO: Processing standard module hook 'hook-platformdirs.py' from 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+181890 INFO: Processing standard module hook 'hook-pycparser.py' from 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+184638 INFO: Processing standard module hook 'hook-urllib3.py' from 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+185172 INFO: Processing standard module hook 'hook-cryptography.py' from 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+188919 INFO: hook-cryptography: cryptography does not seem to be using dynamically linked OpenSSL.
+189392 INFO: Processing standard module hook 'hook-bcrypt.py' from 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+194419 INFO: Processing standard module hook 'hook-sqlite3.py' from 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\PyInstaller\\hooks'
+198091 INFO: Processing standard module hook 'hook-cloudpickle.py' from 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+199373 INFO: Processing pre-safe-import-module hook 'hook-tensorflow.py' from 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\pre_safe_import_module'
+201537 INFO: Processing standard module hook 'hook-matplotlib.py' from 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\PyInstaller\\hooks'
+202764 INFO: Processing pre-safe-import-module hook 'hook-gi.py' from 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\PyInstaller\\hooks\\pre_safe_import_module'
+203104 INFO: Processing standard module hook 'hook-matplotlib.backend_bases.py' from 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\PyInstaller\\hooks'
+203253 INFO: Processing standard module hook 'hook-PIL.py' from 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\PyInstaller\\hooks'
+203376 INFO: Processing standard module hook 'hook-PIL.Image.py' from 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\PyInstaller\\hooks'
+203899 INFO: Processing standard module hook 'hook-xml.etree.cElementTree.py' from 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\PyInstaller\\hooks'
+204042 INFO: Processing standard module hook 'hook-xml.dom.domreg.py' from 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\PyInstaller\\hooks'
+205085 INFO: Processing standard module hook 'hook-PIL.ImageFilter.py' from 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\PyInstaller\\hooks'
+206177 INFO: Processing standard module hook 'hook-jinja2.py' from 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+206975 INFO: Processing standard module hook 'hook-matplotlib.backends.py' from 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\PyInstaller\\hooks'
+207137 INFO: Processing standard module hook 'hook-matplotlib.pyplot.py' from 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\PyInstaller\\hooks'
+208559 INFO: Processing standard module hook 'hook-dateutil.py' from 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+208706 INFO: Processing pre-safe-import-module hook 'hook-six.moves.py' from 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\PyInstaller\\hooks\\pre_safe_import_module'
+211872 INFO: Processing standard module hook 'hook-scipy.linalg.py' from 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\PyInstaller\\hooks'
+212113 INFO: Processing standard module hook 'hook-scipy.special._ufuncs.py' from 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\PyInstaller\\hooks'
+213779 INFO: Processing standard module hook 'hook-numba.py' from 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+213824 INFO: Processing standard module hook 'hook-llvmlite.py' from 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+220842 INFO: Processing pre-safe-import-module hook 'hook-win32com.py' from 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\pre_safe_import_module'
+220942 INFO: Processing standard module hook 'hook-win32com.py' from 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+225717 INFO: Processing standard module hook 'hook-scipy.spatial._ckdtree.py' from 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\PyInstaller\\hooks'
+226718 INFO: Processing standard module hook 'hook-scipy.spatial.transform.rotation.py' from 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\PyInstaller\\hooks'
+228321 INFO: Processing standard module hook 'hook-scipy.stats._stats.py' from 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\PyInstaller\\hooks'
+229123 INFO: Processing standard module hook 'hook-scipy.sparse.csgraph.py' from 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\PyInstaller\\hooks'
+230862 INFO: Processing standard module hook 'hook-scipy.special._ellip_harm_2.py' from 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\PyInstaller\\hooks'
+235253 INFO: Processing standard module hook 'hook-pandas.io.formats.style.py' from 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\PyInstaller\\hooks'
+237203 INFO: Processing standard module hook 'hook-pyarrow.py' from 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+239049 INFO: Processing standard module hook 'hook-fsspec.py' from 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+241744 INFO: Processing standard module hook 'hook-pandas.plotting.py' from 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\PyInstaller\\hooks'
+244367 INFO: Processing standard module hook 'hook-openpyxl.py' from 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+244725 INFO: Processing standard module hook 'hook-lxml.py' from 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+245255 INFO: Processing standard module hook 'hook-lxml.etree.py' from 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+249753 INFO: Processing standard module hook 'hook-pandas.io.clipboard.py' from 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\PyInstaller\\hooks'
+265058 INFO: Processing standard module hook 'hook-xarray.py' from 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+270349 INFO: Processing standard module hook 'hook-patsy.py' from 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+273489 INFO: Processing standard module hook 'hook-statsmodels.tsa.statespace.py' from 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+291230 INFO: Processing standard module hook 'hook-h5py.py' from 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+294246 INFO: Processing standard module hook 'hook-scipy.io.matlab.py' from 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\PyInstaller\\hooks'
+311441 INFO: Processing standard module hook 'hook-pptx.py' from 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+313921 INFO: Processing standard module hook 'hook-sklearn.py' from 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+315622 INFO: Processing standard module hook 'hook-sklearn.utils.py' from 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+316898 INFO: Processing standard module hook 'hook-sklearn.metrics.py' from 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+321542 INFO: Processing standard module hook 'hook-sklearn.metrics.cluster.py' from 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+322763 INFO: Processing standard module hook 'hook-sklearn.cluster.py' from 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+322873 INFO: Processing standard module hook 'hook-sklearn.metrics.pairwise.py' from 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+323437 INFO: Processing standard module hook 'hook-sklearn.neighbors.py' from 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+323841 INFO: Processing standard module hook 'hook-sklearn.linear_model.py' from 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+328247 INFO: Processing standard module hook 'hook-sklearn.tree.py' from 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+336453 INFO: Processing standard module hook 'hook-narwhals.py' from 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+361905 INFO: Processing standard module hook 'hook-uvicorn.py' from 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+362689 INFO: Processing standard module hook 'hook-websockets.py' from 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+363683 INFO: Analyzing hidden import 'pymc_marketing'
+368768 INFO: Analyzing hidden import 'uvicorn.loops'
+368768 INFO: Analyzing hidden import 'uvicorn.loops.auto'
+368786 INFO: Analyzing hidden import 'uvicorn.protocols.http.auto'
+368789 INFO: Analyzing hidden import 'uvicorn.protocols.websockets.auto'
+368792 INFO: Analyzing hidden import 'uvicorn.lifespan'
+368794 INFO: Analyzing hidden import 'uvicorn.lifespan.on'
+368803 INFO: Analyzing hidden import 'email_validator.__main__'
+368807 INFO: Analyzing hidden import 'arviz.plots.backends.matplotlib'
+369286 INFO: Analyzing hidden import 'arviz.plots.backends.matplotlib.bfplot'
+369291 INFO: Analyzing hidden import 'arviz.plots.backends.matplotlib.distcomparisonplot'
+369305 INFO: Analyzing hidden import 'arviz.plots.backends.matplotlib.dotplot'
+369315 INFO: Analyzing hidden import 'arviz.plots.backends.matplotlib.ecdfplot'
+369322 INFO: Analyzing hidden import 'arviz.plots.backends.matplotlib.lmplot'
+369322 INFO: Analyzing hidden import 'arviz.plots.backends.matplotlib.separationplot'
+369342 INFO: Analyzing hidden import 'arviz.plots.backends.matplotlib.tsplot'
+369355 INFO: Analyzing hidden import 'arviz.tests'
+369355 INFO: Analyzing hidden import 'arviz.tests.base_tests'
+369363 INFO: Analyzing hidden import 'arviz.tests.base_tests.test_data'
+369511 INFO: Analyzing hidden import 'arviz.tests.base_tests.test_data_zarr'
+369517 INFO: Analyzing hidden import 'arviz.tests.base_tests.test_diagnostics'
+369560 INFO: Analyzing hidden import 'arviz.tests.base_tests.test_diagnostics_numba'
+369567 INFO: Analyzing hidden import 'arviz.tests.base_tests.test_helpers'
+369576 INFO: Analyzing hidden import 'arviz.tests.base_tests.test_labels'
+369576 INFO: Analyzing hidden import 'arviz.tests.base_tests.test_plot_utils'
+369908 INFO: Analyzing hidden import 'arviz.tests.base_tests.test_plots_bokeh'
+369991 INFO: Analyzing hidden import 'arviz.tests.base_tests.test_plots_matplotlib'
+370122 INFO: Analyzing hidden import 'arviz.tests.base_tests.test_rcparams'
+370144 INFO: Analyzing hidden import 'arviz.tests.base_tests.test_stats'
+370217 INFO: Analyzing hidden import 'arviz.tests.base_tests.test_stats_ecdf_utils'
+370232 INFO: Analyzing hidden import 'arviz.tests.base_tests.test_stats_numba'
+370247 INFO: Analyzing hidden import 'arviz.tests.base_tests.test_stats_utils'
+370288 INFO: Analyzing hidden import 'arviz.tests.base_tests.test_utils'
+370307 INFO: Analyzing hidden import 'arviz.tests.base_tests.test_utils_numba'
+370317 INFO: Analyzing hidden import 'arviz.tests.conftest'
+370317 INFO: Analyzing hidden import 'arviz.tests.external_tests'
+370338 INFO: Analyzing hidden import 'arviz.tests.external_tests.test_data_beanmachine'
+370349 INFO: Analyzing hidden import 'arviz.tests.external_tests.test_data_cmdstan'
+370368 INFO: Analyzing hidden import 'arviz.tests.external_tests.test_data_cmdstanpy'
+370392 INFO: Analyzing hidden import 'arviz.tests.external_tests.test_data_emcee'
+370399 INFO: Analyzing hidden import 'arviz.tests.external_tests.test_data_numpyro'
+370439 INFO: Analyzing hidden import 'arviz.tests.external_tests.test_data_pyjags'
+370453 INFO: Analyzing hidden import 'arviz.tests.external_tests.test_data_pyro'
+370472 INFO: Analyzing hidden import 'arviz.tests.external_tests.test_data_pystan'
+370491 INFO: Analyzing hidden import 'arviz_base.types'
+370501 INFO: Analyzing hidden import 'arviz_stats.numba'
+370524 INFO: Analyzing hidden import 'arviz_stats.numba.diagnostics'
+370545 INFO: Analyzing hidden import 'arviz_stats.numba.intervals'
+370553 INFO: Analyzing hidden import 'arviz_plots.backend.matplotlib'
+370602 INFO: Analyzing hidden import 'pymc.distributions.moments'
+370634 INFO: Analyzing hidden import 'pymc.testing'
+370695 INFO: Analyzing hidden import 'pymc_marketing.causal_utils'
+370707 INFO: Analyzing hidden import 'pymc_marketing.customer_choice.mixed_logit'
+370753 INFO: Analyzing hidden import 'pymc_marketing.customer_choice.mnl_logit'
+370783 INFO: Analyzing hidden import 'pymc_marketing.customer_choice.nested_logit'
+370822 INFO: Analyzing hidden import 'pymc_marketing.deserialize'
+370832 INFO: Analyzing hidden import 'pymc_marketing.mlflow'
+370880 INFO: Analyzing hidden import 'pymc_marketing.paths'
+370915 INFO: Analyzing hidden import 'pytensor.bin'
+370917 INFO: Analyzing hidden import 'pytensor.bin.pytensor_cache'
+370941 INFO: Analyzing hidden import 'pytensor.breakpoint'
+370957 INFO: Analyzing hidden import 'pytensor.d3viz'
+370991 INFO: Analyzing hidden import 'pytensor.graph.rewriting.kanren'
+371284 INFO: Analyzing hidden import 'pytensor.ipython'
+371300 INFO: Analyzing hidden import 'pytensor.misc.check_blas'
+371319 INFO: Analyzing hidden import 'pytensor.misc.check_duplicate_key'
+371329 INFO: Analyzing hidden import 'pytensor.misc.elemwise_openmp_speedup'
+371337 INFO: Analyzing hidden import 'pytensor.misc.elemwise_time_test'
+371347 INFO: Analyzing hidden import 'pytensor.misc.may_share_memory'
+371354 INFO: Analyzing hidden import 'pytensor.sparse.linalg'
+371360 INFO: Analyzing hidden import 'pytensor.tensor.fft'
+371377 INFO: Analyzing hidden import 'pytensor.tensor.fourier'
+371386 INFO: Analyzing hidden import 'pytensor.tensor.var'
+371396 INFO: Analyzing hidden import 'xarray.namedarray.dtypes'
+371406 INFO: Analyzing hidden import 'xarray.static'
+371411 INFO: Analyzing hidden import 'xarray.static.css'
+371415 INFO: Analyzing hidden import 'xarray.static.html'
+371417 INFO: Analyzing hidden import 'xarray.testing.strategies'
+371479 INFO: Analyzing hidden import 'xarray.tests.conftest'
+371485 INFO: Analyzing hidden import 'xarray.tests.indexes'
+371500 INFO: Analyzing hidden import 'xarray.tests.test_accessor_dt'
+371532 INFO: Analyzing hidden import 'xarray.tests.test_accessor_str'
+372055 INFO: Analyzing hidden import 'xarray.tests.test_array_api'
+372069 INFO: Analyzing hidden import 'xarray.tests.test_assertions'
+372094 INFO: Analyzing hidden import 'xarray.tests.test_backends'
+373658 INFO: Analyzing hidden import 'xarray.tests.test_backends_api'
+373676 INFO: Analyzing hidden import 'xarray.tests.test_backends_chunks'
+373683 INFO: Analyzing hidden import 'xarray.tests.test_backends_common'
+373690 INFO: Analyzing hidden import 'xarray.tests.test_backends_datatree'
+373761 INFO: Analyzing hidden import 'xarray.tests.test_backends_file_manager'
+373780 INFO: Analyzing hidden import 'xarray.tests.test_backends_locks'
+373787 INFO: Analyzing hidden import 'xarray.tests.test_backends_lru_cache'
+373796 INFO: Analyzing hidden import 'xarray.tests.test_calendar_ops'
+373814 INFO: Analyzing hidden import 'xarray.tests.test_cftime_offsets'
+373911 INFO: Analyzing hidden import 'xarray.tests.test_cftimeindex'
+373999 INFO: Analyzing hidden import 'xarray.tests.test_cftimeindex_resample'
+374014 INFO: Analyzing hidden import 'xarray.tests.test_coarsen'
+374040 INFO: Analyzing hidden import 'xarray.tests.test_coding'
+374052 INFO: Analyzing hidden import 'xarray.tests.test_coding_strings'
+374072 INFO: Analyzing hidden import 'xarray.tests.test_combine'
+374173 INFO: Analyzing hidden import 'xarray.tests.test_computation'
+374365 INFO: Analyzing hidden import 'xarray.tests.test_concat'
+374525 INFO: Analyzing hidden import 'xarray.tests.test_conventions'
+374577 INFO: Analyzing hidden import 'xarray.tests.test_coordinate_transform'
+374598 INFO: Analyzing hidden import 'xarray.tests.test_coordinates'
+374622 INFO: Analyzing hidden import 'xarray.tests.test_cupy'
+374628 INFO: Analyzing hidden import 'xarray.tests.test_dask'
+374775 INFO: Analyzing hidden import 'xarray.tests.test_dataarray'
+375473 INFO: Analyzing hidden import 'xarray.tests.test_datatree'
+375638 INFO: Analyzing hidden import 'xarray.tests.test_datatree_mapping'
+375657 INFO: Analyzing hidden import 'xarray.tests.test_deprecation_helpers'
+375672 INFO: Analyzing hidden import 'xarray.tests.test_distributed'
+375694 INFO: Analyzing hidden import 'xarray.tests.test_dtypes'
+375703 INFO: Analyzing hidden import 'xarray.tests.test_duck_array_ops'
+375782 INFO: Analyzing hidden import 'xarray.tests.test_duck_array_wrapping'
+375814 INFO: Analyzing hidden import 'xarray.tests.test_error_messages'
+375817 INFO: Analyzing hidden import 'xarray.tests.test_eval'
+375849 INFO: Analyzing hidden import 'xarray.tests.test_extensions'
+375858 INFO: Analyzing hidden import 'xarray.tests.test_formatting'
+375921 INFO: Analyzing hidden import 'xarray.tests.test_formatting_html'
+375947 INFO: Analyzing hidden import 'xarray.tests.test_groupby'
+376263 INFO: Analyzing hidden import 'xarray.tests.test_hashable'
+376270 INFO: Analyzing hidden import 'xarray.tests.test_indexes'
+376331 INFO: Analyzing hidden import 'xarray.tests.test_indexing'
+376422 INFO: Analyzing hidden import 'xarray.tests.test_interp'
+376510 INFO: Analyzing hidden import 'xarray.tests.test_merge'
+376581 INFO: Analyzing hidden import 'xarray.tests.test_missing'
+376634 INFO: Analyzing hidden import 'xarray.tests.test_namedarray'
+376676 INFO: Analyzing hidden import 'xarray.tests.test_nd_point_index'
+376695 INFO: Analyzing hidden import 'xarray.tests.test_nputils'
+376700 INFO: Analyzing hidden import 'xarray.tests.test_options'
+376723 INFO: Analyzing hidden import 'xarray.tests.test_pandas_to_xarray'
+376738 INFO: Analyzing hidden import 'xarray.tests.test_parallelcompat'
+376754 INFO: Analyzing hidden import 'xarray.tests.test_plot'
+377017 INFO: Analyzing hidden import 'xarray.tests.test_plugins'
+377038 INFO: Analyzing hidden import 'xarray.tests.test_print_versions'
+377042 INFO: Analyzing hidden import 'xarray.tests.test_range_index'
+377067 INFO: Analyzing hidden import 'xarray.tests.test_rolling'
+377138 INFO: Analyzing hidden import 'xarray.tests.test_sparse'
+377194 INFO: Analyzing hidden import 'xarray.tests.test_strategies'
+377278 INFO: Analyzing hidden import 'xarray.tests.test_treenode'
+377305 INFO: Analyzing hidden import 'xarray.tests.test_tutorial'
+377311 INFO: Analyzing hidden import 'xarray.tests.test_typed_ops'
+377324 INFO: Analyzing hidden import 'xarray.tests.test_ufuncs'
+377346 INFO: Analyzing hidden import 'xarray.tests.test_units'
+377967 INFO: Analyzing hidden import 'xarray.tests.test_utils'
+378000 INFO: Analyzing hidden import 'xarray.tests.test_weighted'
+378043 INFO: Analyzing hidden import 'xarray.typing'
+378050 INFO: Analyzing hidden import 'xarray.util.generate_aggregations'
+378073 INFO: Analyzing hidden import 'xarray.util.generate_ops'
+378084 INFO: Analyzing hidden import 'numpyro.compat.distributions'
+378092 INFO: Analyzing hidden import 'numpyro.compat.handlers'
+378098 INFO: Analyzing hidden import 'numpyro.compat.infer'
+378120 INFO: Analyzing hidden import 'numpyro.compat.ops'
+378128 INFO: Analyzing hidden import 'numpyro.compat.optim'
+378135 INFO: Analyzing hidden import 'numpyro.contrib.control_flow'
+378217 INFO: Analyzing hidden import 'numpyro.contrib.einstein'
+378335 INFO: Analyzing hidden import 'numpyro.contrib.hsgp'
+378340 INFO: Analyzing hidden import 'numpyro.contrib.hsgp.approximation'
+378383 INFO: Analyzing hidden import 'numpyro.contrib.module'
+378404 INFO: Analyzing hidden import 'numpyro.contrib.nested_sampling'
+378425 INFO: Analyzing hidden import 'numpyro.contrib.render'
+378434 INFO: Analyzing hidden import 'numpyro.contrib.stochastic_support'
+378470 INFO: Analyzing hidden import 'numpyro.distributions.gof'
+378489 INFO: Analyzing hidden import 'numpyro.examples'
+378492 INFO: Analyzing hidden import 'numpyro.examples.datasets'
+378540 INFO: Analyzing hidden import 'numpyro.ops.indexing'
+378551 INFO: Analyzing hidden import 'jax._src.blocked_sampler'
+378562 INFO: Analyzing hidden import 'jax._src.buffer_callback'
+378582 INFO: Analyzing hidden import 'jax._src.checkify'
+379169 INFO: Analyzing hidden import 'jax._src.custom_dce'
+379195 INFO: Analyzing hidden import 'jax._src.export.shape_poly_decision'
+379226 INFO: Analyzing hidden import 'jax._src.hijax'
+379245 INFO: Analyzing hidden import 'jax._src.internal_test_util'
+379253 INFO: Analyzing hidden import 'jax._src.internal_test_util.deprecation_module'
+379262 INFO: Analyzing hidden import 'jax._src.internal_test_util.export_back_compat_test_data'
+379269 INFO: Analyzing hidden import 'jax._src.internal_test_util.export_back_compat_test_data.annotate_data_placement'
+379282 INFO: Analyzing hidden import 'jax._src.internal_test_util.export_back_compat_test_data.cpu_cholesky_lapack_potrf'
+379291 INFO: Analyzing hidden import 'jax._src.internal_test_util.export_back_compat_test_data.cpu_eig_lapack_geev'
+379306 INFO: Analyzing hidden import 'jax._src.internal_test_util.export_back_compat_test_data.cpu_eigh_lapack_syev'
+379318 INFO: Analyzing hidden import 'jax._src.internal_test_util.export_back_compat_test_data.cpu_hessenberg_lapack_gehrd'
+379328 INFO: Analyzing hidden import 'jax._src.internal_test_util.export_back_compat_test_data.cpu_lu_lapack_getrf'
+379338 INFO: Analyzing hidden import 'jax._src.internal_test_util.export_back_compat_test_data.cpu_qr_lapack_geqrf'
+379349 INFO: Analyzing hidden import 'jax._src.internal_test_util.export_back_compat_test_data.cpu_schur_lapack_gees'
+379367 INFO: Analyzing hidden import 'jax._src.internal_test_util.export_back_compat_test_data.cpu_svd_lapack_gesdd'
+379380 INFO: Analyzing hidden import 'jax._src.internal_test_util.export_back_compat_test_data.cpu_triangular_solve_blas_trsm'
+379389 INFO: Analyzing hidden import 'jax._src.internal_test_util.export_back_compat_test_data.cpu_tridiagonal_lapack_sytrd_hetrd'
+379398 INFO: Analyzing hidden import 'jax._src.internal_test_util.export_back_compat_test_data.cpu_tridiagonal_solve_lapack_gtsv'
+379416 INFO: Analyzing hidden import 'jax._src.internal_test_util.export_back_compat_test_data.cuda_eigh_cusolver_syev'
+379427 INFO: Analyzing hidden import 'jax._src.internal_test_util.export_back_compat_test_data.cuda_lu_cusolver_getrf'
+379437 INFO: Analyzing hidden import 'jax._src.internal_test_util.export_back_compat_test_data.cuda_lu_pivots_to_permutation'
+379446 INFO: Analyzing hidden import 'jax._src.internal_test_util.export_back_compat_test_data.cuda_qr_cusolver_geqrf'
+379456 INFO: Analyzing hidden import 'jax._src.internal_test_util.export_back_compat_test_data.cuda_svd_cusolver_gesvd'
+379484 INFO: Analyzing hidden import 'jax._src.internal_test_util.export_back_compat_test_data.cuda_threefry2x32'
+379491 INFO: Analyzing hidden import 'jax._src.internal_test_util.export_back_compat_test_data.cuda_tridiagonal_cusolver_sytrd'
+379510 INFO: Analyzing hidden import 'jax._src.internal_test_util.export_back_compat_test_data.cuda_tridiagonal_solve'
+379519 INFO: Analyzing hidden import 'jax._src.internal_test_util.export_back_compat_test_data.pallas'
+379527 INFO: Analyzing hidden import 'jax._src.internal_test_util.export_back_compat_test_data.pallas.mosaic_gpu_add_one'
+379542 INFO: Analyzing hidden import 'jax._src.internal_test_util.export_back_compat_test_data.pallas.mosaic_matmul'
+379559 INFO: Analyzing hidden import 'jax._src.internal_test_util.export_back_compat_test_data.pallas.mosaic_semaphore_dma'
+379568 INFO: Analyzing hidden import 'jax._src.internal_test_util.export_back_compat_test_data.pallas.triton_add_one'
+379578 INFO: Analyzing hidden import 'jax._src.internal_test_util.export_back_compat_test_data.rocm_eigh_hipsolver_syev'
+379625 INFO: Analyzing hidden import 'jax._src.internal_test_util.export_back_compat_test_data.shardy_sharding_ops_with_different_meshes'
+379634 INFO: Analyzing hidden import 'jax._src.internal_test_util.export_back_compat_test_data.stablehlo_dynamic_approx_top_k'
+379643 INFO: Analyzing hidden import 'jax._src.internal_test_util.export_back_compat_test_data.stablehlo_dynamic_rng_bit_generator'
+379653 INFO: Analyzing hidden import 'jax._src.internal_test_util.export_back_compat_test_data.stablehlo_dynamic_top_k'
+379665 INFO: Analyzing hidden import 'jax._src.internal_test_util.export_back_compat_test_data.tpu_ApproxTopK'
+379675 INFO: Analyzing hidden import 'jax._src.internal_test_util.export_back_compat_test_data.tpu_Eigh'
+379686 INFO: Analyzing hidden import 'jax._src.internal_test_util.export_back_compat_test_data.tpu_Lu'
+379698 INFO: Analyzing hidden import 'jax._src.internal_test_util.export_back_compat_test_data.tpu_Qr'
+379713 INFO: Analyzing hidden import 'jax._src.internal_test_util.export_back_compat_test_data.tpu_Sharding'
+379727 INFO: Analyzing hidden import 'jax._src.internal_test_util.export_back_compat_test_data.tpu_stablehlo_dynamic_reduce_window'
+379735 INFO: Analyzing hidden import 'jax._src.internal_test_util.export_back_compat_test_util'
+379955 INFO: Analyzing hidden import 'jax._src.internal_test_util.lax_test_util'
+379981 INFO: Analyzing hidden import 'jax._src.internal_test_util.lazy_loader_module'
+379988 INFO: Analyzing hidden import 'jax._src.internal_test_util.lazy_loader_module.lazy_test_submodule'
+379996 INFO: Analyzing hidden import 'jax._src.internal_test_util.test_harnesses'
+380241 INFO: Analyzing hidden import 'jax._src.lax_reference'
+380287 INFO: Analyzing hidden import 'jax._src.lib.mosaic_gpu'
+380299 INFO: Analyzing hidden import 'jax._src.lib.triton'
+380508 INFO: Analyzing hidden import 'jax._src.pallas'
+380515 INFO: Analyzing hidden import 'jax._src.pallas.core'
+384604 INFO: Analyzing hidden import 'jax._src.pallas.fuser'
+384895 INFO: Analyzing hidden import 'jax._src.pallas.mosaic.helpers'
+384904 INFO: Analyzing hidden import 'jax._src.pallas.mosaic.pipeline'
+385033 INFO: Analyzing hidden import 'jax._src.pallas.mosaic.sc_primitives'
+385082 INFO: Analyzing hidden import 'jax._src.pallas.mosaic_gpu.helpers'
+385101 INFO: Analyzing hidden import 'jax._src.pallas.triton.primitives'
+385124 INFO: Analyzing hidden import 'jax._src.scipy.spatial'
+385130 INFO: Analyzing hidden import 'jax._src.scipy.spatial.transform'
+385173 INFO: Analyzing hidden import 'jax._src.shard_alike'
+385194 INFO: Analyzing hidden import 'jax._src.sourcemap'
+385210 INFO: Analyzing hidden import 'jax._src.test_multiprocess'
+385233 INFO: Analyzing hidden import 'jax._src.xla_metadata'
+385246 INFO: Analyzing hidden import 'jax.ad_checkpoint'
+385261 INFO: Analyzing hidden import 'jax.cloud_tpu_init'
+385269 INFO: Analyzing hidden import 'jax.collect_profile'
+385283 INFO: Analyzing hidden import 'jax.experimental.array_serialization'
+385289 INFO: Analyzing hidden import 'jax.experimental.array_serialization.pytree_serialization'
+385380 INFO: Analyzing hidden import 'jax.experimental.array_serialization.serialization'
+385395 INFO: Analyzing hidden import 'jax.experimental.buffer_callback'
+385403 INFO: Analyzing hidden import 'jax.experimental.colocated_python'
+385512 INFO: Analyzing hidden import 'jax.experimental.compute_on'
+385519 INFO: Analyzing hidden import 'jax.experimental.custom_dce'
+385527 INFO: Analyzing hidden import 'jax.experimental.custom_partitioning'
+385536 INFO: Analyzing hidden import 'jax.experimental.fused'
+385554 INFO: Analyzing hidden import 'jax.experimental.host_callback'
+385564 INFO: Analyzing hidden import 'jax.experimental.jet'
+385625 INFO: Analyzing hidden import 'jax.experimental.layout'
+385631 INFO: Analyzing hidden import 'jax.experimental.mesh_utils'
+385636 INFO: Analyzing hidden import 'jax.experimental.ode'
+385661 INFO: Analyzing hidden import 'jax.experimental.pallas.fuser'
+385667 INFO: Analyzing hidden import 'jax.experimental.pallas.mosaic_gpu'
+385680 INFO: Analyzing hidden import 'jax.experimental.pallas.ops'
+385685 INFO: Analyzing hidden import 'jax.experimental.pallas.ops.gpu'
+385688 INFO: Analyzing hidden import 'jax.experimental.pallas.ops.gpu.attention'
+385733 INFO: Analyzing hidden import 'jax.experimental.pallas.ops.gpu.attention_mgpu'
+385803 INFO: Analyzing hidden import 'jax.experimental.pallas.ops.gpu.blackwell_matmul_mgpu'
+385827 INFO: Analyzing hidden import 'jax.experimental.pallas.ops.gpu.blackwell_ragged_dot_mgpu'
+385879 INFO: Analyzing hidden import 'jax.experimental.pallas.ops.gpu.collective_matmul_mgpu'
+385901 INFO: Analyzing hidden import 'jax.experimental.pallas.ops.gpu.decode_attention'
+385939 INFO: Analyzing hidden import 'jax.experimental.pallas.ops.gpu.hopper_matmul_mgpu'
+385960 INFO: Analyzing hidden import 'jax.experimental.pallas.ops.gpu.layer_norm'
+385984 INFO: Analyzing hidden import 'jax.experimental.pallas.ops.gpu.paged_attention'
+386006 INFO: Analyzing hidden import 'jax.experimental.pallas.ops.gpu.rms_norm'
+386029 INFO: Analyzing hidden import 'jax.experimental.pallas.ops.gpu.softmax'
+386036 INFO: Analyzing hidden import 'jax.experimental.pallas.ops.tpu'
+386040 INFO: Analyzing hidden import 'jax.experimental.pallas.ops.tpu.all_gather'
+386063 INFO: Analyzing hidden import 'jax.experimental.pallas.ops.tpu.example_kernel'
+386069 INFO: Analyzing hidden import 'jax.experimental.pallas.ops.tpu.flash_attention'
+386168 INFO: Analyzing hidden import 'jax.experimental.pallas.ops.tpu.matmul'
+386181 INFO: Analyzing hidden import 'jax.experimental.pallas.ops.tpu.megablox'
+386244 INFO: Analyzing hidden import 'jax.experimental.pallas.ops.tpu.paged_attention'
+386670 INFO: Analyzing hidden import 'jax.experimental.pallas.ops.tpu.paged_attention.util'
+386679 INFO: Analyzing hidden import 'jax.experimental.pallas.ops.tpu.ragged_paged_attention'
+386879 INFO: Analyzing hidden import 'jax.experimental.pallas.ops.tpu.random'
+386886 INFO: Analyzing hidden import 'jax.experimental.pallas.ops.tpu.random.philox'
+386911 INFO: Analyzing hidden import 'jax.experimental.pallas.ops.tpu.random.threefry'
+386927 INFO: Analyzing hidden import 'jax.experimental.pallas.ops.tpu.splash_attention'
+387157 INFO: Analyzing hidden import 'jax.experimental.pallas.tpu_sc'
+387161 INFO: Analyzing hidden import 'jax.experimental.pjit'
+387166 INFO: Analyzing hidden import 'jax.experimental.profiler'
+387171 INFO: Analyzing hidden import 'jax.experimental.rnn'
+387201 INFO: Analyzing hidden import 'jax.experimental.roofline'
+387289 INFO: Analyzing hidden import 'jax.experimental.scheduling_groups'
+387299 INFO: Analyzing hidden import 'jax.experimental.serialize_executable'
+387313 INFO: Analyzing hidden import 'jax.experimental.shard_alike'
+387318 INFO: Analyzing hidden import 'jax.experimental.sparse.nm'
+387330 INFO: Analyzing hidden import 'jax.experimental.sparse.test_util'
+387348 INFO: Analyzing hidden import 'jax.experimental.topologies'
+387364 INFO: Analyzing hidden import 'jax.experimental.transfer'
+387372 INFO: Analyzing hidden import 'jax.experimental.xla_metadata'
+387382 INFO: Analyzing hidden import 'jax.extend.mlir.dialects'
+387393 INFO: Analyzing hidden import 'jax.extend.mlir.dialects.arith'
+387397 INFO: Analyzing hidden import 'jax.extend.mlir.dialects.builtin'
+387401 INFO: Analyzing hidden import 'jax.extend.mlir.dialects.chlo'
+387407 INFO: Analyzing hidden import 'jax.extend.mlir.dialects.func'
+387413 INFO: Analyzing hidden import 'jax.extend.mlir.dialects.math'
+387420 INFO: Analyzing hidden import 'jax.extend.mlir.dialects.memref'
+387430 INFO: Analyzing hidden import 'jax.extend.mlir.dialects.scf'
+387437 INFO: Analyzing hidden import 'jax.extend.mlir.dialects.sdy'
+387445 INFO: Analyzing hidden import 'jax.extend.mlir.dialects.sparse_tensor'
+387451 INFO: Analyzing hidden import 'jax.extend.mlir.dialects.stablehlo'
+387458 INFO: Analyzing hidden import 'jax.extend.mlir.dialects.vector'
+387463 INFO: Analyzing hidden import 'jax.extend.mlir.ir'
+387467 INFO: Analyzing hidden import 'jax.extend.mlir.passmanager'
+387473 INFO: Analyzing hidden import 'jax.scipy.spatial'
+387476 INFO: Analyzing hidden import 'jax.scipy.spatial.transform'
+387481 INFO: Analyzing hidden import 'jax.test_util'
+387487 INFO: Analyzing hidden import 'jax.tools'
+387489 INFO: Analyzing hidden import 'jax.tools.colab_tpu'
+387492 INFO: Analyzing hidden import 'jax.tools.jax_to_ir'
+387581 INFO: Analyzing hidden import 'jax.tools.pgo_nsys_converter'
+387590 INFO: Analyzing hidden import 'jaxlib.hlo_helpers'
+387607 INFO: Analyzing hidden import 'linearmodels.__future__'
+387608 INFO: Analyzing hidden import 'linearmodels.__future__.ordering'
+387611 INFO: Analyzing hidden import 'linearmodels._build'
+387613 INFO: Analyzing hidden import 'linearmodels._build.git_version'
+387628 INFO: Analyzing hidden import 'linearmodels.conftest'
+387636 INFO: Analyzing hidden import 'linearmodels.datasets'
+387646 INFO: Analyzing hidden import 'linearmodels.datasets.birthweight'
+387658 INFO: Analyzing hidden import 'linearmodels.datasets.card'
+387667 INFO: Analyzing hidden import 'linearmodels.datasets.fertility'
+387678 INFO: Analyzing hidden import 'linearmodels.datasets.french'
+387683 INFO: Analyzing hidden import 'linearmodels.datasets.fringe'
+387688 INFO: Analyzing hidden import 'linearmodels.datasets.jobtraining'
+387691 INFO: Analyzing hidden import 'linearmodels.datasets.meps'
+387701 INFO: Analyzing hidden import 'linearmodels.datasets.mroz'
+387709 INFO: Analyzing hidden import 'linearmodels.datasets.munnell'
+387716 INFO: Analyzing hidden import 'linearmodels.datasets.wage'
+387725 INFO: Analyzing hidden import 'linearmodels.datasets.wage_panel'
+387734 INFO: Analyzing hidden import 'linearmodels.formula'
+387746 INFO: Analyzing hidden import 'linearmodels.tests'
+387749 INFO: Analyzing hidden import 'linearmodels.tests.asset_pricing'
+387752 INFO: Analyzing hidden import 'linearmodels.tests.asset_pricing._utility'
+387768 INFO: Analyzing hidden import 'linearmodels.tests.asset_pricing.test_covariance'
+387781 INFO: Analyzing hidden import 'linearmodels.tests.asset_pricing.test_formulas'
+387799 INFO: Analyzing hidden import 'linearmodels.tests.asset_pricing.test_linear_factor_gmm'
+387814 INFO: Analyzing hidden import 'linearmodels.tests.asset_pricing.test_linear_factor_model'
+387849 INFO: Analyzing hidden import 'linearmodels.tests.asset_pricing.test_model'
+387870 INFO: Analyzing hidden import 'linearmodels.tests.datasets'
+387872 INFO: Analyzing hidden import 'linearmodels.tests.datasets.test_datasets'
+387883 INFO: Analyzing hidden import 'linearmodels.tests.iv'
+387888 INFO: Analyzing hidden import 'linearmodels.tests.iv._utility'
+387899 INFO: Analyzing hidden import 'linearmodels.tests.iv.results'
+387902 INFO: Analyzing hidden import 'linearmodels.tests.iv.results.execute-stata'
+387916 INFO: Analyzing hidden import 'linearmodels.tests.iv.results.execute-stata-simulated-data'
+387928 INFO: Analyzing hidden import 'linearmodels.tests.iv.results.read_stata_results'
+387942 INFO: Analyzing hidden import 'linearmodels.tests.iv.results.simulated-test-data'
+387954 INFO: Analyzing hidden import 'linearmodels.tests.iv.test_absorbing'
+388012 INFO: Analyzing hidden import 'linearmodels.tests.iv.test_against_stata'
+388029 INFO: Analyzing hidden import 'linearmodels.tests.iv.test_covariance'
+388052 INFO: Analyzing hidden import 'linearmodels.tests.iv.test_data'
+388073 INFO: Analyzing hidden import 'linearmodels.tests.iv.test_formulas'
+388103 INFO: Analyzing hidden import 'linearmodels.tests.iv.test_gmm'
+388123 INFO: Analyzing hidden import 'linearmodels.tests.iv.test_missing_data'
+388138 INFO: Analyzing hidden import 'linearmodels.tests.iv.test_model'
+388169 INFO: Analyzing hidden import 'linearmodels.tests.iv.test_postestimation'
+388190 INFO: Analyzing hidden import 'linearmodels.tests.iv.test_results'
+388236 INFO: Analyzing hidden import 'linearmodels.tests.panel.results'
+388239 INFO: Analyzing hidden import 'linearmodels.tests.panel.results.execute-stata-simulated-data'
+388253 INFO: Analyzing hidden import 'linearmodels.tests.panel.results.generate-panel-data'
+388262 INFO: Analyzing hidden import 'linearmodels.tests.panel.results.parse_stata_results'
+388269 INFO: Analyzing hidden import 'linearmodels.tests.panel.test_between_ols'
+388295 INFO: Analyzing hidden import 'linearmodels.tests.panel.test_cluster_input_formats'
+388313 INFO: Analyzing hidden import 'linearmodels.tests.panel.test_data'
+388392 INFO: Analyzing hidden import 'linearmodels.tests.panel.test_fama_macbeth'
+388410 INFO: Analyzing hidden import 'linearmodels.tests.panel.test_firstdifference_ols'
+388426 INFO: Analyzing hidden import 'linearmodels.tests.panel.test_formula'
+388448 INFO: Analyzing hidden import 'linearmodels.tests.panel.test_model'
+388470 INFO: Analyzing hidden import 'linearmodels.tests.panel.test_panel_covariance'
+388497 INFO: Analyzing hidden import 'linearmodels.tests.panel.test_panel_ols'
+388624 INFO: Analyzing hidden import 'linearmodels.tests.panel.test_pooled_ols'
+388646 INFO: Analyzing hidden import 'linearmodels.tests.panel.test_random_effects'
+388656 INFO: Analyzing hidden import 'linearmodels.tests.panel.test_results'
+388675 INFO: Analyzing hidden import 'linearmodels.tests.panel.test_simulated_against_stata'
+388694 INFO: Analyzing hidden import 'linearmodels.tests.panel.test_utility'
+388722 INFO: Analyzing hidden import 'linearmodels.tests.shared'
+388725 INFO: Analyzing hidden import 'linearmodels.tests.shared.test_base'
+388733 INFO: Analyzing hidden import 'linearmodels.tests.shared.test_typed_getters'
+388745 INFO: Analyzing hidden import 'linearmodels.tests.shared.test_utility'
+388769 INFO: Analyzing hidden import 'linearmodels.tests.system'
+388771 INFO: Analyzing hidden import 'linearmodels.tests.system._utility'
+388803 INFO: Analyzing hidden import 'linearmodels.tests.system.results'
+388807 INFO: Analyzing hidden import 'linearmodels.tests.system.results.execute-stata'
+388822 INFO: Analyzing hidden import 'linearmodels.tests.system.results.execute-stata-3sls'
+388832 INFO: Analyzing hidden import 'linearmodels.tests.system.results.generate_data'
+388840 INFO: Analyzing hidden import 'linearmodels.tests.system.results.parse_stata_3sls_results'
+388848 INFO: Analyzing hidden import 'linearmodels.tests.system.results.parse_stata_results'
+388860 INFO: Analyzing hidden import 'linearmodels.tests.system.test_3sls'
+388892 INFO: Analyzing hidden import 'linearmodels.tests.system.test_3sls_against_stata'
+388903 INFO: Analyzing hidden import 'linearmodels.tests.system.test_covariance'
+388940 INFO: Analyzing hidden import 'linearmodels.tests.system.test_equivalence'
+388950 INFO: Analyzing hidden import 'linearmodels.tests.system.test_formulas'
+388969 INFO: Analyzing hidden import 'linearmodels.tests.system.test_gmm'
+389006 INFO: Analyzing hidden import 'linearmodels.tests.system.test_sur'
+389087 INFO: Analyzing hidden import 'linearmodels.tests.system.test_sur_against_stata'
+389103 INFO: Analyzing hidden import 'linearmodels.tests.system.test_utility'
+389123 INFO: Analyzing hidden import 'linearmodels.tests.test_build'
+389133 INFO: Analyzing hidden import 'linearmodels.tests.test_examples'
+389151 INFO: Analyzing hidden import 'linearmodels.tests.test_tester'
+389158 INFO: Analyzing hidden import 'econml._tree_exporter'
+389189 INFO: Analyzing hidden import 'econml.cate_interpreter'
+389328 INFO: Analyzing hidden import 'econml.data'
+389331 INFO: Analyzing hidden import 'econml.data.dgps'
+389346 INFO: Analyzing hidden import 'econml.data.dynamic_panel_dgp'
+389391 INFO: Analyzing hidden import 'econml.federated_learning'
+389405 INFO: Analyzing hidden import 'econml.grf._utils'
+389406 INFO: Analyzing hidden import 'econml.iv'
+389409 INFO: Analyzing hidden import 'econml.iv.dml'
+389466 INFO: Analyzing hidden import 'econml.iv.dr'
+389574 INFO: Analyzing hidden import 'econml.iv.sieve'
+389597 INFO: Analyzing hidden import 'econml.metalearners'
+389630 INFO: Analyzing hidden import 'econml.orf'
+389724 INFO: Analyzing hidden import 'econml.panel'
+389727 INFO: Analyzing hidden import 'econml.panel.dml'
+389780 INFO: Analyzing hidden import 'econml.panel.utilities'
+389784 INFO: Analyzing hidden import 'econml.tree._utils'
+389785 INFO: Processing module hooks (post-graph stage)...
+393884 INFO: Processing standard module hook 'hook-lxml.isoschematron.py' from 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+394091 WARNING: Hidden import "pycparser.lextab" not found!
+394091 WARNING: Hidden import "pycparser.yacctab" not found!
+400460 WARNING: Hidden import "importlib_resources.trees" not found!
+400460 INFO: Processing standard module hook 'hook-matplotlib.backends.py' from 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\PyInstaller\\hooks'
+400462 INFO: Matplotlib backend selection method: automatic discovery of used backends
+400581 INFO: Discovered Matplotlib backend(s) via `matplotlib.use()` call in module 'charts': ['Agg']
+400608 INFO: Discovered Matplotlib backend(s) via `matplotlib.use()` call in module 'sympy.testing.runtests': ['Agg', 'Agg']
+400644 INFO: Discovered Matplotlib backend(s) via `matplotlib.use()` call in module 'xarray.tests': ['Agg']
+400671 INFO: The following Matplotlib backends were discovered by scanning for `matplotlib.use()` calls: ['Agg']. If your backend of choice is not in this list, either add a `matplotlib.use()` call to your code, or configure the backend collection via hook options (see: https://pyinstaller.org/en/stable/hooks-config.html#matplotlib-hooks).
+400671 INFO: Selected matplotlib backends: ['Agg']
+401830 INFO: Processing standard module hook 'hook-PIL.SpiderImagePlugin.py' from 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\PyInstaller\\hooks'
+406397 WARNING: Hidden import "scipy.special._cdflib" not found!
+406483 INFO: Processing standard module hook 'hook-lxml.objectify.py' from 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+406491 INFO: Processing standard module hook 'hook-tzdata.py' from 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\stdhooks'
+408387 INFO: Performing binary vs. data reclassification (5309 entries)
+428021 INFO: Looking for ctypes DLLs
+428605 INFO: Analyzing run-time hooks ...
+428657 INFO: Including run-time hook 'pyi_rth_inspect.py' from 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\PyInstaller\\hooks\\rthooks'
+428666 INFO: Including run-time hook 'pyi_rth_pkgutil.py' from 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\PyInstaller\\hooks\\rthooks'
+428687 INFO: Including run-time hook 'pyi_rth_multiprocessing.py' from 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\PyInstaller\\hooks\\rthooks'
+428698 INFO: Including run-time hook 'pyi_rth_pkgres.py' from 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\PyInstaller\\hooks\\rthooks'
+428711 INFO: Including run-time hook 'pyi_rth_setuptools.py' from 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\PyInstaller\\hooks\\rthooks'
+428721 INFO: Including run-time hook 'pyi_rth_mplconfig.py' from 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\PyInstaller\\hooks\\rthooks'
+428731 INFO: Processing pre-find-module-path hook 'hook-_pyi_rth_utils.py' from 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\PyInstaller\\hooks\\pre_find_module_path'
+428750 INFO: Processing standard module hook 'hook-_pyi_rth_utils.py' from 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\PyInstaller\\hooks'
+428779 INFO: Including run-time hook 'pyi_rth_pywintypes.py' from 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\rthooks'
+428781 INFO: Including run-time hook 'pyi_rth_pythoncom.py' from 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\rthooks'
+428797 INFO: Including run-time hook 'pyi_rth_cryptography_openssl.py' from 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\_pyinstaller_hooks_contrib\\rthooks'
+429172 INFO: Creating base_library.zip...
+429217 INFO: Looking for dynamic libraries
+C:\Users\ackol\AppData\Local\Programs\Python\Python312\Lib\site-packages\PyInstaller\building\build_main.py:227: UserWarning: pkg_resources is deprecated as an API. See https://setuptools.pypa.io/en/latest/pkg_resources.html. The pkg_resources package is slated for removal as early as 2025-11-30. Refrain from using this package or pin to Setuptools<81.
+  __import__(package)
+WARNING (pytensor.configdefaults): g++ not available, if using conda: `conda install gxx`
+WARNING (pytensor.configdefaults): g++ not detected!  PyTensor will be unable to compile C-implementations and will default to Python. Performance may be severely degraded. To remove this warning, set PyTensor flags cxx to an empty string.
+C:\Users\ackol\AppData\Local\Programs\Python\Python312\Lib\site-packages\pytensor\xtensor\__init__.py:14: UserWarning: xtensor module is experimental and full of bugs
+  warnings.warn("xtensor module is experimental and full of bugs")
+460876 INFO: Extra DLL search directories (AddDllDirectory): ['C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\numpy.libs', 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\pandas.libs', 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\pyarrow.libs', 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\scipy.libs', 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\llvmlite.libs']
+460876 INFO: Extra DLL search directories (PATH): []
+473760 WARNING: Library not found: could not resolve 'tbb12.dll', dependency of 'C:\\Users\\ackol\\AppData\\Local\\Programs\\Python\\Python312\\Lib\\site-packages\\numba\\np\\ufunc\\tbbpool.cp312-win_amd64.pyd'.
+474683 INFO: Warnings written to D:\Docs\Aurora_Ai\Dev\Aurora_Econometrica_thinwt\sidecar\econometrica\build_tmp\econometrica-sidecar\warn-econometrica-sidecar.txt
+475666 INFO: Graph cross-reference written to D:\Docs\Aurora_Ai\Dev\Aurora_Econometrica_thinwt\sidecar\econometrica\build_tmp\econometrica-sidecar\xref-econometrica-sidecar.html
+476122 INFO: checking PYZ
+476122 INFO: Building PYZ because PYZ-00.toc is non existent
+476122 INFO: Building PYZ (ZlibArchive) D:\Docs\Aurora_Ai\Dev\Aurora_Econometrica_thinwt\sidecar\econometrica\build_tmp\econometrica-sidecar\PYZ-00.pyz
+484558 INFO: Building PYZ (ZlibArchive) D:\Docs\Aurora_Ai\Dev\Aurora_Econometrica_thinwt\sidecar\econometrica\build_tmp\econometrica-sidecar\PYZ-00.pyz completed successfully.
+484730 INFO: checking PKG
+484733 INFO: Building PKG because PKG-00.toc is non existent
+484733 INFO: Building PKG (CArchive) econometrica-sidecar.pkg
+484885 INFO: Building PKG (CArchive) econometrica-sidecar.pkg completed successfully.
+484889 INFO: Bootloader C:\Users\ackol\AppData\Local\Programs\Python\Python312\Lib\site-packages\PyInstaller\bootloader\Windows-64bit-intel\run.exe
+484889 INFO: checking EXE
+484889 INFO: Building EXE because EXE-00.toc is non existent
+484889 INFO: Building EXE from EXE-00.toc
+484890 INFO: Copying bootloader EXE to D:\Docs\Aurora_Ai\Dev\Aurora_Econometrica_thinwt\sidecar\econometrica\build_tmp\econometrica-sidecar\econometrica-sidecar.exe
+484970 INFO: Copying icon to EXE
+484980 INFO: Copying version information to EXE
+484983 INFO: Copying 0 resources to EXE
+484983 INFO: Embedding manifest in EXE
+484983 INFO: Appending PKG archive to EXE
+485051 INFO: Fixing EXE headers
+485391 INFO: Building EXE from EXE-00.toc completed successfully.
+485463 INFO: checking COLLECT
+485464 INFO: Building COLLECT because COLLECT-00.toc is non existent
+485464 INFO: Removing dir D:\Docs\Aurora_Ai\Dev\Aurora_Econometrica_thinwt\sidecar\econometrica\dist\econometrica-sidecar
+486741 INFO: Building COLLECT COLLECT-00.toc
+498268 INFO: Building COLLECT COLLECT-00.toc completed successfully.
+498413 INFO: Build complete! The results are available in: D:\Docs\Aurora_Ai\Dev\Aurora_Econometrica_thinwt\sidecar\econometrica\dist
+Regenerating tokens artifacts from tokens.json (D:\Docs\Aurora_Ai\Standards\tokens\build.py)...
+  [OK] aurora_tokens.py (6541 bytes)
+  [OK] aurora_html.css (3505 bytes)
+  [OK] aurora_html_tokens.js (1847 bytes)
+
+Building econometrica-sidecar with PyInstaller (--onedir)...
+Output: D:\Docs\Aurora_Ai\Dev\Aurora_Econometrica_thinwt\sidecar\econometrica\dist\econometrica-sidecar/
+
+
+Build SUCCESS: D:\Docs\Aurora_Ai\Dev\Aurora_Econometrica_thinwt\sidecar\econometrica\dist\econometrica-sidecar\econometrica-sidecar.exe
+Bundle size: 972 MB
+
+Smoke-testing bundle on 127.0.0.1:37711...
+  [OK] validate CSV: status=ok
+  [OK] validate XLSX: status=ok
+  [OK] Bundle smoke test passed
+
+Syncing bundle into D:\Docs\Aurora_Ai\Dev\Aurora_Econometrica_thinwt\sidecar\econometrica (Tauri resource path)...
+  ✓ 2 items synced into D:\Docs\Aurora_Ai\Dev\Aurora_Econometrica_thinwt\sidecar\econometrica
+  [OK] Freshness verified (exe newer than all .py sources)
+
+Next step: cd .. && npm run tauri build

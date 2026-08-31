@@ -1,0 +1,23 @@
+    Finished `test` profile [unoptimized + debuginfo] target(s) in 0.81s
+     Running unittests src\lib.rs (D:/cargo-targets/ai-agency\debug\deps\aurora_econometrica_lib-38014719dd52fc59.exe)
+
+running 4 tests
+test commands::content_updater::tests::whole_file_download_fails_at_the_same_threshold ... ok
+test commands::content_updater::tests::truncated_body_is_not_accepted_as_success ... ok
+test commands::content_updater::tests::ranged_download_rejects_empty_chunk ... ok
+test commands::content_updater::tests::ranged_download_rejects_shifting_total ... ok
+
+test result: ok. 4 passed; 0 failed; 0 ignored; 0 measured; 395 filtered out; finished in 37.14s
+
+     Running unittests src\main.rs (D:/cargo-targets/ai-agency\debug\deps\aurora_econometrica_gui-26716960da1b2eac.exe)
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+   Doc-tests aurora_econometrica_lib
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 1 filtered out; finished in 0.00s
+

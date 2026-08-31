@@ -1,0 +1,126 @@
+Python Tests	Pytest discovery (unit + smoke)	﻿2026-08-09T17:58:22.9947347Z ##[group]Run python -m pytest -n auto --tb=short -m "not requires_real_data and not slow"
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:58:22.9948008Z [36;1mpython -m pytest -n auto --tb=short -m "not requires_real_data and not slow"[0m
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:58:22.9995062Z shell: /usr/bin/bash -e {0}
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:58:22.9995326Z env:
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:58:22.9995522Z   CARGO_TERM_COLOR: always
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:58:22.9995839Z   pythonLocation: /opt/hostedtoolcache/Python/3.12.13/x64
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:58:22.9996295Z   PKG_CONFIG_PATH: /opt/hostedtoolcache/Python/3.12.13/x64/lib/pkgconfig
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:58:22.9996738Z   Python_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.13/x64
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:58:22.9997121Z   Python2_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.13/x64
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:58:22.9997521Z   Python3_ROOT_DIR: /opt/hostedtoolcache/Python/3.12.13/x64
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:58:22.9997934Z   LD_LIBRARY_PATH: /opt/hostedtoolcache/Python/3.12.13/x64/lib
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:58:22.9998257Z ##[endgroup]
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:58:32.2511553Z ============================= test session starts ==============================
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:58:32.2541480Z platform linux -- Python 3.12.13, pytest-9.1.1, pluggy-1.6.0
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:58:32.2591501Z rootdir: /home/runner/work/Aurora_Econometrica/Aurora_Econometrica
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:58:32.2621276Z configfile: pytest.ini
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:58:32.2664736Z testpaths: tools
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:58:32.2691171Z plugins: anyio-4.14.2, xdist-3.8.0, asyncio-1.4.0
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:58:32.2721712Z asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:58:32.2722762Z created: 4/4 workers
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:58:32.2723142Z 4 workers [2295 items]
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:58:32.2723394Z 
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:58:32.3461959Z ........................................................................ [  3%]
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:58:32.4917035Z ........................................................................ [  6%]
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:58:32.6840156Z ........................................................................ [  9%]
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:58:32.9071654Z ........................................................................ [ 12%]
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:58:33.0611757Z ........................................................................ [ 15%]
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:58:34.9791775Z ........................................................................ [ 18%]
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:58:35.9136477Z ....................................................................s... [ 21%]
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:58:37.9832033Z ........................................................................ [ 25%]
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:58:39.9401804Z ........................................................................ [ 28%]
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:58:41.6891786Z ........................................................................ [ 31%]
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:58:41.9583253Z ........................................................................ [ 34%]
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:58:42.4524816Z ........................................................................ [ 37%]
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:58:44.1074129Z ........................................................................ [ 40%]
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:58:44.7171721Z ........................................................................ [ 43%]
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:58:44.9221779Z ........................................................................ [ 47%]
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:58:45.1261098Z ........................................................................ [ 50%]
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:58:45.3631837Z ..s..................................................................... [ 53%]
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:58:45.5821550Z ........................................................................ [ 56%]
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:58:45.7921886Z ........................................................................ [ 59%]
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:58:46.3511882Z ....................................................................s... [ 62%]
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:58:46.4692038Z ........................................................................ [ 65%]
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:58:46.5541672Z ........................................................................ [ 69%]
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:58:46.7601634Z ...................................s..s.s..s.s..s....................... [ 72%]
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:58:47.5169305Z .....F.......................................................ssss....... [ 75%]
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:58:48.5046721Z ........................................................................ [ 78%]
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:58:51.7291619Z ........................................................................ [ 81%]
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:58:54.9741622Z ........................................................................ [ 84%]
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:58:55.9415121Z .................................................................s...... [ 87%]
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:58:56.3711857Z ........................................................................ [ 90%]
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:58:57.7641859Z ...................s.................................................... [ 94%]
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:59:03.8222274Z ........................................................................ [ 97%]
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:59:14.8670309Z ...............................................................          [100%]
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:59:14.8671482Z =================================== FAILURES ===================================
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:59:14.8672252Z __________ TestValidateDataNumericGate.test_money_string_control_kept __________
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:59:14.8673102Z [gw0] linux -- Python 3.12.13 /opt/hostedtoolcache/Python/3.12.13/x64/bin/python
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:59:14.8673919Z tools/test_validator_numeric_role_gate.py:82: in test_money_string_control_kept
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:59:14.8674569Z     assert r['status'] != 'error'
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:59:14.8675001Z E   AssertionError: assert 'error' != 'error'
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:59:14.8675544Z =============================== warnings summary ===============================
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:59:14.8676079Z sidecar/econometrica/server.py:235
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:59:14.8676501Z sidecar/econometrica/server.py:235
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:59:14.8676905Z sidecar/econometrica/server.py:235
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:59:14.8677358Z sidecar/econometrica/server.py:235
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:59:14.8678310Z   /home/runner/work/Aurora_Econometrica/Aurora_Econometrica/sidecar/econometrica/server.py:235: DeprecationWarning: 
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:59:14.8679352Z           on_event is deprecated, use lifespan event handlers instead.
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:59:14.8679889Z   
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:59:14.8680191Z           Read more about it in the
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:59:14.8681100Z           [FastAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/).
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:59:14.8681786Z           
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:59:14.8682086Z     @app.on_event('startup')
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:59:14.8682336Z 
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:59:14.8682847Z ../../../../../opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/fastapi/applications.py:4681
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:59:14.8684003Z ../../../../../opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/fastapi/applications.py:4681
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:59:14.8685112Z ../../../../../opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/fastapi/applications.py:4681
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:59:14.8686249Z ../../../../../opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/fastapi/applications.py:4681
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:59:14.8687503Z   /opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/fastapi/applications.py:4681: DeprecationWarning: 
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:59:14.8688527Z           on_event is deprecated, use lifespan event handlers instead.
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:59:14.8689058Z   
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:59:14.8689335Z           Read more about it in the
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:59:14.8689989Z           [FastAPI docs for Lifespan Events](https://fastapi.tiangolo.com/advanced/events/).
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:59:14.8690905Z           
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:59:14.8691351Z     return self.router.on_event(event_type)  # ty: ignore[deprecated]
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:59:14.8691804Z 
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:59:14.8692296Z tools/test_dirty_import_files.py::test_dirty_mutations_no_exceptions[double_header]
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:59:14.8694359Z   /home/runner/work/Aurora_Econometrica/Aurora_Econometrica/sidecar/econometrica/engines/planning.py:118: UserWarning: Could not infer format, so each element will be parsed individually, falling back to `dateutil`. To ensure parsing is consistent and as-expected, please specify a format.
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:59:14.8697117Z     work[date_col] = pd.to_datetime(work[date_col], errors="coerce")
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:59:14.8697544Z 
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:59:14.8697938Z tools/test_dirty_import_files.py::test_dirty_mutations_no_exceptions[double_header]
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:59:14.8699956Z   /home/runner/work/Aurora_Econometrica/Aurora_Econometrica/sidecar/econometrica/engines/validator.py:549: UserWarning: Could not infer format, so each element will be parsed individually, falling back to `dateutil`. To ensure parsing is consistent and as-expected, please specify a format.
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:59:14.8702075Z     _dates = pd.to_datetime(df[col], errors='coerce').dropna()
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:59:14.8702473Z 
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:59:14.8702843Z tools/test_dirty_import_files.py::test_dirty_mutations_no_exceptions[double_header]
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:59:14.8705073Z   /home/runner/work/Aurora_Econometrica/Aurora_Econometrica/sidecar/econometrica/engines/validator.py:274: UserWarning: Could not infer format, so each element will be parsed individually, falling back to `dateutil`. To ensure parsing is consistent and as-expected, please specify a format.
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:59:14.8706898Z     dates = pd.to_datetime(series.dropna()).sort_values()
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:59:14.8707255Z 
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:59:14.8707637Z tools/test_dirty_import_files.py::test_dirty_mutations_no_exceptions[double_header]
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:59:14.8709633Z   /home/runner/work/Aurora_Econometrica/Aurora_Econometrica/sidecar/econometrica/engines/validator.py:882: UserWarning: Could not infer format, so each element will be parsed individually, falling back to `dateutil`. To ensure parsing is consistent and as-expected, please specify a format.
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:59:14.8711618Z     df[date_col] = pd.to_datetime(df[date_col])
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:59:14.8711939Z 
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:59:14.8712208Z tools/test_server_promises.py::test_full_cycle_create_list_check
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:59:14.8712864Z tools/test_server_backtest.py::test_validation_422_on_junk
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:59:14.8714292Z   /opt/hostedtoolcache/Python/3.12.13/x64/lib/python3.12/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:59:14.8715756Z     from starlette.testclient import TestClient as TestClient  # noqa
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:59:14.8716195Z 
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:59:14.8716487Z -- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:59:14.8717148Z =========================== short test summary info ============================
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:59:14.8717961Z SKIPPED [1] tools/test_mcmc_params_backend.py:48: could not import 'numpyro': No module named 'numpyro'
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:59:14.8719199Z SKIPPED [1] tools/test_collapse_top_groups.py:105: фикстура mmx_4groups недоступна
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:59:14.8720097Z SKIPPED [1] tools/test_sprint_buffer_43_44_45_polish.py:68: aurora_pptx not importable in test env
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:59:14.8721371Z SKIPPED [1] tools/test_fourier_integration.py:64: could not import 'pymc': No module named 'pymc'
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:59:14.8722437Z SKIPPED [1] tools/test_fourier_integration.py:83: could not import 'pymc': No module named 'pymc'
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:59:14.8723488Z SKIPPED [1] tools/test_fourier_integration.py:103: could not import 'pymc': No module named 'pymc'
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:59:14.8724537Z SKIPPED [1] tools/test_fourier_integration.py:121: could not import 'pymc': No module named 'pymc'
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:59:14.8725585Z SKIPPED [1] tools/test_fourier_integration.py:162: could not import 'pymc': No module named 'pymc'
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:59:14.8726609Z SKIPPED [1] tools/test_fourier_integration.py:198: could not import 'pymc': No module named 'pymc'
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:59:14.8727902Z SKIPPED [1] tools/test_weibull_recovery.py:282: Requires B2 - learnable Weibull в modeler.py. Un-skip after B2 ship.
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:59:14.8729162Z SKIPPED [1] tools/test_weibull_recovery.py:291: Requires B2 - learnable Weibull в modeler.py.
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:59:14.8730272Z SKIPPED [1] tools/test_weibull_recovery.py:303: Requires B2 + JAX backend.
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:59:14.8731336Z SKIPPED [1] tools/test_weibull_recovery.py:309: Requires B2 + scipy MLE warm-start.
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:59:14.8732233Z SKIPPED [1] tools/test_phase2_synergies.py:96: Conformal not available in this env
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:59:14.8733194Z SKIPPED [1] tools/test_scenario_seasonality.py:108: could not import 'pymc': No module named 'pymc'
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:59:14.8734629Z FAILED tools/test_validator_numeric_role_gate.py::TestValidateDataNumericGate::test_money_string_control_kept - AssertionError: assert 'error' != 'error'
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:59:14.8735872Z =========== 1 failed, 2279 passed, 15 skipped, 14 warnings in 50.47s ===========
+Python Tests	Pytest discovery (unit + smoke)	2026-08-09T17:59:14.9315298Z ##[error]Process completed with exit code 1.
