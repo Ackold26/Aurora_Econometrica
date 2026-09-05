@@ -117,6 +117,13 @@ fn utf8_char_len(first: u8) -> usize {
 /// верхнему регистру. Возвращает `None`, если в адресе нет пути: подписывать пустоту нельзя,
 /// вызывающий в этом случае просто не подписывает запрос.
 pub fn signed_path_for_edge(url: &str) -> Option<String> {
+    // Якорь в сеть не уходит НИКОГДА — сервер его не увидит. Подписать путь вместе с якорем
+    // значит подписать не то, что будет проверено: подпись не сойдётся на каждом таком запросе.
+    // Найдено внешним аудитом 05.09.
+    let url = match url.find('#') {
+        Some(pos) => &url[..pos],
+        None => url,
+    };
     let after_scheme = match url.find("://") {
         Some(pos) => &url[pos + 3..],
         // Некоторые вызывающие уже дают относительную цель — она годится как есть.
@@ -128,9 +135,27 @@ pub fn signed_path_for_edge(url: &str) -> Option<String> {
             }
         }
     };
-    let slash = after_scheme.find('/')?;
-    let path_with_query = &after_scheme[slash..];
+    // Пути в адресе может не быть (`https://домен` или `https://домен?x=1`), но сервер всё равно
+    // увидит `/` — и подпишет его. Без этой ветви клиент молча не подписывал бы такой запрос.
+    // Найдено внешним аудитом 05.09.
+    let path_with_query = match after_scheme.find('/') {
+        Some(slash) => &after_scheme[slash..],
+        None => match after_scheme.find('?') {
+            Some(q) => return Some(percent_triples_to_upper(&format!("/{}", &after_scheme[q..]))),
+            None => "/",
+        },
+    };
     Some(percent_triples_to_upper(strip_edge_prefix(path_with_query)))
+}
+
+/// Годится ли поле для канонической строки: перевод строки внутри поля сдвинул бы разбор на
+/// стороне сервера — он получил бы восемь полей вместо семи и сверял бы не то.
+///
+/// Через сеть такое недостижимо (транспорт отвергает голый перевод строки в цели запроса), но
+/// путь может собираться из имени файла или кабинета, и тогда расхождение возникло бы тихо, без
+/// отказа и без следа. Найдено внешним аудитом 05.09.
+fn поле_годно(значение: &str) -> bool {
+    !значение.contains('\n') && !значение.contains('\r')
 }
 
 /// Снять приставку посредника. `/functions/v1/auth` → `/auth`.
@@ -161,6 +186,12 @@ pub fn build_request_payload(
     body_sha256_hex: &str,
     fingerprint_hash: &str,
 ) -> String {
+    debug_assert!(
+        [method, path, timestamp, nonce, body_sha256_hex, fingerprint_hash]
+            .iter()
+            .all(|поле| поле_годно(поле)),
+        "перевод строки внутри поля сдвинул бы разбор на сервере — см. `поле_годно`"
+    );
     format!(
         "{}\n{}\n{}\n{}\n{}\n{}\n{}",
         REQUEST_PREFIX,
@@ -495,6 +526,57 @@ mod tests {
             "5ceccd51d3f6e0652b2ba6592722ae23c7dd59dcf53c1e6c74d036accb051703",
             "C3: кириллица в теле — считается по байтам UTF-8, а не по символам"
         );
+    }
+
+    // ── Находки внешнего аудита 05.09 ───────────────────────────────────────────────────────
+
+    #[test]
+    fn якорь_в_подпись_не_попадает() {
+        // Якорь в сеть не уходит: сервер увидит `/content`, значит подписывать надо его.
+        assert_eq!(
+            signed_path_for_edge("https://h/functions/v1/content#top").as_deref(),
+            Some("/content")
+        );
+        assert_eq!(
+            signed_path_for_edge("https://h/functions/v1/content?a=1#top").as_deref(),
+            Some("/content?a=1")
+        );
+    }
+
+    #[test]
+    fn адрес_без_пути_всё_равно_подписывается() {
+        // Сервер увидит `/`, и раньше клиент такой запрос молча не подписывал.
+        assert_eq!(signed_path_for_edge("https://ref.supabase.co").as_deref(), Some("/"));
+        assert_eq!(signed_path_for_edge("https://ref.supabase.co?x=1").as_deref(), Some("/?x=1"));
+    }
+
+    #[test]
+    fn не_адрес_вовсе_подписывать_нечего() {
+        // Единственный случай, где `None` правилен: разобрать нечего.
+        assert_eq!(signed_path_for_edge("не-адрес"), None);
+        assert_eq!(signed_path_for_edge(""), None);
+    }
+
+    #[test]
+    fn повреждённый_ключ_даёт_ошибку_а_не_новый_ключ() {
+        // 🔴 Инвариант 7.3 handoff, который не стерёг НИ ОДИН тест (находка аудита): молчаливая
+        // замена повреждённого ключа новым выглядела бы как «подпись вдруг перестала совпадать»
+        // и разбиралась бы неделями.
+        let dir = std::env::temp_dir().join(format!("aurora_devkey_bad_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join(DEVICE_KEY_FILE), b"korot").unwrap();
+
+        match DeviceKey::load_or_create(&dir) {
+            Ok(_) => panic!("повреждённый ключ обязан дать ошибку, а не новый ключ"),
+            Err(причина) => assert!(
+                причина.contains("повреждён"),
+                "причина обязана называть повреждение, иначе оператор не поймёт: {причина}"
+            ),
+        }
+        // И файл не подменён втихую.
+        assert_eq!(std::fs::read(dir.join(DEVICE_KEY_FILE)).unwrap(), b"korot");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// Вектор A6: кодированное имя в пути остаётся дословно, тройки — ВЕРХНИМ регистром.
