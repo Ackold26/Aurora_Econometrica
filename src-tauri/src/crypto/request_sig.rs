@@ -490,6 +490,25 @@ mod tests {
     }
 
     #[test]
+    fn подпись_в_формате_который_принимает_разбор_сервера() {
+        // Дыра покрытия, названная внешним аудитом 05.09: набивка проверялась только у открытого
+        // ключа, у самой подписи — нет. Сервер отвергает base64url и отсутствие набивки НА
+        // РАЗБОРЕ, то есть до сверки: негодная форма даст «подпись не читается», а не «не сошлась».
+        let dir = std::env::temp_dir().join(format!("aurora_devkey_sfmt_{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let key = DeviceKey::load_or_create(&dir).expect("ключ создаётся");
+        let sig = key.sign("AURORA-REQ-v1\nGET\n/a\n1\nn\nh\nf");
+
+        assert_eq!(sig.len(), 88, "64 байта подписи в base64 с набивкой — 88 знаков");
+        assert!(sig.ends_with("=="), "набивка обязательна: сервер отвергает её отсутствие разбором");
+        assert!(
+            !sig.contains('-') && !sig.contains('_'),
+            "стандартный алфавит, не base64url: сервер отвергает base64url разбором"
+        );
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn подпись_проверяется_своим_же_открытым_ключом() {
         use ed25519_dalek::{Signature, Verifier, VerifyingKey};
         let dir = std::env::temp_dir().join(format!("aurora_devkey_sig_{}", std::process::id()));
