@@ -36,7 +36,14 @@ revoke all on public.licenses    from anon, authenticated;
 revoke all on public.app_versions     from anon, authenticated;
 revoke all on public.content_versions from anon, authenticated;
 grant select on public.app_versions     to anon, authenticated;
-grant select on public.content_versions to anon;
+grant select on public.content_versions to anon, authenticated;
+-- ^ найдено внешним аудитом блока 05.09 (High): асимметрия не была объяснена. Факт: у
+-- content_versions ровно ОДНА политика, только для anon (anon_read_current_content) — у
+-- authenticated и до этой миграции не было рабочего пути через RLS (полные права на таблицу
+-- + RLS без подходящей политики = 200 с пустым массивом, не настоящие данные). Grant выровнен
+-- по app_versions ради явной симметрии; RLS по-прежнему фильтрует authenticated в пустоту при
+-- нынешней единственной политике — поведение для реальных данных не меняется, меняется только
+-- код ответа (было бы 401 без этой строки, стало 200 [], как и для anon-обхода по чужому продукту).
 
 -- Группа 3. Корень: новые таблицы схемы public больше не рождаются открытыми.
 alter default privileges in schema public revoke all on tables from anon, authenticated;
