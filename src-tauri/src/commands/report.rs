@@ -172,6 +172,43 @@ fn clean_label(s: &str) -> String {
     s.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
+/// Разрыв формы (2026-09-07, `Projects/AUDIT_waterfall_shape_2026-09-07.md`): движок
+/// (`decomposer.py:1482`) отдаёт `waterfall` словарём `{labels, values, types}`, а этот
+/// код ждал массив `[{category, value}]` — `as_array()` на словаре давал `None`, и весь
+/// лист «Декомпозиция» + раздел «Вклады в продажи» молча пропадали на живых данных.
+/// Читает обе формы: новую словарную (по индексам `labels[i]`/`values[i]`) и старую
+/// массивом (совместимость со старыми сохранёнными проектами на диске клиента).
+/// Элемент с `types[i] == "total"` — не слагаемое, а уже посчитанный итог; пропускаем
+/// его, иначе сумма удвоится и все доли станут вдвое меньше (`baseline` — настоящая
+/// категория вклада, его оставляем).
+fn waterfall_rows(decompose: &Value) -> Vec<(String, f64)> {
+    let wf = &decompose["waterfall"];
+    if let Some(labels) = wf["labels"].as_array() {
+        let empty = Vec::new();
+        let values = wf["values"].as_array().unwrap_or(&empty);
+        let types = wf["types"].as_array().unwrap_or(&empty);
+        labels
+            .iter()
+            .enumerate()
+            .filter(|(i, _)| types.get(*i).and_then(|t| t.as_str()) != Some("total"))
+            .map(|(i, label)| {
+                let val = values.get(i).and_then(|v| v.as_f64()).unwrap_or(0.0);
+                (clean_label(label.as_str().unwrap_or("-")), val)
+            })
+            .collect()
+    } else if let Some(arr) = wf.as_array() {
+        arr.iter()
+            .map(|item| {
+                let cat = clean_label(item["category"].as_str().unwrap_or("-"));
+                let val = item["value"].as_f64().unwrap_or(0.0);
+                (cat, val)
+            })
+            .collect()
+    } else {
+        Vec::new()
+    }
+}
+
 /// Excel ограничивает содержимое ячейки 32 767 символами (rust_xlsxwriter
 /// MAX_STRING_LEN) — запись строки длиннее лимита возвращает Err и роняет
 /// весь build_xlsx через `?` (разведка 2026-08-07, scratchpad/pulse_xlsx_reach.md).
@@ -714,14 +751,17 @@ fn build_markdown(model: &Value, decompose: &Value, optimize: &Value) -> String 
         md.push_str("\n\n");
     }
 
-    if let Some(wf) = decompose["waterfall"].as_array() {
+    let wf_rows = waterfall_rows(decompose);
+    if !wf_rows.is_empty() {
+        // Доля от суммы БЕЗ элемента "total" (см. waterfall_rows) — "contribution_pct"
+        // в старой форме тут никогда не было заполнено: decomposer.py пишет это поле
+        // только у элементов "channels", не "waterfall" (проверено 2026-09-07).
+        let wf_total: f64 = wf_rows.iter().map(|(_, v)| v).sum();
         md.push_str("### Вклады в продажи (Waterfall)\n\n");
         md.push_str("| Категория | Вклад | % |\n");
         md.push_str("|-----------|------:|--:|\n");
-        for item in wf {
-            let cat = clean_label(item["category"].as_str().unwrap_or("-"));
-            let val = item["value"].as_f64().unwrap_or(0.0);
-            let pct = item["contribution_pct"].as_f64().unwrap_or(0.0);
+        for (cat, val) in &wf_rows {
+            let pct = if wf_total != 0.0 { val / wf_total * 100.0 } else { 0.0 };
             md.push_str(&format!("| {cat} | {val:.0} | {pct:.1}% |\n"));
         }
         md.push('\n');
@@ -1594,7 +1634,8 @@ fn build_xlsx(
     }
 
     // ── Sheet 2: Декомпозиция + waterfall chart ─────────────
-    if let Some(wf) = decompose["waterfall"].as_array() {
+    let wf_rows = waterfall_rows(decompose);
+    if !wf_rows.is_empty() {
         let ws = wb.add_worksheet();
         ws.set_name("Декомпозиция").map_err(|e| format!("{e}"))?;
         ws.set_tab_color(Color::RGB(DEEP_80));
@@ -1609,32 +1650,32 @@ fn build_xlsx(
 
         // CPD-104 01.09: сумма всех вкладов — заранее, чтобы проставить кэш результата
         // формул ниже (без него не-Excel читатели видят 0 вместо доли/итого).
-        let total_value: f64 = wf.iter().map(|item| item["value"].as_f64().unwrap_or(0.0)).sum();
-        for (i, item) in wf.iter().enumerate() {
+        // waterfall_rows уже не несёт элемент "total" — сумма не задваивается.
+        let total_value: f64 = wf_rows.iter().map(|(_, v)| v).sum();
+        let wf_len = wf_rows.len();
+        for (i, (cat, val)) in wf_rows.into_iter().enumerate() {
             let row = (i + 3) as u32; // header at row 2 → data starts row 3
-            let cat = clean_label(item["category"].as_str().unwrap_or("-"));
-            let val = item["value"].as_f64().unwrap_or(0.0);
             ws.write(row, 0, cat).map_err(|e| format!("{e}"))?;
             ws.write_with_format(row, 1, val, &num_fmt).map_err(|e| format!("{e}"))?;
             // Formula: contribution / total. Excel 1-based ref = row+1; total at total_row+1.
-            let total_xlsx = wf.len() as u32 + 4; // ИТОГО row Excel 1-based
+            let total_xlsx = wf_len as u32 + 4; // ИТОГО row Excel 1-based
             // CPD-104 01.09: set_result — сохранённый результат формулы для читателей без движка Excel.
             let pct_result = if total_value != 0.0 { val / total_value } else { 0.0 };
             let pct_formula = Formula::new(format!("=B{}/B${}", row + 1, total_xlsx)).set_result(pct_result.to_string());
             ws.write_formula_with_format(row, 2, pct_formula, &pct_fmt).map_err(|e| format!("{e}"))?;
         }
-        // Total row (zero-based = wf.len() + 3 since data starts at 3 and runs wf.len() rows)
-        let total_row = wf.len() as u32 + 3;
+        // Total row (zero-based = wf_len + 3 since data starts at 3 and runs wf_len rows)
+        let total_row = wf_len as u32 + 3;
         ws.write_with_format(total_row, 0, "ИТОГО", &bold).map_err(|e| format!("{e}"))?;
         // CPD-104 01.09: set_result — сохранённый результат формулы для читателей без движка Excel.
         let total_formula = Formula::new(format!("=SUM(B4:B{})", total_row)).set_result(total_value.to_string());
         ws.write_formula_with_format(total_row, 1, total_formula, &bold).map_err(|e| format!("{e}"))?;
 
-        // Bar chart - categories at rows 3..wf.len()+2 (zero-based), values col B
+        // Bar chart - categories at rows 3..wf_len+2 (zero-based), values col B
         let mut chart = Chart::new(ChartType::Bar);
         chart.add_series()
-            .set_categories(("Декомпозиция", 3, 0, wf.len() as u32 + 2, 0))
-            .set_values(("Декомпозиция", 3, 1, wf.len() as u32 + 2, 1))
+            .set_categories(("Декомпозиция", 3, 0, wf_len as u32 + 2, 0))
+            .set_values(("Декомпозиция", 3, 1, wf_len as u32 + 2, 1))
             .set_name("Вклад в продажи");
         chart.set_style(12); // Excel built-in style closest to Aurora hybrid (gradient navy/gold)
         chart.set_width(567).set_height(283); // matches XLSX_reference (15×7.5 cm)
@@ -3738,16 +3779,20 @@ mod tests {
         );
     }
 
-    /// CPD-104 (2026-09-01): формулы листа «Декомпозиция» (доля канала
-    /// `=B{row}/B${total}` и итог `=SUM(B4:B{total_row})`) обязаны нести
-    /// сохранённый результат вычисления в кэше XML - `rust_xlsxwriter` сам
-    /// не считает формулы, и без `Formula::set_result()` в `<v>` остаётся
-    /// дефолтный `0`. Excel формулу пересчитает и покажет верно, но любой
-    /// другой потребитель (импорт в учётную систему, скрипт без движка
-    /// формул) читает кэш и молча получает нули в долях и в итоговой строке.
-    /// Проверено на реальном XML внутри xlsx (не догадка): для waterfall
-    /// [TV=300, Digital=700] кэш обязан содержать `<f>B4/B$6</f><v>0.3</v>`
-    /// и `<f>SUM(B4:B5)</f><v>1000</v>`.
+    /// CPD-104 (2026-09-01) + разрыв формы (2026-09-07, `Projects/
+    /// AUDIT_waterfall_shape_2026-09-07.md`): формулы листа «Декомпозиция»
+    /// (доля канала `=B{row}/B${total}` и итог `=SUM(B4:B{total_row})`)
+    /// обязаны нести сохранённый результат вычисления в кэше XML -
+    /// `rust_xlsxwriter` сам не считает формулы, и без `Formula::set_result()`
+    /// в `<v>` остаётся дефолтный `0`. Вход теста - НАСТОЯЩАЯ форма движка
+    /// (`decomposer.py:1482`: словарь `{labels, values, types}`), а не
+    /// массив `[{category,value}]` - на массиве этот сторож был зелёным,
+    /// пока весь лист «Декомпозиция» молча не строился вовсе на живых
+    /// данных (as_array() на словаре = None). Проверяет три вещи разом:
+    /// (1) лист «Декомпозиция» присутствует в книге (прочитан из самого
+    /// `xl/workbook.xml`, не из печати build_xlsx), (2) элемент `type ==
+    /// "total"` не входит в сумму и не задваивает доли, (3) доли несут
+    /// сохранённый результат в кэше, а не дефолтный 0.
     #[test]
     fn waterfall_formula_results_are_cached_not_zero() {
         fn xlsx_all_text(path: &Path) -> String {
@@ -3763,24 +3808,61 @@ mod tests {
             }
             all
         }
-        let decompose = json!({"waterfall": [
-            {"category": "TV", "value": 300.0},
-            {"category": "Digital", "value": 700.0}
-        ]});
+        fn xlsx_sheet_names(path: &Path) -> Vec<String> {
+            let bytes = std::fs::read(path).expect("read xlsx");
+            let mut archive = zip::read::ZipArchive::new(Cursor::new(bytes)).expect("open xlsx zip");
+            let mut workbook_xml = String::new();
+            archive
+                .by_name("xl/workbook.xml")
+                .expect("xl/workbook.xml entry")
+                .read_to_string(&mut workbook_xml)
+                .expect("read xl/workbook.xml");
+            let mut names = Vec::new();
+            for chunk in workbook_xml.split("<sheet ").skip(1) {
+                if let Some(start) = chunk.find("name=\"") {
+                    let after = &chunk[start + 6..];
+                    if let Some(end) = after.find('"') {
+                        names.push(after[..end].to_string());
+                    }
+                }
+            }
+            names
+        }
+
+        // Настоящая форма движка (не синтетика массивом): "total" - уже
+        // посчитанный итог 1000 = 500+300+200, он ДОЛЖЕН быть исключён из
+        // суммы и рядов, иначе доли задвоятся (см. waterfall_rows).
+        let decompose = json!({"waterfall": {
+            "labels": ["Baseline", "TV", "Digital", "Итого"],
+            "values": [500.0, 300.0, 200.0, 1000.0],
+            "types":  ["baseline", "channel", "channel", "total"]
+        }});
         let path = std::env::temp_dir().join("aurora_cpd104_waterfall_test.xlsx");
         build_xlsx(&json!({}), &decompose, &json!({}), &[], None, "test", &path, None)
             .expect("build_xlsx waterfall");
+
+        let sheets = xlsx_sheet_names(&path);
+        assert!(
+            sheets.iter().any(|s| s == "Декомпозиция"),
+            "лист «Декомпозиция» обязан присутствовать в книге при словарной форме \
+             waterfall (форма настоящего движка) - листы книги: {sheets:?}"
+        );
+
         let text = xlsx_all_text(&path);
         assert!(
-            text.contains("<f>B4/B$6</f><v>0.3</v>"),
-            "доля канала TV (300/1000=0.3) обязана нести сохранённый результат в кэше \
-             формулы, а не дефолтный 0 - иначе нечитающий формулы потребитель увидит \
-             ложный ноль вместо доли\nXML: {text}"
+            text.contains("<f>B4/B$7</f><v>0.5</v>"),
+            "доля Baseline (500/1000=0.5, БЕЗ элемента total в сумме) обязана нести \
+             сохранённый результат в кэше формулы, а не дефолтный 0\nXML: {text}"
         );
         assert!(
-            text.contains("<f>SUM(B4:B5)</f><v>1000</v>"),
-            "итоговая сумма (300+700=1000) обязана нести сохранённый результат в кэше \
+            text.contains("<f>B6/B$7</f><v>0.2</v>"),
+            "доля Digital (200/1000=0.2) обязана нести сохранённый результат в кэше \
              формулы\nXML: {text}"
+        );
+        assert!(
+            text.contains("<f>SUM(B4:B6)</f><v>1000</v>"),
+            "итоговая сумма (500+300+200=1000, БЕЗ повторного учёта элемента total) \
+             обязана нести сохранённый результат в кэше формулы\nXML: {text}"
         );
         let _ = std::fs::remove_file(&path);
     }

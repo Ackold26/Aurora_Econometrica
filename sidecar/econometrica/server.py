@@ -1129,8 +1129,44 @@ def preflight(req: PreflightRequest):
         try:
             from utils.reliability_a4 import prior_predictive_check
             y_obs = df[req.kpi_column].fillna(0).values.astype(float)
+
+            # 🔴 Даты в проверку приоров (2026-09-07). Без них симуляция строится
+            # БЕЗ контрольных регрессоров, которые обучение инжектирует всегда
+            # (modeler.py:473-486 — праздники РФ по умолчанию, Фурье-сезонность),
+            # то есть сравнивает данные с заведомо неполной моделью и систематически
+            # ЗАНИЖАЕТ вердикт: демо-проект продукта давал покрытие 0,548 «warn»
+            # (вердикт directional) вместо 0,827 «pass» (reliable) — клиенту
+            # сообщалось «модель будет ориентировочной» там, где полная модель
+            # данные покрывает. Даты берём из ТОГО ЖЕ df, что дал y_obs и
+            # media_matrix — он уже обрезан по хвосту медиаплана (L-08 выше),
+            # поэтому строки совпадают по построению; длину всё равно сверяем явно.
+            # Не разобрались даты (нет колонки / мусор в ячейках) — откат к прежнему
+            # поведению (dates=None), а не отказ: проверка не имеет права ронять
+            # предполётный контур.
+            _pp_dates = None
+            if req.date_column in df.columns:
+                try:
+                    import pandas as _pd  # noqa: PLC0415 — тот же модуль, что выше
+                    _parsed = _pd.to_datetime(df[req.date_column], errors='coerce')
+                    if _parsed.notna().all() and len(_parsed) == len(y_obs):
+                        _pp_dates = _parsed.values
+                    else:
+                        _preflight_logger.warning(
+                            'preflight: даты не переданы в проверку приоров '
+                            '(разобрано %d из %d строк, длина y_observed %d) — '
+                            'симуляция без сезонности и праздников',
+                            int(_parsed.notna().sum()), len(_parsed), len(y_obs),
+                        )
+                except Exception:
+                    _preflight_logger.warning(
+                        'preflight: разбор колонки дат «%s» не удался — проверка '
+                        'приоров пойдёт без сезонности и праздников',
+                        req.date_column, exc_info=True,
+                    )
+
             prior_predictive = prior_predictive_check(
                 y_obs, media_matrix, n_samples=300,  # 300 fast enough для preflight
+                dates=_pp_dates,
             )
         except Exception as e:
             _preflight_logger.warning(

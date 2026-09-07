@@ -831,7 +831,35 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
         _pp = None
         try:
             from utils.reliability_a4 import prior_predictive_check
-            _pp = prior_predictive_check(y, _media_matrix_pf, n_samples=300)
+            # 🔴 Даты в проверку приоров (2026-09-07). Без дат симуляция идёт БЕЗ
+            # контрольных регрессоров, которые эта же функция обучения инжектирует
+            # выше (праздники РФ ~486, Фурье-сезонность ~568) — проверка сравнивала
+            # данные с заведомо неполной моделью и систематически занижала вердикт.
+            # Здесь даты структурно доступны: df обрезан по notna(KPI) (строка 365),
+            # даты разобраны (строка 470-471), y взят из того же df (строка 631) —
+            # строки совпадают по построению. Длину всё равно сверяем явно, а
+            # мастер-флаги передаём, чтобы симуляция повторяла ИМЕННО ту модель,
+            # которая сейчас обучается (иначе при use_holidays/use_seasonality=False
+            # покрытие оказалось бы оптимистичным).
+            _pp_dates = None
+            if date_col in df.columns:
+                try:
+                    _pp_dates_s = pd.to_datetime(df[date_col], errors='coerce')
+                    if _pp_dates_s.notna().all() and len(_pp_dates_s) == len(y):
+                        _pp_dates = _pp_dates_s.values
+                    else:
+                        logger.warning(
+                            'in-train preflight: даты не переданы в проверку приоров '
+                            f'(разобрано {int(_pp_dates_s.notna().sum())} из '
+                            f'{len(_pp_dates_s)}, длина y {len(y)})')
+                except Exception as _pp_d_err:  # noqa: BLE001
+                    logger.warning(f'in-train preflight: разбор дат не удался: {_pp_d_err}')
+            _pp = prior_predictive_check(
+                y, _media_matrix_pf, n_samples=300,
+                dates=_pp_dates,
+                use_seasonality=bool(config.get('use_seasonality', True)),
+                use_holidays=bool(config.get('use_holidays', True)),
+            )
         except Exception as _pp_err:  # noqa: BLE001
             logger.warning(f"prior_predictive_check failed in-train: {_pp_err}")
         preflight_summary = {

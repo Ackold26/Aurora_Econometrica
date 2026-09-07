@@ -40,6 +40,8 @@ def prior_predictive_check(
     n_samples: int = 500,
     *,
     dates: np.ndarray | None = None,
+    use_seasonality: bool = True,
+    use_holidays: bool = True,
     intercept_prior_mu: float = 0.0,
     intercept_prior_sigma: float = 0.5,
     media_beta_sigma: float = 0.3,
@@ -79,6 +81,14 @@ def prior_predictive_check(
         dates: optional datetime64 array shape (n_obs,) — если передан, симуляция включает
                Фурье-сезонность и праздники РФ с теми же приорами что в modeler.py.
                Backward compat: None (default) = старое поведение без control.
+               🔴 Длина обязана совпадать с y_observed — иначе ValueError (см. ниже):
+               рассогласование строк даёт тихо неверное покрытие, а не заметный сбой.
+        use_seasonality: мастер-флаг Фурье-сезонности обучения (modeler.py:568,
+               config['use_seasonality']). False = симуляция без Фурье — ровно как
+               обучится модель. Default True = дефолт modeler.
+        use_holidays: мастер-флаг праздников РФ обучения (modeler.py:486,
+               config['use_holidays']). False = симуляция без праздников.
+               Default True = дефолт modeler.
         seed: RNG seed for reproducibility
 
     Returns:
@@ -128,6 +138,18 @@ def prior_predictive_check(
     control_components: dict = {}
 
     if dates is not None:
+        # 🔴 Даты обязаны описывать РОВНО те строки, что попали в y_observed.
+        # Вызывающая сторона режет хвост медиаплана (server.py preflight L-08,
+        # modeler.py:365 notna-фильтр) — если даты обрезаны не синхронно, Фурье
+        # и праздники встанут не на свои наблюдения и покрытие будет тихо
+        # неверным. Это хуже исходного дефекта: неверно, но правдоподобно.
+        # Поэтому громкий отказ, а не молчаливое выравнивание по минимуму.
+        if len(np.asarray(dates)) != n_obs:
+            raise ValueError(
+                f'prior_predictive_check: длина dates ({len(np.asarray(dates))}) не совпадает '
+                f'с числом наблюдений y_observed ({n_obs}) — даты должны быть обрезаны '
+                f'синхронно с y_observed'
+            )
         try:
             import pandas as pd
             from utils.fourier_seasonality import (
@@ -152,6 +174,10 @@ def prior_predictive_check(
 
             _season = detect_seasonality(_season_y, granularity=_season_gran)
             _inject, _reason = should_inject_seasonality(_season, n_obs)
+            # Мастер-флаг обучения (modeler.py:568): если пользователь отключил
+            # сезонность, обучаемая модель Фурье не получит — симуляция тоже.
+            if not use_seasonality:
+                _inject = False
             fourier_n_cols = 0
             if _inject:
                 _period = int(_season['period'])
@@ -174,7 +200,10 @@ def prior_predictive_check(
             holiday_n_cols = 0
             try:
                 from utils.holiday_calendar_ru import generate_holiday_dummies
-                _hdf = generate_holiday_dummies(dates_pd, mode='fraction')
+                # Мастер-флаг обучения (modeler.py:486): use_holidays=False →
+                # модель обучится без праздников, симуляция обязана тоже.
+                _hdf = (generate_holiday_dummies(dates_pd, mode='fraction')
+                        if use_holidays else pd.DataFrame())
                 if not _hdf.empty:
                     for _hc in _hdf.columns:
                         col_vals = _hdf[_hc].values.astype(np.float64)
