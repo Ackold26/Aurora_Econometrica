@@ -1625,19 +1625,31 @@ export function loadPipelineForProject(projectId) {
 }
 
 /**
- * Сброс результатов при СОЗДАНИИ нового проекта, с сохранением незавершённого импорта.
+ * Сброс состояния при СОЗДАНИИ нового проекта.
  *
- * 🔴 Живой прогон 08.09.2026. Создание проекта намеренно не звало `resetPipeline`
- * («creating a project while importing would nuke the user's current work»), и из-за
- * этого новый — пустой на диске — проект показывал результаты ПРЕДЫДУЩЕГО: шаг «Модель»
- * рапортовал «Модель обучена! MQS = 70, R² = 0,825», хотя каталоги `models/` и `results/`
- * этого проекта пусты. Проверено на диске сразу после создания.
+ * 🔴 История правки в два захода — она важнее самой функции.
  *
- * Намерение исходной заметки сохранено: файл, который пользователь уже перетащил, и
- * отметка шага «Импорт» остаются. Всё, что относится к РАСЧЁТАМ другого проекта, —
- * снимается: приписывать чужие числа новому проекту нельзя ни на секунду.
+ * Заход 1 (живой прогон 08.09). Создание проекта намеренно не звало `resetPipeline`
+ * («creating a project while importing would nuke the user's current work»), и новый —
+ * пустой на диске — проект показывал результаты ПРЕДЫДУЩЕГО: шаг «Модель» рапортовал
+ * «Модель обучена! MQS = 70, R² = 0,825» при пустых `models/` и `results/`. Тогда я
+ * сохранила импорт, сняв только расчёты.
+ *
+ * Заход 2 (внешний аудит того же дня) показал, что компромисс был неверен:
+ *   • обещание «отметка шага „Импорт“ остаётся» не выполнялось — асинхронный
+ *     `restoreProjectResults`, запущенный подпиской на смену проекта, доезжал ПОСЛЕ
+ *     синхронного сброса и перезаписывал весь массив отметок по диску нового проекта;
+ *   • сохранённый `importData` принадлежит ПРОШЛОМУ проекту: у нового на диске
+ *     `data_file: null`, и путь, на котором шаг «Валидация» окажется доступен, посчитал
+ *     бы данные проекта А и записал результаты в каталог проекта Б.
+ *
+ * Поэтому снимается ВСЁ, включая импорт. Цена — пользователю, который перетащил файл и
+ * только потом создал проект, придётся перетащить его снова. Это неудобство, оно видно
+ * сразу и исправляется в один жест. Приписывание чужих данных новому проекту не видно
+ * вовсе и исправляется недоверием ко всему продукту.
  */
 export function resetResultsKeepImport() {
+  importData.set({ file: null, columns: null, rows: null });
   validateData.set({ result: null, correlationMatrix: null, columnHistograms: null });
   modelData.set({ diagnostics: null, channelParams: null, picklePath: null, normalization: null });
   decomposeData.set(null);
@@ -1645,12 +1657,20 @@ export function resetResultsKeepImport() {
   planningManifest.set(null);
   reportData.set(null);
   chartImages.set({});
-  // Шаг «Импорт» сохраняем как есть, остальные — в исходное состояние мастера.
-  const fresh = defaultStepMeta();
-  pipelineStepMeta.update((cur) => {
-    const keepImport = cur?.[0] ?? fresh[0];
-    return [keepImport, ...fresh.slice(1)];
+  // 🔴 Три хранилища, найденные аудитом: они переживали смену проекта молча.
+  // `optimizeLiveState` — коридоры и бюджеты каналов прошлого проекта;
+  // `forecastContext` — гранулярность обучения и «сезонность обнаружена» от чужой модели;
+  // `lastTrainedConfig` — конфигурация, по которой судится «модель устарела».
+  optimizeLiveState.set({
+    channelBudgets: {},
+    channelMinPct: {},
+    channelMaxPct: {},
+    globalMinPct: 50,
+    globalMaxPct: 150,
   });
+  forecastContext.set(null);
+  lastTrainedConfig.set(null);
+  pipelineStepMeta.set(defaultStepMeta());
   pipelineCurrentStep.set(0);
 }
 

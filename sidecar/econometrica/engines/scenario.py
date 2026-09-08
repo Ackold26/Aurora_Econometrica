@@ -5,6 +5,8 @@ Predicts KPI from a custom media plan using trained model.
 import json
 import logging
 import pickle
+import math
+
 import numpy as np
 import pandas as pd
 from pathlib import Path
@@ -81,6 +83,31 @@ def _compute_scenario_seasonality(model_data: dict, norm: dict, n_periods: int) 
         return zeros
 
 
+def _looks_like_binary_flag(mean: float | None, std: float | None) -> bool:
+    """Похожи ли сохранённые статистики колонки на признак события 0/1.
+
+    🔴 Внешний аудит 08.09. Единственный способ отличить «клиент разметил событие
+    единицами» от «клиент подал бюджет события в рублях» на этапе прогноза — по
+    статистикам, сохранённым при обучении: своих значений колонки здесь уже нет.
+    У признака Бернулли со средним p разброс равен sqrt(p·(1−p)); допуск взят
+    щедрый (четверть), чтобы не отсекать выборочную оценку на коротком ряде.
+
+    Ноль и единица как среднее означают колонку без событий или сплошь из событий —
+    подставлять под них календарь бессмысленно, поэтому тоже отказ.
+    """
+    if mean is None or std is None:
+        return False
+    try:
+        m = float(mean)
+        sd = float(std)
+    except (TypeError, ValueError):
+        return False
+    if not (0.0 < m < 1.0) or sd <= 0.0:
+        return False
+    expected = math.sqrt(m * (1.0 - m))
+    return abs(sd - expected) <= 0.25 * expected
+
+
 def _compute_scenario_holidays(
     model_data: dict,
     norm: dict,
@@ -144,6 +171,32 @@ def _compute_scenario_holidays(
         if col_name in fourier_cols:
             continue
         dummy_col = resolve_holiday_column(col_name)
+        # 🔴 Внешний аудит 08.09. Подстановка канонической дамми под коэффициент,
+        # оценённый на КЛИЕНТСКОЙ колонке, законна только если клиентская колонка —
+        # признак события (0/1). Если клиент подал ту же «Чёрную пятницу» ДЕНЬГАМИ
+        # (бюджет промо в рублях), то нормировка применит его среднее и разброс
+        # (напр. 5 000 000 и 12 000 000) к дамми со значениями 0/1: во ВСЕХ будущих
+        # периодах, включая непраздничные, получится z ≈ −0,42 и постоянный сдвиг
+        # вклада. Прежде вклад был тождественно нулевым — то есть правка превратила
+        # бы молчаливый ноль в уверенно неверное число, а это хуже.
+        # Проверяем по сохранённым статистикам обучения: у признака 0/1 среднее лежит
+        # строго между нулём и единицей, а разброс близок к sqrt(p·(1−p)).
+        # Проверка касается ТОЛЬКО подстановки (имя клиента ≠ каноническому): у
+        # авто-инжектированных столбцов с каноническим именем шкала своя (доля дней
+        # окна), и требовать от них двоичности значило бы сломать рабочий путь.
+        is_substitution = (
+            dummy_col is not None
+            and normalize_holiday_name(col_name) != normalize_holiday_name(dummy_col)
+        )
+        if is_substitution and not _looks_like_binary_flag(
+                control_means.get(col_name), control_stds.get(col_name)):
+            logger.warning(
+                'scenario holidays: колонка %r похожа на событие, но её значения не '
+                'выглядят признаком 0/1 (среднее %s, разброс %s) — подстановка '
+                'календарной дамми под её коэффициент дала бы неверный масштаб, '
+                'вклад в будущем не считается',
+                col_name, control_means.get(col_name), control_stds.get(col_name))
+            continue
         if dummy_col is None or dummy_col not in holiday_df.columns:
             # Имя не разрешилось однозначно (напр. обобщённый «Новый год» →
             # два НГ-окна) → прежнее поведение, пропуск. Догадка в расчёте

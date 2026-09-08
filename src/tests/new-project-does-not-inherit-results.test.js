@@ -3,10 +3,12 @@
  * На диске у нового проекта `models/` и `results/` пусты, а шаг «Модель» рапортовал
  * «Модель обучена! MQS = 70, R² = 0,825» — числа чужого набора данных.
  *
- * Сторож держит два свойства сразу, потому что лечение одного легко ломает второе:
- *   1) чужие РЕЗУЛЬТАТЫ не переносятся в новый проект;
- *   2) незавершённый ИМПОРТ пользователя переживает создание проекта — ради этого
- *      сброс когда-то и не звали вовсе (заметка в `ProjectSelector.svelte`).
+ * Внешний аудит того же дня показал, что компромисс «сохранить импорт» был неверен:
+ * обещание не выполнялось (асинхронное восстановление с диска перезаписывало отметки
+ * ПОСЛЕ синхронного сброса), а сохранённый импорт принадлежал прошлому проекту — путь,
+ * на котором доступна «Валидация», посчитал бы данные проекта А в каталог проекта Б.
+ * Поэтому снимается ВСЁ. Сторож держит это свойство целиком, включая три хранилища,
+ * которые переживали смену проекта молча.
  */
 import { describe, it, expect, beforeEach } from 'vitest';
 import { get } from 'svelte/store';
@@ -17,6 +19,9 @@ import {
   decomposeData,
   optimizeData,
   pipelineStepMeta,
+  optimizeLiveState,
+  forecastContext,
+  lastTrainedConfig,
   resetResultsKeepImport,
 } from '$lib/project-state.js';
 
@@ -32,6 +37,15 @@ describe('создание нового проекта', () => {
     });
     decomposeData.set({ waterfall: { labels: ['Baseline'], values: [1], types: ['total'] } });
     optimizeData.set({ expected_lift_pct: 3.4 });
+    optimizeLiveState.set({
+      channelBudgets: { tv_spend: 100 },
+      channelMinPct: { tv_spend: 20 },
+      channelMaxPct: { tv_spend: 200 },
+      globalMinPct: 20,
+      globalMaxPct: 200,
+    });
+    forecastContext.set({ granularity: 'weekly', seasonalityDetected: true });
+    lastTrainedConfig.set({ media: ['tv_spend'], kpi: 'sales_rub' });
     pipelineStepMeta.set([
       { status: 'complete', errorMessage: null },
       { status: 'complete', errorMessage: null },
@@ -52,18 +66,25 @@ describe('создание нового проекта', () => {
     expect(get(validateData).result, 'валидация чужого проекта обязана исчезнуть').toBeNull();
   });
 
-  it('снимает зелёные отметки шагов, кроме «Импорта»', () => {
+  it('снимает зелёные отметки со ВСЕХ шагов, включая «Импорт»', () => {
     resetResultsKeepImport();
     const meta = get(pipelineStepMeta);
-    expect(meta[0].status, 'отметка шага «Импорт» сохраняется').toBe('complete');
+    expect(meta[0].status, 'отметка шага «Импорт» относится к файлу прошлого проекта').not.toBe('complete');
     expect(meta[2].status, 'шаг «Модель» не может остаться завершённым в пустом проекте').not.toBe('complete');
     expect(meta[3].status, 'шаг «Декомпозиция» тоже').not.toBe('complete');
   });
 
-  it('сохраняет незавершённый импорт пользователя', () => {
+  it('снимает импорт прошлого проекта', () => {
     resetResultsKeepImport();
     const imp = get(importData);
-    expect(imp.file, 'файл, уже перетащенный пользователем, обязан пережить создание проекта').not.toBeNull();
-    expect(imp.rows).toBe(48);
+    expect(imp.file, 'файл принадлежит прошлому проекту — его нельзя оставлять новому').toBeNull();
+    expect(imp.rows, 'число строк прошлого файла тоже').toBeNull();
+  });
+
+  it('снимает три хранилища, переживавшие смену проекта молча', () => {
+    resetResultsKeepImport();
+    expect(get(optimizeLiveState).channelBudgets, 'коридоры и бюджеты прошлого проекта').toEqual({});
+    expect(get(forecastContext), 'гранулярность и «сезонность обнаружена» от чужой модели').toBeNull();
+    expect(get(lastTrainedConfig), 'конфигурация, по которой судится «модель устарела»').toBeNull();
   });
 });
