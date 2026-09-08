@@ -120,8 +120,20 @@ def test_validator_no_tail_media_plan_absent(tmp_path: Path):
     assert result["file"]["rows"] == 24
 
 
-def test_validator_no_tail_no_media_plan_json(tmp_path: Path):
-    """Без хвоста media_plan.json НЕ должен записываться."""
+def test_validator_no_tail_writes_zero_media_plan_json(tmp_path: Path):
+    """Без хвоста media_plan.json пишется с честным `n_future_periods: 0`.
+
+    🔴 Договор изменён 2026-09-08 (аудит, находка High-2). Прежде файл писался
+    ТОЛЬКО при найденном хвосте, и этот тест сторожил его отсутствие. Цена
+    оказалась велика: в одном каталоге проекта файл прошлого, планового импорта
+    переживал новый, базовый, и признак `media_plan_absent` уверенно отвечал
+    «план есть» на данных, где плана нет. Источник признака оставляем один
+    (этот файл, его же читает интерфейс) — значит он обязан описывать ТЕКУЩИЕ
+    данные, а не последние, где хвост нашёлся. Удалять файл нельзя (правило
+    проекта: только в корзину), поэтому перезаписываем честным нулём.
+    """
+    import json
+
     p = _make_xlsx(tmp_path, 12, 0)
     project_dir = str(tmp_path / "project")
     Path(project_dir).mkdir(parents=True, exist_ok=True)
@@ -129,7 +141,36 @@ def test_validator_no_tail_no_media_plan_json(tmp_path: Path):
     validate_data(str(p), project_dir=project_dir)
 
     mp_path = Path(project_dir) / "results" / "media_plan.json"
-    assert not mp_path.exists(), "media_plan.json не должен существовать без хвоста"
+    assert mp_path.exists(), "media_plan.json обязан описывать текущие данные"
+    payload = json.loads(mp_path.read_text(encoding="utf-8"))
+    assert payload["n_future_periods"] == 0, payload
+    assert payload["channels"] == [], payload
+
+
+def test_validator_overwrites_stale_media_plan_json(tmp_path: Path):
+    """Тот же каталог проекта: сначала данные с хвостом, потом без него.
+
+    Сценарий находки High-2 целиком: пока файл не обнулялся, второй импорт
+    оставлял продукт с признаком «план есть» на данных без будущих периодов.
+    """
+    import json
+
+    project_dir = str(tmp_path / "project")
+    Path(project_dir).mkdir(parents=True, exist_ok=True)
+    mp_path = Path(project_dir) / "results" / "media_plan.json"
+
+    (tmp_path / "a").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "b").mkdir(parents=True, exist_ok=True)
+
+    with_tail = _make_xlsx(tmp_path / "a", 24, 12)
+    validate_data(str(with_tail), project_dir=project_dir)
+    assert json.loads(mp_path.read_text(encoding="utf-8"))["n_future_periods"] == 12
+
+    no_tail = _make_xlsx(tmp_path / "b", 24, 0)
+    validate_data(str(no_tail), project_dir=project_dir)
+    assert json.loads(mp_path.read_text(encoding="utf-8"))["n_future_periods"] == 0, (
+        "media_plan.json остался от прошлого импорта — признак наличия плана врёт"
+    )
 
 
 # ─── Тест 3: инвариант current_spend (notna-only) ────────────────────────────

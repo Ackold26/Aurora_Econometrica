@@ -804,10 +804,12 @@ def _derive_narrative_facts(
         "optimize_max_pct": optimize_max_pct,
         "converged_at_current": converged_at_current,
         # 2026-09-07: нет будущих периодов в данных (SSOT — оптимизатор,
-        # поле media_plan_absent). Нужно обеим точкам экспорта отчёта,
-        # чтобы не повторять клиенту совет расширить коридор там, где он
-        # заведомо не сработает.
+        # поле media_plan_absent). Нужно обеим точкам экспорта отчёта.
+        # 🔴 2026-09-08 (аудит Critical): в паре с planning_mode — совет
+        # «добавьте будущие периоды» уместен только когда пользователь сам
+        # запросил горизонт планирования, а строк будущего в данных нет.
         "media_plan_absent": optimize_data.get("media_plan_absent"),
+        "planning_mode": optimize_data.get("planning_mode"),
         # Action summary (B refactor) - counts + channels_by_action + top_action
         "action_counts": action_summary["counts"],
         "channels_by_action": action_summary["channels_by_action"],

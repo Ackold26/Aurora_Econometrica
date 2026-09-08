@@ -334,56 +334,142 @@ def test_converged_at_current_banner():
 
 
 def test_no_media_plan_banner():
-    """🔴 2026-09-07. Данные БЕЗ хвоста медиаплана: обе точки экспорта обязаны
-    объяснять причину нулевого прироста отсутствием будущих периодов и НЕ
-    советовать расширить коридор — на таких данных совет заведомо не работает
-    (замер: 0,0 % и на 20/200, и на рекомендованных 10/300, и на 0/500).
+    """🔴 2026-09-08, находка аудита Critical. Прежняя редакция этого сторожа
+    (2026-09-07) требовала обратного: на данных без хвоста медиаплана обе точки
+    экспорта обязаны были объяснять нулевой прирост словами «будущих периодов
+    нет — перераспределять нечего». Зонд это опроверг: в аналитическом режиме
+    перераспределяется весь исторический медиабюджет, коридор непустой, и прямым
+    счётом целевой функции находится допустимое распределение лучше текущего.
+    Причина нулевого прироста другая — решатель улучшения не нашёл.
 
-    Второй вход обязателен: при наличии медиаплана прежний текст про границы
-    обязан остаться на месте, иначе новая ветка съела бы правильное поведение.
+    Договор теперь такой:
+      (а) плана нет,  решатель встал → «решатель не нашёл», без «будущих периодов»;
+      (б) план есть,  решатель встал → тот же текст (признак плана роли не играет);
+      (в) план есть,  решатель дал прирост → обычный текст перераспределения;
+      (г) плана нет И пользователь запросил горизонт планирования → и только тут
+          добавляется просьба дописать строки будущих периодов.
+    Во всех четырёх — ни «10/300», ни «Расширьте границы»: совет опровергнут
+    замером (0,0 % и на 20/200, и на 10/300, и на 0/500).
     """
-    print('── media_plan_absent narrative banner ──')
+    print('── converged_at_current: текст говорит про решатель, не про медиаплан ──')
     from aurora_html.sections import render_recommendation, render_executive_summary
 
-    # ── вход 1: плана НЕТ ────────────────────────────────────────────────────
+    def _stalled(media_plan_absent, planning_mode):
+        ctx = _build_synthetic_ctx()
+        ctx['facts']['converged_at_current'] = True
+        ctx['facts']['expected_lift_pct'] = 0.0
+        ctx['facts']['reallocation_mln'] = 0.0
+        ctx['facts']['media_plan_absent'] = media_plan_absent
+        ctx['facts']['planning_mode'] = planning_mode
+        return render_recommendation(ctx), render_executive_summary(ctx)
+
+    # ── вход (а): плана НЕТ, решатель встал ─────────────────────────────────
+    rec_a, sum_a = _stalled(True, False)
+    check('I4a: рекомендация говорит, что решатель не нашёл лучшего распределения',
+          'не нашёл' in rec_a and 'заданных границах' in rec_a,
+          hint='нет честной причины нулевого прироста в рекомендации')
+    check('I4b: сводка говорит, что решатель не нашёл лучшего распределения',
+          'не нашёл' in sum_a and 'заданных границах' in sum_a,
+          hint='нет честной причины нулевого прироста в сводке')
+    check('I4c: без запроса планирования продукт НЕ винит отсутствие будущих периодов',
+          'будущих периодов' not in rec_a and 'будущих периодов' not in sum_a,
+          hint='вернулась ложная причина «перераспределять нечего»')
+    check('I4d: не воскрешён опровергнутый совет расширить коридор',
+          '10/300' not in rec_a and 'Расширьте границы' not in rec_a
+          and '10/300' not in sum_a and 'Расширьте границы' not in sum_a,
+          hint='неисполнимый совет про границы вернулся')
+
+    # ── вход (б): план ЕСТЬ, решатель встал — текст тот же ──────────────────
+    rec_b, sum_b = _stalled(False, False)
+    check('I4e: с медиапланом застрявший решатель объясняется так же',
+          'не нашёл' in rec_b and 'не нашёл' in sum_b
+          and 'будущих периодов' not in rec_b and 'будущих периодов' not in sum_b,
+          hint='текст застрявшего решателя зависит от наличия плана — он не должен')
+
+    # ── вход (в): план ЕСТЬ, решатель дал прирост ──────────────────────────
+    ctx_c = _build_synthetic_ctx()
+    ctx_c['facts']['converged_at_current'] = False
+    ctx_c['facts']['expected_lift_pct'] = 7.4
+    ctx_c['facts']['media_plan_absent'] = False
+    ctx_c['facts']['planning_mode'] = False
+    rec_c = render_recommendation(ctx_c)
+    sum_c = render_executive_summary(ctx_c)
+    # Ищем именно нашу формулировку: слова «не нашёл» встречаются и в соседней,
+    # давно существующей ветке про малую переброску при найденном приросте.
+    _stalled_phrase = 'не нашёл распределения лучше текущего'
+    check('I4f: при найденном приросте текста про застрявший решатель нет',
+          _stalled_phrase not in rec_c and _stalled_phrase not in sum_c
+          and 'будущих периодов' not in rec_c and 'будущих периодов' not in sum_c,
+          hint='ветка застрявшего решателя перехватила нормальный сценарий')
+
+    # ── вход (г): плана нет И запрошен горизонт планирования ───────────────
+    rec_d, sum_d = _stalled(True, True)
+    check('I4g: только при запрошенном планировании просим дописать будущие периоды',
+          'будущих периодов' in rec_d and 'будущих периодов' in sum_d,
+          hint='подсказка про строки будущих периодов пропала там, где она уместна')
+    check('I4h: и там причина нулевого прироста всё равно названа честно',
+          'не нашёл' in rec_d and 'не нашёл' in sum_d,
+          hint='подсказка про план вытеснила честную причину')
+
+
+def test_planning_hint_survives_the_adapter():
+    """🔴 2026-09-08, мутация ведущей на приёмке. Проверки I4a–I4h подставляют
+    `facts['planning_mode']` руками и переходник `_derive_narrative_facts` ни разу
+    не зовут. Мутация «`narrative_adapter.py:812` → `"planning_mode": False`»
+    прошла у них молча — 38 passed: ветка «плана нет И режим планирования
+    запрошен» может тихо перестать показываться, и всё останется зелёным.
+
+    Опасность живая и односторонняя: регресс к аудированному дефекту сторожа
+    ловят, а ПРОПАЖУ единственного работающего совета — нет. Клиент, который сам
+    задал горизонт планирования и не дал строк будущих периодов, остался бы с
+    одной честной причиной и без действия.
+
+    Здесь факты собирает сам переходник из `optimize_data`, как в бою, и
+    проверяется итоговый ТЕКСТ обеих точек отчёта, а не значение признака в
+    словаре: риск живёт в тексте, сторож по признаку встанет на соседний слой.
+    """
+    print('── ветка планирования: сквозь переходник, а не подстановкой ──')
+    from aurora_html.sections import render_recommendation, render_executive_summary
+    from engines.narrative_adapter import _derive_narrative_facts
+
     ctx = _build_synthetic_ctx()
-    ctx['facts']['converged_at_current'] = True
-    ctx['facts']['expected_lift_pct'] = 0.0
+    optimize_data = {
+        'expected_lift_pct': 0.0,
+        'converged_at_current': True,
+        'binding_constraints': False,
+        'optimization_converged': True,
+        'min_pct_used': 20.0,
+        'max_pct_used': 200.0,
+        # Пользователь ЗАПРОСИЛ горизонт планирования, а строк будущего в данных нет.
+        'planning_mode': True,
+        'media_plan_absent': True,
+        'channels': ctx['channels'],
+    }
+    facts = _derive_narrative_facts(ctx['channels'], optimize_data, None, None)
+    ctx['facts'] = {**ctx['facts'], **facts}
     ctx['facts']['reallocation_mln'] = 0.0
-    ctx['facts']['media_plan_absent'] = True
 
     html_rec = render_recommendation(ctx)
     html_summary = render_executive_summary(ctx)
 
-    check('I4a: render_recommendation объясняет отсутствие медиаплана',
-          'медиаплан' in html_rec and 'будущих периодов' in html_rec,
-          hint='нет объяснения про будущие периоды в рекомендации')
-    check('I4b: render_executive_summary объясняет отсутствие медиаплана',
-          'медиаплан' in html_summary and 'будущих периодов' in html_summary,
-          hint='нет объяснения про будущие периоды в SCQAR')
-    check('I4c: рекомендация НЕ советует расширить коридор без медиаплана',
-          '10/300' not in html_rec and 'Расширьте границы' not in html_rec,
-          hint='неисполнимый совет про границы остался в рекомендации')
-    check('I4d: сводка НЕ советует расширить коридор без медиаплана',
-          '10/300' not in html_summary and 'Расширьте границы Min/Max' not in html_summary,
-          hint='неисполнимый совет про границы остался в сводке')
-
-    # ── вход 2: план ЕСТЬ — прежнее поведение цело ──────────────────────────
-    ctx2 = _build_synthetic_ctx()
-    ctx2['facts']['converged_at_current'] = True
-    ctx2['facts']['expected_lift_pct'] = 0.0
-    ctx2['facts']['reallocation_mln'] = 0.0
-    ctx2['facts']['media_plan_absent'] = False
-
-    html_rec2 = render_recommendation(ctx2)
-    html_summary2 = render_executive_summary(ctx2)
-
-    check('I4e: с медиапланом остаётся прежний текст про границы (рекомендация)',
-          'границ' in html_rec2 and 'будущих периодов' not in html_rec2,
-          hint='новая ветка съела прежнее поведение при наличии медиаплана')
-    check('I4f: с медиапланом остаётся прежний текст про границы (сводка)',
-          'границ' in html_summary2 and 'будущих периодов' not in html_summary2,
-          hint='новая ветка съела прежнее поведение при наличии медиаплана')
+    check('A1: переходник донёс режим планирования до фактов отчёта',
+          facts.get('planning_mode') is True and facts.get('media_plan_absent') is True,
+          hint=f"переходник отдал planning_mode={facts.get('planning_mode')!r}, "
+               f"media_plan_absent={facts.get('media_plan_absent')!r} — проброс оборван")
+    check('A2: рекомендация просит дописать строки будущих периодов',
+          'будущих периодов' in html_rec and 'планируемыми бюджетами' in html_rec,
+          hint='совет про будущие периоды пропал из рекомендации — а он тут единственный '
+               'исполнимый: пользователь сам задал горизонт планирования')
+    check('A3: сводка (Action 01) просит дописать строки будущих периодов',
+          'будущих периодов' in html_summary and 'планируемыми бюджетами' in html_summary,
+          hint='совет про будущие периоды пропал из сводки')
+    check('A4: и там причина нулевого прироста всё равно названа честно',
+          'не нашёл распределения лучше текущего' in html_rec
+          and 'не нашёл распределения лучше текущего' in html_summary,
+          hint='подсказка про план вытеснила честную причину остановки решателя')
+    check('A5: опровергнутый совет расширить коридор не воскрес и здесь',
+          '10/300' not in html_rec and '10/300' not in html_summary,
+          hint='неисполнимый совет про границы вернулся в ветке планирования')
 
 
 def test_media_plan_absent_source():
@@ -440,6 +526,59 @@ def test_media_plan_absent_source():
         check('S3: media_plan_absent на пустом каталоге = None (не знаю)',
               media_plan_absent(str(empty)) is None,
               hint='пустой каталог обязан давать None, иначе признак выдумывает ответ')
+
+        # ── S4: протухший media_plan.json (находка аудита High-2, 2026-09-08) ──
+        # ОДИН каталог проекта: сначала плановые данные, потом базовые без хвоста.
+        # Прежде файл писался только при найденном хвосте и никто его не обнулял —
+        # признак уверенно отвечал «план есть» на данных, где плана нет.
+        plan_xlsx = sample_dir / 'planning' / 'synth_fmcg_brand.xlsx'
+        base_xlsx = sample_dir / 'synth_fmcg_brand.xlsx'
+        if plan_xlsx.exists() and base_xlsx.exists():
+            same = tmp / 'same_project'
+            (same / 'data').mkdir(parents=True, exist_ok=True)
+            f_plan = same / 'data' / 'plan.xlsx'
+            shutil.copy2(plan_xlsx, f_plan)
+            validate_data(str(f_plan), str(same))
+            check('S4a: после планового набора признак = False (план есть)',
+                  media_plan_absent(str(same)) is False,
+                  hint=f'получено {media_plan_absent(str(same))!r}')
+            f_base = same / 'data' / 'base.xlsx'
+            shutil.copy2(base_xlsx, f_base)
+            validate_data(str(f_base), str(same))
+            check('S4b: после базового набора в ТОМ ЖЕ каталоге признак = True',
+                  media_plan_absent(str(same)) is True,
+                  hint=f'получено {media_plan_absent(str(same))!r} — media_plan.json остался '
+                       f'от прошлого импорта и признак врёт про наличие будущих периодов')
+        else:
+            check('S4: образцы для проверки протухшего media_plan.json на месте', False,
+                  hint=f'нет {plan_xlsx} или {base_xlsx}')
+
+        # ── S5: сбой записи media_plan.json (находка аудита Medium, 2026-09-08) ──
+        # Сбой глушится logger.warning, а validation.json пишется дальше. Раньше
+        # это давало уверенное «плана нет» на данных, где план ЕСТЬ. Теперь ответ —
+        # честное None, и потребитель остаётся на прежнем поведении.
+        if plan_xlsx.exists():
+            import os as _os_probe
+            broken = tmp / 'write_fails'
+            (broken / 'data').mkdir(parents=True, exist_ok=True)
+            f_broken = broken / 'data' / 'plan.xlsx'
+            shutil.copy2(plan_xlsx, f_broken)
+            _orig_replace = _os_probe.replace
+
+            def _replace_fails(src, dst, *a, **kw):
+                if str(dst).endswith('media_plan.json'):
+                    raise OSError('имитация сбоя записи media_plan.json')
+                return _orig_replace(src, dst, *a, **kw)
+
+            _os_probe.replace = _replace_fails
+            try:
+                validate_data(str(f_broken), str(broken))
+            finally:
+                _os_probe.replace = _orig_replace
+            check('S5: сбой записи media_plan.json → None, а не «плана нет»',
+                  media_plan_absent(str(broken)) is None,
+                  hint=f'получено {media_plan_absent(str(broken))!r} — проглоченный сбой записи '
+                       f'снова превращается в уверенное «будущих периодов нет»')
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
 
@@ -449,6 +588,7 @@ def main() -> int:
     test_findings_counts()
     test_converged_at_current_banner()
     test_no_media_plan_banner()
+    test_planning_hint_survives_the_adapter()
     test_media_plan_absent_source()
     print(f'\n{PASSED} passed, {FAILED} failed.')
     return 0 if FAILED == 0 else 1

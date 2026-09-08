@@ -365,6 +365,83 @@ def data_preview(file_path: str, n_rows: int = 20) -> dict[str, Any]:
     }
 
 
+def _write_media_plan_state(
+    project_dir: str,
+    detected: dict | None,
+    tail_found: bool | None,
+    source_hash: str | None,
+) -> None:
+    """Привести `results/media_plan.json` в соответствие с ТЕКУЩИМИ данными.
+
+    🔴 2026-09-08 (аудит High-2). До этой правки файл писался только когда хвост
+    медиаплана найден, и никто его не обнулял. В одном каталоге проекта после
+    планового файла открывали базовый — файл с прошлого импорта оставался, и
+    признак `media_plan_absent` уверенно отвечал «план есть» на данных, где
+    плана нет. Источник признака остаётся ОДИН (этот файл, его же читает
+    интерфейс) — лечим на стороне записи, а не заводим вторую формулу.
+
+    Три честных состояния:
+        tail_found True  — хвост найден, пишем найденное;
+        tail_found False — данные проверены, хвоста нет: `n_future_periods: 0`;
+        tail_found None  — определить не удалось: `n_future_periods: null`,
+                           читатель обязан вернуть «не знаю», а не «плана нет».
+
+    Файл не удаляем (правило проекта: удаление только в корзину) — перезаписываем
+    честным содержимым. Если запись сорвалась, а на диске лежит старый файл —
+    отводим его в сторону под именем `media_plan.json.stale`: молчащая ложь хуже
+    отсутствия ответа.
+    """
+    import json as _json
+    import os as _os
+    import tempfile as _tempfile
+
+    mp_dir = Path(project_dir) / 'results'
+    mp_path = mp_dir / 'media_plan.json'
+    if detected is not None:
+        payload = detected
+    elif tail_found is False:
+        payload = {
+            'n_future_periods': 0,
+            'period_labels': [],
+            'granularity': None,
+            'future_dates': [],
+            'channels': [],
+            'warnings': [],
+            'source_hash': source_hash,
+            'confirmed': False,
+        }
+    else:
+        payload = {
+            'n_future_periods': None,
+            'detection': 'unavailable',
+            'source_hash': source_hash,
+            'confirmed': False,
+        }
+
+    try:
+        mp_dir.mkdir(parents=True, exist_ok=True)
+        _tmp_fd, _tmp_name = _tempfile.mkstemp(dir=mp_dir, prefix='.mp_', suffix='.tmp')
+        try:
+            with open(_tmp_fd, 'w', encoding='utf-8') as _f:
+                _json.dump(payload, _f, ensure_ascii=False, indent=2)
+            _os.replace(_tmp_name, mp_path)
+        except Exception:
+            try:
+                _os.unlink(_tmp_name)
+            except Exception:
+                pass
+            raise
+    except Exception:
+        logger.warning('media_plan.json write failed', exc_info=True)
+        # Старый файл описывает ПРОШЛЫЕ данные — отводим в сторону, чтобы
+        # читатель вернул «определить не удалось», а не прошлогоднюю правду.
+        try:
+            if mp_path.exists():
+                _os.replace(mp_path, mp_dir / 'media_plan.json.stale')
+        except Exception:
+            logger.warning('media_plan.json stale rename failed', exc_info=True)
+
+
 def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, Any]:
     """Validate dataset for MMM readiness.
 
@@ -407,6 +484,11 @@ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, A
     # статистику и ratio считаем только по истории. Хвост не скрываем — возвращаем
     # media_plan_detected и при наличии project_dir пишем media_plan.json.
     _media_plan_detected: dict | None = None
+    # Состояние хвоста для results/media_plan.json (аудит High-2, 2026-09-08):
+    # True — найден, False — данные проверены и хвоста нет, None — определить
+    # не удалось. Пишем файл ВСЕГДА, чтобы он описывал текущие данные.
+    _tail_found: bool | None = None
+    _tail_source_hash: str | None = None
     try:
         from engines.planning import detect_media_plan_tail, compute_source_hash
         # Авто-детект колонок ролей для planning детектора (минимальный набор).
@@ -434,8 +516,13 @@ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, A
             ]
         if _date_col_hint and _kpi_col_hint:
             _tail_result = detect_media_plan_tail(df, _date_col_hint, _kpi_col_hint, _media_hints)
+            _tail_found = bool(_tail_result.get('found'))
+            try:
+                _tail_source_hash = compute_source_hash(file_path)
+            except Exception:
+                _tail_source_hash = None
             if _tail_result.get('found'):
-                _src_hash = compute_source_hash(file_path)
+                _src_hash = _tail_source_hash
                 _media_plan_detected = {
                     'n_future_periods': _tail_result['n_future_periods'],
                     'period_labels': _tail_result['period_labels'],
@@ -449,32 +536,17 @@ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, A
                 # Статистику считаем только по истории
                 df = _tail_result['history_df'].reset_index(drop=True)
                 n_rows = len(df)
-                # Атомарная запись media_plan.json если project_dir задан
-                if project_dir and Path(project_dir).is_absolute():
-                    try:
-                        import json as _json
-                        import tempfile as _tempfile
-                        _mp_dir = Path(project_dir) / 'results'
-                        _mp_dir.mkdir(parents=True, exist_ok=True)
-                        _mp_path = _mp_dir / 'media_plan.json'
-                        _tmp_fd, _tmp_name = _tempfile.mkstemp(
-                            dir=_mp_dir, prefix='.mp_', suffix='.tmp'
-                        )
-                        try:
-                            with open(_tmp_fd, 'w', encoding='utf-8') as _f:
-                                _json.dump(_media_plan_detected, _f, ensure_ascii=False, indent=2)
-                            import os as _os
-                            _os.replace(_tmp_name, _mp_path)
-                        except Exception:
-                            try:
-                                _os.unlink(_tmp_name)
-                            except Exception:
-                                pass
-                            raise
-                    except Exception:
-                        logger.warning('media_plan.json write failed', exc_info=True)
     except Exception:
         logger.warning('media_plan tail detection failed — proceeding with full df', exc_info=True)
+        _tail_found = None
+
+    # 🔴 Аудит High-2 (2026-09-08): media_plan.json пишем ВСЕГДА, а не только
+    # при найденном хвосте — иначе файл прошлого импорта переживает новый и
+    # признак `media_plan_absent` врёт клиенту про наличие будущих периодов.
+    if project_dir and Path(project_dir).is_absolute():
+        _write_media_plan_state(
+            project_dir, _media_plan_detected, _tail_found, _tail_source_hash
+        )
 
     issues = []
     warnings = []

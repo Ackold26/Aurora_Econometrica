@@ -44,7 +44,7 @@ if _sidecar_root not in sys.path:
 
 from fastapi import FastAPI, HTTPException, Request, UploadFile, File, Form
 from fastapi.responses import JSONResponse as _StarletteJSONResponse
-from pydantic import BaseModel, Field, field_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator
 
 from utils.safe_io import sanitize_nonfinite
 
@@ -946,6 +946,34 @@ class PreflightRequest(BaseModel):
     adstock_config: dict[str, str] = {}
     mode_override: str | None = None  # 'bayesian' | 'ols' | None - для recommend
     skip_prior_predictive: bool = False  # для fast iteration UI
+    # 🔴 Мастер-флаги контролей (внешний аудит 2026-09-08, High-1). Обучение
+    # собирает модель по ним (modeler.py:484 use_holidays, :569 use_seasonality)
+    # и передаёт их в проверку приоров (modeler.py:860-861). Предполётная
+    # проверка их не имела вовсе — симуляция ВСЕГДА шла с праздниками РФ и
+    # рядами Фурье, то есть оценивала не ту модель, которую клиент собрался
+    # обучать. Проверено зондом на демо-наборе (48 наблюдений): с выключенными
+    # флагами предполётная проверка давала покрытие 0,896 «pass» → уровень
+    # «reliable», а обучение на том же наборе — 0,458 «fail» → «insufficient».
+    # Default True = дефолт modeler.py и прежнее поведение: старые клиенты,
+    # не присылающие поля, поедут ровно как раньше.
+    #
+    # 🔴 Два написания ключа (приёмка правки, 2026-09-08). Сам дефект был
+    # молчаливой потерей флага между слоями, и pydantic такую потерю повторяет:
+    # ключ в неизвестном написании выбрасывается БЕЗ ошибки, вердикт тихо
+    # возвращается к завышенному, и ни одна проверка не краснеет. Интерфейс
+    # оперирует camelCase (`useSeasonality`), команда Tauri переводит в snake_case
+    # (`econometrica.rs`), и рассинхрон этих слоёв при будущей правке ничем не
+    # ловится. Поэтому принимаем оба написания — узко, только для этих двух
+    # полей: `extra` не запрещаем (прочие клиенты вправе слать лишнее) и на
+    # остальные поля запроса не распространяем.
+    use_seasonality: bool = Field(
+        True, validation_alias=AliasChoices('use_seasonality', 'useSeasonality'))
+    use_holidays: bool = Field(
+        True, validation_alias=AliasChoices('use_holidays', 'useHolidays'))
+
+    # populate_by_name: имя поля остаётся рабочим ключом наравне с алиасами —
+    # прежние вызовы по snake_case и построение объекта в коде не меняются.
+    model_config = ConfigDict(populate_by_name=True)
 
 
 _TIER_RANK = {'reliable': 0, 'directional': 1, 'insufficient': 2}
@@ -1164,9 +1192,15 @@ def preflight(req: PreflightRequest):
                         req.date_column, exc_info=True,
                     )
 
+            # 🔴 Мастер-флаги (внешний аудит 2026-09-08, High-1): передаём ровно
+            # тем же вызовом, что обучение (modeler.py:857-862), — иначе вердикт
+            # надёжности считается по модели с контролями, которых в обучаемой
+            # модели не будет, и завышается. Форма вызова намеренно совпадает.
             prior_predictive = prior_predictive_check(
                 y_obs, media_matrix, n_samples=300,  # 300 fast enough для preflight
                 dates=_pp_dates,
+                use_seasonality=bool(req.use_seasonality),
+                use_holidays=bool(req.use_holidays),
             )
         except Exception as e:
             _preflight_logger.warning(

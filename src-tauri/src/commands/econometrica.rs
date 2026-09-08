@@ -690,6 +690,13 @@ pub async fn econ_preflight(
     adstock_config: Option<Value>,
     mode_override: Option<String>,
     skip_prior_predictive: Option<bool>,
+    // 🔴 Мастер-флаги контролей (внешний аудит 2026-09-08, High-1). Без них
+    // предполётная проверка симулировала модель с праздниками РФ и Фурье-
+    // сезонностью даже когда клиент их выключил, и вердикт надёжности выходил
+    // завышенным. None = прежнее поведение (флаги включены), как дефолт
+    // modeler.py — старые вызовы не меняют смысл.
+    use_seasonality: Option<bool>,
+    use_holidays: Option<bool>,
 ) -> Result<Value, String> {
     info!("econ_preflight: project_dir={project_dir}, channels={}", media_columns.len());
     let body = serde_json::json!({
@@ -702,6 +709,8 @@ pub async fn econ_preflight(
         "adstock_config": adstock_config.unwrap_or_else(|| serde_json::json!({})),
         "mode_override": mode_override,
         "skip_prior_predictive": skip_prior_predictive.unwrap_or(false),
+        "use_seasonality": use_seasonality.unwrap_or(true),
+        "use_holidays": use_holidays.unwrap_or(true),
     });
     post_json("/compute/preflight", &body, train_client()).await
 }

@@ -45,4 +45,13 @@ thin = ["dep:aurora_gateway"]
 #
 # Проверяется запросом к удалённому репозиторию (`git ls-remote --tags`), а не
 # наличием каталога: каталог мог оказаться чужим деревом.
-aurora_gateway = { git = "https://github.com/Ackold26/aurora-platform-core.git", tag = "aurora_gateway-v0.6.5", features = ["cloud-http"], optional = true }
+#
+# 🔴 Метка поднята 2026-09-08 с `aurora_gateway-v0.6.5` на `aurora_gateway-v0.6.6`
+# (решение владельца 08.09). Причина не свежесть: сервер с 11.08 отвечает отказом
+# на билет без срока годности, а шлюз v0.6.5 такой билет считает годным — клиент
+# уходит в замыкание на входе. Плюс v0.6.5 не знает новых кодов отказа и показал
+# бы общий сбой вместо объяснения. Существование метки проверено запросом
+# `git ls-remote --tags` 08.09: 0e14284.
+# Обкатка невелика — из шести продуктов линейки перешёл один (Media Radar,
+# 07.09), поэтому после сборки вход проверяется руками.
+aurora_gateway = { git = "https://github.com/Ackold26/aurora-platform-core.git", tag = "aurora_gateway-v0.6.6", features = ["cloud-http"], optional = true }

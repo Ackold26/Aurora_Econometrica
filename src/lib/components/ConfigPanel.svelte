@@ -481,6 +481,16 @@
             adstockConfig: config.adstock_config ?? {},
             modeOverride: engine === 'ols' ? 'ols' : null,
             skipPriorPredictive: false,
+            // 🔴 Мастер-флаги контролей (внешний аудит 2026-09-08, High-1).
+            // Обучение собирает модель по ним (см. buildTrainConfig выше), а
+            // предполётная проверка их не получала — симуляция всегда шла с
+            // праздниками РФ и сезонностью, и вердикт надёжности выходил
+            // завышенным для клиента, который эти контроли выключил. Берём те
+            // же самые значения, что уходят в обучение, из тех же хранилищ.
+            // Нормализация «не false → включено» — ровно та же, что в
+            // train-config.js:106,111, чтобы обе дороги читали хранилища одинаково.
+            useSeasonality: get(useSeasonality) !== false,
+            useHolidays: get(useHolidays) !== false,
           }));
           if (pf?.status === 'ok' && pf.overall_tier && pf.overall_tier !== 'reliable') {
             preflightResult = pf;

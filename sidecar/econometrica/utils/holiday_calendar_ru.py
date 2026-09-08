@@ -532,6 +532,30 @@ def user_covered_auto_holidays(existing_columns: List[str]) -> set:
     return covered
 
 
+def resolve_holiday_column(name: str) -> Optional[str]:
+    """Канонический авто-праздник за именем колонки, или None если однозначно не выходит.
+
+    Поимённая проекция ``user_covered_auto_holidays`` — ТОТ ЖЕ курируемый
+    whitelist ``_HOLIDAY_ALIASES``, тот же приоритет точного совпадения, тот же
+    гейт длины. Второй таблицы синонимов у признака нет и быть не должно.
+
+    Нужна там, где по имени клиентской колонки надо достать СТОЛБЕЦ ДАММИ
+    (``generate_holiday_dummies``), а не только факт «это праздник»: колонка
+    «Чёрная пятница» несёт то же событие, что авто-столбец
+    ``holiday_black_friday``, но по имени с ним не совпадает.
+
+    None возвращается в двух случаях, и оба означают «не угадываем»:
+      * имя не событийное вовсе;
+      * имя покрывает НЕСКОЛЬКО событий (обобщённый «Новый год» → и
+        предновогодние закупки, и январские распродажи) — какой из двух
+        столбцов дамми подставить, из имени не следует.
+    """
+    covered = user_covered_auto_holidays([name])
+    if len(covered) == 1:
+        return next(iter(covered))
+    return None
+
+
 def detect_holiday_collinearity(
     holidays_df: pd.DataFrame,
     threshold: float = 0.5,

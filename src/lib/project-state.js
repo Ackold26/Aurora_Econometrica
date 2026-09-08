@@ -1258,7 +1258,12 @@ async function restoreProjectResults(pid) {
     // без этого завершённый шаг деградировал в ready при каждом открытии.
     const hasPlanning = Boolean(r.planning);
     if (hasPlanning) planningManifest.set(r.planning);
-    if (r.mediaPlan) mediaPlanDetected.set(r.mediaPlan);
+    // 🔴 2026-09-08 (аудит High-2): results/media_plan.json теперь пишется на
+    // КАЖДОЙ проверке данных, в том числе с `n_future_periods: 0` («хвоста нет»)
+    // и `null` («определить не удалось»). Такой файл — не обнаруженный медиаплан,
+    // и в стор его класть нельзя: иначе на данных без плана поднялся бы баннер
+    // подтверждения на Валидации и шаг Планирования увидел бы пустой план.
+    if (r.mediaPlan && (r.mediaPlan.n_future_periods ?? 0) > 0) mediaPlanDetected.set(r.mediaPlan);
     else mediaPlanDetected.set(null); // не тащить медиаплан чужого проекта
 
     if (hasModel) {

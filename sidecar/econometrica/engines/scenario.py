@@ -93,7 +93,12 @@ def _compute_scenario_holidays(
     или реконструирует из control_betas_mean + control_columns — тот же SSOT что decomposer.
     Нули если future_dates пустые или holiday-колонок нет в контролях.
     """
-    from utils.holiday_calendar_ru import generate_holiday_dummies, is_holiday_like_name
+    from utils.holiday_calendar_ru import (
+        generate_holiday_dummies,
+        is_holiday_like_name,
+        normalize_holiday_name,
+        resolve_holiday_column,
+    )
 
     zeros = np.zeros(n_periods, dtype=float)
     if not future_dates:
@@ -123,15 +128,60 @@ def _compute_scenario_holidays(
     result = np.zeros(n_periods, dtype=float)
     beta_by_col = {c: float(control_betas_raw[i]) for i, c in enumerate(control_cols)}
 
-    for col_name, beta_val in beta_by_col.items():
-        # Должно быть holiday-like И не Фурье И присутствовать в сгенерированных дамми
+    # ── Сопоставление имени контроля со столбцом дамми (правка 2026-09-08) ──
+    # `control_columns` несёт имена КЛИЕНТА («Чёрная пятница»), а holiday_df —
+    # канонические машинные («holiday_black_friday»). Прямое сравнение имён
+    # совпадало только у авто-инжектированных столбцов, поэтому вклад любой
+    # клиентски названной событийной колонки в будущих периодах молча был нулём
+    # (роль-то распознавалась: is_holiday_like_name('Чёрная пятница') → True).
+    # Разрешаем имя ТЕМ ЖЕ whitelist-ом, что и дедуп при обучении
+    # (`resolve_holiday_column` → `user_covered_auto_holidays`): у признака один
+    # источник, второй таблицы синонимов здесь нет.
+    resolved: dict[str, str] = {}
+    for col_name in beta_by_col:
         if not is_holiday_like_name(col_name):
             continue
         if col_name in fourier_cols:
             continue
-        if col_name not in holiday_df.columns:
+        dummy_col = resolve_holiday_column(col_name)
+        if dummy_col is None or dummy_col not in holiday_df.columns:
+            # Имя не разрешилось однозначно (напр. обобщённый «Новый год» →
+            # два НГ-окна) → прежнее поведение, пропуск. Догадка в расчёте
+            # хуже нулевого вклада.
+            logger.info('scenario holidays: колонка %r не сопоставлена однозначно '
+                        'ни одному событию календаря — вклад в будущем не считается',
+                        col_name)
             continue
-        dummy = holiday_df[col_name].values.astype(float)
+        resolved[col_name] = dummy_col
+
+    # ── Защита от двойного счёта одного события ──
+    # Один столбец дамми не должен войти в сумму дважды. Такая пара возможна,
+    # только если пользователь сам подал две колонки на одно событие (авто-инжект
+    # modeler'а её не создаёт — он гасит авто-дубль через user_covered_auto_holidays).
+    # Разбор: колонка, чьё имя ТОЧНО (по норм-форме) равно каноническому, —
+    # владелец события; синоним рядом с ней пропускается. Это ровно прежнее
+    # поведение такой пары (владелец считался, синоним давал ноль) → регрессии нет.
+    # Если владельца нет, а претендентов несколько — пропускаем всех: выбор был бы
+    # догадкой.
+    claimants: dict[str, list[str]] = {}
+    for col_name, dummy_col in resolved.items():
+        claimants.setdefault(dummy_col, []).append(col_name)
+    for dummy_col, cols in claimants.items():
+        if len(cols) < 2:
+            continue
+        exact = [c for c in cols
+                 if normalize_holiday_name(c) == normalize_holiday_name(dummy_col)]
+        keep = exact[0] if len(exact) == 1 else None
+        for c in cols:
+            if c != keep:
+                resolved.pop(c, None)
+        logger.warning('scenario holidays: событие %s заявлено несколькими контролями %s — '
+                       'в будущий вклад берётся %s (двойной счёт исключён)',
+                       dummy_col, cols, keep or 'ни один')
+
+    for col_name, dummy_col in resolved.items():
+        beta_val = beta_by_col[col_name]
+        dummy = holiday_df[dummy_col].values.astype(float)
         # Обрезаем или дополняем до n_periods
         if len(dummy) < n_periods:
             dummy = np.pad(dummy, (0, n_periods - len(dummy)))
