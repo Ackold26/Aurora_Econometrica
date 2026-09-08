@@ -1,546 +1,2087 @@
+diff --git a/Cargo.lock b/Cargo.lock
+index d26e66ff..627a3063 100644
+--- a/Cargo.lock
++++ b/Cargo.lock
+@@ -337,7 +337,7 @@ checksum = "1505bd5d3d116872e7271a6d4e16d81d0c8570876c8de68093a09ac269d8aac0"
+ 
+ [[package]]
+ name = "aurora-econometrica-gui"
+-version = "2.5.0"
++version = "2.5.1"
+ dependencies = [
+  "aes-gcm",
+  "anyhow",
+diff --git a/package.json b/package.json
+index 4e5cb03a..721ab90e 100644
+--- a/package.json
++++ b/package.json
+@@ -1,6 +1,6 @@
+ {
+   "name": "aurora-ai-agency",
+-  "version": "2.5.0",
++  "version": "2.5.1",
+   "description": "",
+   "type": "module",
+   "scripts": {
+diff --git a/sidecar/econometrica/aurora_html/sections.py b/sidecar/econometrica/aurora_html/sections.py
+index 5e20f93e..88e015ae 100644
+--- a/sidecar/econometrica/aurora_html/sections.py
++++ b/sidecar/econometrica/aurora_html/sections.py
+@@ -679,30 +679,28 @@ def render_executive_summary(ctx: dict) -> str:
+                 "(рекомендуем 10-300%) и перезапустите Оптимизацию для реального перераспределения."
+             )
+             recommendation = "Прирост ROAS будет рассчитан после расширения границ."
+-        elif converged_at_current and facts.get("media_plan_absent") is True:
+-            # 🔴 2026-09-07: без будущих периодов совет «расширьте границы» не
+-            # работает (замер: 0,0 % и на 20/200, и на 10/300, и на 0/500).
+-            answer = (
+-                "Оптимизация бюджета считается на будущий медиаплан. В этих данных "
+-                "есть только история, будущих периодов нет — перераспределять пока "
+-                "нечего, поэтому прирост нулевой."
+-            )
+-            recommendation = (
+-                "Добавьте к файлу строки будущих периодов с планируемыми бюджетами "
+-                "(целевую величину в них оставьте пустой) — или откройте готовый "
+-                "пример с планированием на шаге «Импорт»."
+-            )
+         elif converged_at_current:
++            # 🔴 2026-09-08 (аудит Critical): формулировка «перераспределять
++            # нечего, будущих периодов нет» опровергнута зондом — в аналитическом
++            # режиме перераспределяется весь исторический медиабюджет, и лучшее
++            # допустимое распределение существует. Говорим то, что знаем:
++            # решатель улучшения не нашёл. Совет «расширьте границы 10/300 %»
++            # не воскрешаем — он опровергнут замером.
+             answer = (
+-                "Оптимизатор сошёлся на текущем распределении - лучшее решение "
+-                "при заданных границах не найдено. Это может означать что границы "
+-                "Min/Max задают слишком узкий коридор либо текущая аллокация уже "
+-                "близка к локальному оптимуму."
++                "Решатель не нашёл распределения лучше текущего при заданных "
++                "границах – ожидаемый прирост нулевой. Это результат поиска, а "
++                "не доказательство того, что текущее распределение оптимально."
+             )
+             recommendation = (
+-                "Расширьте границы (10/300% рекомендуется) или используйте "
+-                "экспертный режим для канал-специфичных ограничений."
++                "Проверьте границы Мин./Макс. по каналам и кривые отклика: они "
++                "показывают, где у каналов остаётся запас."
+             )
++            if facts.get("media_plan_absent") is True and facts.get("planning_mode"):
++                recommendation += (
++                    " Горизонт планирования задан, но строк будущих периодов в "
++                    "данных нет: добавьте их с планируемыми бюджетами (целевую "
++                    "величину в них оставьте пустой)."
++                )
+         elif realloc >= 0.5 and (cut_source or scale_dest):
+             # L15 (math-fix v1.4 Section C): use cut_source / scale_destination
+             # from action_summary instead of leader/hero. Fallback templates
+@@ -1553,21 +1551,20 @@ def render_recommendation(ctx: dict) -> str:
+                 "Расширьте до 10-20% / 200-300% и перезапустите Оптимизацию - "
+                 "она найдёт реальное перераспределение."
+             )
+-        elif converged_at_current and facts.get("media_plan_absent") is True:
+-            # 🔴 2026-09-07: см. комментарий в первой точке — расширение границ
+-            # на данных без медиаплана не даёт ничего.
+-            action_01_text = (
+-                "Оптимизация бюджета считается на будущий медиаплан, а в этих данных "
+-                "есть только история. Добавьте строки будущих периодов с планируемыми "
+-                "бюджетами (целевую величину оставьте пустой) — или откройте готовый "
+-                "пример с планированием на шаге «Импорт»."
+-            )
+         elif converged_at_current:
++            # 🔴 2026-09-08 (аудит Critical): см. комментарий в первой точке.
+             action_01_text = (
+-                "Оптимизатор не нашёл лучшего распределения - оставил текущую "
+-                "аллокацию. Расширьте границы Min/Max или используйте экспертный "
+-                "режим для разблокировки реального перераспределения."
++                "Решатель не нашёл распределения лучше текущего при заданных "
++                "границах – он оставил текущее распределение. Проверьте границы "
++                "Мин./Макс. по каналам и кривые отклика: они показывают, где у "
++                "каналов остаётся запас."
+             )
++            if facts.get("media_plan_absent") is True and facts.get("planning_mode"):
++                action_01_text += (
++                    " Горизонт планирования задан, но строк будущих периодов в "
++                    "данных нет: добавьте их с планируемыми бюджетами (целевую "
++                    "величину оставьте пустой)."
++                )
+         elif facts.get("cut_source_channel") and facts.get("scale_destination_channel") and realloc >= 0.5:
+             # L15 (math-fix v1.4 Section C): action-driven reallocation subjects
+             # вместо leader/hero. cut_source = optimizer's biggest cut, scale_dest
+diff --git a/sidecar/econometrica/engines/narrative_adapter.py b/sidecar/econometrica/engines/narrative_adapter.py
+index 905798d4..d88a98b5 100644
+--- a/sidecar/econometrica/engines/narrative_adapter.py
++++ b/sidecar/econometrica/engines/narrative_adapter.py
+@@ -804,10 +804,12 @@ def _derive_narrative_facts(
+         "optimize_max_pct": optimize_max_pct,
+         "converged_at_current": converged_at_current,
+         # 2026-09-07: нет будущих периодов в данных (SSOT — оптимизатор,
+-        # поле media_plan_absent). Нужно обеим точкам экспорта отчёта,
+-        # чтобы не повторять клиенту совет расширить коридор там, где он
+-        # заведомо не сработает.
++        # поле media_plan_absent). Нужно обеим точкам экспорта отчёта.
++        # 🔴 2026-09-08 (аудит Critical): в паре с planning_mode — совет
++        # «добавьте будущие периоды» уместен только когда пользователь сам
++        # запросил горизонт планирования, а строк будущего в данных нет.
+         "media_plan_absent": optimize_data.get("media_plan_absent"),
++        "planning_mode": optimize_data.get("planning_mode"),
+         # Action summary (B refactor) - counts + channels_by_action + top_action
+         "action_counts": action_summary["counts"],
+         "channels_by_action": action_summary["channels_by_action"],
+diff --git a/sidecar/econometrica/engines/optimizer.py b/sidecar/econometrica/engines/optimizer.py
+index 5a7afe15..974a44c8 100644
+--- a/sidecar/econometrica/engines/optimizer.py
++++ b/sidecar/econometrica/engines/optimizer.py
+@@ -275,21 +275,28 @@ def media_plan_absent(project_dir: str) -> bool | None:
+     сообщение «добавьте будущие периоды» стало бы неправдой в другую сторону.
+ 
+     Источник истины один — `results/media_plan.json`: его пишет validate_data
+-    (`engines/validator.py:459`) при обнаружении хвоста, и его же читает
+-    интерфейс (`mediaPlanDetected`). Второй формулы не заводим.
+-
+-    Нет файла, но есть validation.json — значит проверка данных отрабатывала и
+-    хвоста не нашла: плана нет. Нет ни того, ни другого — честное None, и
+-    вызывающий остаётся на прежнем поведении.
++    (`engines/validator._write_media_plan_state`) на КАЖДОЙ проверке данных, и
++    его же читает интерфейс (`mediaPlanDetected`). Второй формулы не заводим.
++
++    🔴 2026-09-08 (аудит, находка Medium). Прежде отсутствие файла при наличии
++    validation.json трактовалось как «плана нет». Это неправда в одном частом
++    случае: запись media_plan.json сорвалась (сбой глушится `logger.warning`), а
++    validation.json записался дальше — и продукт уверенно заявлял клиенту, что
++    будущих периодов нет, на данных, где план есть. Теперь validate_data пишет
++    файл всегда, поэтому его отсутствие означает ровно одно: определить не
++    удалось (проверка не отрабатывала или запись сорвалась) — честное None.
+     """
+     try:
+         results = Path(project_dir) / 'results'
+         mp_path = results / 'media_plan.json'
+         if not mp_path.exists():
+-            return True if (results / 'validation.json').exists() else None
++            return None
+         with open(mp_path, encoding='utf-8') as f:
+             mp = json.load(f)
+-        return int(mp.get('n_future_periods') or 0) <= 0
++        raw = mp.get('n_future_periods')
++        if raw is None:
++            return None  # проверка данных не смогла определить хвост
++        return int(raw) <= 0
+     except Exception:
+         return None
+ 
+@@ -1540,30 +1547,34 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
+             f"({round(total_budget_money, 0):,.0f} ₽), но baseline для сравнения "
+             f"degenerate. Проверьте данные media_columns."
+         )
+-    elif converged_at_current and _media_plan_absent is True:
+-        # 🔴 2026-09-07 (замер). Прежний текст ниже утверждал «аллокация близка к
+-        # оптимуму» и советовал расширить коридор. На данных БЕЗ медиаплана оба
+-        # утверждения ложны: улучшающее направление существует (проверено прямым
+-        # счётом целевой функции), а расширение коридора не помогает — прогон на
+-        # демо-наборе дал 0,0 % и на 20/200, и на рекомендованных 10/300, и на
+-        # 0/500, решатель везде выходит на первой итерации. Клиент следовал
+-        # совету, получал тот же ноль и делал вывод, что функция сломана.
+-        insight = (
+-            "Оптимизация бюджета считается на будущий медиаплан. В этих данных "
+-            "есть только история, будущих периодов нет — перераспределять пока "
+-            "нечего, поэтому прирост нулевой. Чтобы увидеть оптимизацию, добавьте "
+-            "к файлу строки будущих периодов с планируемыми бюджетами (целевую "
+-            "величину в них оставьте пустой) — или откройте готовый пример с "
+-            "планированием на шаге «Импорт»."
+-        )
+     elif converged_at_current:
++        # 🔴 2026-09-08 (аудит, находка Critical). Правка 2026-09-07 объясняла
++        # нулевой прирост тем, что «будущих периодов нет — перераспределять
++        # нечего». Зонд на базовом образце без хвоста плана показал, что это
++        # неправда: в аналитическом режиме money_target = весь исторический
++        # медиабюджет (1 077 835 510 ₽ на демо-наборе), коридор 20/200 непустой,
++        # и прямым счётом целевой функции по сетке допустимых распределений
++        # находится распределение лучше текущего. Перераспределять ЕСТЬ что —
++        # это решатель не нашёл улучшения. Говорим ровно то, что знаем.
++        # Прежний совет «расширьте границы 10/300 %» не воскрешаем: замером он
++        # опровергнут (0,0 % и на 20/200, и на 10/300, и на 0/500).
+         insight = (
+-            f"Оптимизатор сошёлся на текущем распределении (бюджет "
+-            f"{round(total_budget_money, 0):,.0f} ₽). Это может означать что "
+-            f"границы Min/Max задают слишком узкий коридор, либо текущая "
+-            f"аллокация уже близка к локальному оптимуму. Попробуйте расширить "
+-            f"границы (10/300%) или экспертный режим."
++            f"Решатель не нашёл распределения лучше текущего при заданных "
++            f"границах (бюджет {round(total_budget_money, 0):,.0f} ₽) – "
++            f"ожидаемый прирост нулевой. Это результат поиска, а не "
++            f"доказательство того, что текущее распределение оптимально. "
++            f"Проверьте границы Мин./Макс. по каналам и кривые отклика ниже: "
++            f"они показывают, где у каналов остаётся запас."
+         )
++        if _media_plan_absent is True and planning_mode:
++            # Совет про будущие периоды уместен ТОЛЬКО здесь: пользователь
++            # запросил режим планирования, а будущих строк в данных нет.
++            insight += (
++                " Горизонт планирования задан, но строк будущих периодов в "
++                "данных нет: добавьте их с планируемыми бюджетами (целевую "
++                "величину в них оставьте пустой) – или откройте готовый пример "
++                "с планированием на шаге «Импорт»."
++            )
+     else:
+         insight = f"Оптимальное перераспределение бюджета ({round(total_budget_money, 0):,.0f} ₽) даёт ожидаемый прирост {_sign}{lift_pct:.1f}%."
+         top_increase = max(channels, key=lambda x: x['delta_pct'])
+diff --git a/sidecar/econometrica/engines/scenario.py b/sidecar/econometrica/engines/scenario.py
+index 5804eb09..214a972e 100644
+--- a/sidecar/econometrica/engines/scenario.py
++++ b/sidecar/econometrica/engines/scenario.py
+@@ -93,7 +93,12 @@ def _compute_scenario_holidays(
+     или реконструирует из control_betas_mean + control_columns — тот же SSOT что decomposer.
+     Нули если future_dates пустые или holiday-колонок нет в контролях.
+     """
+-    from utils.holiday_calendar_ru import generate_holiday_dummies, is_holiday_like_name
++    from utils.holiday_calendar_ru import (
++        generate_holiday_dummies,
++        is_holiday_like_name,
++        normalize_holiday_name,
++        resolve_holiday_column,
++    )
+ 
+     zeros = np.zeros(n_periods, dtype=float)
+     if not future_dates:
+@@ -123,15 +128,60 @@ def _compute_scenario_holidays(
+     result = np.zeros(n_periods, dtype=float)
+     beta_by_col = {c: float(control_betas_raw[i]) for i, c in enumerate(control_cols)}
+ 
+-    for col_name, beta_val in beta_by_col.items():
+-        # Должно быть holiday-like И не Фурье И присутствовать в сгенерированных дамми
++    # ── Сопоставление имени контроля со столбцом дамми (правка 2026-09-08) ──
++    # `control_columns` несёт имена КЛИЕНТА («Чёрная пятница»), а holiday_df —
++    # канонические машинные («holiday_black_friday»). Прямое сравнение имён
++    # совпадало только у авто-инжектированных столбцов, поэтому вклад любой
++    # клиентски названной событийной колонки в будущих периодах молча был нулём
++    # (роль-то распознавалась: is_holiday_like_name('Чёрная пятница') → True).
++    # Разрешаем имя ТЕМ ЖЕ whitelist-ом, что и дедуп при обучении
++    # (`resolve_holiday_column` → `user_covered_auto_holidays`): у признака один
++    # источник, второй таблицы синонимов здесь нет.
++    resolved: dict[str, str] = {}
++    for col_name in beta_by_col:
+         if not is_holiday_like_name(col_name):
+             continue
+         if col_name in fourier_cols:
+             continue
+-        if col_name not in holiday_df.columns:
++        dummy_col = resolve_holiday_column(col_name)
++        if dummy_col is None or dummy_col not in holiday_df.columns:
++            # Имя не разрешилось однозначно (напр. обобщённый «Новый год» →
++            # два НГ-окна) → прежнее поведение, пропуск. Догадка в расчёте
++            # хуже нулевого вклада.
++            logger.info('scenario holidays: колонка %r не сопоставлена однозначно '
++                        'ни одному событию календаря — вклад в будущем не считается',
++                        col_name)
++            continue
++        resolved[col_name] = dummy_col
++
++    # ── Защита от двойного счёта одного события ──
++    # Один столбец дамми не должен войти в сумму дважды. Такая пара возможна,
++    # только если пользователь сам подал две колонки на одно событие (авто-инжект
++    # modeler'а её не создаёт — он гасит авто-дубль через user_covered_auto_holidays).
++    # Разбор: колонка, чьё имя ТОЧНО (по норм-форме) равно каноническому, —
++    # владелец события; синоним рядом с ней пропускается. Это ровно прежнее
++    # поведение такой пары (владелец считался, синоним давал ноль) → регрессии нет.
++    # Если владельца нет, а претендентов несколько — пропускаем всех: выбор был бы
++    # догадкой.
++    claimants: dict[str, list[str]] = {}
++    for col_name, dummy_col in resolved.items():
++        claimants.setdefault(dummy_col, []).append(col_name)
++    for dummy_col, cols in claimants.items():
++        if len(cols) < 2:
+             continue
+-        dummy = holiday_df[col_name].values.astype(float)
++        exact = [c for c in cols
++                 if normalize_holiday_name(c) == normalize_holiday_name(dummy_col)]
++        keep = exact[0] if len(exact) == 1 else None
++        for c in cols:
++            if c != keep:
++                resolved.pop(c, None)
++        logger.warning('scenario holidays: событие %s заявлено несколькими контролями %s — '
++                       'в будущий вклад берётся %s (двойной счёт исключён)',
++                       dummy_col, cols, keep or 'ни один')
++
++    for col_name, dummy_col in resolved.items():
++        beta_val = beta_by_col[col_name]
++        dummy = holiday_df[dummy_col].values.astype(float)
+         # Обрезаем или дополняем до n_periods
+         if len(dummy) < n_periods:
+             dummy = np.pad(dummy, (0, n_periods - len(dummy)))
+diff --git a/sidecar/econometrica/engines/validator.py b/sidecar/econometrica/engines/validator.py
+index d4316e7f..c99f1a9e 100644
+--- a/sidecar/econometrica/engines/validator.py
++++ b/sidecar/econometrica/engines/validator.py
+@@ -365,6 +365,83 @@ def data_preview(file_path: str, n_rows: int = 20) -> dict[str, Any]:
+     }
+ 
+ 
++def _write_media_plan_state(
++    project_dir: str,
++    detected: dict | None,
++    tail_found: bool | None,
++    source_hash: str | None,
++) -> None:
++    """Привести `results/media_plan.json` в соответствие с ТЕКУЩИМИ данными.
++
++    🔴 2026-09-08 (аудит High-2). До этой правки файл писался только когда хвост
++    медиаплана найден, и никто его не обнулял. В одном каталоге проекта после
++    планового файла открывали базовый — файл с прошлого импорта оставался, и
++    признак `media_plan_absent` уверенно отвечал «план есть» на данных, где
++    плана нет. Источник признака остаётся ОДИН (этот файл, его же читает
++    интерфейс) — лечим на стороне записи, а не заводим вторую формулу.
++
++    Три честных состояния:
++        tail_found True  — хвост найден, пишем найденное;
++        tail_found False — данные проверены, хвоста нет: `n_future_periods: 0`;
++        tail_found None  — определить не удалось: `n_future_periods: null`,
++                           читатель обязан вернуть «не знаю», а не «плана нет».
++
++    Файл не удаляем (правило проекта: удаление только в корзину) — перезаписываем
++    честным содержимым. Если запись сорвалась, а на диске лежит старый файл —
++    отводим его в сторону под именем `media_plan.json.stale`: молчащая ложь хуже
++    отсутствия ответа.
++    """
++    import json as _json
++    import os as _os
++    import tempfile as _tempfile
++
++    mp_dir = Path(project_dir) / 'results'
++    mp_path = mp_dir / 'media_plan.json'
++    if detected is not None:
++        payload = detected
++    elif tail_found is False:
++        payload = {
++            'n_future_periods': 0,
++            'period_labels': [],
++            'granularity': None,
++            'future_dates': [],
++            'channels': [],
++            'warnings': [],
++            'source_hash': source_hash,
++            'confirmed': False,
++        }
++    else:
++        payload = {
++            'n_future_periods': None,
++            'detection': 'unavailable',
++            'source_hash': source_hash,
++            'confirmed': False,
++        }
++
++    try:
++        mp_dir.mkdir(parents=True, exist_ok=True)
++        _tmp_fd, _tmp_name = _tempfile.mkstemp(dir=mp_dir, prefix='.mp_', suffix='.tmp')
++        try:
++            with open(_tmp_fd, 'w', encoding='utf-8') as _f:
++                _json.dump(payload, _f, ensure_ascii=False, indent=2)
++            _os.replace(_tmp_name, mp_path)
++        except Exception:
++            try:
++                _os.unlink(_tmp_name)
++            except Exception:
++                pass
++            raise
++    except Exception:
++        logger.warning('media_plan.json write failed', exc_info=True)
++        # Старый файл описывает ПРОШЛЫЕ данные — отводим в сторону, чтобы
++        # читатель вернул «определить не удалось», а не прошлогоднюю правду.
++        try:
++            if mp_path.exists():
++                _os.replace(mp_path, mp_dir / 'media_plan.json.stale')
++        except Exception:
++            logger.warning('media_plan.json stale rename failed', exc_info=True)
++
++
+ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, Any]:
+     """Validate dataset for MMM readiness.
+ 
+@@ -407,6 +484,11 @@ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, A
+     # статистику и ratio считаем только по истории. Хвост не скрываем — возвращаем
+     # media_plan_detected и при наличии project_dir пишем media_plan.json.
+     _media_plan_detected: dict | None = None
++    # Состояние хвоста для results/media_plan.json (аудит High-2, 2026-09-08):
++    # True — найден, False — данные проверены и хвоста нет, None — определить
++    # не удалось. Пишем файл ВСЕГДА, чтобы он описывал текущие данные.
++    _tail_found: bool | None = None
++    _tail_source_hash: str | None = None
+     try:
+         from engines.planning import detect_media_plan_tail, compute_source_hash
+         # Авто-детект колонок ролей для planning детектора (минимальный набор).
+@@ -434,8 +516,13 @@ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, A
+             ]
+         if _date_col_hint and _kpi_col_hint:
+             _tail_result = detect_media_plan_tail(df, _date_col_hint, _kpi_col_hint, _media_hints)
++            _tail_found = bool(_tail_result.get('found'))
++            try:
++                _tail_source_hash = compute_source_hash(file_path)
++            except Exception:
++                _tail_source_hash = None
+             if _tail_result.get('found'):
+-                _src_hash = compute_source_hash(file_path)
++                _src_hash = _tail_source_hash
+                 _media_plan_detected = {
+                     'n_future_periods': _tail_result['n_future_periods'],
+                     'period_labels': _tail_result['period_labels'],
+@@ -449,32 +536,17 @@ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, A
+                 # Статистику считаем только по истории
+                 df = _tail_result['history_df'].reset_index(drop=True)
+                 n_rows = len(df)
+-                # Атомарная запись media_plan.json если project_dir задан
+-                if project_dir and Path(project_dir).is_absolute():
+-                    try:
+-                        import json as _json
+-                        import tempfile as _tempfile
+-                        _mp_dir = Path(project_dir) / 'results'
+-                        _mp_dir.mkdir(parents=True, exist_ok=True)
+-                        _mp_path = _mp_dir / 'media_plan.json'
+-                        _tmp_fd, _tmp_name = _tempfile.mkstemp(
+-                            dir=_mp_dir, prefix='.mp_', suffix='.tmp'
+-                        )
+-                        try:
+-                            with open(_tmp_fd, 'w', encoding='utf-8') as _f:
+-                                _json.dump(_media_plan_detected, _f, ensure_ascii=False, indent=2)
+-                            import os as _os
+-                            _os.replace(_tmp_name, _mp_path)
+-                        except Exception:
+-                            try:
+-                                _os.unlink(_tmp_name)
+-                            except Exception:
+-                                pass
+-                            raise
+-                    except Exception:
+-                        logger.warning('media_plan.json write failed', exc_info=True)
+     except Exception:
+         logger.warning('media_plan tail detection failed — proceeding with full df', exc_info=True)
++        _tail_found = None
++
++    # 🔴 Аудит High-2 (2026-09-08): media_plan.json пишем ВСЕГДА, а не только
++    # при найденном хвосте — иначе файл прошлого импорта переживает новый и
++    # признак `media_plan_absent` врёт клиенту про наличие будущих периодов.
++    if project_dir and Path(project_dir).is_absolute():
++        _write_media_plan_state(
++            project_dir, _media_plan_detected, _tail_found, _tail_source_hash
++        )
+ 
+     issues = []
+     warnings = []
 diff --git a/sidecar/econometrica/server.py b/sidecar/econometrica/server.py
-index 2ce9918..30608e9 100644
+index 97c42e45..cdef8dfc 100644
 --- a/sidecar/econometrica/server.py
 +++ b/sidecar/econometrica/server.py
-@@ -1062,7 +1062,6 @@ def preflight(req: PreflightRequest):
-             'message': f'Не удалось прочитать файл: {type(e).__name__}: {e}',
-         })
+@@ -44,7 +44,7 @@ if _sidecar_root not in sys.path:
  
--    n_obs = len(df)
-     missing_cols = [c for c in req.media_columns + [req.kpi_column] if c not in df.columns]
-     if missing_cols:
-         return JSONResponse(content={
-@@ -1071,6 +1070,27 @@ def preflight(req: PreflightRequest):
-             'available_columns': df.columns.tolist(),
-         })
+ from fastapi import FastAPI, HTTPException, Request, UploadFile, File, Form
+ from fastapi.responses import JSONResponse as _StarletteJSONResponse
+-from pydantic import BaseModel, Field, field_validator
++from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_validator
  
-+    # L-08 (2026-09-01, пробой team lead): строки медиаплана вперёд (KPI пуст,
-+    # инвестиции заполнены) — не training-наблюдения. validate_data() уже
-+    # обрезает их ДО статистики (validator.py:450-451); preflight читал файл
-+    # заново и считал n_obs по нему целиком — хвост плана раздувал n_obs, и
-+    # вердикт надёжности (overall_tier/recommended_mode) считался по
-+    # завышенному числу. Тот же вызов, что и в validate_data (validator.py:436),
-+    # не своя копия логики — SSOT для границы истории/будущего одна.
-+    if req.date_column in df.columns:
-+        try:
-+            from engines.planning import detect_media_plan_tail
-+            _tail = detect_media_plan_tail(df, req.date_column, req.kpi_column, req.media_columns)
-+            if _tail.get('found'):
-+                df = _tail['history_df'].reset_index(drop=True)
-+        except Exception:
-+            _preflight_logger.warning(
-+                'media_plan tail detection failed in preflight — proceeding with full df',
-+                exc_info=True,
-+            )
+ from utils.safe_io import sanitize_nonfinite
+ 
+@@ -946,6 +946,34 @@ class PreflightRequest(BaseModel):
+     adstock_config: dict[str, str] = {}
+     mode_override: str | None = None  # 'bayesian' | 'ols' | None - для recommend
+     skip_prior_predictive: bool = False  # для fast iteration UI
++    # 🔴 Мастер-флаги контролей (внешний аудит 2026-09-08, High-1). Обучение
++    # собирает модель по ним (modeler.py:484 use_holidays, :569 use_seasonality)
++    # и передаёт их в проверку приоров (modeler.py:860-861). Предполётная
++    # проверка их не имела вовсе — симуляция ВСЕГДА шла с праздниками РФ и
++    # рядами Фурье, то есть оценивала не ту модель, которую клиент собрался
++    # обучать. Проверено зондом на демо-наборе (48 наблюдений): с выключенными
++    # флагами предполётная проверка давала покрытие 0,896 «pass» → уровень
++    # «reliable», а обучение на том же наборе — 0,458 «fail» → «insufficient».
++    # Default True = дефолт modeler.py и прежнее поведение: старые клиенты,
++    # не присылающие поля, поедут ровно как раньше.
++    #
++    # 🔴 Два написания ключа (приёмка правки, 2026-09-08). Сам дефект был
++    # молчаливой потерей флага между слоями, и pydantic такую потерю повторяет:
++    # ключ в неизвестном написании выбрасывается БЕЗ ошибки, вердикт тихо
++    # возвращается к завышенному, и ни одна проверка не краснеет. Интерфейс
++    # оперирует camelCase (`useSeasonality`), команда Tauri переводит в snake_case
++    # (`econometrica.rs`), и рассинхрон этих слоёв при будущей правке ничем не
++    # ловится. Поэтому принимаем оба написания — узко, только для этих двух
++    # полей: `extra` не запрещаем (прочие клиенты вправе слать лишнее) и на
++    # остальные поля запроса не распространяем.
++    use_seasonality: bool = Field(
++        True, validation_alias=AliasChoices('use_seasonality', 'useSeasonality'))
++    use_holidays: bool = Field(
++        True, validation_alias=AliasChoices('use_holidays', 'useHolidays'))
 +
-+    n_obs = len(df)
++    # populate_by_name: имя поля остаётся рабочим ключом наравне с алиасами —
++    # прежние вызовы по snake_case и построение объекта в коде не меняются.
++    model_config = ConfigDict(populate_by_name=True)
+ 
+ 
+ _TIER_RANK = {'reliable': 0, 'directional': 1, 'insufficient': 2}
+@@ -1164,9 +1192,15 @@ def preflight(req: PreflightRequest):
+                         req.date_column, exc_info=True,
+                     )
+ 
++            # 🔴 Мастер-флаги (внешний аудит 2026-09-08, High-1): передаём ровно
++            # тем же вызовом, что обучение (modeler.py:857-862), — иначе вердикт
++            # надёжности считается по модели с контролями, которых в обучаемой
++            # модели не будет, и завышается. Форма вызова намеренно совпадает.
+             prior_predictive = prior_predictive_check(
+                 y_obs, media_matrix, n_samples=300,  # 300 fast enough для preflight
+                 dates=_pp_dates,
++                use_seasonality=bool(req.use_seasonality),
++                use_holidays=bool(req.use_holidays),
+             )
+         except Exception as e:
+             _preflight_logger.warning(
+diff --git a/sidecar/econometrica/tests/test_planning_history_split.py b/sidecar/econometrica/tests/test_planning_history_split.py
+index 1b026c6e..992f7768 100644
+--- a/sidecar/econometrica/tests/test_planning_history_split.py
++++ b/sidecar/econometrica/tests/test_planning_history_split.py
+@@ -120,8 +120,20 @@ def test_validator_no_tail_media_plan_absent(tmp_path: Path):
+     assert result["file"]["rows"] == 24
+ 
+ 
+-def test_validator_no_tail_no_media_plan_json(tmp_path: Path):
+-    """Без хвоста media_plan.json НЕ должен записываться."""
++def test_validator_no_tail_writes_zero_media_plan_json(tmp_path: Path):
++    """Без хвоста media_plan.json пишется с честным `n_future_periods: 0`.
 +
-     # Step 2: engine recommendation
-     from engines.ols_modeler import recommend_engine
-     recommend = recommend_engine(n_obs, override=mode_override)
-diff --git a/sidecar/econometrica/tests/test_preflight_n_obs_excludes_plan_tail.py b/sidecar/econometrica/tests/test_preflight_n_obs_excludes_plan_tail.py
++    🔴 Договор изменён 2026-09-08 (аудит, находка High-2). Прежде файл писался
++    ТОЛЬКО при найденном хвосте, и этот тест сторожил его отсутствие. Цена
++    оказалась велика: в одном каталоге проекта файл прошлого, планового импорта
++    переживал новый, базовый, и признак `media_plan_absent` уверенно отвечал
++    «план есть» на данных, где плана нет. Источник признака оставляем один
++    (этот файл, его же читает интерфейс) — значит он обязан описывать ТЕКУЩИЕ
++    данные, а не последние, где хвост нашёлся. Удалять файл нельзя (правило
++    проекта: только в корзину), поэтому перезаписываем честным нулём.
++    """
++    import json
++
+     p = _make_xlsx(tmp_path, 12, 0)
+     project_dir = str(tmp_path / "project")
+     Path(project_dir).mkdir(parents=True, exist_ok=True)
+@@ -129,7 +141,36 @@ def test_validator_no_tail_no_media_plan_json(tmp_path: Path):
+     validate_data(str(p), project_dir=project_dir)
+ 
+     mp_path = Path(project_dir) / "results" / "media_plan.json"
+-    assert not mp_path.exists(), "media_plan.json не должен существовать без хвоста"
++    assert mp_path.exists(), "media_plan.json обязан описывать текущие данные"
++    payload = json.loads(mp_path.read_text(encoding="utf-8"))
++    assert payload["n_future_periods"] == 0, payload
++    assert payload["channels"] == [], payload
++
++
++def test_validator_overwrites_stale_media_plan_json(tmp_path: Path):
++    """Тот же каталог проекта: сначала данные с хвостом, потом без него.
++
++    Сценарий находки High-2 целиком: пока файл не обнулялся, второй импорт
++    оставлял продукт с признаком «план есть» на данных без будущих периодов.
++    """
++    import json
++
++    project_dir = str(tmp_path / "project")
++    Path(project_dir).mkdir(parents=True, exist_ok=True)
++    mp_path = Path(project_dir) / "results" / "media_plan.json"
++
++    (tmp_path / "a").mkdir(parents=True, exist_ok=True)
++    (tmp_path / "b").mkdir(parents=True, exist_ok=True)
++
++    with_tail = _make_xlsx(tmp_path / "a", 24, 12)
++    validate_data(str(with_tail), project_dir=project_dir)
++    assert json.loads(mp_path.read_text(encoding="utf-8"))["n_future_periods"] == 12
++
++    no_tail = _make_xlsx(tmp_path / "b", 24, 0)
++    validate_data(str(no_tail), project_dir=project_dir)
++    assert json.loads(mp_path.read_text(encoding="utf-8"))["n_future_periods"] == 0, (
++        "media_plan.json остался от прошлого импорта — признак наличия плана врёт"
++    )
+ 
+ 
+ # ─── Тест 3: инвариант current_spend (notna-only) ────────────────────────────
+diff --git a/sidecar/econometrica/tests/test_preflight_honors_control_master_flags.py b/sidecar/econometrica/tests/test_preflight_honors_control_master_flags.py
 new file mode 100644
-index 0000000..552ef5f
+index 00000000..1226c445
 --- /dev/null
-+++ b/sidecar/econometrica/tests/test_preflight_n_obs_excludes_plan_tail.py
-@@ -0,0 +1,113 @@
-+"""L-08 (2026-09-01): предполётная проверка не должна считать наблюдениями
-+строки медиаплана вперёд, где целевой величины нет и быть не может.
++++ b/sidecar/econometrica/tests/test_preflight_honors_control_master_flags.py
+@@ -0,0 +1,422 @@
++"""Сторож (2026-09-08, внешний аудит, находка High-1): предполётная проверка
++обязана строить симуляцию по ТЕМ ЖЕ мастер-флагам контролей, по которым будет
++собрана обучаемая модель.
 +
-+`engines/validator.py::validate_data` (эндпоинт `/compute/validate`) при
-+обнаружении хвоста медиаплана обрезает `df` до истории ПЕРЕД любой
-+статистикой (`validator.py:450-451`, комментарий «Статистику считаем только
-+по истории»). `server.py::preflight` (эндпоинт `/compute/preflight`) читает
-+тот же файл заново и берёт `n_obs = len(df)` БЕЗ этой обрезки — хвост плана
-+(KPI пуст, инвестиции заполнены) раздувает число наблюдений, и вердикт
-+надёжности (`overall_tier`, `recommended_mode`) считается по завышенному n.
++Дефект, который сторож закрывает
++--------------------------------
++Обучение собирает модель по мастер-флагам `use_holidays` (`modeler.py:484`) и
++`use_seasonality` (`modeler.py:569`) и передаёт их в проверку приоров
++(`modeler.py:857-862`). Предполётная проверка их не передавала, а класс запроса
++`PreflightRequest` их вовсе не содержал — интерфейс их и не слал. Симуляция
++всегда шла с праздниками РФ (~12 столбцов) и рядами Фурье, то есть оценивала
++не ту модель, которую клиент собрался обучать.
 +
-+Найдено пробоем на живом движке (team lead, 2026-09-01): файл 15 недель
-+истории + 20 недель плана — `/compute/validate` честно даёт warning «с
-+оговорками» (n=15 < 20 → тон 'bad'), а `/compute/preflight` даёт
-+overall_tier='reliable' по n_obs=35.
++Проверено зондом на демо-наборе продукта (`static/sample-data/synth_fmcg_brand.xlsx`,
++48 наблюдений): при выключенных праздниках и сезонности предполётная проверка
++давала покрытие 0,896 «pass» → уровень `reliable`, а та же симуляция по пути
++обучения — 0,458 «fail» → `insufficient`. Клиенту, выключившему контроли,
++показывался ЗАВЫШЕННЫЙ вердикт надёжности, причём максимально завышенный:
++«надёжно» вместо «данных недостаточно».
 +
-+Тот же класс дефекта, что несчитанная метрика, показанная нулём: число,
-+подставленное в порог, не то же самое, что число, которое порог должен
-+проверять. Здесь фиксируется, что preflight использует ТУ ЖЕ обрезку
-+истории, что и validate — тем же вызовом (`engines.planning.detect_media_plan_tail`),
-+не своей копией логики.
++Что сторож утверждает
++---------------------
++1. Выключенные праздники — в симуляции нет праздничных столбцов.
++2. Выключенная сезонность — в симуляции нет рядов Фурье.
++3. Включённые (и умолчание, когда полей в запросе нет) — контроли на месте:
++   старые клиенты, не присылающие поля, едут ровно как раньше.
++4. Два пути согласны: предполётная проверка и вызов, который делает обучение,
++   на одном наборе с одинаковыми флагами дают один набор контролей и один
++   вердикт.
++5. Структурный рубеж: оба вызова `prior_predictive_check` в продукте передают
++   мастер-флаги, а интерфейс и команда Tauri их доставляют — правка в одной
++   точке из четырёх ровно этим дефектом и была.
++6. Реальный путь по HTTP: тело, которое собирает команда Tauri
++   (`econometrica.rs:702-715`), доезжает до вердикта, и ключ в camelCase-написании
++   работает наравне со snake_case.
++
++Дыра, найденная приёмкой правки (2026-09-08)
++--------------------------------------------
++Проверки выше строят `PreflightRequest` объектом напрямую — это мимо слоя, на
++котором живёт риск. Прогон через `TestClient` показал: тело с ключами
++`useSeasonality`/`useHolidays` (написание интерфейса) давало код 200 и уровень
++`reliable` вместо `insufficient` — pydantic выбрасывал неизвестный ключ МОЛЧА,
++продукт возвращался ровно к аудированному дефекту, и ни одна проверка не краснела.
++Класс тот же, что чинил внешний аудит: молчаливая потеря флага между слоями.
++Закрыто двумя написаниями ключа в `PreflightRequest` и сторожем на HTTP-пути.
++
++Пороги (0,5 / 0,8 покрытия) сторож не трогает: правится ОСНОВАНИЕ вердикта,
++а не критерий.
 +"""
 +from __future__ import annotations
 +
-+import sys
++import ast
++import json
++import re
 +from pathlib import Path
 +
 +import numpy as np
 +import pandas as pd
++import pytest
 +
-+sys.path.insert(0, str(Path(__file__).parent.parent))
++import utils.reliability_a4 as a4
++from server import PreflightRequest, preflight
 +
-+from server import preflight, PreflightRequest
++N_OBS = 48
++FIRST_DATE = '2022-01-31'
++
++REPO_ROOT = Path(__file__).resolve().parents[3]
++SIDECAR_ROOT = Path(__file__).resolve().parents[1]
 +
 +
-+def _make_xlsx(tmp_path: Path, n_history: int, n_future: int, *, seed: int = 42) -> Path:
-+    """Записывает xlsx с history+tail. Тот же фабричный паттерн, что
-+    test_planning_history_split.py::_make_xlsx — переиспользую форму, не
-+    дублирую с нуля."""
-+    total = n_history + n_future
-+    dates = pd.date_range("2022-01-03", periods=total, freq="W-MON")
-+    rng = np.random.RandomState(seed)
-+    kpi = list(rng.uniform(100_000, 1_000_000, n_history)) + [np.nan] * n_future
-+    tv = rng.uniform(10_000, 100_000, total).tolist()
-+    digital = rng.uniform(5_000, 50_000, total).tolist()
++def _body(response) -> dict:
++    return json.loads(response.body)
++
++
++def _write_csv(path: Path) -> pd.DataFrame:
++    """Месячный ряд с выраженной сезонностью — на нём набор контролей
++    реально влияет на покрытие, поэтому подмена флагов заметна.
++    Каналы не коллинеарны, иначе вердикт решит quick_proxy по своей причине.
++
++    Амплитуда волны 900 выбрана замером, а не на глаз: при 300 покрытие без
++    контролей выходит ровно 0,500 — впритык к порогу отказа, и вердикт `warn`
++    против `fail` решался бы третьим знаком. При 900 разведение уверенное:
++    оба флага включены — 0,896 `pass` → `reliable`, оба выключены — 0,458 `fail`
++    → `insufficient`. Пороги при этом не трогаются, меняется только набор."""
++    dates = pd.date_range(FIRST_DATE, periods=N_OBS, freq='ME')
++    tv = [100 + (i * 37) % 90 for i in range(N_OBS)]
++    digital = [40 + (i * 53) % 70 for i in range(N_OBS)]
++    season = [900 * np.sin(2 * np.pi * i / 12) for i in range(N_OBS)]
++    sales = [1000 + i * 7 + season[i] + (tv[i] % 17) * 3 for i in range(N_OBS)]
 +    df = pd.DataFrame({
-+        "date": dates,
-+        "sales": kpi,
-+        "tv_spend": tv,
-+        "digital_spend": digital,
++        'date': dates.strftime('%Y-%m-%d'),
++        'sales': sales,
++        'tv': tv,
++        'digital': digital,
 +    })
-+    p = tmp_path / "data.xlsx"
-+    df.to_excel(p, index=False)
-+    return p
++    df.to_csv(path, index=False, encoding='utf-8')
++    return df
 +
 +
-+def _preflight_result(tmp_path: Path, n_history: int, n_future: int) -> dict:
-+    p = _make_xlsx(tmp_path, n_history, n_future)
-+    req = PreflightRequest(
-+        project_dir=str(tmp_path / "project"),
-+        file_path=str(p),
-+        media_columns=["tv_spend", "digital_spend"],
-+        kpi_column="sales",
-+        date_column="date",
-+        skip_prior_predictive=True,  # ускоряем тест — прежде не нужен здесь
-+    )
-+    resp = preflight(req)
-+    return resp.body and __import__("json").loads(resp.body)
-+
-+
-+def test_preflight_n_obs_matches_validate_history_count_with_plan_tail(tmp_path: Path):
-+    """Сквозной случай team lead: 15 история + 20 план.
-+
-+    До правки: n_obs=35 (15+20, хвост посчитан). После правки: n_obs=15
-+    (только история) — то же число, что дал бы /compute/validate.
-+    """
-+    result = _preflight_result(tmp_path, n_history=15, n_future=20)
-+    assert result['n_obs'] == 15, (
-+        f"n_obs должен быть 15 (только история), получено {result['n_obs']} — "
-+        f"хвост медиаплана (20 строк без KPI) не должен считаться наблюдениями."
++def _request(tmp_path: Path, csv_path: Path, **flags) -> PreflightRequest:
++    """Ровно те поля, что шлёт интерфейс (ConfigPanel.svelte), плюс мастер-флаги.
++    Без flags — умолчание класса запроса (прежнее поведение)."""
++    return PreflightRequest(
++        project_dir=str(tmp_path),
++        file_path=str(csv_path),
++        media_columns=['tv', 'digital'],
++        kpi_column='sales',
++        date_column='date',
++        mode_override=None,
++        skip_prior_predictive=False,
++        **flags,
 +    )
 +
 +
-+def test_preflight_tier_is_honest_on_thin_history_with_long_plan_tail(tmp_path: Path):
-+    """Сквозной случай team lead: 15 история (< 20 → честный тон 'bad' по
-+    engines/ols_modeler.py::_honest_n_obs_tone) + 20 план.
++def _controls(content: dict) -> dict:
++    pp = content['breakdown']['prior_predictive']
++    assert pp is not None, 'проверка приоров не выполнилась — сторож не проверил путь'
++    return pp.get('control_components') or {}
 +
-+    До правки: n_obs=35 (≥30) → overall_tier='reliable' — неверно, вердикт
-+    молчит там, где должен честно отказать.
-+    После правки: n_obs=15 (<20) → overall_tier='insufficient'.
++
++class TestPreflightHonorsMasterFlags:
++
++    def test_holidays_off_removes_holiday_columns(self, tmp_path):
++        csv_path = tmp_path / 'data.csv'
++        _write_csv(csv_path)
++
++        content = _body(preflight(_request(tmp_path, csv_path, use_holidays=False)))
++        assert content['status'] == 'ok'
++        controls = _controls(content)
++
++        assert 'holidays' not in controls, (
++            'Праздники выключены, но симуляция предполётной проверки всё равно '
++            f'построена с ними ({controls.get("holidays")}): вердикт надёжности '
++            'считается по модели, которой у клиента не будет, и завышается'
++        )
++        assert 'fourier' in controls, (
++            'Выключение праздников не должно снимать сезонность — флаги независимы'
++        )
++
++    def test_seasonality_off_removes_fourier_terms(self, tmp_path):
++        csv_path = tmp_path / 'data.csv'
++        _write_csv(csv_path)
++
++        content = _body(preflight(_request(tmp_path, csv_path, use_seasonality=False)))
++        assert content['status'] == 'ok'
++        controls = _controls(content)
++
++        assert 'fourier' not in controls, (
++            'Сезонность выключена, но симуляция построена с рядами Фурье '
++            f'({controls.get("fourier")}) — вердикт завышен'
++        )
++        assert 'holidays' in controls, (
++            'Выключение сезонности не должно снимать праздники — флаги независимы'
++        )
++
++    def test_both_off_leaves_no_controls(self, tmp_path):
++        csv_path = tmp_path / 'data.csv'
++        _write_csv(csv_path)
++
++        content = _body(preflight(_request(
++            tmp_path, csv_path, use_seasonality=False, use_holidays=False)))
++        assert content['status'] == 'ok'
++        assert _controls(content) == {}, (
++            'Оба мастер-флага выключены, а контрольные регрессоры в симуляции есть'
++        )
++
++    def test_both_on_keeps_controls(self, tmp_path):
++        csv_path = tmp_path / 'data.csv'
++        _write_csv(csv_path)
++
++        content = _body(preflight(_request(
++            tmp_path, csv_path, use_seasonality=True, use_holidays=True)))
++        controls = _controls(content)
++        assert 'fourier' in controls and 'holidays' in controls, (
++            f'Флаги включены, но контроли в симуляции неполны: {controls}'
++        )
++
++    def test_absent_flags_keep_previous_behaviour(self, tmp_path):
++        """Запрос старого клиента (полей нет вовсе) обязан вести себя как раньше:
++        флаги включены, симуляция полная. Это условие совместимости правки."""
++        csv_path = tmp_path / 'data.csv'
++        _write_csv(csv_path)
++
++        content = _body(preflight(_request(tmp_path, csv_path)))
++        controls = _controls(content)
++        assert 'fourier' in controls and 'holidays' in controls, (
++            f'Умолчание изменилось — старые клиенты поедут иначе: {controls}'
++        )
++
++    def test_flags_actually_change_the_verdict(self, tmp_path):
++        """Флаг обязан менять не только состав контролей, но и вердикт —
++        иначе передача формальна и дефект вернётся незамеченным."""
++        csv_path = tmp_path / 'data.csv'
++        _write_csv(csv_path)
++
++        on = _body(preflight(_request(tmp_path, csv_path)))
++        off = _body(preflight(_request(
++            tmp_path, csv_path, use_seasonality=False, use_holidays=False)))
++
++        cov_on = on['breakdown']['prior_predictive']['coverage']
++        cov_off = off['breakdown']['prior_predictive']['coverage']
++        assert cov_off < cov_on, (
++            f'Покрытие без контролей ({cov_off}) не ниже покрытия с ними ({cov_on}): '
++            'похоже, флаги до симуляции не доехали'
++        )
++
++
++class TestTwoPathsAgree:
++    """Согласие двух дорог: предполётная проверка и обучение обязаны строить
++    симуляцию из одного набора контролей и приходить к одному вердикту."""
++
++    @pytest.mark.parametrize('use_seasonality,use_holidays', [
++        (True, True), (False, False), (True, False), (False, True),
++    ])
++    def test_preflight_matches_in_train_call(self, tmp_path, use_seasonality, use_holidays):
++        csv_path = tmp_path / 'data.csv'
++        df = _write_csv(csv_path)
++
++        content = _body(preflight(_request(
++            tmp_path, csv_path,
++            use_seasonality=use_seasonality, use_holidays=use_holidays)))
++        pf = content['breakdown']['prior_predictive']
++
++        # Ровно тот вызов, который делает обучение (modeler.py:857-862):
++        # тот же набор, те же флаги, то же число выборок и тот же посев.
++        in_train = a4.prior_predictive_check(
++            df['sales'].fillna(0).values.astype(float),
++            df[['tv', 'digital']].fillna(0).values.astype(float),
++            n_samples=300,
++            dates=pd.to_datetime(df['date']).values,
++            use_seasonality=use_seasonality,
++            use_holidays=use_holidays,
++        )
++
++        assert (pf.get('control_components') or {}) == (in_train.get('control_components') or {}), (
++            'Набор контролей предполётной проверки не совпал с набором обучения: '
++            f'{pf.get("control_components")} против {in_train.get("control_components")}'
++        )
++        assert pf['coverage'] == in_train['coverage'], (
++            f'Покрытие разошлось: предполётная {pf["coverage"]}, обучение {in_train["coverage"]}'
++        )
++        assert pf['status'] == in_train['status'], (
++            f'Вердикт разошёлся: предполётная «{pf["status"]}», обучение «{in_train["status"]}» — '
++            'клиент видит один вердикт, а получит модель с другим'
++        )
++
++
++class TestBothCallSitesPassFlags:
++    """Структурный рубеж. Дефект был именно «правка в одной точке из двух»,
++    поэтому сторож читает исходники обоих вызовов."""
++
++    @pytest.mark.parametrize('rel_path', ['server.py', 'engines/modeler.py'])
++    def test_call_site_has_master_flag_keywords(self, rel_path):
++        src_path = SIDECAR_ROOT / rel_path
++        tree = ast.parse(src_path.read_text(encoding='utf-8'))
++
++        calls = [
++            node for node in ast.walk(tree)
++            if isinstance(node, ast.Call)
++            and isinstance(node.func, ast.Name)
++            and node.func.id == 'prior_predictive_check'
++        ]
++        assert calls, f'вызов prior_predictive_check в {rel_path} не найден'
++        for call in calls:
++            kwargs = {kw.arg for kw in call.keywords}
++            missing = {'use_seasonality', 'use_holidays'} - kwargs
++            assert not missing, (
++                f'{rel_path}:{call.lineno}: prior_predictive_check вызвана без {sorted(missing)} — '
++                'симуляция снова оценивает не ту модель, которую соберёт обучение'
++            )
++
++    def test_request_model_exposes_flags(self):
++        fields = PreflightRequest.model_fields
++        assert 'use_seasonality' in fields and 'use_holidays' in fields, (
++            'PreflightRequest без мастер-флагов: интерфейс физически не может их '
++            'прислать, и pydantic молча отбросит их при разборе запроса'
++        )
++        assert fields['use_seasonality'].default is True
++        assert fields['use_holidays'].default is True
++
++
++class TestClientPathDeliversFlags:
++    """Клиентская дорога (то, что видит покупатель): интерфейс → команда Tauri →
++    класс запроса. Питоновские рубежи выше бесполезны, если поля не отправлены."""
++
++    def _read(self, rel_path: str) -> str:
++        path = REPO_ROOT / rel_path
++        if not path.exists():   # прогон из упакованного каталога движка
++            pytest.skip(f'{rel_path} недоступен из этого каталога прогона')
++        return path.read_text(encoding='utf-8')
++
++    def test_config_panel_sends_flags_to_preflight(self):
++        src = self._read('src/lib/components/ConfigPanel.svelte')
++        call = re.search(r"invoke\('econ_preflight',\s*\{(.*?)\}\)\)", src, re.S)
++        assert call, 'вызов econ_preflight в ConfigPanel.svelte не найден'
++        payload = call.group(1)
++        for field in ('useSeasonality', 'useHolidays'):
++            assert field in payload, (
++                f'ConfigPanel.svelte не шлёт {field} в econ_preflight — '
++                'предполётная проверка снова получит умолчание «включено» и '
++                'завысит вердикт клиенту, который контроли выключил'
++            )
++
++    def test_tauri_command_forwards_flags(self):
++        src = self._read('src-tauri/src/commands/econometrica.rs')
++        start = src.index('pub async fn econ_preflight')
++        end = src.index('post_json("/compute/preflight"', start)
++        body = src[start:end]
++        for field in ('use_seasonality', 'use_holidays'):
++            assert f'"{field}"' in body, (
++                f'econ_preflight не кладёт {field} в тело запроса — поле теряется '
++                'между интерфейсом и движком'
++            )
++            assert f'{field}: Option<bool>' in body, (
++                f'econ_preflight не принимает {field} параметром'
++            )
++        assert body.count('unwrap_or(true)') >= 2, (
++            'умолчание мастер-флагов в команде Tauri должно быть «включено» — '
++            'иначе старые вызовы поедут иначе'
++        )
++
++
++class TestFlagsSurviveTheHttpLayer:
++    """Сторож на слое, где живёт риск: реальный запрос по HTTP тем телом, которое
++    собирает команда Tauri (`econometrica.rs:702-715`), а не объект `PreflightRequest`,
++    построенный в обход разбора запроса."""
++
++    def _client(self):
++        from fastapi.testclient import TestClient
++        import server
++        return TestClient(server.app)
++
++    def _rust_body(self, tmp_path: Path, csv_path: Path, *, camel: bool,
++                   use_seasonality: bool, use_holidays: bool) -> dict:
++        """Тело дословно как в `econometrica.rs`: те же ключи и тот же порядок.
++        camel=True — написание интерфейса (`useSeasonality`), то самое, на котором
++        приёмка нашла молчаливую потерю флага."""
++        body = {
++            'project_dir': str(tmp_path),
++            'file_path': str(csv_path),
++            'media_columns': ['tv', 'digital'],
++            'control_columns': [],
++            'kpi_column': 'sales',
++            'date_column': 'date',
++            'adstock_config': {},
++            'mode_override': None,
++            'skip_prior_predictive': False,
++        }
++        if camel:
++            body['useSeasonality'] = use_seasonality
++            body['useHolidays'] = use_holidays
++        else:
++            body['use_seasonality'] = use_seasonality
++            body['use_holidays'] = use_holidays
++        return body
++
++    @pytest.mark.parametrize('use_seasonality,use_holidays,expected_tier', [
++        (True, True, 'reliable'),
++        (False, False, 'insufficient'),
++    ])
++    def test_snake_case_body_reaches_the_verdict(self, tmp_path, use_seasonality,
++                                                 use_holidays, expected_tier):
++        csv_path = tmp_path / 'data.csv'
++        _write_csv(csv_path)
++
++        response = self._client().post('/compute/preflight', json=self._rust_body(
++            tmp_path, csv_path, camel=False,
++            use_seasonality=use_seasonality, use_holidays=use_holidays))
++        assert response.status_code == 200
++        content = response.json()
++        assert content['status'] == 'ok'
++        assert content['overall_tier'] == expected_tier, (
++            f'По HTTP при флагах {use_seasonality}/{use_holidays} уровень '
++            f'«{content["overall_tier"]}» вместо «{expected_tier}» — флаги не доехали '
++            'сквозь разбор запроса'
++        )
++
++    @pytest.mark.parametrize('use_seasonality,use_holidays', [
++        (True, True), (False, False), (True, False), (False, True),
++    ])
++    def test_camel_case_keys_give_the_same_verdict(self, tmp_path, use_seasonality,
++                                                   use_holidays):
++        """Ключ в написании интерфейса обязан работать наравне со snake_case.
++        Иначе рассинхрон слоёв (или опечатка в будущей правке команды Tauri)
++        МОЛЧА вернёт продукт к аудированному дефекту: pydantic выбросит
++        неизвестный ключ без ошибки, ответ останется 200, вердикт — завышенным."""
++        csv_path = tmp_path / 'data.csv'
++        _write_csv(csv_path)
++        client = self._client()
++
++        snake = client.post('/compute/preflight', json=self._rust_body(
++            tmp_path, csv_path, camel=False,
++            use_seasonality=use_seasonality, use_holidays=use_holidays))
++        camel = client.post('/compute/preflight', json=self._rust_body(
++            tmp_path, csv_path, camel=True,
++            use_seasonality=use_seasonality, use_holidays=use_holidays))
++
++        assert snake.status_code == camel.status_code == 200
++        snake_body, camel_body = snake.json(), camel.json()
++        assert camel_body['overall_tier'] == snake_body['overall_tier'], (
++            f'camelCase-тело дало уровень «{camel_body["overall_tier"]}», '
++            f'snake_case — «{snake_body["overall_tier"]}»: ключ потерян молча, '
++            'вердикт вернулся к завышенному, а код ответа остался 200'
++        )
++        snake_pp = snake_body['breakdown']['prior_predictive']
++        camel_pp = camel_body['breakdown']['prior_predictive']
++        assert (camel_pp.get('control_components') or {}) == (snake_pp.get('control_components') or {})
++        assert camel_pp['coverage'] == snake_pp['coverage']
++
++    def test_unknown_extra_fields_are_still_accepted(self, tmp_path):
++        """Границы доработки: лишние поля запроса по-прежнему не отвергаются —
++        `extra='forbid'` сломал бы прочих клиентов. Правка узкая, только про
++        два написания мастер-флагов."""
++        csv_path = tmp_path / 'data.csv'
++        _write_csv(csv_path)
++
++        body = self._rust_body(tmp_path, csv_path, camel=False,
++                               use_seasonality=True, use_holidays=True)
++        body['совершенно_постороннее_поле'] = 'значение'
++        response = self._client().post('/compute/preflight', json=body)
++        assert response.status_code == 200
++        assert response.json()['status'] == 'ok'
+diff --git a/sidecar/econometrica/tests/test_scenario_holiday_client_named.py b/sidecar/econometrica/tests/test_scenario_holiday_client_named.py
+new file mode 100644
+index 00000000..ae413f0e
+--- /dev/null
++++ b/sidecar/econometrica/tests/test_scenario_holiday_client_named.py
+@@ -0,0 +1,170 @@
++# -*- coding: utf-8 -*-
++"""Вклад событийной колонки, названной КЛИЕНТОМ, в будущие периоды прогноза.
++
++Дефект (2026-09-08): `_compute_scenario_holidays` сверяла имя контроля напрямую
++с колонками `generate_holiday_dummies`. `control_columns` несёт сырые имена
++клиента («Чёрная пятница»), дамми — канонические машинные
++(`holiday_black_friday`), поэтому проверка не совпадала НИКОГДА и вклад любой
++клиентски названной событийной колонки в прогнозе молча оставался нулевым.
++Роль при этом распознавалась верно (`is_holiday_like_name` → True) — узнавание
++работало, сопоставление данных нет.
++
++Проверяем ровно сопоставление имён: генерация дамми, β, нормировка и решатель
++не при чём и берутся как есть.
++"""
++import numpy as np
++import pandas as pd
++import pytest
++
++from engines.scenario import _compute_scenario_holidays
++from utils.holiday_calendar_ru import generate_holiday_dummies
++
++Y_STD = 1_000_000.0
++CANON_BF = 'holiday_black_friday'
++CLIENT_BF = 'Чёрная пятница'
++# Ноябрь-декабрь 2026: окно Чёрной пятницы (старт — последняя пятница ноября).
++FUTURE_DATES = [d.strftime('%Y-%m-%d')
++                for d in pd.date_range('2026-09-30', periods=6, freq='ME')]
++N_PERIODS = len(FUTURE_DATES)
++
++
++def _model(control_columns, betas, *, fourier=None, mode='fraction',
++           mean=0.0833, std=0.2787):
++    """Минимальная модель для функции: только то, что она реально читает."""
++    return {
++        'config': {'control_columns': list(control_columns)},
++        'fourier_seasonality': {'columns': list(fourier or [])},
++        'normalization': {
++            'control_betas_mean': list(betas),
++            'control_means': {c: mean for c in control_columns},
++            'control_stds': {c: std for c in control_columns},
++            'y_std': Y_STD,
++            'holiday_dummies_mode': mode,
++        },
++    }
++
++
++def _expected(dummy_col, beta, *, mode='fraction', mean=0.0833, std=0.2787):
++    """Эталон вклада, посчитанный от SSOT-дамми напрямую."""
++    hd = generate_holiday_dummies(pd.Series(pd.to_datetime(FUTURE_DATES)), mode=mode)
++    dummy = hd[dummy_col].values.astype(float)[:N_PERIODS]
++    return beta * ((dummy - mean) / std) * Y_STD
++
++
++def _run(md):
++    return _compute_scenario_holidays(md, md['normalization'], FUTURE_DATES, N_PERIODS)
++
++
++class TestClientNamedHolidayContributes:
++    """Колонка с русским клиентским названием события даёт вклад в правильные месяцы."""
++
++    def test_client_named_column_is_not_silently_zero(self):
++        md = _model([CLIENT_BF], [0.35])
++        contrib = _run(md)
++        assert np.any(np.abs(contrib) > 1.0), (
++            'клиентски названная событийная колонка обязана давать НЕнулевой '
++            f'будущий вклад, получено {contrib.tolist()}'
++        )
++
++    def test_client_named_matches_canonical_contribution(self):
++        """Вклад клиентского имени совпадает с вкладом канонического — до копейки."""
++        client = _run(_model([CLIENT_BF], [0.35]))
++        canon = _run(_model([CANON_BF], [0.35]))
++        np.testing.assert_allclose(client, canon, rtol=0, atol=1e-6)
++
++    def test_contribution_lands_in_event_months(self):
++        """Всплеск приходится на окно события, а не размазан ровно по всем месяцам."""
++        contrib = _run(_model([CLIENT_BF], [0.35]))
++        months = [pd.Timestamp(d).month for d in FUTURE_DATES]
++        event = [i for i, m in enumerate(months) if m in (11, 12)]
++        quiet = [i for i, m in enumerate(months) if m not in (11, 12)]
++        assert min(contrib[i] for i in event) > max(contrib[i] for i in quiet), (
++            f'месяцы окна события {[FUTURE_DATES[i] for i in event]} должны быть '
++            f'выше остальных: {contrib.tolist()}'
++        )
++
++    @pytest.mark.parametrize('name', ['Чёрная пятница', 'black_friday',
++                                      'promo_black_friday_2024', 'Holiday Black-Friday'])
++    def test_written_variants_all_resolve(self, name):
++        """Разные написания одного события ведут к одному столбцу дамми."""
++        np.testing.assert_allclose(
++            _run(_model([name], [0.35])),
++            _expected(CANON_BF, 0.35),
++            rtol=0, atol=1e-6,
++        )
++
++
++class TestCanonicalUnchanged:
++    """Поведение колонок с каноническими именами не меняется ни на йоту."""
++
++    def test_canonical_equals_reference_formula(self):
++        contrib = _run(_model([CANON_BF], [0.35]))
++        np.testing.assert_allclose(contrib, _expected(CANON_BF, 0.35), rtol=0, atol=1e-6)
++
++    def test_canonical_binary_point_mode_preserved(self):
++        """Legacy-режим бинарных дамми читается по-прежнему из normalization."""
++        contrib = _run(_model([CANON_BF], [0.35], mode='binary_point'))
++        np.testing.assert_allclose(
++            contrib, _expected(CANON_BF, 0.35, mode='binary_point'), rtol=0, atol=1e-6)
++
++    def test_non_holiday_controls_still_zero(self):
++        """Обычные контроли не трогаем: их будущее — среднее (z=0), вклад нулевой."""
++        contrib = _run(_model(['Промо-активность', 'Акции конкурентов'], [0.2, -0.1]))
++        assert np.all(contrib == 0.0), contrib
++
++
++class TestNoDoubleCount:
++    """Одно событие входит в будущую сумму ровно один раз."""
++
++    def test_canonical_and_client_synonym_counted_once(self):
++        """Каноническая колонка — владелец события; синоним рядом пропускается."""
++        both = _run(_model([CANON_BF, CLIENT_BF], [0.35, 0.20]))
++        canon_only = _run(_model([CANON_BF], [0.35]))
++        np.testing.assert_allclose(both, canon_only, rtol=0, atol=1e-6)
++        # И это НЕ сумма двух вкладов — иначе двойной счёт.
++        doubled = _expected(CANON_BF, 0.35) + _expected(CANON_BF, 0.20)
++        assert not np.allclose(both, doubled, rtol=0, atol=1e-6), (
++            'вклад события посчитан дважды'
++        )
++
++    def test_two_client_synonyms_without_owner_are_skipped(self):
++        """Владельца нет, претендентов двое — выбор был бы догадкой, берём ноль."""
++        contrib = _run(_model([CLIENT_BF, 'promo_black_friday_2024'], [0.35, 0.20]))
++        assert np.all(contrib == 0.0), contrib
++
++
++class TestNoGuessing:
++    """Не разрешилось однозначно — прежнее поведение (ноль), а не догадка."""
++
++    def test_ambiguous_name_covering_two_events_gives_zero(self):
++        """«Новый год» покрывает и предновогодние закупки, и январские распродажи."""
++        contrib = _run(_model(['Новый год'], [0.35]))
++        assert np.all(contrib == 0.0), (
++            f'неоднозначное имя обязано дать ноль, а не догадку: {contrib.tolist()}'
++        )
++
++    def test_unrecognized_name_gives_zero(self):
++        contrib = _run(_model(['Активность дистрибьютора'], [0.35]))
++        assert np.all(contrib == 0.0), contrib
++
++    def test_client_name_shadowed_by_fourier_excluded(self):
++        """A9 распространяется и на клиентские имена: задвоение с Фурье → ноль."""
++        contrib = _run(_model([CLIENT_BF], [0.35], fourier=[CLIENT_BF]))
++        assert np.all(contrib == 0.0), contrib
++
++
++class TestResolverSSOT:
++    """Разрешитель имён — тонкая проекция уже существующего дедупа, не второй справочник."""
++
++    def test_resolver_agrees_with_dedup_used_at_training(self):
++        from utils.holiday_calendar_ru import (
++            resolve_holiday_column, user_covered_auto_holidays,
++        )
++        for name in (CLIENT_BF, CANON_BF, 'black_friday', '8 марта',
++                     'Новый год', 'Промо-активность'):
++            covered = user_covered_auto_holidays([name])
++            resolved = resolve_holiday_column(name)
++            if len(covered) == 1:
++                assert resolved == next(iter(covered)), name
++            else:
++                assert resolved is None, (name, covered)
+diff --git a/sidecar/econometrica/utils/holiday_calendar_ru.py b/sidecar/econometrica/utils/holiday_calendar_ru.py
+index 8469280c..faf07266 100644
+--- a/sidecar/econometrica/utils/holiday_calendar_ru.py
++++ b/sidecar/econometrica/utils/holiday_calendar_ru.py
+@@ -532,6 +532,30 @@ def user_covered_auto_holidays(existing_columns: List[str]) -> set:
+     return covered
+ 
+ 
++def resolve_holiday_column(name: str) -> Optional[str]:
++    """Канонический авто-праздник за именем колонки, или None если однозначно не выходит.
++
++    Поимённая проекция ``user_covered_auto_holidays`` — ТОТ ЖЕ курируемый
++    whitelist ``_HOLIDAY_ALIASES``, тот же приоритет точного совпадения, тот же
++    гейт длины. Второй таблицы синонимов у признака нет и быть не должно.
++
++    Нужна там, где по имени клиентской колонки надо достать СТОЛБЕЦ ДАММИ
++    (``generate_holiday_dummies``), а не только факт «это праздник»: колонка
++    «Чёрная пятница» несёт то же событие, что авто-столбец
++    ``holiday_black_friday``, но по имени с ним не совпадает.
++
++    None возвращается в двух случаях, и оба означают «не угадываем»:
++      * имя не событийное вовсе;
++      * имя покрывает НЕСКОЛЬКО событий (обобщённый «Новый год» → и
++        предновогодние закупки, и январские распродажи) — какой из двух
++        столбцов дамми подставить, из имени не следует.
 +    """
-+    result = _preflight_result(tmp_path, n_history=15, n_future=20)
-+    assert result['overall_tier'] == 'insufficient', (
-+        f"На 15 реальных наблюдениях (порог n<20 → 'bad') overall_tier должен "
-+        f"быть 'insufficient', получено {result['overall_tier']!r} — похоже, "
-+        f"n_obs всё ещё считает строки хвоста медиаплана."
-+    )
++    covered = user_covered_auto_holidays([name])
++    if len(covered) == 1:
++        return next(iter(covered))
++    return None
 +
 +
-+def test_preflight_n_obs_unaffected_when_no_plan_tail(tmp_path: Path):
-+    """No-op инвариант: без хвоста плана n_obs не меняется (полный файл = история)."""
-+    result = _preflight_result(tmp_path, n_history=24, n_future=0)
-+    assert result['n_obs'] == 24
-+
-+
-+def test_preflight_reliable_verdict_unchanged_on_demo_shaped_file(tmp_path: Path):
-+    """Приёмочный сценарий team lead №1 (форма демо-файла): 104 история + 26
-+    план. 104 ≥ 30 — вердикт обязан остаться 'reliable' и до, и после правки.
-+    Страхует, что починка основания не сломала здоровый случай.
-+    """
-+    result = _preflight_result(tmp_path, n_history=104, n_future=26)
-+    assert result['n_obs'] == 104
-+    assert result['overall_tier'] == 'reliable'
-diff --git a/src-tauri/src/commands/claude.rs b/src-tauri/src/commands/claude.rs
-index 6fcad01..121b3e9 100644
---- a/src-tauri/src/commands/claude.rs
-+++ b/src-tauri/src/commands/claude.rs
-@@ -955,7 +955,13 @@ fn convert_to_xlsx(md_path: &std::path::Path) {
-                 if is_numeric {
-                     let col_letter = col_to_letter(col);
-                     let formula_str = format!("=SUM({}2:{}{})", col_letter, col_letter, table.len());
--                    let formula = rust_xlsxwriter::Formula::new(&formula_str);
-+                    // CPD-104 01.09: set_result — сохранённый результат формулы, иначе
-+                    // читатели без движка Excel видят 0 в кэше вместо суммы столбца.
-+                    let col_sum: f64 = table.iter().skip(1)
-+                        .filter_map(|row| row.get(col))
-+                        .filter_map(|cell| cell.replace(',', ".").replace(['%', ' ', '\u{a0}'], "").parse::<f64>().ok())
-+                        .sum();
-+                    let formula = rust_xlsxwriter::Formula::new(&formula_str).set_result(col_sum.to_string());
-                     let _ = worksheet.write_formula_with_format(
-                         sum_row, col as u16, &formula, &sum_format,
-                     );
-@@ -1577,6 +1583,47 @@ mod tests {
-         assert!(line.contains("\"имя со пробелом\""), "аргумент с пробелом обязан быть в кавычках: {line}");
-         assert!(line.contains("\"a&b\""), "аргумент со знаком & обязан быть в кавычках: {line}");
-     }
-+
-+    /// CPD-104 (2026-09-01): SUM-формула по числовому столбцу в xlsx-выгрузке
-+    /// переписки обязана нести сохранённый результат в кэше XML - `rust_xlsxwriter`
-+    /// сам формулы не считает, и без `Formula::set_result()` в `<v>` остаётся
-+    /// дефолтный `0`. Excel формулу пересчитает и покажет верно, но потребитель
-+    /// без движка формул (импорт, скрипт) читает кэш и молча получает ноль.
-+    /// Проверено на реальном XML внутри xlsx: для столбца [100, 200, 300]
-+    /// кэш обязан содержать `<f>SUM(B2:B4)</f><v>600</v>`.
-+    #[test]
-+    fn convert_to_xlsx_sum_formula_result_is_cached_not_zero() {
-+        use std::io::Read as _;
-+
-+        let md_path = std::env::temp_dir().join("aurora_cpd104_convert_xlsx_test.md");
-+        std::fs::write(
-+            &md_path,
-+            "| Канал | Расход |\n|---|---|\n| TV | 100 |\n| Digital | 200 |\n| OLV | 300 |\n",
-+        ).expect("write md");
-+        let xlsx_path = md_path.with_extension("xlsx");
-+        let _ = std::fs::remove_file(&xlsx_path); // не наследовать xlsx от прошлого прогона
-+
-+        convert_to_xlsx(&md_path);
-+
-+        let bytes = std::fs::read(&xlsx_path).expect("read xlsx (convert_to_xlsx обязан был создать файл)");
-+        let mut archive = zip::read::ZipArchive::new(std::io::Cursor::new(bytes)).expect("open xlsx zip");
-+        let mut all = String::new();
-+        for i in 0..archive.len() {
-+            let mut entry = archive.by_index(i).expect("zip entry");
-+            let mut content = String::new();
-+            if entry.read_to_string(&mut content).is_ok() {
-+                all.push_str(&content);
-+            }
-+        }
-+        assert!(
-+            all.contains("<f>SUM(B2:B4)</f><v>600</v>"),
-+            "сумма столбца «Расход» (100+200+300=600) обязана нести сохранённый результат \
-+             в кэше формулы, а не дефолтный 0\nXML: {all}"
-+        );
-+
-+        let _ = std::fs::remove_file(&md_path);
-+        let _ = std::fs::remove_file(&xlsx_path);
-+    }
+ def detect_holiday_collinearity(
+     holidays_df: pd.DataFrame,
+     threshold: float = 0.5,
+diff --git a/src-tauri/Cargo.cloud.fragment.toml b/src-tauri/Cargo.cloud.fragment.toml
+index c2a14276..131f2041 100644
+--- a/src-tauri/Cargo.cloud.fragment.toml
++++ b/src-tauri/Cargo.cloud.fragment.toml
+@@ -45,4 +45,13 @@ thin = ["dep:aurora_gateway"]
+ #
+ # Проверяется запросом к удалённому репозиторию (`git ls-remote --tags`), а не
+ # наличием каталога: каталог мог оказаться чужим деревом.
+-aurora_gateway = { git = "https://github.com/Ackold26/aurora-platform-core.git", tag = "aurora_gateway-v0.6.5", features = ["cloud-http"], optional = true }
++#
++# 🔴 Метка поднята 2026-09-08 с `aurora_gateway-v0.6.5` на `aurora_gateway-v0.6.6`
++# (решение владельца 08.09). Причина не свежесть: сервер с 11.08 отвечает отказом
++# на билет без срока годности, а шлюз v0.6.5 такой билет считает годным — клиент
++# уходит в замыкание на входе. Плюс v0.6.5 не знает новых кодов отказа и показал
++# бы общий сбой вместо объяснения. Существование метки проверено запросом
++# `git ls-remote --tags` 08.09: 0e14284.
++# Обкатка невелика — из шести продуктов линейки перешёл один (Media Radar,
++# 07.09), поэтому после сборки вход проверяется руками.
++aurora_gateway = { git = "https://github.com/Ackold26/aurora-platform-core.git", tag = "aurora_gateway-v0.6.6", features = ["cloud-http"], optional = true }
+diff --git a/src-tauri/src/commands/econometrica.rs b/src-tauri/src/commands/econometrica.rs
+index 9d33786b..ffac9171 100644
+--- a/src-tauri/src/commands/econometrica.rs
++++ b/src-tauri/src/commands/econometrica.rs
+@@ -690,6 +690,13 @@ pub async fn econ_preflight(
+     adstock_config: Option<Value>,
+     mode_override: Option<String>,
+     skip_prior_predictive: Option<bool>,
++    // 🔴 Мастер-флаги контролей (внешний аудит 2026-09-08, High-1). Без них
++    // предполётная проверка симулировала модель с праздниками РФ и Фурье-
++    // сезонностью даже когда клиент их выключил, и вердикт надёжности выходил
++    // завышенным. None = прежнее поведение (флаги включены), как дефолт
++    // modeler.py — старые вызовы не меняют смысл.
++    use_seasonality: Option<bool>,
++    use_holidays: Option<bool>,
+ ) -> Result<Value, String> {
+     info!("econ_preflight: project_dir={project_dir}, channels={}", media_columns.len());
+     let body = serde_json::json!({
+@@ -702,6 +709,8 @@ pub async fn econ_preflight(
+         "adstock_config": adstock_config.unwrap_or_else(|| serde_json::json!({})),
+         "mode_override": mode_override,
+         "skip_prior_predictive": skip_prior_predictive.unwrap_or(false),
++        "use_seasonality": use_seasonality.unwrap_or(true),
++        "use_holidays": use_holidays.unwrap_or(true),
+     });
+     post_json("/compute/preflight", &body, train_client()).await
  }
+diff --git a/src/lib/components/ConfigPanel.svelte b/src/lib/components/ConfigPanel.svelte
+index 2e6ebeee..4bd419d6 100644
+--- a/src/lib/components/ConfigPanel.svelte
++++ b/src/lib/components/ConfigPanel.svelte
+@@ -481,6 +481,16 @@
+             adstockConfig: config.adstock_config ?? {},
+             modeOverride: engine === 'ols' ? 'ols' : null,
+             skipPriorPredictive: false,
++            // 🔴 Мастер-флаги контролей (внешний аудит 2026-09-08, High-1).
++            // Обучение собирает модель по ним (см. buildTrainConfig выше), а
++            // предполётная проверка их не получала — симуляция всегда шла с
++            // праздниками РФ и сезонностью, и вердикт надёжности выходил
++            // завышенным для клиента, который эти контроли выключил. Берём те
++            // же самые значения, что уходят в обучение, из тех же хранилищ.
++            // Нормализация «не false → включено» — ровно та же, что в
++            // train-config.js:106,111, чтобы обе дороги читали хранилища одинаково.
++            useSeasonality: get(useSeasonality) !== false,
++            useHolidays: get(useHolidays) !== false,
+           }));
+           if (pf?.status === 'ok' && pf.overall_tier && pf.overall_tier !== 'reliable') {
+             preflightResult = pf;
+diff --git a/src/lib/components/ProjectSelector.svelte b/src/lib/components/ProjectSelector.svelte
+index e93551b1..e46e229f 100644
+--- a/src/lib/components/ProjectSelector.svelte
++++ b/src/lib/components/ProjectSelector.svelte
+@@ -3,7 +3,9 @@
+   import { save as saveDialog, open as openDialog } from '@tauri-apps/plugin-dialog';
+   import { ChartColumn, Package } from 'lucide-svelte';
+   import { onMount } from 'svelte';
+-  import { activeProjectId, activeProject, resetPipeline } from '$lib/project-state.js';
++  import { activeProjectId, activeProject, resetPipeline,
++  resetResultsKeepImport,
++} from '$lib/project-state.js';
+   import ProjectPickerModal from '$lib/components/comparison/ProjectPickerModal.svelte';
+   import ModelComparisonView from '$lib/components/comparison/ModelComparisonView.svelte';
  
- /// Порядок кандидатов имени бинаря по платформам.
-diff --git a/src-tauri/src/commands/report.rs b/src-tauri/src/commands/report.rs
-index 363c1f4..11dae27 100644
---- a/src-tauri/src/commands/report.rs
-+++ b/src-tauri/src/commands/report.rs
-@@ -1607,6 +1607,9 @@ fn build_xlsx(
-         ws.write_with_format(2, 1, "Вклад, ₽",    &header_fmt).map_err(|e| format!("{e}"))?;
-         ws.write_with_format(2, 2, "% от общего", &header_fmt).map_err(|e| format!("{e}"))?;
- 
-+        // CPD-104 01.09: сумма всех вкладов — заранее, чтобы проставить кэш результата
-+        // формул ниже (без него не-Excel читатели видят 0 вместо доли/итого).
-+        let total_value: f64 = wf.iter().map(|item| item["value"].as_f64().unwrap_or(0.0)).sum();
-         for (i, item) in wf.iter().enumerate() {
-             let row = (i + 3) as u32; // header at row 2 → data starts row 3
-             let cat = clean_label(item["category"].as_str().unwrap_or("-"));
-@@ -1615,12 +1618,17 @@ fn build_xlsx(
-             ws.write_with_format(row, 1, val, &num_fmt).map_err(|e| format!("{e}"))?;
-             // Formula: contribution / total. Excel 1-based ref = row+1; total at total_row+1.
-             let total_xlsx = wf.len() as u32 + 4; // ИТОГО row Excel 1-based
--            ws.write_formula_with_format(row, 2, Formula::new(format!("=B{}/B${}", row + 1, total_xlsx)), &pct_fmt).map_err(|e| format!("{e}"))?;
-+            // CPD-104 01.09: set_result — сохранённый результат формулы для читателей без движка Excel.
-+            let pct_result = if total_value != 0.0 { val / total_value } else { 0.0 };
-+            let pct_formula = Formula::new(format!("=B{}/B${}", row + 1, total_xlsx)).set_result(pct_result.to_string());
-+            ws.write_formula_with_format(row, 2, pct_formula, &pct_fmt).map_err(|e| format!("{e}"))?;
-         }
-         // Total row (zero-based = wf.len() + 3 since data starts at 3 and runs wf.len() rows)
-         let total_row = wf.len() as u32 + 3;
-         ws.write_with_format(total_row, 0, "ИТОГО", &bold).map_err(|e| format!("{e}"))?;
--        ws.write_formula_with_format(total_row, 1, Formula::new(format!("=SUM(B4:B{})", total_row)), &bold).map_err(|e| format!("{e}"))?;
-+        // CPD-104 01.09: set_result — сохранённый результат формулы для читателей без движка Excel.
-+        let total_formula = Formula::new(format!("=SUM(B4:B{})", total_row)).set_result(total_value.to_string());
-+        ws.write_formula_with_format(total_row, 1, total_formula, &bold).map_err(|e| format!("{e}"))?;
- 
-         // Bar chart - categories at rows 3..wf.len()+2 (zero-based), values col B
-         let mut chart = Chart::new(ChartType::Bar);
-@@ -3729,4 +3737,51 @@ mod tests {
-              строку, и плашка честности молча пропадёт (решение владельца 2026-08-10)."
-         );
-     }
-+
-+    /// CPD-104 (2026-09-01): формулы листа «Декомпозиция» (доля канала
-+    /// `=B{row}/B${total}` и итог `=SUM(B4:B{total_row})`) обязаны нести
-+    /// сохранённый результат вычисления в кэше XML - `rust_xlsxwriter` сам
-+    /// не считает формулы, и без `Formula::set_result()` в `<v>` остаётся
-+    /// дефолтный `0`. Excel формулу пересчитает и покажет верно, но любой
-+    /// другой потребитель (импорт в учётную систему, скрипт без движка
-+    /// формул) читает кэш и молча получает нули в долях и в итоговой строке.
-+    /// Проверено на реальном XML внутри xlsx (не догадка): для waterfall
-+    /// [TV=300, Digital=700] кэш обязан содержать `<f>B4/B$6</f><v>0.3</v>`
-+    /// и `<f>SUM(B4:B5)</f><v>1000</v>`.
-+    #[test]
-+    fn waterfall_formula_results_are_cached_not_zero() {
-+        fn xlsx_all_text(path: &Path) -> String {
-+            let bytes = std::fs::read(path).expect("read xlsx");
-+            let mut archive = zip::read::ZipArchive::new(Cursor::new(bytes)).expect("open xlsx zip");
-+            let mut all = String::new();
-+            for i in 0..archive.len() {
-+                let mut entry = archive.by_index(i).expect("zip entry");
-+                let mut content = String::new();
-+                if entry.read_to_string(&mut content).is_ok() {
-+                    all.push_str(&content);
-+                }
-+            }
-+            all
-+        }
-+        let decompose = json!({"waterfall": [
-+            {"category": "TV", "value": 300.0},
-+            {"category": "Digital", "value": 700.0}
-+        ]});
-+        let path = std::env::temp_dir().join("aurora_cpd104_waterfall_test.xlsx");
-+        build_xlsx(&json!({}), &decompose, &json!({}), &[], None, "test", &path, None)
-+            .expect("build_xlsx waterfall");
-+        let text = xlsx_all_text(&path);
-+        assert!(
-+            text.contains("<f>B4/B$6</f><v>0.3</v>"),
-+            "доля канала TV (300/1000=0.3) обязана нести сохранённый результат в кэше \
-+             формулы, а не дефолтный 0 - иначе нечитающий формулы потребитель увидит \
-+             ложный ноль вместо доли\nXML: {text}"
-+        );
-+        assert!(
-+            text.contains("<f>SUM(B4:B5)</f><v>1000</v>"),
-+            "итоговая сумма (300+700=1000) обязана нести сохранённый результат в кэше \
-+             формулы\nXML: {text}"
-+        );
-+        let _ = std::fs::remove_file(&path);
-+    }
- }
-diff --git a/src-tauri/src/metrics/audit.rs b/src-tauri/src/metrics/audit.rs
-index 73b6fa7..3d66dab 100644
---- a/src-tauri/src/metrics/audit.rs
-+++ b/src-tauri/src/metrics/audit.rs
-@@ -3,6 +3,10 @@ use serde::Serialize;
- use std::sync::Mutex;
- 
- static AUDIT_LOG: Mutex<Vec<AuditEntry>> = Mutex::new(Vec::new());
-+// Гонка записи в файл (найдена в живом прогоне 2026-09-01): AUDIT_LOG защищает только вектор
-+// в памяти и отпускается до записи на диск — параллельные append_to_file накладывали строки
-+// друг на друга. Отдельный замок, не расширяющий область AUDIT_LOG на время работы с диском.
-+static AUDIT_FILE_LOCK: Mutex<()> = Mutex::new(());
- 
- #[derive(Debug, Clone, Serialize)]
- pub struct AuditEntry {
-@@ -38,6 +42,11 @@ pub fn log_event(event: &str, details: &str, success: bool) {
- }
- 
- fn append_to_file(event: &str, details: &str, success: bool, timestamp: &str) -> std::io::Result<()> {
-+    // Сериализуем ротацию и запись одним замком — иначе один поток переименовывает файл
-+    // (rotate_if_large), пока другой в него пишет. Отравление замка не роняем: вся запись
-+    // в журнал и так best-effort (см. `let _ =` у вызывающего log_event).
-+    let _file_guard = AUDIT_FILE_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
-+
-     // CPD-30: per-app каталог с одноразовым переносом legacy AIAgency\audit.log (лежал прямо в
-     // корне legacy-каталога, sub="" — см. durable_store). Ошибка init/переноса здесь best-effort,
-     // как и раньше был best-effort весь append_to_file (см. вызывающий log_event: `let _ =`).
-@@ -69,3 +78,54 @@ pub fn get_recent(limit: usize) -> Vec<AuditEntry> {
-         })
-         .unwrap_or_default()
- }
-+
-+#[cfg(test)]
-+mod tests {
-+    use super::*;
-+    use std::io::Read;
-+
-+    /// Гонка записи (найдена в живом прогоне 2026-09-01, см. комментарий у AUDIT_FILE_LOCK):
-+    /// без замка на файл параллельные append_to_file накладывали строки друг на друга —
-+    /// метка времени/событие/итог слипались в одну строку или терялись. Бьём log_event из
-+    /// N потоков и проверяем, что дописалось ровно N ЦЕЛЫХ строк со своим маркером.
-+    /// durable_store::init() тестами не вызывается (см. session/mod.rs) — файл уходит в
-+    /// стабильный fallback-путь по имени пакета, не в боевой каталог продукта.
-+    #[test]
-+    fn concurrent_log_event_does_not_corrupt_file() {
-+        let audit_file = crate::durable_store::resolve_path("").join("audit.log");
-+        let marker = format!("race_test_{}", std::process::id());
-+        let before_len = std::fs::metadata(&audit_file).map(|m| m.len()).unwrap_or(0) as usize;
-+
-+        const N: usize = 40;
-+        let threads: Vec<_> = (0..N)
-+            .map(|i| {
-+                let marker = marker.clone();
-+                std::thread::spawn(move || {
-+                    log_event(&marker, &format!("thread-{i:02}"), true);
-+                })
-+            })
-+            .collect();
-+        for t in threads {
-+            t.join().unwrap();
-+        }
-+
-+        let mut content = String::new();
-+        std::fs::File::open(&audit_file)
-+            .unwrap()
-+            .read_to_string(&mut content)
-+            .unwrap();
-+        let appended = &content[before_len..];
-+        let matching: Vec<&str> = appended.lines().filter(|l| l.contains(&marker)).collect();
-+        assert_eq!(
-+            matching.len(),
-+            N,
-+            "ожидали {N} целых строк, получили {}: {:?}",
-+            matching.len(),
-+            matching
-+        );
-+        for line in &matching {
-+            let cols: Vec<&str> = line.split('\t').collect();
-+            assert_eq!(cols.len(), 4, "строка развалилась/слиплась: {line:?}");
-+        }
-+    }
-+}
+@@ -133,8 +135,12 @@
+       });
+       activeProjectId.set(info.id);
+       activeProject.set(info);
+-      // NOTE: do NOT resetPipeline() here - creating a project while importing
+-      // would nuke the user's current work. Reset only on explicit project switch.
++      // 🔴 Живой прогон 08.09: прежде здесь не сбрасывалось НИЧЕГО («creating a project
++      // while importing would nuke the user's current work»), и новый пустой проект
++      // показывал модель предыдущего как свою — «Модель обучена, R² = 0,825» при пустых
++      // `models/` и `results/` на диске. Намерение сохранено: незавершённый импорт и
++      // отметка шага «Импорт» остаются, снимаются только чужие РЕЗУЛЬТАТЫ.
++      resetResultsKeepImport();
+       projects = [...projects, info];
+       showCreate = false;
+       newName = '';
 diff --git a/src/lib/components/pipeline/DecomposeStep.svelte b/src/lib/components/pipeline/DecomposeStep.svelte
-index 04b9174..b5a5cf3 100644
+index b5a5cf34..b6d70c56 100644
 --- a/src/lib/components/pipeline/DecomposeStep.svelte
 +++ b/src/lib/components/pipeline/DecomposeStep.svelte
-@@ -252,6 +252,27 @@
-     modelHonestyVerdict === 'unreliable' || modelHonestyVerdict === 'uncertain'
-   );
+@@ -13,6 +13,7 @@
+     activeProjectId,
+     decomposeData,
+     modelData,
++    pipelineStepMeta,
+     completeStep,
+     setStepError,
+     isComputing,
+@@ -517,6 +518,33 @@
+     </div>
+   {/if}
  
-+  // H-4 (2026-08-31): критерий совпадения для сторонней перепроверки расчёта.
-+  // Данные приезжают бесплатно внутри decompose-ответа (decomposer.py:1517 →
-+  // methodology_certificate), ветвь допуска выбирает backend сам, автоматически
-+  // (repro_tolerance.py, applicable_mode) - по объёму фактического расчёта. Нет
-+  // поля, ветви или чисел (старый пикл без сертификата) - блок не рисуем вовсе,
-+  // без заглушки и без нулей.
-+  const reproApplicable = $derived(data?.methodology_certificate?.repro_tolerance?.applicable ?? null);
-+  const reproTolerance = $derived(
-+    reproApplicable
-+      && typeof reproApplicable.title === 'string'
-+      && typeof reproApplicable.tolerances?.roi === 'number'
-+      && typeof reproApplicable.tolerances?.contribution_pct === 'number'
-+      ? reproApplicable
-+      : null
-+  );
++  <!-- 🔴 2026-09-08 (живой прогон установленной сборки 2.5.1). Шаг ДВАЖДЫ уходит в
++       состояние `idle` — когда обученной модели нет в памяти (открыт ранее
++       завершённый проект в новой сессии программы) и когда её нет вовсе, — а ветки
++       разметки под это состояние не было ни одной. На экране не появлялось НИЧЕГО:
++       ни данных, ни объяснения, ни кнопки, при этом значок шага в мастере показывал
++       «Готово» из сохранённого состояния проекта. Соседние шаги («Оптимизация»,
++       «Отчёт») такую ветку имеют — здесь она просто отсутствовала. -->
++  {#if stepState === 'idle'}
++    <div class="idle-state">
++      {#if $modelData?.channelParams || $pipelineStepMeta?.[2]?.status === 'complete'}
++        <!-- 🔴 Живой прогон 08.09, второй заход. Условие НАМЕРЕННО шире, чем «модель есть
++             в памяти»: разбор считает движок по файлу модели в каталоге проекта, а не по
++             тому, что лежит в памяти вкладки. Первая редакция ветки смотрела только в
++             память — и на только что обученной модели выдала «модель ещё не обучена»,
++             прямо противореча соседнему шагу, где написано «Модель обучена, MQS = 70».
++             Признак «шаг „Модель“ завершён» берётся из состояния мастера, а оно
++             восстанавливается по файлам на диске. -->
++        <p>Разбор вклада каналов в этой сессии ещё не считался.</p>
++        <p class="idle-hint">Нажмите «Рассчитать» — программа разложит продажи на базовую часть и вклад каждого канала по обученной модели этого проекта.</p>
++        <button class="btn-idle-run" onclick={() => runDecompose()}>Рассчитать</button>
++      {:else}
++        <p>Модель ещё не обучена — раскладывать пока нечего.</p>
++        <p class="idle-hint">Вернитесь на шаг «Модель» и обучите её: декомпозиция считается по обученной модели, а не по исходным данным.</p>
++      {/if}
++    </div>
++  {/if}
 +
-+  /** @param {number} n */
-+  function fmtTolerance(n) {
-+    return Number.isInteger(n) ? String(n) : n.toFixed(1);
-+  }
-+
-   // Пояснение базы окупаемости. Подсказки ниже говорят «окупается» и «убыточен»,
-   // но в режиме выручки это окупаемость ПО ОБОРОТУ, из которой прибыльность не
-   // следует. Базу считает общий `roiBaseNote` — тот же, что у советника и у
-@@ -541,6 +562,23 @@
-       </div>
-     {/if}
+   <!-- Results -->
+   {#if stepState === 'done' && data}
  
-+    <!-- H-4 (2026-08-31): критерий совпадения - отдельно от плашки ненадёжности
-+         выше: та про качество ОДНОГО расчёта, эта про повторяемость расчёта
-+         независимым специалистом. Нет данных сертификата - блок не рисуем. -->
-+    {#if reproTolerance}
-+      <div class="card repro-tolerance-card" data-testid="repro-tolerance-card">
-+        <div class="card-title">Критерий совпадения</div>
-+        <p class="repro-lead">Насколько числа обязаны сойтись, если расчёт повторит независимый специалист.</p>
-+        <p class="repro-branch">Для этого расчёта действует ветвь: <strong>{reproTolerance.title}</strong>.</p>
-+        <ul class="repro-tolerances">
-+          <li>Окупаемость, коэффициент канала, перенос и насыщение – расхождение до <strong>{fmtTolerance(reproTolerance.tolerances.roi)} %</strong>.</li>
-+          <li>Доля канала во вкладе – до <strong>{fmtTolerance(reproTolerance.tolerances.contribution_pct)} процентного пункта</strong>.</li>
-+        </ul>
-+        <p class="repro-basis">Пределы получены измерением повторных прогонов, а не назначены.</p>
-+        <p class="repro-caveat">Окупаемость канала и его долю во вкладе по паспорту не сверить: это не параметры модели, а результат разбивки продаж. Их берут из таблицы «Портфель каналов».</p>
-+      </div>
-+    {/if}
-+
-     <!-- Insight banner -->
-     {#if data.insight}
-       <div class="insight-banner">
-@@ -813,6 +851,45 @@
-     line-height: 1.45;
-     color: var(--text-primary, #e2e8f0);
+@@ -786,6 +814,32 @@
    }
-+  /* H-4 (2026-08-31): критерий совпадения. Переиспользует .card/.card-title
-+     (см. ниже, «Детализация по каналам») - только внутренние отступы свои. */
-+  .repro-tolerance-card {
+   @keyframes spin { to { transform: rotate(360deg); } }
+ 
++  .idle-state {
 +    display: flex;
 +    flex-direction: column;
++    align-items: center;
 +    gap: 8px;
++    padding: 48px 24px;
++    text-align: center;
++    color: var(--text-secondary, #5b6472);
 +  }
-+  .repro-lead {
-+    margin: 0;
-+    font-size: 12.5px;
-+    line-height: 1.5;
-+    color: var(--text-secondary, #94a3b8);
-+  }
-+  .repro-branch {
-+    margin: 0;
++  .idle-state .idle-hint {
 +    font-size: 13px;
-+    line-height: 1.5;
-+    color: var(--text-primary, #e2e8f0);
++    color: var(--text-tertiary, #7a8494);
++    max-width: 560px;
 +  }
-+  .repro-tolerances {
-+    margin: 0;
-+    padding-left: 18px;
-+    font-size: 12.5px;
-+    line-height: 1.55;
-+    color: var(--text-primary, #e2e8f0);
++  .btn-idle-run {
++    margin-top: 8px;
++    padding: 8px 18px;
++    border: 1px solid var(--color-brand-deep-100, #0A1628);
++    border-radius: 6px;
++    background: var(--color-brand-deep-100, #0A1628);
++    color: #fff;
++    font-size: 14px;
++    cursor: pointer;
 +  }
-+  .repro-tolerances li { margin-bottom: 2px; }
-+  .repro-basis {
-+    margin: 0;
-+    font-size: 12px;
-+    font-style: italic;
-+    color: var(--text-muted, #64748b);
-+  }
-+  .repro-caveat {
-+    margin: 0;
-+    font-size: 11.5px;
-+    line-height: 1.5;
-+    color: var(--text-muted, #64748b);
-+  }
-   .error-icon { font-size: 16px; flex-shrink: 0; }
-   .error-text { flex: 1; font-size: 13px; color: #ef4444; }
-   .btn-retry {
-diff --git a/src/lib/components/pipeline/ModeDerivedExplanation.svelte b/src/lib/components/pipeline/ModeDerivedExplanation.svelte
-index 4040ef5..9574646 100644
---- a/src/lib/components/pipeline/ModeDerivedExplanation.svelte
-+++ b/src/lib/components/pipeline/ModeDerivedExplanation.svelte
-@@ -213,7 +213,7 @@
-         <span class="meta-key">Период:</span>
-         <span class="meta-val">
-           {#if nObs > 0}
--            {nObs} наблюдений
-+            {nObs} наблюдений истории
-             {#if dateStats?.min_date && dateStats?.max_date}
-               <span class="date-range">
-                 (с {fmtDate(dateStats.min_date)} по {fmtDate(dateStats.max_date)})
-@@ -362,8 +362,8 @@
++  .btn-idle-run:hover { opacity: 0.9; }
++
+   .error-banner {
+     display: flex;
+     align-items: center;
+diff --git a/src/lib/components/pipeline/OptimizeStep.svelte b/src/lib/components/pipeline/OptimizeStep.svelte
+index 758b87a4..7e69b582 100644
+--- a/src/lib/components/pipeline/OptimizeStep.svelte
++++ b/src/lib/components/pipeline/OptimizeStep.svelte
+@@ -2302,34 +2302,29 @@
+           глобальные Мин/Макс или сбросьте per-channel overrides (рекомендуем 10/300%).
+         </p>
        </div>
- 
-       <!-- Период -->
--      <div class="quality-card {periodWarn ? 'tone-warn' : 'tone-ok'}" aria-label="Период">
--        <span class="qc-label">Период</span>
-+      <div class="quality-card {periodWarn ? 'tone-warn' : 'tone-ok'}" aria-label="Недель истории для обучения">
-+        <span class="qc-label">Недель истории</span>
-         <span class="qc-value">{nObs > 0 ? nObs + ' нед' : '–'}</span>
-         <span class="qc-status">{periodWarn ? '< 52 нед' : nObs >= 104 ? 'Отлично' : 'Достаточно'}</span>
+-    {:else if optData?.converged_at_current && optData?.media_plan_absent === true}
+-      <!-- 🔴 2026-09-07 (замер): на данных БЕЗ медиаплана прежний текст ниже
+-           утверждал «аллокация близка к оптимуму» и советовал расширить коридор.
+-           Оба утверждения ложны: улучшающее направление существует, а расширение
+-           не помогает — прогон дал 0,0 % и на 20/200, и на рекомендованных 10/300,
+-           и на 0/500. Признак media_plan_absent приходит от оптимизатора и
+-           опирается на results/media_plan.json — тот же источник, что и
+-           mediaPlanDetected; своей второй формулы здесь не заводим. Условие
+-           именно про ОТСУТСТВИЕ будущих периодов, а не про нулевой прирост:
+-           нулевой прирост бывает и на данных с планом, и там этот текст врал бы. -->
+-      <div class="edge-banner banner-info">
+-        <span class="banner-icon">ℹ️</span>
+-        <p class="banner-text">
+-          <strong>Оптимизация бюджета считается на будущий медиаплан.</strong>
+-          В этих данных есть только история, будущих периодов нет – перераспределять
+-          пока нечего, поэтому прирост нулевой. Чтобы увидеть оптимизацию, добавьте
+-          к файлу строки будущих периодов с планируемыми бюджетами (целевую величину
+-          в них оставьте пустой) – или откройте готовый пример с планированием
+-          на шаге «Импорт».
+-        </p>
+-      </div>
+     {:else if optData?.converged_at_current}
++      <!-- 🔴 2026-09-08 (аудит, находка Critical). Текст от 2026-09-07 объяснял
++           нулевой прирост тем, что «будущих периодов нет, перераспределять
++           нечего». Зонд на базовом образце без хвоста плана это опроверг: в
++           аналитическом режиме перераспределяется весь исторический медиабюджет,
++           коридор 20/200 непустой, и прямым счётом целевой функции находится
++           допустимое распределение лучше текущего. Значит правда одна – решатель
++           улучшения не нашёл. Совет «расширьте границы 10/300 %» не воскрешаем:
++           замер дал 0,0 % и на 20/200, и на 10/300, и на 0/500. Ветка про
++           будущие периоды осталась только там, где пользователь сам запросил
++           горизонт планирования (planning_mode), а строк будущего в данных нет. -->
+       <div class="edge-banner banner-info">
+         <span class="banner-icon">ℹ️</span>
+         <p class="banner-text">
+-          <strong>Текущая аллокация уже близка к оптимуму</strong> при заданных
+-          ограничениях. Чтобы найти больший lift, попробуйте расширить границы
+-          (Мин 10% / Макс 300%) или сбросить per-channel overrides.
++          <strong>Решатель не нашёл распределения лучше текущего</strong> при заданных
++          границах – ожидаемый прирост нулевой. Это результат поиска, а не доказательство
++          того, что текущее распределение оптимально. Проверьте границы Мин./Макс. по
++          каналам и кривые отклика ниже: они показывают, где у каналов остаётся запас.
++          {#if optData?.media_plan_absent === true && optData?.planning_mode}
++            Горизонт планирования задан, но строк будущих периодов в данных нет:
++            добавьте их с планируемыми бюджетами (целевую величину в них оставьте
++            пустой) – или откройте готовый пример с планированием на шаге «Импорт».
++          {/if}
+         </p>
        </div>
-diff --git a/src/lib/components/pipeline/RatioInfoCard.svelte b/src/lib/components/pipeline/RatioInfoCard.svelte
-index a25518e..084da15 100644
---- a/src/lib/components/pipeline/RatioInfoCard.svelte
-+++ b/src/lib/components/pipeline/RatioInfoCard.svelte
-@@ -155,7 +155,7 @@
-     <div class="expert-block">
-       <div class="expert-label">EXPERT BREAKDOWN</div>
-       <dl class="expert-stats">
--        <div><dt>Наблюдений</dt><dd>{nObs}</dd></div>
-+        <div><dt>Наблюдений (история)</dt><dd>{nObs}</dd></div>
-         <div><dt>Переменных в модели</dt><dd>{nPredictors}</dd></div>
-         <!-- F-004 pilot (2026-05-18): single source of truth precision —
-              везде .toFixed(1), как в big visual + ratio-value. -->
-diff --git a/src/lib/components/pipeline/TrafficLight.svelte b/src/lib/components/pipeline/TrafficLight.svelte
-index f3372ef..c786a27 100644
---- a/src/lib/components/pipeline/TrafficLight.svelte
-+++ b/src/lib/components/pipeline/TrafficLight.svelte
-@@ -135,7 +135,7 @@
+     {/if}
+diff --git a/src/lib/insights-rules.js b/src/lib/insights-rules.js
+index 7405d617..5c0c0faf 100644
+--- a/src/lib/insights-rules.js
++++ b/src/lib/insights-rules.js
+@@ -1969,16 +1969,21 @@ export function optimizeInsights(data, ctx = {}) {
+   } else if (lift > 0.5) {
+     out.push({
+       severity: 'info',
+-      text: `Прирост +${lift.toFixed(1)}% – текущее распределение почти оптимально.`,
+-      tip: 'Незначительный потенциал в рамках того же бюджета. Чтобы существенно улучшить – нужен либо рост бюджета (см. блок C What-if), либо пересмотр медиа-микса.',
++      // 2026-09-08 (аудит Critical, шестая точка — найдена живым прогоном): прежний
++      // текст утверждал «текущее распределение почти оптимально». Продукт этого не
++      // знает: небольшой найденный прирост не доказывает близость к оптимуму —
++      // зонд нашёл прямым счётом лучшее допустимое распределение там, где решатель
++      // вернул ноль. Говорим то, что действительно известно: что нашёл решатель.
++      text: `Прирост +${lift.toFixed(1)}% – решатель нашёл небольшое улучшение при заданных границах.`,
++      tip: 'Потенциал в рамках того же бюджета невелик. Это результат поиска, а не доказательство оптимальности текущего распределения. Чтобы существенно улучшить – нужен либо рост бюджета (см. блок C What-if), либо пересмотр медиа-микса.',
+     });
+   } else {
+     out.push({
+       severity: 'warning',
+       text: `Прирост ≈${lift.toFixed(1)}%. Оптимизатор не нашёл выигрыша в рамках текущих ограничений.`,
+       tip: kpi.isLegacy
+-        ? 'Это не баг – модель честно говорит «лучше уже не сделаешь в этих рамках». Причины обычно две: (1) большинство каналов уже на saturation plateau – каждый доп.рубль даёт меньше 1 рубля продаж, (2) Мин/Макс % слишком узкие, нет пространства для перекладки. Смотрите следующие инсайты для разбора по каналам.'
+-        : 'Это не баг – модель честно говорит «лучше уже не сделаешь в этих рамках». Причины обычно две: (1) большинство каналов уже на saturation plateau – каждый дополнительный рубль затрат почти не улучшает результат, (2) Мин/Макс % слишком узкие, нет пространства для перекладки. Смотрите следующие инсайты для разбора по каналам.',
++        ? 'Это результат поиска, а не доказательство того, что лучшего распределения нет: решатель мог его не найти. Возможные причины: (1) большинство каналов уже на saturation plateau – каждый доп.рубль даёт меньше 1 рубля продаж, (2) Мин/Макс % слишком узкие, нет пространства для перекладки. Смотрите следующие инсайты для разбора по каналам.'
++        : 'Это результат поиска, а не доказательство того, что лучшего распределения нет: решатель мог его не найти. Возможные причины: (1) большинство каналов уже на saturation plateau – каждый дополнительный рубль затрат почти не улучшает результат, (2) Мин/Макс % слишком узкие, нет пространства для перекладки. Смотрите следующие инсайты для разбора по каналам.',
+     });
+   }
  
-     {#if file}
-       <div class="file-info">
--        <span class="file-stat">{file.rows} строк</span>
-+        <span class="file-stat">{file.rows} строк истории</span>
-         <span class="file-sep">·</span>
-         <span class="file-stat">{file.cols} столбцов</span>
-         <span class="file-sep">·</span>
+@@ -2235,7 +2240,13 @@ export function optimizeInsights(data, ctx = {}) {
+     out.push({
+       severity: 'info',
+       text: 'Все каналы остаются практически в текущих позициях (изменения < 5%).',
+-      tip: 'Подтверждение того, что текущее распределение близко к оптимальному в рамках заданных лимитов.',
++      // 🔴 2026-09-08 (аудит Critical): прежний текст утверждал «подтверждение
++      // того, что текущее распределение близко к оптимальному». Продукт этого не
++      // знает: зонд на демо-наборе нашёл прямым счётом допустимое распределение
++      // лучше текущего там, где решатель вернул нулевой прирост. Говорим факт
++      // поиска, а не вывод об оптимальности — иначе панель подсказок противоречит
++      // баннеру шага «Оптимизация».
++      tip: 'Решатель не нашёл заметно лучшего распределения в рамках заданных лимитов. Это результат поиска, а не доказательство оптимальности текущего распределения.',
+     });
+   }
+ 
+@@ -2279,7 +2290,12 @@ export function optimizeInsights(data, ctx = {}) {
+     actions.push('• Другой бюджет – подвигайте общий бюджет ×1.2–×1.5: увидите куда модель хочет направить доп.деньги.');
+     actions.push('• Прогноз на период – спрогнозируйте KPI на следующий период с учётом медиаинфляции.');
+     if (manyChannelsSaturated) {
+-      actions.push('• Расширьте границы – Мин. % → 20–30%, Макс. % → 200–300%: оптимизатор получит пространство для перекладки.');
++      // 2026-09-08 (аудит Critical, решение ведущей): прежний текст обещал, что
++      // оптимизатор «получит пространство для перекладки». Действие поднимается при
++      // нулевом приросте — ровно в том случае, который замерен как нечувствительный
++      // к ширине коридора: 20/200, 10/300 и 0/500 дали один и тот же ноль. Обещание
++      // убрано, вместо него клиенту дана трактовка исхода, чтобы он не ушёл в тупик.
++      actions.push('• Расширьте границы – Мин. % → 20–30%, Макс. % → 200–300%. Если прирост при этом не изменится, дело не в коридоре: решатель уже не находит лучшего распределения на этих данных.');
+       actions.push('• Стратегически – обновите креатив или добавьте новый канал: кривая насыщения «не знает» о новой кампании, но на практике свежий креатив возвращает канал к точке до плато.');
+     }
+   } else if (lift > 15) {
+diff --git a/src/lib/project-state.js b/src/lib/project-state.js
+index 8e517329..2905ce49 100644
+--- a/src/lib/project-state.js
++++ b/src/lib/project-state.js
+@@ -1258,7 +1258,12 @@ async function restoreProjectResults(pid) {
+     // без этого завершённый шаг деградировал в ready при каждом открытии.
+     const hasPlanning = Boolean(r.planning);
+     if (hasPlanning) planningManifest.set(r.planning);
+-    if (r.mediaPlan) mediaPlanDetected.set(r.mediaPlan);
++    // 🔴 2026-09-08 (аудит High-2): results/media_plan.json теперь пишется на
++    // КАЖДОЙ проверке данных, в том числе с `n_future_periods: 0` («хвоста нет»)
++    // и `null` («определить не удалось»). Такой файл — не обнаруженный медиаплан,
++    // и в стор его класть нельзя: иначе на данных без плана поднялся бы баннер
++    // подтверждения на Валидации и шаг Планирования увидел бы пустой план.
++    if (r.mediaPlan && (r.mediaPlan.n_future_periods ?? 0) > 0) mediaPlanDetected.set(r.mediaPlan);
+     else mediaPlanDetected.set(null); // не тащить медиаплан чужого проекта
+ 
+     if (hasModel) {
+@@ -1619,6 +1624,36 @@ export function loadPipelineForProject(projectId) {
+   reportData.set(null);
+ }
+ 
++/**
++ * Сброс результатов при СОЗДАНИИ нового проекта, с сохранением незавершённого импорта.
++ *
++ * 🔴 Живой прогон 08.09.2026. Создание проекта намеренно не звало `resetPipeline`
++ * («creating a project while importing would nuke the user's current work»), и из-за
++ * этого новый — пустой на диске — проект показывал результаты ПРЕДЫДУЩЕГО: шаг «Модель»
++ * рапортовал «Модель обучена! MQS = 70, R² = 0,825», хотя каталоги `models/` и `results/`
++ * этого проекта пусты. Проверено на диске сразу после создания.
++ *
++ * Намерение исходной заметки сохранено: файл, который пользователь уже перетащил, и
++ * отметка шага «Импорт» остаются. Всё, что относится к РАСЧЁТАМ другого проекта, —
++ * снимается: приписывать чужие числа новому проекту нельзя ни на секунду.
++ */
++export function resetResultsKeepImport() {
++  validateData.set({ result: null, correlationMatrix: null, columnHistograms: null });
++  modelData.set({ diagnostics: null, channelParams: null, picklePath: null, normalization: null });
++  decomposeData.set(null);
++  optimizeData.set(null);
++  planningManifest.set(null);
++  reportData.set(null);
++  chartImages.set({});
++  // Шаг «Импорт» сохраняем как есть, остальные — в исходное состояние мастера.
++  const fresh = defaultStepMeta();
++  pipelineStepMeta.update((cur) => {
++    const keepImport = cur?.[0] ?? fresh[0];
++    return [keepImport, ...fresh.slice(1)];
++  });
++  pipelineCurrentStep.set(0);
++}
++
+ /**
+  * Full reset for a fresh analysis - clears active project, wipes all pipeline
+  * data, returns user to step 0 with a clean stepper. Used by "Новый анализ"
+diff --git a/src/tests/new-project-does-not-inherit-results.test.js b/src/tests/new-project-does-not-inherit-results.test.js
+new file mode 100644
+index 00000000..45db5960
+--- /dev/null
++++ b/src/tests/new-project-does-not-inherit-results.test.js
+@@ -0,0 +1,69 @@
++/**
++ * Живой прогон 08.09.2026: создание нового проекта показывало результаты ПРЕДЫДУЩЕГО.
++ * На диске у нового проекта `models/` и `results/` пусты, а шаг «Модель» рапортовал
++ * «Модель обучена! MQS = 70, R² = 0,825» — числа чужого набора данных.
++ *
++ * Сторож держит два свойства сразу, потому что лечение одного легко ломает второе:
++ *   1) чужие РЕЗУЛЬТАТЫ не переносятся в новый проект;
++ *   2) незавершённый ИМПОРТ пользователя переживает создание проекта — ради этого
++ *      сброс когда-то и не звали вовсе (заметка в `ProjectSelector.svelte`).
++ */
++import { describe, it, expect, beforeEach } from 'vitest';
++import { get } from 'svelte/store';
++import {
++  importData,
++  validateData,
++  modelData,
++  decomposeData,
++  optimizeData,
++  pipelineStepMeta,
++  resetResultsKeepImport,
++} from '$lib/project-state.js';
++
++describe('создание нового проекта', () => {
++  beforeEach(() => {
++    importData.set({ file: { name: 'клиентский.xlsx' }, columns: ['date', 'sales_rub'], rows: 48 });
++    validateData.set({ result: { ok: true }, correlationMatrix: [[1]], columnHistograms: {} });
++    modelData.set({
++      diagnostics: { mqs: 70, r2: 0.825 },
++      channelParams: { tv_spend: {} },
++      picklePath: 'C:/чужой/проект/models/latest.pkl',
++      normalization: {},
++    });
++    decomposeData.set({ waterfall: { labels: ['Baseline'], values: [1], types: ['total'] } });
++    optimizeData.set({ expected_lift_pct: 3.4 });
++    pipelineStepMeta.set([
++      { status: 'complete', errorMessage: null },
++      { status: 'complete', errorMessage: null },
++      { status: 'complete', errorMessage: null },
++      { status: 'complete', errorMessage: null },
++      { status: 'complete', errorMessage: null },
++      { status: 'locked', errorMessage: null },
++      { status: 'ready', errorMessage: null },
++    ]);
++  });
++
++  it('не переносит в новый проект результаты предыдущего', () => {
++    resetResultsKeepImport();
++    expect(get(modelData).channelParams, 'модель чужого проекта обязана исчезнуть').toBeNull();
++    expect(get(modelData).diagnostics, 'диагностика чужой модели обязана исчезнуть').toBeNull();
++    expect(get(decomposeData), 'декомпозиция чужого проекта обязана исчезнуть').toBeNull();
++    expect(get(optimizeData), 'оптимизация чужого проекта обязана исчезнуть').toBeNull();
++    expect(get(validateData).result, 'валидация чужого проекта обязана исчезнуть').toBeNull();
++  });
++
++  it('снимает зелёные отметки шагов, кроме «Импорта»', () => {
++    resetResultsKeepImport();
++    const meta = get(pipelineStepMeta);
++    expect(meta[0].status, 'отметка шага «Импорт» сохраняется').toBe('complete');
++    expect(meta[2].status, 'шаг «Модель» не может остаться завершённым в пустом проекте').not.toBe('complete');
++    expect(meta[3].status, 'шаг «Декомпозиция» тоже').not.toBe('complete');
++  });
++
++  it('сохраняет незавершённый импорт пользователя', () => {
++    resetResultsKeepImport();
++    const imp = get(importData);
++    expect(imp.file, 'файл, уже перетащенный пользователем, обязан пережить создание проекта').not.toBeNull();
++    expect(imp.rows).toBe(48);
++  });
++});
+diff --git a/src/tokens.generated.css b/src/tokens.generated.css
+index 1288e853..8a456b3d 100644
+--- a/src/tokens.generated.css
++++ b/src/tokens.generated.css
+@@ -1,6 +1,6 @@
+ /* GENERATED FROM Standards/tokens/tokens.json — DO NOT EDIT
+  * Regenerate: python Standards/tokens/build.py --target css
+- * Last build: 2026-09-08T02:40:07 */
++ * Last build: 2026-09-08T05:03:14 */
+ 
+ :root {
+   --color-brand-deep-100: #0A1628;
+diff --git a/tools/test_narrative_coherence.py b/tools/test_narrative_coherence.py
+index 50cf7327..e0165c09 100644
+--- a/tools/test_narrative_coherence.py
++++ b/tools/test_narrative_coherence.py
+@@ -334,56 +334,142 @@ def test_converged_at_current_banner():
+ 
+ 
+ def test_no_media_plan_banner():
+-    """🔴 2026-09-07. Данные БЕЗ хвоста медиаплана: обе точки экспорта обязаны
+-    объяснять причину нулевого прироста отсутствием будущих периодов и НЕ
+-    советовать расширить коридор — на таких данных совет заведомо не работает
+-    (замер: 0,0 % и на 20/200, и на рекомендованных 10/300, и на 0/500).
++    """🔴 2026-09-08, находка аудита Critical. Прежняя редакция этого сторожа
++    (2026-09-07) требовала обратного: на данных без хвоста медиаплана обе точки
++    экспорта обязаны были объяснять нулевой прирост словами «будущих периодов
++    нет — перераспределять нечего». Зонд это опроверг: в аналитическом режиме
++    перераспределяется весь исторический медиабюджет, коридор непустой, и прямым
++    счётом целевой функции находится допустимое распределение лучше текущего.
++    Причина нулевого прироста другая — решатель улучшения не нашёл.
++
++    Договор теперь такой:
++      (а) плана нет,  решатель встал → «решатель не нашёл», без «будущих периодов»;
++      (б) план есть,  решатель встал → тот же текст (признак плана роли не играет);
++      (в) план есть,  решатель дал прирост → обычный текст перераспределения;
++      (г) плана нет И пользователь запросил горизонт планирования → и только тут
++          добавляется просьба дописать строки будущих периодов.
++    Во всех четырёх — ни «10/300», ни «Расширьте границы»: совет опровергнут
++    замером (0,0 % и на 20/200, и на 10/300, и на 0/500).
++    """
++    print('── converged_at_current: текст говорит про решатель, не про медиаплан ──')
++    from aurora_html.sections import render_recommendation, render_executive_summary
+ 
+-    Второй вход обязателен: при наличии медиаплана прежний текст про границы
+-    обязан остаться на месте, иначе новая ветка съела бы правильное поведение.
++    def _stalled(media_plan_absent, planning_mode):
++        ctx = _build_synthetic_ctx()
++        ctx['facts']['converged_at_current'] = True
++        ctx['facts']['expected_lift_pct'] = 0.0
++        ctx['facts']['reallocation_mln'] = 0.0
++        ctx['facts']['media_plan_absent'] = media_plan_absent
++        ctx['facts']['planning_mode'] = planning_mode
++        return render_recommendation(ctx), render_executive_summary(ctx)
++
++    # ── вход (а): плана НЕТ, решатель встал ─────────────────────────────────
++    rec_a, sum_a = _stalled(True, False)
++    check('I4a: рекомендация говорит, что решатель не нашёл лучшего распределения',
++          'не нашёл' in rec_a and 'заданных границах' in rec_a,
++          hint='нет честной причины нулевого прироста в рекомендации')
++    check('I4b: сводка говорит, что решатель не нашёл лучшего распределения',
++          'не нашёл' in sum_a and 'заданных границах' in sum_a,
++          hint='нет честной причины нулевого прироста в сводке')
++    check('I4c: без запроса планирования продукт НЕ винит отсутствие будущих периодов',
++          'будущих периодов' not in rec_a and 'будущих периодов' not in sum_a,
++          hint='вернулась ложная причина «перераспределять нечего»')
++    check('I4d: не воскрешён опровергнутый совет расширить коридор',
++          '10/300' not in rec_a and 'Расширьте границы' not in rec_a
++          and '10/300' not in sum_a and 'Расширьте границы' not in sum_a,
++          hint='неисполнимый совет про границы вернулся')
++
++    # ── вход (б): план ЕСТЬ, решатель встал — текст тот же ──────────────────
++    rec_b, sum_b = _stalled(False, False)
++    check('I4e: с медиапланом застрявший решатель объясняется так же',
++          'не нашёл' in rec_b and 'не нашёл' in sum_b
++          and 'будущих периодов' not in rec_b and 'будущих периодов' not in sum_b,
++          hint='текст застрявшего решателя зависит от наличия плана — он не должен')
++
++    # ── вход (в): план ЕСТЬ, решатель дал прирост ──────────────────────────
++    ctx_c = _build_synthetic_ctx()
++    ctx_c['facts']['converged_at_current'] = False
++    ctx_c['facts']['expected_lift_pct'] = 7.4
++    ctx_c['facts']['media_plan_absent'] = False
++    ctx_c['facts']['planning_mode'] = False
++    rec_c = render_recommendation(ctx_c)
++    sum_c = render_executive_summary(ctx_c)
++    # Ищем именно нашу формулировку: слова «не нашёл» встречаются и в соседней,
++    # давно существующей ветке про малую переброску при найденном приросте.
++    _stalled_phrase = 'не нашёл распределения лучше текущего'
++    check('I4f: при найденном приросте текста про застрявший решатель нет',
++          _stalled_phrase not in rec_c and _stalled_phrase not in sum_c
++          and 'будущих периодов' not in rec_c and 'будущих периодов' not in sum_c,
++          hint='ветка застрявшего решателя перехватила нормальный сценарий')
++
++    # ── вход (г): плана нет И запрошен горизонт планирования ───────────────
++    rec_d, sum_d = _stalled(True, True)
++    check('I4g: только при запрошенном планировании просим дописать будущие периоды',
++          'будущих периодов' in rec_d and 'будущих периодов' in sum_d,
++          hint='подсказка про строки будущих периодов пропала там, где она уместна')
++    check('I4h: и там причина нулевого прироста всё равно названа честно',
++          'не нашёл' in rec_d and 'не нашёл' in sum_d,
++          hint='подсказка про план вытеснила честную причину')
++
++
++def test_planning_hint_survives_the_adapter():
++    """🔴 2026-09-08, мутация ведущей на приёмке. Проверки I4a–I4h подставляют
++    `facts['planning_mode']` руками и переходник `_derive_narrative_facts` ни разу
++    не зовут. Мутация «`narrative_adapter.py:812` → `"planning_mode": False`»
++    прошла у них молча — 38 passed: ветка «плана нет И режим планирования
++    запрошен» может тихо перестать показываться, и всё останется зелёным.
++
++    Опасность живая и односторонняя: регресс к аудированному дефекту сторожа
++    ловят, а ПРОПАЖУ единственного работающего совета — нет. Клиент, который сам
++    задал горизонт планирования и не дал строк будущих периодов, остался бы с
++    одной честной причиной и без действия.
++
++    Здесь факты собирает сам переходник из `optimize_data`, как в бою, и
++    проверяется итоговый ТЕКСТ обеих точек отчёта, а не значение признака в
++    словаре: риск живёт в тексте, сторож по признаку встанет на соседний слой.
+     """
+-    print('── media_plan_absent narrative banner ──')
++    print('── ветка планирования: сквозь переходник, а не подстановкой ──')
+     from aurora_html.sections import render_recommendation, render_executive_summary
++    from engines.narrative_adapter import _derive_narrative_facts
+ 
+-    # ── вход 1: плана НЕТ ────────────────────────────────────────────────────
+     ctx = _build_synthetic_ctx()
+-    ctx['facts']['converged_at_current'] = True
+-    ctx['facts']['expected_lift_pct'] = 0.0
++    optimize_data = {
++        'expected_lift_pct': 0.0,
++        'converged_at_current': True,
++        'binding_constraints': False,
++        'optimization_converged': True,
++        'min_pct_used': 20.0,
++        'max_pct_used': 200.0,
++        # Пользователь ЗАПРОСИЛ горизонт планирования, а строк будущего в данных нет.
++        'planning_mode': True,
++        'media_plan_absent': True,
++        'channels': ctx['channels'],
++    }
++    facts = _derive_narrative_facts(ctx['channels'], optimize_data, None, None)
++    ctx['facts'] = {**ctx['facts'], **facts}
+     ctx['facts']['reallocation_mln'] = 0.0
+-    ctx['facts']['media_plan_absent'] = True
+ 
+     html_rec = render_recommendation(ctx)
+     html_summary = render_executive_summary(ctx)
+ 
+-    check('I4a: render_recommendation объясняет отсутствие медиаплана',
+-          'медиаплан' in html_rec and 'будущих периодов' in html_rec,
+-          hint='нет объяснения про будущие периоды в рекомендации')
+-    check('I4b: render_executive_summary объясняет отсутствие медиаплана',
+-          'медиаплан' in html_summary and 'будущих периодов' in html_summary,
+-          hint='нет объяснения про будущие периоды в SCQAR')
+-    check('I4c: рекомендация НЕ советует расширить коридор без медиаплана',
+-          '10/300' not in html_rec and 'Расширьте границы' not in html_rec,
+-          hint='неисполнимый совет про границы остался в рекомендации')
+-    check('I4d: сводка НЕ советует расширить коридор без медиаплана',
+-          '10/300' not in html_summary and 'Расширьте границы Min/Max' not in html_summary,
+-          hint='неисполнимый совет про границы остался в сводке')
+-
+-    # ── вход 2: план ЕСТЬ — прежнее поведение цело ──────────────────────────
+-    ctx2 = _build_synthetic_ctx()
+-    ctx2['facts']['converged_at_current'] = True
+-    ctx2['facts']['expected_lift_pct'] = 0.0
+-    ctx2['facts']['reallocation_mln'] = 0.0
+-    ctx2['facts']['media_plan_absent'] = False
+-
+-    html_rec2 = render_recommendation(ctx2)
+-    html_summary2 = render_executive_summary(ctx2)
+-
+-    check('I4e: с медиапланом остаётся прежний текст про границы (рекомендация)',
+-          'границ' in html_rec2 and 'будущих периодов' not in html_rec2,
+-          hint='новая ветка съела прежнее поведение при наличии медиаплана')
+-    check('I4f: с медиапланом остаётся прежний текст про границы (сводка)',
+-          'границ' in html_summary2 and 'будущих периодов' not in html_summary2,
+-          hint='новая ветка съела прежнее поведение при наличии медиаплана')
++    check('A1: переходник донёс режим планирования до фактов отчёта',
++          facts.get('planning_mode') is True and facts.get('media_plan_absent') is True,
++          hint=f"переходник отдал planning_mode={facts.get('planning_mode')!r}, "
++               f"media_plan_absent={facts.get('media_plan_absent')!r} — проброс оборван")
++    check('A2: рекомендация просит дописать строки будущих периодов',
++          'будущих периодов' in html_rec and 'планируемыми бюджетами' in html_rec,
++          hint='совет про будущие периоды пропал из рекомендации — а он тут единственный '
++               'исполнимый: пользователь сам задал горизонт планирования')
++    check('A3: сводка (Action 01) просит дописать строки будущих периодов',
++          'будущих периодов' in html_summary and 'планируемыми бюджетами' in html_summary,
++          hint='совет про будущие периоды пропал из сводки')
++    check('A4: и там причина нулевого прироста всё равно названа честно',
++          'не нашёл распределения лучше текущего' in html_rec
++          and 'не нашёл распределения лучше текущего' in html_summary,
++          hint='подсказка про план вытеснила честную причину остановки решателя')
++    check('A5: опровергнутый совет расширить коридор не воскрес и здесь',
++          '10/300' not in html_rec and '10/300' not in html_summary,
++          hint='неисполнимый совет про границы вернулся в ветке планирования')
+ 
+ 
+ def test_media_plan_absent_source():
+@@ -440,6 +526,59 @@ def test_media_plan_absent_source():
+         check('S3: media_plan_absent на пустом каталоге = None (не знаю)',
+               media_plan_absent(str(empty)) is None,
+               hint='пустой каталог обязан давать None, иначе признак выдумывает ответ')
++
++        # ── S4: протухший media_plan.json (находка аудита High-2, 2026-09-08) ──
++        # ОДИН каталог проекта: сначала плановые данные, потом базовые без хвоста.
++        # Прежде файл писался только при найденном хвосте и никто его не обнулял —
++        # признак уверенно отвечал «план есть» на данных, где плана нет.
++        plan_xlsx = sample_dir / 'planning' / 'synth_fmcg_brand.xlsx'
++        base_xlsx = sample_dir / 'synth_fmcg_brand.xlsx'
++        if plan_xlsx.exists() and base_xlsx.exists():
++            same = tmp / 'same_project'
++            (same / 'data').mkdir(parents=True, exist_ok=True)
++            f_plan = same / 'data' / 'plan.xlsx'
++            shutil.copy2(plan_xlsx, f_plan)
++            validate_data(str(f_plan), str(same))
++            check('S4a: после планового набора признак = False (план есть)',
++                  media_plan_absent(str(same)) is False,
++                  hint=f'получено {media_plan_absent(str(same))!r}')
++            f_base = same / 'data' / 'base.xlsx'
++            shutil.copy2(base_xlsx, f_base)
++            validate_data(str(f_base), str(same))
++            check('S4b: после базового набора в ТОМ ЖЕ каталоге признак = True',
++                  media_plan_absent(str(same)) is True,
++                  hint=f'получено {media_plan_absent(str(same))!r} — media_plan.json остался '
++                       f'от прошлого импорта и признак врёт про наличие будущих периодов')
++        else:
++            check('S4: образцы для проверки протухшего media_plan.json на месте', False,
++                  hint=f'нет {plan_xlsx} или {base_xlsx}')
++
++        # ── S5: сбой записи media_plan.json (находка аудита Medium, 2026-09-08) ──
++        # Сбой глушится logger.warning, а validation.json пишется дальше. Раньше
++        # это давало уверенное «плана нет» на данных, где план ЕСТЬ. Теперь ответ —
++        # честное None, и потребитель остаётся на прежнем поведении.
++        if plan_xlsx.exists():
++            import os as _os_probe
++            broken = tmp / 'write_fails'
++            (broken / 'data').mkdir(parents=True, exist_ok=True)
++            f_broken = broken / 'data' / 'plan.xlsx'
++            shutil.copy2(plan_xlsx, f_broken)
++            _orig_replace = _os_probe.replace
++
++            def _replace_fails(src, dst, *a, **kw):
++                if str(dst).endswith('media_plan.json'):
++                    raise OSError('имитация сбоя записи media_plan.json')
++                return _orig_replace(src, dst, *a, **kw)
++
++            _os_probe.replace = _replace_fails
++            try:
++                validate_data(str(f_broken), str(broken))
++            finally:
++                _os_probe.replace = _orig_replace
++            check('S5: сбой записи media_plan.json → None, а не «плана нет»',
++                  media_plan_absent(str(broken)) is None,
++                  hint=f'получено {media_plan_absent(str(broken))!r} — проглоченный сбой записи '
++                       f'снова превращается в уверенное «будущих периодов нет»')
+     finally:
+         shutil.rmtree(tmp, ignore_errors=True)
+ 
+@@ -449,6 +588,7 @@ def main() -> int:
+     test_findings_counts()
+     test_converged_at_current_banner()
+     test_no_media_plan_banner()
++    test_planning_hint_survives_the_adapter()
+     test_media_plan_absent_source()
+     print(f'\n{PASSED} passed, {FAILED} failed.')
+     return 0 if FAILED == 0 else 1
+diff --git a/tools/test_optimizer_stalled_insight.py b/tools/test_optimizer_stalled_insight.py
+new file mode 100644
+index 00000000..98ebf64f
+--- /dev/null
++++ b/tools/test_optimizer_stalled_insight.py
+@@ -0,0 +1,156 @@
++"""Застрявший решатель обязан объясняться честно (аудит 2026-09-08, Critical).
++
++Правка 2026-09-07 объясняла нулевой прирост тем, что «будущих периодов нет —
++перераспределять пока нечего». Зонд на базовом образце `static/sample-data/
++synth_fmcg_brand.xlsx` (без хвоста плана) это опроверг: в аналитическом режиме
++задача перераспределения поставлена корректно — money_target = 1 077 835 510 ₽,
++четыре канала, коридор 20/200 непустой, бюджет строго внутри, — и прямым счётом
++целевой функции по 4 056 допустимым распределениям нашлось лучшее текущего
++(f: -95,5610429019 → -96,5801986629). Значит перераспределять ЕСТЬ что, а
++нулевой прирост означает ровно одно: решатель улучшения не нашёл.
++
++Сторожим слой, где живёт истина, — текст, который отдаёт сам оптимизатор:
++  (а) плана нет,  решатель встал  → «не нашёл распределения лучше текущего»;
++  (б) план есть,  решатель встал  → тот же текст (наличие плана роли не играет);
++  (в) план есть,  решатель дал прирост → обычный текст перераспределения;
++  (г) плана нет И запрошен горизонт планирования → и только тут добавляется
++      просьба дописать строки будущих периодов.
++Ни в одном случае не воскресает совет «расширьте границы 10/300 %»: он
++опровергнут замером (0,0 % и на 20/200, и на 10/300, и на 0/500).
++
++Прогон:
++    cd sidecar/econometrica && pytest ../../tools/test_optimizer_stalled_insight.py
++"""
++from __future__ import annotations
++
++import json
++import sys
++from pathlib import Path
++
++REPO = Path(__file__).resolve().parents[1]
++SIDECAR = REPO / 'sidecar'
++for _p in (str(REPO / 'tools'), str(SIDECAR), str(SIDECAR / 'econometrica')):
++    if _p not in sys.path:
++        sys.path.insert(0, _p)
++
++from _optimizer_fixtures import build_synthetic_pickle  # noqa: E402
++
++# Узкий коридор 99/101 % оставляет решателя на текущем распределении, но НЕ
++# упирает все каналы в границы: `converged_at_current=True`, `binding=False` —
++# ровно та ветка, где жила ложная причина. Проверено прогоном на двух семенах.
++_STALL_BOUNDS = {'min_pct': 99, 'max_pct': 101}
++_WIDE_BOUNDS = {'min_pct': 20, 'max_pct': 200}
++
++_STALLED_PHRASE = 'не нашёл распределения лучше текущего'
++_FUTURE_PHRASE = 'будущих периодов'
++
++
++def _project(tmp_path: Path, name: str, n_future_periods: int | None) -> str:
++    """Проект с синтетической моделью и заданным состоянием медиаплана.
++
++    `n_future_periods`: 0 — данные проверены, хвоста нет; >0 — план есть;
++    None — файла нет вовсе («определить не удалось»).
++    """
++    proj = tmp_path / name
++    build_synthetic_pickle(proj, seed=7, n_channels=3, n_periods=31)
++    results = proj / 'results'
++    results.mkdir(parents=True, exist_ok=True)
++    if n_future_periods is not None:
++        payload = {
++            'n_future_periods': n_future_periods,
++            'channels': [],
++            'confirmed': False,
++        }
++        (results / 'media_plan.json').write_text(
++            json.dumps(payload, ensure_ascii=False), encoding='utf-8'
++        )
++    return str(proj)
++
++
++def _optimize(project_dir: str, **cfg) -> dict:
++    from engines.optimizer import optimize
++    base = {'total_budget': None}
++    base.update(cfg)
++    return optimize(base, project_dir)
++
++
++def test_stalled_without_media_plan_blames_the_solver(tmp_path: Path):
++    """(а) Плана нет, решатель встал — причина названа честно."""
++    proj = _project(tmp_path, 'no_plan', 0)
++    res = _optimize(proj, **_STALL_BOUNDS)
++
++    assert res['status'] == 'ok', res
++    assert res['converged_at_current'] is True, 'ветка застрявшего решателя не сработала'
++    assert res['media_plan_absent'] is True
++    insight = res['insight']
++    assert _STALLED_PHRASE in insight, insight
++    assert _FUTURE_PHRASE not in insight, (
++        'вернулась опровергнутая причина «перераспределять нечего»: ' + insight
++    )
++    assert '10/300' not in insight and 'расширить границы' not in insight.lower(), insight
++
++
++def test_stalled_with_media_plan_says_the_same(tmp_path: Path):
++    """(б) План есть, решатель встал — текст не зависит от наличия плана."""
++    proj = _project(tmp_path, 'with_plan', 8)
++    res = _optimize(proj, **_STALL_BOUNDS)
++
++    assert res['converged_at_current'] is True
++    assert res['media_plan_absent'] is False
++    insight = res['insight']
++    assert _STALLED_PHRASE in insight, insight
++    assert _FUTURE_PHRASE not in insight, insight
++
++
++def test_lift_found_keeps_normal_narrative(tmp_path: Path):
++    """(в) План есть, решатель дал прирост — ветка застрявшего не перехватывает."""
++    proj = _project(tmp_path, 'lift', 8)
++    res = _optimize(proj, **_WIDE_BOUNDS)
++
++    assert res['converged_at_current'] is False, res.get('expected_lift_pct')
++    assert res['expected_lift_pct'] > 0
++    insight = res['insight']
++    assert _STALLED_PHRASE not in insight, insight
++    assert _FUTURE_PHRASE not in insight, insight
++    assert 'прирост' in insight
++
++
++def test_future_periods_hint_only_when_planning_requested(tmp_path: Path):
++    """(г) Плана нет И запрошен горизонт планирования — подсказка уместна."""
++    proj = _project(tmp_path, 'planning_no_plan', 0)
++    res = _optimize(proj, forecast_periods=31, **_STALL_BOUNDS)
++
++    assert res['status'] == 'ok', res
++    assert res['planning_mode'] is True
++    assert res['media_plan_absent'] is True
++    assert res['converged_at_current'] is True, res.get('expected_lift_pct')
++    insight = res['insight']
++    assert _STALLED_PHRASE in insight, 'честная причина вытеснена подсказкой: ' + insight
++    assert _FUTURE_PHRASE in insight, insight
++
++
++def test_media_plan_state_is_three_valued(tmp_path: Path):
++    """Признак различает три состояния: план есть / плана нет / не знаю.
++
++    Третье состояние — не украшение: до правки отсутствие файла при наличии
++    validation.json трактовалось как «плана нет», и проглоченный сбой записи
++    превращался в уверенное «будущих периодов нет» на данных, где план есть.
++    """
++    from engines.optimizer import media_plan_absent
++
++    assert media_plan_absent(_project(tmp_path, 'st_absent', 0)) is True
++    assert media_plan_absent(_project(tmp_path, 'st_present', 5)) is False
++    assert media_plan_absent(_project(tmp_path, 'st_unknown', None)) is None
++
++    # Файл есть, но проверка данных не смогла определить хвост — тоже «не знаю».
++    proj = Path(_project(tmp_path, 'st_undetected', 0))
++    (proj / 'results' / 'media_plan.json').write_text(
++        json.dumps({'n_future_periods': None, 'detection': 'unavailable'}, ensure_ascii=False),
++        encoding='utf-8',
++    )
++    assert media_plan_absent(str(proj)) is None
++
++
++if __name__ == '__main__':
++    import pytest
++    raise SystemExit(pytest.main([__file__, '-v', '-p', 'no:cacheprovider']))
