@@ -34,6 +34,19 @@ CPU_LOSS_MULTIPLIER = 1.0        # CPU > 1x value → loss
 CPU_BREAKEVEN_MULTIPLIER = 0.9   # CPU in [0.9x, 1.0x) → on the edge
 
 
+# 🔴 Внешний аудит 08.09.2026 (High-1). Пороги разрыва здесь были записаны ДОЛЯМИ
+# (0.05 / 0.10), тогда как сама величина приходит в ПРОЦЕНТНЫХ ПУНКТАХ:
+# `decomposer.py` считает её как разность долей, уже умноженных на 100 (напр. −38.5).
+# Расхождение в сто раз схлопывало трёхступенчатую градацию в верхнюю метку: канал
+# с разрывом +0,2 пп (фактически сбалансирован) получал «Эффективный», с −0,2 пп — «Слабый
+# вклад», а «Сбалансирован» был достижим только в полосе |разрыв| ≤ 0,1 пп, то есть практически
+# никогда. Значения совпадают с денежной веткой (`decomposer.GAP_GOOD` / `GAP_HIGH`) — замысел
+# был один, разошлась только запись. Собственные константы, а не импорт, чтобы не заводить
+# связь между модулями ради двух чисел.
+COUNT_GAP_GOOD_PP = 5.0     # пп — «Эффективен»
+COUNT_GAP_HIGH_PP = 10.0    # пп — «Высокоэффективен» / симметричный порог без ценности единицы
+
+
 def compute_verdict_count_kpi(
     cpu: float,
     value_per_count_unit: Optional[float],
@@ -76,9 +89,9 @@ def compute_verdict_count_kpi(
     if value_per_count_unit is None or value_per_count_unit <= 0:
         # Fallback: без value не можем сказать «убыточный/окупаемый».
         # Используем efficiency gap для нейтральных тегов.
-        if efficiency_gap < -0.10:
+        if efficiency_gap < -COUNT_GAP_HIGH_PP:
             return _apply_ci_suffix('Слабый вклад', 'warn')
-        elif efficiency_gap > 0.10:
+        elif efficiency_gap > COUNT_GAP_HIGH_PP:
             return _apply_ci_suffix('Эффективный', 'good')
         return _apply_ci_suffix('Сбалансирован', 'neutral')
 
@@ -101,9 +114,9 @@ def compute_verdict_count_kpi(
         )
 
     # CPU < value → channel прибылен. Уточняем through efficiency gap.
-    if efficiency_gap >= 0.10:
+    if efficiency_gap >= COUNT_GAP_HIGH_PP:
         return _apply_ci_suffix('Высокоэффективен (CPU значительно ниже ценности)', 'good')
-    if efficiency_gap >= 0.05:
+    if efficiency_gap >= COUNT_GAP_GOOD_PP:
         return _apply_ci_suffix('Эффективен (CPU ниже ценности)', 'good')
     return _apply_ci_suffix('Окупаемый (CPU < ценности)', 'good')
 
