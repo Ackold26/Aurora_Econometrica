@@ -1,0 +1,44 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "side-tab",
+        "value": "*",
+        "files": [
+          "src/lib/components/pipeline/AnalysisModeSelector.svelte"
+        ],
+        "createdAt": "2026-09-07T20:47:46.196Z",
+        "reason": "user confirmed: золотая полоса border-left 2px var(--gold) у .why-panel — фирменный акцент дизайн-системы Aurora, существовал до правки; владелец решил оставить 07.09.2026"
+      },
+      {
+        "rule": "side-tab",
+        "value": "*",
+        "files": [
+          "src/lib/components/pipeline/DecomposeStep.svelte"
+        ],
+        "createdAt": "2026-09-08T11:16:02.450Z",
+        "reason": "Маша: доменная кодировка групп каналов в таблице (Brand синий / Performance зелёный / Смешанные серый), согласована с легендой графиков; проверено на экране живого прогона 08.09"
+      },
+      {
+        "rule": "side-tab",
+        "value": "*",
+        "files": [
+          "src/lib/components/pipeline/InsightsPanel.svelte"
+        ],
+        "createdAt": "2026-09-08T11:16:03.122Z",
+        "reason": "Маша: цвет полосы кодирует уровень подсказки (инфо/внимание/успех) в панели Инсайты; убрать полосу = потерять кодировку"
+      },
+      {
+        "rule": "layout-transition",
+        "value": "*",
+        "files": [
+          "src/lib/components/pipeline/InsightsPanel.svelte"
+        ],
+        "createdAt": "2026-09-08T11:16:03.724Z",
+        "reason": "Маша: анимируется ширина раздвигаемой боковой панели (сворачивание в 34px), при перетаскивании переход отключён через .resizing; transform не подходит - соседний контент обязан переразмечаться"
+      }
+    ]
+  }
+}
