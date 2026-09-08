@@ -443,7 +443,7 @@ def compute_channel_action(
             label_ru=ACTION_LABEL_RU['Scale'],
             tone=ACTION_TONE['Scale'],
             reasoning=(
-                f'{_metric_str}, gap +{eff_gap:.0f}пп - канал даёт больше эффекта '
+                f'{_metric_str}, разрыв +{eff_gap:.1f} пп - канал даёт больше эффекта '
                 f'чем доли бюджета'
             ),
             priority=ACTION_PRIORITY['Scale'],
