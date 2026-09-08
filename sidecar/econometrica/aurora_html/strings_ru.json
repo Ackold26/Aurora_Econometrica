@@ -7,7 +7,7 @@
   "brand": {
     "wordmark": "Aurora AI",
     "tagline": "Marketing Mix Modeling · Quarterly Report",
-    "confidentiality": "CONFIDENTIAL",
+    "confidentiality": "КОНФИДЕНЦИАЛЬНО",
     "copyright_template": "© {year} Aurora AI. Конфиденциально",
     "methodology_badge": "Bayesian MMM · Tier-1 методология",
     "methodology_badge_ols": "OLS MMM · closed-form · bootstrap-диапазон"
@@ -15,11 +15,11 @@
   "sections": {
     "cover": {
       "label": "Обложка",
-      "kicker": "MARKETING MIX MODEL REPORT"
+      "kicker": "ОТЧЁТ ПО МОДЕЛИ МЕДИАМИКСА"
     },
     "summary": {
       "label": "Резюме",
-      "kicker": "EXECUTIVE SUMMARY"
+      "kicker": "КРАТКАЯ СВОДКА ДЛЯ РУКОВОДСТВА"
     },
     "findings": {
       "label": "Ключевые находки",
@@ -76,43 +76,43 @@
   },
   "scqar": {
     "situation": {
-      "label": "SITUATION",
+      "label": "ПОЛОЖЕНИЕ ДЕЛ",
       "template": "{client} размещает {budget_mln:.0f} млн ₽ в квартал через {n_channels} активных каналов. Weighted ROI {weighted_roi:.1f}×, MQS модели {mqs}/100."
     },
     "complication": {
-      "label": "COMPLICATION",
+      "label": "ЗАТРУДНЕНИЕ",
       "template": "{budget_dominator} занимает {budget_dom_spend_pct_fmt} бюджета, но даёт {budget_dom_contrib_pct_fmt} эффекта. По mROAS {hero} опережает ({hero_mroas:.1f}×). Слабые каналы тянут портфель вниз."
     },
     "complication_fallback": {
-      "label": "COMPLICATION",
+      "label": "ЗАТРУДНЕНИЕ",
       "template": "Портфель сбалансирован - резких диспропорций между бюджетом и эффектом не выявлено."
     },
     "question": {
-      "label": "QUESTION",
+      "label": "ВОПРОС",
       "template": "Как перераспределить бюджет, чтобы поднять ROAS не снижая awareness?"
     },
     "answer": {
-      "label": "ANSWER",
+      "label": "ОТВЕТ",
       "template": "Перебалансировать {realloc:.0f} млн ₽ из {cut_source} в {scale_destination}; сократить или остановить {underperf}."
     },
     "answer_no_cut": {
-      "label": "ANSWER",
+      "label": "ОТВЕТ",
       "template": "Нарастить {scale_destination} на ~{realloc:.0f} млн ₽ за счёт переноса бюджета или дополнительных средств."
     },
     "answer_no_scale": {
-      "label": "ANSWER",
+      "label": "ОТВЕТ",
       "template": "Сократить {cut_source} ({realloc:.0f} млн ₽) - текущая аллокация неэффективна. Нет явного канала для роста - рассмотрите расширение медиа-микса."
     },
     "answer_all_hold": {
-      "label": "ANSWER",
+      "label": "ОТВЕТ",
       "template": "Сохранить текущее распределение - оптимизатор не нашёл значимого перераспределения. Возможные пути роста: расширение бюджета или новые каналы."
     },
     "answer_uncertain": {
-      "label": "ANSWER",
+      "label": "ОТВЕТ",
       "template": "Недостаточно данных для уверенной рекомендации перераспределения. Расширьте период данных (≥52 недель) либо упростите модель."
     },
     "recommendation": {
-      "label": "RECOMMENDATION",
+      "label": "РЕКОМЕНДАЦИЯ",
       "template": "Ожидаемый прирост ROAS: +{lift:.0f} пп."
     }
   },

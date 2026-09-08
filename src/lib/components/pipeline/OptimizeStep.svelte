@@ -1945,8 +1945,12 @@
 
     <!-- Planning horizon warning (legacy Phase 1 disclosure) - скрывается в
          planner mode т.к. Phase 2 уже решает эту проблему. Видимость сохранена
-         в analyst mode для backward compat. -->
-    {#if $planningMode !== 'planner'}
+         в analyst mode для backward compat.
+         09.09.2026: блок скрыт целиком (условие показа заведомо ложное) - текст
+         написан внутренним жаргоном и виден клиенту в режиме «аналитик».
+         Разметка сохранена: вернуть после переписывания по-русски, заменив
+         условие обратно на `$planningMode !== 'planner'`. -->
+    {#if false}
     <div class="planning-warn">
       <div class="planning-warn-icon">📅</div>
       <div class="planning-warn-body">

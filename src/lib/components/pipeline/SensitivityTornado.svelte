@@ -52,6 +52,39 @@
 
   const MAX_PARAMS = 7;
 
+  /**
+   * Человекочитаемые корни подписей параметров. До этого на экране «Отчёт»
+   * покупателю показывали имена переменных модели (`hill_gamma_Performance бюджет`).
+   * Подпись собирается здесь из уже сохранённых расчётом полей `param_type`
+   * и `channel`, поэтому пересчёт проекта не нужен.
+   */
+  const PARAM_TYPE_LABELS = {
+    beta: 'сила канала',
+    adstock_decay: 'затухание',
+    hill_alpha: 'крутизна насыщения',
+    hill_gamma: 'насыщение',
+    // `intercept` и `factor_beta` в эталонном проекте в топ-7 не попадают,
+    // но движок их отдаёт (sensitivity.py:264-284) - без них на других
+    // проектах в подпись протекло бы голое `intercept`.
+    intercept: 'базовый уровень',
+    factor_beta: 'влияние фактора',
+  };
+
+  /**
+   * Подпись параметра вида «затухание · Онлайн-видео бюджет».
+   * Незнакомый `param_type` или отсутствие канала - возврат к исходному `name`,
+   * чтобы подпись не исчезла совсем.
+   *
+   * @param {TornadoParam} p
+   * @returns {string}
+   */
+  function paramLabel(p) {
+    const key = /** @type {keyof typeof PARAM_TYPE_LABELS} */ (p.param_type ?? '');
+    const root = PARAM_TYPE_LABELS[key];
+    if (!root) return p.name;
+    return p.channel ? `${root} · ${p.channel}` : root;
+  }
+
   /** Sorted top-MAX_PARAMS parameters by |sensitivity_pct| desc */
   const sortedParams = $derived.by(() => {
     const params = tornadoData?.parameters ?? [];
@@ -76,7 +109,7 @@
   const option = $derived.by(() => {
     if (isEmpty) return {};
 
-    const names = sortedParams.map(p => p.name);
+    const names = sortedParams.map(paramLabel);
     // 🔴 Живой прогон 08.09.2026. `low_variation`/`high_variation` — ОБЪЕКТЫ
     // вида {value, delta_roi_pct}, а не числа: `Math.abs` над объектом даёт NaN,
     // и на экране оставались подписи параметров с осью, но без единого столбца.
@@ -87,7 +120,7 @@
 
     return {
       backgroundColor: 'transparent',
-      grid: { left: '140px', right: '60px', top: '32px', bottom: '36px' },
+      grid: { left: '230px', right: '60px', top: '32px', bottom: '36px' },
       xAxis: {
         type: 'value',
         name: 'ΔROI %',
@@ -117,7 +150,9 @@
           color: '#94a3b8',
           fontSize: 11,
           overflow: 'truncate',
-          width: 130,
+          // Запас под самую длинную подпись эталонного проекта -
+          // «сила канала · Наружная реклама бюджет» (37 символов).
+          width: 220,
         },
         axisTick: { show: false },
         axisLine: { show: false },
@@ -148,7 +183,7 @@
           const low = lowValues[pIdx];
           const high = highValues[pIdx];
           return `
-            <div style="font-weight:600;margin-bottom:6px;color:#fff;">${escapeHtml(pd.name)}</div>
+            <div style="font-weight:600;margin-bottom:6px;color:#fff;">${escapeHtml(paramLabel(pd))}</div>
             <div style="color:#fff;line-height:1.6;">
               <span style="color:#f87171;">↓ Снижение: ${low.toFixed(2)}%</span><br/>
               <span style="color:#60a5fa;">↑ Рост: +${high.toFixed(2)}%</span><br/>
@@ -241,7 +276,7 @@
     <EChartBase option={option} height={chartHeight} />
     <p class="chart-caption">
       Топ-{sortedParams.length} параметров по влиянию на ROI.
-      Красные бары - отрицательное влияние, синие - положительное.
+      Красные столбцы - отрицательное влияние, синие - положительное.
     </p>
   {/if}
 </div>

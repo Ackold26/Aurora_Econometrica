@@ -715,8 +715,8 @@
               <th class="num">
                 {metricLabel[displayMetric]}<span class="help-icon" title={`${CH_HELP.roi}\n\n${roiNote}`}>?</span>
               </th>
-              <th class="num">Gap<span class="help-icon" title={CH_HELP.gap}>?</span></th>
-              <th class="num">Decay<span class="help-icon" title="Adstock decay - доля медиа-эффекта переносимая на следующий период. 0 = моментальный эффект (1 период), 0.7 ≈ 3-4 периода эффективной длительности (long brand). 50%-й правдоподобный диапазон показывает posterior uncertainty (Trust Level 3, v1.1.0).">?</span></th>
+              <th class="num">Разрыв, пп<span class="help-icon" title={CH_HELP.gap}>?</span></th>
+              <th class="num">Затухание<span class="help-icon" title="Adstock decay - доля медиа-эффекта переносимая на следующий период. 0 = моментальный эффект (1 период), 0.7 ≈ 3-4 периода эффективной длительности (long brand). 50%-й правдоподобный диапазон показывает posterior uncertainty (Trust Level 3, v1.1.0).">?</span></th>
               <th>Вердикт<span class="help-icon" title={`${CH_HELP.verdict}\n\n${roiNote}`}>?</span></th>
             </tr>
           </thead>

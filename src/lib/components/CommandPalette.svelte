@@ -35,14 +35,22 @@
 
   const baseNavItems = [
     { id: 'nav-home', label: 'Главная', description: 'Вернуться на главную', type: /** @type {const} */ ('nav'), action: () => { goto('/'); onClose(); } },
-    { id: 'nav-workflow', label: 'Workflows', description: 'Визуальный конструктор workflow', type: /** @type {const} */ ('nav'), action: () => { goto('/workflow'); onClose(); } },
     { id: 'nav-campaign', label: 'Кампании', description: 'Пошаговый режим кампании', type: /** @type {const} */ ('nav'), action: () => { goto('/campaign'); onClose(); } },
-    { id: 'nav-data-chat', label: 'Data Chat', description: 'Вопросы и аналитика', type: /** @type {const} */ ('nav'), action: () => { goto('/data-chat'); onClose(); } },
     { id: 'nav-settings', label: 'Настройки', description: 'Параметры приложения', type: /** @type {const} */ ('nav'), action: () => { goto('/settings'); onClose(); } },
+  ];
+  // 2026-09-09: «Workflows» и «Data Chat» — возможности Creative Hub. В Эконометрике их экраны
+  // отсылают к странице «Бренды», которая здесь закрыта тем же гейтом, и обещают невыпущенное
+  // («Полный анализ данных бренда - в v0.5.0»). Единственной дверью к ним была палитра команд,
+  // достижимая с любого экрана. Закрываем их тем же гейтом, что и «Бренды» — так же сделано в
+  // соседнем продукте линейки. Маршруты не удалены, прямой переход по адресу работает.
+  const creativeHubNavItems = [
+    { id: 'nav-workflow', label: 'Workflows', description: 'Визуальный конструктор workflow', type: /** @type {const} */ ('nav'), action: () => { goto('/workflow'); onClose(); } },
+    { id: 'nav-data-chat', label: 'Data Chat', description: 'Вопросы и аналитика', type: /** @type {const} */ ('nav'), action: () => { goto('/data-chat'); onClose(); } },
+    { id: 'nav-brands', label: 'Бренды', description: 'Управление брендами', type: /** @type {const} */ ('nav'), action: () => { goto('/brands'); onClose(); } },
   ];
   let navItems = $derived([
     ...baseNavItems,
-    ...($isCreativeHub ? [{ id: 'nav-brands', label: 'Бренды', description: 'Управление брендами', type: /** @type {const} */ ('nav'), action: () => { goto('/brands'); onClose(); } }] : []),
+    ...($isCreativeHub ? creativeHubNavItems : []),
   ]);
 
   async function loadAllCommands() {

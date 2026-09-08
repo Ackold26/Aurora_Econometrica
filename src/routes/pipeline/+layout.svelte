@@ -368,10 +368,12 @@
   <div class="pipeline-shell">
     <!-- Stepper header with project selector -->
     <div class="pipeline-header">
-      <!-- Логотип Aurora AI (левый верхний угол, как на главной) + проект-селектор/чип -->
+      <!-- Возврат на стартовый экран + проект-селектор/чип. Логотип Aurora AI на
+           страницах конвейера рисует корневой макет (BrandChip); второй логотип
+           здесь дублировал его на каждом шаге - заменён текстовой ссылкой. -->
       <div class="header-left">
-        <a href="/" class="pipeline-logo-link" title="На главную" aria-label="На главную">
-          <img src="/logo-horizon.png" alt="Aurora AI" class="pipeline-logo" />
+        <a href="/" class="pipeline-home-link" title="На главную" aria-label="На главную">
+          ← На главную
         </a>
         {#if $pipelineCurrentStep === 0}
           <div class="project-area">
@@ -551,17 +553,21 @@
     gap: 14px;
     min-width: 0;
   }
-  .pipeline-logo-link {
+  .pipeline-home-link {
     display: inline-flex;
     align-items: center;
     flex-shrink: 0;
-    line-height: 0;
+    padding: 6px 10px;
+    font-size: 13px;
+    color: var(--text-secondary);
+    text-decoration: none;
+    white-space: nowrap;
+    border-radius: var(--radius-sm, 6px);
+    transition: color 0.15s, background 0.15s;
   }
-  .pipeline-logo {
-    height: 65px;
-    width: auto;
-    user-select: none;
-    pointer-events: none;
+  .pipeline-home-link:hover {
+    color: var(--text-primary);
+    background: var(--bg-tertiary, rgba(255,255,255,0.06));
   }
 
   .project-chip {
