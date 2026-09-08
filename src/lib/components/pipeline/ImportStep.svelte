@@ -490,6 +490,18 @@
             <span class="sample-label">OTC фарма · план</span>
             <span class="sample-hint">Упаковки · 5 лет по месяцам + медиаплан · оптимизация бюджета</span>
           </button>
+          <button class="sample-btn" type="button" disabled={savingSample}
+            onclick={() => downloadSample('synth_real_estate.xlsx', 'Недвижимость – планирование', 'planning/')}>
+            <span class="sample-icon">🏠</span>
+            <span class="sample-label">Недвижимость · план</span>
+            <span class="sample-hint">Заявки · 5 лет по месяцам + медиаплан · оптимизация бюджета</span>
+          </button>
+          <button class="sample-btn" type="button" disabled={savingSample}
+            onclick={() => downloadSample('synth_retail_ecom.xlsx', 'Ритейл / e-com – планирование', 'planning/')}>
+            <span class="sample-icon">🏪</span>
+            <span class="sample-label">Ритейл / e-com · план</span>
+            <span class="sample-hint">Выручка ₽ · 5 лет по месяцам + медиаплан · оптимизация бюджета</span>
+          </button>
         </div>
       </div>
 

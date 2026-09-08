@@ -264,6 +264,36 @@ def _compute_mroas_money_samples(
     return mroas_native / unit_cost
 
 
+def media_plan_absent(project_dir: str) -> bool | None:
+    """В данных проекта НЕТ будущих периодов (хвоста медиаплана)?
+
+    True — плана нет, False — план есть, None — определить не удалось.
+
+    🔴 Признак `planning_mode` для этого НЕ годится: он означает «пользователь
+    задал горизонт прогноза», а не «в данных нет будущих периодов». На файле
+    С планом, открытом в аналитическом режиме, planning_mode тоже False, и
+    сообщение «добавьте будущие периоды» стало бы неправдой в другую сторону.
+
+    Источник истины один — `results/media_plan.json`: его пишет validate_data
+    (`engines/validator.py:459`) при обнаружении хвоста, и его же читает
+    интерфейс (`mediaPlanDetected`). Второй формулы не заводим.
+
+    Нет файла, но есть validation.json — значит проверка данных отрабатывала и
+    хвоста не нашла: плана нет. Нет ни того, ни другого — честное None, и
+    вызывающий остаётся на прежнем поведении.
+    """
+    try:
+        results = Path(project_dir) / 'results'
+        mp_path = results / 'media_plan.json'
+        if not mp_path.exists():
+            return True if (results / 'validation.json').exists() else None
+        with open(mp_path, encoding='utf-8') as f:
+            mp = json.load(f)
+        return int(mp.get('n_future_periods') or 0) <= 0
+    except Exception:
+        return None
+
+
 def optimize(config: dict, project_dir: str) -> dict[str, Any]:
     """Optimize budget allocation across channels.
 
@@ -1497,6 +1527,9 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
                               for col in media_cols)
 
     _sign = '+' if lift_pct >= 0 else ''
+    # Есть ли в данных хвост медиаплана — нужно и подсказке ниже, и потребителям
+    # результата (интерфейс, экспорт отчёта). Чтение файла, расчёт не затрагивает.
+    _media_plan_absent = media_plan_absent(project_dir)
     # math-fix v1.0.14.1 + v1.0.16 - narrative-aware insight.
     # baseline_zero (L10 edge case): real current media contribution = 0 → lift_pct
     # undefined. Honest message вместо vacuous «прирост 0%».
@@ -1506,6 +1539,22 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
             f"вычислить прирост в процентах. Оптимизатор предлагает распределение "
             f"({round(total_budget_money, 0):,.0f} ₽), но baseline для сравнения "
             f"degenerate. Проверьте данные media_columns."
+        )
+    elif converged_at_current and _media_plan_absent is True:
+        # 🔴 2026-09-07 (замер). Прежний текст ниже утверждал «аллокация близка к
+        # оптимуму» и советовал расширить коридор. На данных БЕЗ медиаплана оба
+        # утверждения ложны: улучшающее направление существует (проверено прямым
+        # счётом целевой функции), а расширение коридора не помогает — прогон на
+        # демо-наборе дал 0,0 % и на 20/200, и на рекомендованных 10/300, и на
+        # 0/500, решатель везде выходит на первой итерации. Клиент следовал
+        # совету, получал тот же ноль и делал вывод, что функция сломана.
+        insight = (
+            "Оптимизация бюджета считается на будущий медиаплан. В этих данных "
+            "есть только история, будущих периодов нет — перераспределять пока "
+            "нечего, поэтому прирост нулевой. Чтобы увидеть оптимизацию, добавьте "
+            "к файлу строки будущих периодов с планируемыми бюджетами (целевую "
+            "величину в них оставьте пустой) — или откройте готовый пример с "
+            "планированием на шаге «Импорт»."
         )
     elif converged_at_current:
         insight = (
@@ -1610,6 +1659,10 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
         # - converged_at_current: SLSQP отдал current allocation без binding (false convergence).
         # - slsqp_diagnostics: per-start outcomes для post-mortem (UI/log debugging).
         'converged_at_current': bool(converged_at_current),
+        # 2026-09-07: в данных нет будущих периодов (хвоста медиаплана).
+        # None — определить не удалось. Потребители: баннер шага «Оптимизация»
+        # и обе точки экспорта отчёта; SSOT — results/media_plan.json.
+        'media_plan_absent': _media_plan_absent,
         # math-fix v1.0.16, L10: baseline_zero flag - real current media contribution = 0,
         # lift_pct undefined. UI должен suppress lift display + show diagnostic banner.
         'baseline_zero': bool(baseline_zero),

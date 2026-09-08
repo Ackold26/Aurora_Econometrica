@@ -333,11 +333,123 @@ def test_converged_at_current_banner():
           found_sum, hint='no banner keywords found in SCQAR')
 
 
+def test_no_media_plan_banner():
+    """🔴 2026-09-07. Данные БЕЗ хвоста медиаплана: обе точки экспорта обязаны
+    объяснять причину нулевого прироста отсутствием будущих периодов и НЕ
+    советовать расширить коридор — на таких данных совет заведомо не работает
+    (замер: 0,0 % и на 20/200, и на рекомендованных 10/300, и на 0/500).
+
+    Второй вход обязателен: при наличии медиаплана прежний текст про границы
+    обязан остаться на месте, иначе новая ветка съела бы правильное поведение.
+    """
+    print('── media_plan_absent narrative banner ──')
+    from aurora_html.sections import render_recommendation, render_executive_summary
+
+    # ── вход 1: плана НЕТ ────────────────────────────────────────────────────
+    ctx = _build_synthetic_ctx()
+    ctx['facts']['converged_at_current'] = True
+    ctx['facts']['expected_lift_pct'] = 0.0
+    ctx['facts']['reallocation_mln'] = 0.0
+    ctx['facts']['media_plan_absent'] = True
+
+    html_rec = render_recommendation(ctx)
+    html_summary = render_executive_summary(ctx)
+
+    check('I4a: render_recommendation объясняет отсутствие медиаплана',
+          'медиаплан' in html_rec and 'будущих периодов' in html_rec,
+          hint='нет объяснения про будущие периоды в рекомендации')
+    check('I4b: render_executive_summary объясняет отсутствие медиаплана',
+          'медиаплан' in html_summary and 'будущих периодов' in html_summary,
+          hint='нет объяснения про будущие периоды в SCQAR')
+    check('I4c: рекомендация НЕ советует расширить коридор без медиаплана',
+          '10/300' not in html_rec and 'Расширьте границы' not in html_rec,
+          hint='неисполнимый совет про границы остался в рекомендации')
+    check('I4d: сводка НЕ советует расширить коридор без медиаплана',
+          '10/300' not in html_summary and 'Расширьте границы Min/Max' not in html_summary,
+          hint='неисполнимый совет про границы остался в сводке')
+
+    # ── вход 2: план ЕСТЬ — прежнее поведение цело ──────────────────────────
+    ctx2 = _build_synthetic_ctx()
+    ctx2['facts']['converged_at_current'] = True
+    ctx2['facts']['expected_lift_pct'] = 0.0
+    ctx2['facts']['reallocation_mln'] = 0.0
+    ctx2['facts']['media_plan_absent'] = False
+
+    html_rec2 = render_recommendation(ctx2)
+    html_summary2 = render_executive_summary(ctx2)
+
+    check('I4e: с медиапланом остаётся прежний текст про границы (рекомендация)',
+          'границ' in html_rec2 and 'будущих периодов' not in html_rec2,
+          hint='новая ветка съела прежнее поведение при наличии медиаплана')
+    check('I4f: с медиапланом остаётся прежний текст про границы (сводка)',
+          'границ' in html_summary2 and 'будущих периодов' not in html_summary2,
+          hint='новая ветка съела прежнее поведение при наличии медиаплана')
+
+
+def test_media_plan_absent_source():
+    """🔴 2026-09-07, находка ведущей. Проверки I4a–I4f сторожат ОТРИСОВКУ: они
+    подставляют `facts['media_plan_absent']` руками и ни разу не вызывают функцию,
+    которая этот признак вычисляет. Мутация «`return False` первой строкой
+    `engines.optimizer.media_plan_absent`» прошла у них молча — 30 passed.
+
+    Опасность живая: функция читает `results/media_plan.json`. Переименуют файл,
+    сменят имя поля, обернут чтение в лишний `try` — признак молча станет ложью,
+    объяснение про будущие периоды исчезнет со всех четырёх точек, и клиент снова
+    получит неисполнимый совет расширить коридор. Ни один сторож не покраснеет.
+
+    Эти проверки зовут САМУ функцию, а каталог проекта готовят не руками, а тем же
+    путём, что продукт: реальный поставляемый xlsx → `validate_data` → она сама
+    пишет `results/media_plan.json` → `media_plan_absent`. Цепочка целиком, без
+    подстановок; обучение не нужно, отрабатывает за доли секунды.
+    """
+    print('── media_plan_absent: источник признака ──')
+    import shutil
+    import tempfile
+
+    from engines.optimizer import media_plan_absent
+    from engines.validator import validate_data
+
+    sample_dir = REPO / 'static' / 'sample-data'
+    cases = [
+        ('базовый набор (хвоста медиаплана нет)', sample_dir / 'synth_fmcg_brand.xlsx', True),
+        ('плановый набор (хвост медиаплана есть)', sample_dir / 'planning' / 'synth_fmcg_brand.xlsx', False),
+    ]
+    tmp = Path(tempfile.mkdtemp(prefix='mpa_source_'))
+    try:
+        for i, (label, xlsx, expected) in enumerate(cases):
+            if not xlsx.exists():
+                check(f'S{i + 1}: {label} — файл-образец на месте', False,
+                      hint=f'нет {xlsx}')
+                continue
+            proj = tmp / f'case{i}'
+            (proj / 'data').mkdir(parents=True, exist_ok=True)
+            (proj / 'results').mkdir(parents=True, exist_ok=True)
+            data_file = proj / 'data' / xlsx.name
+            shutil.copy2(xlsx, data_file)
+            validate_data(str(data_file), str(proj))   # продуктовый путь, он же пишет media_plan.json
+            got = media_plan_absent(str(proj))
+            check(f'S{i + 1}: media_plan_absent на «{label}» = {expected}',
+                  got is expected,
+                  hint=f'получено {got!r}, ожидалось {expected!r} — признак смотрит не на то, '
+                       f'что пишет проверка данных (results/media_plan.json)')
+
+        # Каталога результатов нет вовсе — честное «не знаю», а не выдуманный ответ:
+        # на этом значении потребители остаются на прежнем поведении.
+        empty = tmp / 'empty'
+        empty.mkdir(parents=True, exist_ok=True)
+        check('S3: media_plan_absent на пустом каталоге = None (не знаю)',
+              media_plan_absent(str(empty)) is None,
+              hint='пустой каталог обязан давать None, иначе признак выдумывает ответ')
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
 def main() -> int:
     test_action_mapping()
     test_html_table_commentary_coherence()
     test_findings_counts()
     test_converged_at_current_banner()
+    test_no_media_plan_banner()
+    test_media_plan_absent_source()
     print(f'\n{PASSED} passed, {FAILED} failed.')
     return 0 if FAILED == 0 else 1
 

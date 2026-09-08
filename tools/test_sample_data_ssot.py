@@ -1,5 +1,12 @@
 """
-SSOT gate для customer-facing sample-data (static/sample-data/synth_*.xlsx).
+SSOT gate для customer-facing sample-data.
+
+Покрывает ОБА набора поставляемых образцов:
+  • корень static/sample-data/synth_*.xlsx — «Попробовать на примере» (без хвоста);
+  • static/sample-data/planning/*.xlsx — «Попробовать планирование на примере»
+    (с хвостом медиаплана). Раздел PLANNING_* в конце файла, добавлен 2026-09-07:
+    до этого подкаталог не сторожился ничем, хотя именно он показывает клиенту
+    прогноз и оптимизацию.
 
 Анти-дрейф (2026-06-07): шаблоны спроектировали 6 июня, примеры не перегенерили →
 3 расходящихся артефакта + колонки, которые собственный авто-детект программы не
@@ -240,4 +247,248 @@ def test_served_file_matches_generator(fname):
     maxrel = float(np.max(np.abs(fresh - disk) / (np.abs(disk) + 1e-9)))
     assert maxrel < 1e-6, (
         f'{fname}: served file != generator output (max rel diff {maxrel:.2e}) — регенерируй'
+    )
+
+
+# ═════════════════════════════════════════════════════════════════════════════
+# ПЛАНОВЫЕ ОБРАЗЦЫ — static/sample-data/planning/ (добавлено 2026-09-07)
+# ═════════════════════════════════════════════════════════════════════════════
+# Пробел, закрытый этим блоком: гейт сторожил только КОРЕНЬ sample-data, а именно
+# плановые наборы («Попробовать планирование на примере») показывают полный
+# функционал — прогноз по будущим медиа-активностям и оптимизацию бюджета — и
+# были не защищены от дрейфа вовсе.
+#
+# Сверх контракта корневых образцов плановые несут ДВА собственных инварианта,
+# оба выведены из боевых замеров 2026-09-07:
+#   • хвост медиаплана существует, KPI в нём пуст, а бюджеты заполнены;
+#   • доля хвоста в истории >= 25 %. Границы каналов оптимизатор считает от бюджета
+#     ВСЕЙ истории, а целевой бюджет — от хвоста; при коридоре по умолчанию 20/200
+#     и хвосте ровно 20 % истории сумма нижних границ в точности равна целевому
+#     бюджету, допустимая область вырождается в одну точку «все каналы на минимуме»
+#     и прирост оптимизации тождественно равен нулю (замер: OTC 12/60 давал 0,0 %).
+#     Ниже 20 % задача становится несовместной. 25 % — рабочий порог с запасом.
+
+PLANNING_DIR = SAMPLE_DIR / 'planning'
+
+PLANNING_SCHEMA = {
+    'synth_fmcg_brand.xlsx': {
+        'Дата': 'date',
+        'Выручка': 'target_monetary',
+        'ТВ бюджет': 'monetary',                  'ТВ TRP': 'physical',
+        'Онлайн-видео бюджет': 'monetary',        'Онлайн-видео показы': 'physical',
+        'Наружная реклама бюджет': 'monetary',    'Наружная реклама контакты': 'physical',
+        'Performance бюджет': 'monetary',         'Performance клики': 'physical',
+        'Активность конкурентов': 'signed_competitor',
+        'Индекс цен': 'signed_price',
+        'Продажи категории': 'category',
+    },
+    'synth_otc_pharma.xlsx': {
+        'Дата': 'date',
+        'Продажи, упаковки': 'target_count',
+        'ТВ бюджет': 'monetary',                  'ТВ TRP': 'physical',
+        'Онлайн-видео бюджет': 'monetary',        'Онлайн-видео показы': 'physical',
+        'Аптечные материалы бюджет': 'monetary',  'Аптечные материалы контакты': 'physical',
+        'Детейлинг бюджет': 'monetary',           'Детейлинг контакты': 'physical',
+        'Активность конкурентов': 'signed_competitor',
+        'Температура': 'signed_weather',
+    },
+    'synth_real_estate.xlsx': {
+        'Дата': 'date',
+        'Заявки': 'target_count',
+        'ТВ бюджет': 'monetary',                  'ТВ GRP': 'physical',
+        'Наружная реклама бюджет': 'monetary',    'Наружная реклама контакты': 'physical',
+        'Медийная реклама бюджет': 'monetary',    'Медийная реклама показы': 'physical',
+        'Performance бюджет': 'monetary',         'Performance клики': 'physical',
+        'Активность конкурентов': 'signed_competitor',
+        'Инфляция': 'signed_macro',
+    },
+    'synth_retail_ecom.xlsx': {
+        'Дата': 'date',
+        'Выручка': 'target_monetary',
+        'ТВ бюджет': 'monetary',                  'ТВ TRP': 'physical',
+        'Наружная реклама бюджет': 'monetary',    'Наружная реклама контакты': 'physical',
+        'Медийная реклама бюджет': 'monetary',    'Медийная реклама показы': 'physical',
+        'Ритейл-медиа бюджет': 'monetary',        'Ритейл-медиа показы': 'physical',
+        'Промо-активность': 'control',
+        'Акции конкурентов': 'signed_competitor',
+        'Чёрная пятница': 'holiday',
+    },
+}
+
+PLANNING_PAIRED_COLUMNS = {
+    'synth_fmcg_brand.xlsx': [
+        ('ТВ бюджет', 'ТВ TRP'), ('Онлайн-видео бюджет', 'Онлайн-видео показы'),
+        ('Наружная реклама бюджет', 'Наружная реклама контакты'),
+        ('Performance бюджет', 'Performance клики'),
+    ],
+    'synth_otc_pharma.xlsx': [
+        ('ТВ бюджет', 'ТВ TRP'), ('Онлайн-видео бюджет', 'Онлайн-видео показы'),
+        ('Аптечные материалы бюджет', 'Аптечные материалы контакты'),
+        ('Детейлинг бюджет', 'Детейлинг контакты'),
+    ],
+    'synth_real_estate.xlsx': [
+        ('ТВ бюджет', 'ТВ GRP'), ('Наружная реклама бюджет', 'Наружная реклама контакты'),
+        ('Медийная реклама бюджет', 'Медийная реклама показы'),
+        ('Performance бюджет', 'Performance клики'),
+    ],
+    'synth_retail_ecom.xlsx': [
+        ('ТВ бюджет', 'ТВ TRP'), ('Наружная реклама бюджет', 'Наружная реклама контакты'),
+        ('Медийная реклама бюджет', 'Медийная реклама показы'),
+        ('Ритейл-медиа бюджет', 'Ритейл-медиа показы'),
+    ],
+}
+
+# Минимум ИСТОРИЧЕСКИХ наблюдений (строк с заполненным KPI). Тот же смысл, что
+# MIN_ROWS у корневых образцов: хвост плана наблюдением не является.
+PLANNING_MIN_HISTORY_ROWS = 36
+# Доля хвоста в истории — см. объяснение вырождения выше.
+PLANNING_MIN_TAIL_SHARE = 0.25
+
+
+def _load_planning(fname: str):
+    """Заголовок + строки истории (KPI заполнен) + строки хвоста (KPI пуст)."""
+    header, data = _load(PLANNING_DIR / fname)
+    kpi_idx = 1  # SSOT-соглашение: колонка 1 — целевая величина
+    history = [r for r in data if r[kpi_idx] is not None]
+    tail = [r for r in data if r[kpi_idx] is None]
+    return header, history, tail
+
+
+@pytest.mark.parametrize('fname', sorted(PLANNING_SCHEMA))
+def test_planning_sample_exists(fname):
+    assert (PLANNING_DIR / fname).exists(), (
+        f'Нет планового образца {fname} — прогони tools/generate_demo_samples.py'
+    )
+
+
+@pytest.mark.parametrize('fname', sorted(PLANNING_SCHEMA))
+def test_planning_columns_recognized_and_correct_role(fname):
+    header, _, _ = _load_planning(fname)
+    expected = PLANNING_SCHEMA[fname]
+    assert set(header) == set(expected), (
+        f'{fname}: дрейф схемы. получено={header} ожидалось={list(expected)}'
+    )
+    wrong = {c: classify_column(c) for c in header if classify_column(c) != expected[c]}
+    assert not wrong, f'{fname}: классификатор программы определил роли иначе: {wrong}'
+
+
+@pytest.mark.parametrize('fname', sorted(PLANNING_SCHEMA))
+def test_planning_no_forbidden_columns(fname):
+    header, _, _ = _load_planning(fname)
+    bad = FORBIDDEN_COLUMNS & set(header)
+    assert not bad, f'{fname}: вернулись запрещённые колонки: {bad}'
+
+
+@pytest.mark.parametrize('fname', sorted(PLANNING_SCHEMA))
+def test_planning_min_history_rows(fname):
+    _, history, _ = _load_planning(fname)
+    assert len(history) >= PLANNING_MIN_HISTORY_ROWS, (
+        f'{fname}: история {len(history)} строк < {PLANNING_MIN_HISTORY_ROWS}'
+    )
+
+
+@pytest.mark.parametrize('fname', sorted(PLANNING_SCHEMA))
+def test_planning_media_plan_tail_present_and_shaped(fname):
+    """Хвост есть, KPI в нём пуст, бюджеты заполнены; история без внутренних дыр."""
+    header, history, tail = _load_planning(fname)
+    assert tail, (
+        f'{fname}: хвоста медиаплана нет вовсе — плановый образец обязан показывать '
+        f'прогноз по будущим медиа-активностям'
+    )
+    # .get, а не [c]: при дрейфе имени колонки эта проверка обязана дать внятный
+    # отказ про бюджеты, а не KeyError. Само переименование ловит проверка схемы.
+    money_idx = [i for i, c in enumerate(header)
+                 if PLANNING_SCHEMA[fname].get(c) == 'monetary']
+    assert money_idx, (
+        f'{fname}: в файле нет ни одной колонки, объявленной бюджетной в PLANNING_SCHEMA '
+        f'(получены колонки {header}) — сверь схему'
+    )
+    empty_money = [
+        (ri, header[i]) for ri, r in enumerate(tail) for i in money_idx if r[i] is None
+    ]
+    assert not empty_money, (
+        f'{fname}: в строках медиаплана пустые бюджеты {empty_money[:5]} — '
+        f'детектор хвоста (engines/planning.detect_media_plan_tail) их не примет'
+    )
+    # История обязана идти сплошным блоком ПЕРЕД хвостом: разрыв KPI посреди ряда
+    # переводит детектор в internal_gaps, обрезка не срабатывает, и строки без
+    # целевой величины считаются наблюдениями.
+    _, data = _load(PLANNING_DIR / fname)
+    kpi_flags = [r[1] is not None for r in data]
+    assert kpi_flags == sorted(kpi_flags, reverse=True), (
+        f'{fname}: KPI рвётся посреди ряда — история обязана быть сплошной, хвост в конце'
+    )
+
+
+@pytest.mark.parametrize('fname', sorted(PLANNING_SCHEMA))
+def test_planning_tail_share_gives_optimizer_room(fname):
+    """Хвост >= 25 % истории — иначе допустимая область оптимизатора вырождается."""
+    _, history, tail = _load_planning(fname)
+    share = len(tail) / max(len(history), 1)
+    assert share >= PLANNING_MIN_TAIL_SHARE, (
+        f'{fname}: хвост {len(tail)} периодов = {share:.1%} истории ({len(history)}) '
+        f'< {PLANNING_MIN_TAIL_SHARE:.0%}. При коридоре 20/200 сумма нижних границ '
+        f'сравнивается с целевым бюджетом хвоста: на 20 % допустимая область — одна '
+        f'точка, прирост оптимизации тождественно 0 (замер 2026-09-07).'
+    )
+
+
+@pytest.mark.parametrize('fname', sorted(PLANNING_SCHEMA))
+def test_planning_no_collinear_pairs(fname):
+    header, history, _ = _load_planning(fname)
+    numidx = [i for i in range(len(header))
+              if all(isinstance(r[i], (int, float)) for r in history)]
+    declared = {frozenset(p) for p in PLANNING_PAIRED_COLUMNS.get(fname, [])}
+    offenders = []
+    for ii in range(len(numidx)):
+        for jj in range(ii + 1, len(numidx)):
+            i, j = numidx[ii], numidx[jj]
+            a, b = header[i], header[j]
+            if frozenset((a, b)) in declared:
+                continue  # пара «бюджет ↔ натуральная метрика» коллинеарна by design
+            c = _corr([r[i] for r in history], [r[j] for r in history])
+            if abs(c) >= MAX_PAIR_CORR:
+                offenders.append((a, b, round(c, 3)))
+    assert not offenders, f'{fname}: функционально зависимые/коллинеарные пары: {offenders}'
+
+
+@pytest.mark.parametrize('fname', sorted(PLANNING_SCHEMA))
+def test_planning_kpi_not_flat(fname):
+    _, history, _ = _load_planning(fname)
+    kpi = [r[1] for r in history]
+    spread = (max(kpi) - min(kpi)) / (sum(kpi) / len(kpi))
+    assert spread >= MIN_KPI_SPREAD, (
+        f'{fname}: разброс KPI {spread:.1%} < {MIN_KPI_SPREAD:.0%} (плоский)'
+    )
+
+
+@pytest.mark.parametrize('fname', sorted(PLANNING_SCHEMA))
+def test_planning_served_file_matches_generator(fname):
+    """Выложенный xlsx == свежий вывод генератора (ловит ручной дрейф файла)."""
+    import importlib
+    tools_dir = str(_REPO / 'tools')
+    if tools_dir not in sys.path:
+        sys.path.insert(0, tools_dir)
+    gen = importlib.import_module('generate_demo_samples')
+    genfn = {f'{n}.xlsx': fn for n, fn in gen.GENERATORS}[fname]
+    df_fresh = genfn()
+    header, data = _load(PLANNING_DIR / fname)
+    assert list(df_fresh.columns) == header, (
+        f'{fname}: колонки выложенного файла != генератору '
+        f'(перегенерируй: python tools/generate_demo_samples.py)'
+    )
+    import numpy as np
+    fresh = df_fresh.drop(columns=['Дата']).to_numpy(dtype=float)
+    disk = np.array(
+        [[(r[i] if r[i] is not None else np.nan) for i in range(1, len(header))] for r in data],
+        dtype=float,
+    )
+    assert fresh.shape == disk.shape, f'{fname}: не совпала форма выложенного файла и генератора'
+    assert (np.isfinite(fresh) == np.isfinite(disk)).all(), (
+        f'{fname}: не совпало расположение пустых ячеек (граница истории и медиаплана)'
+    )
+    both = np.isfinite(fresh) & np.isfinite(disk)
+    maxrel = float(np.max(np.abs(fresh[both] - disk[both]) / (np.abs(disk[both]) + 1e-9)))
+    assert maxrel < 1e-6, (
+        f'{fname}: выложенный файл != выводу генератора (макс. отн. отличие {maxrel:.2e}) — перегенерируй'
     )

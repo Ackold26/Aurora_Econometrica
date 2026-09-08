@@ -803,6 +803,11 @@ def _derive_narrative_facts(
         "optimize_min_pct": optimize_min_pct,
         "optimize_max_pct": optimize_max_pct,
         "converged_at_current": converged_at_current,
+        # 2026-09-07: нет будущих периодов в данных (SSOT — оптимизатор,
+        # поле media_plan_absent). Нужно обеим точкам экспорта отчёта,
+        # чтобы не повторять клиенту совет расширить коридор там, где он
+        # заведомо не сработает.
+        "media_plan_absent": optimize_data.get("media_plan_absent"),
         # Action summary (B refactor) - counts + channels_by_action + top_action
         "action_counts": action_summary["counts"],
         "channels_by_action": action_summary["channels_by_action"],
