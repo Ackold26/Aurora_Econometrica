@@ -18,6 +18,7 @@
    */
   import EChartBase from '$lib/components/charts/EChartBase.svelte';
   import { chartTooltipDark, escapeHtml } from '$lib/echarts-setup.js';
+  import { formatEfficiencyGap } from '$lib/format-numbers.js';
 
   /**
    * @type {{
@@ -47,12 +48,13 @@
         formatter: (/** @type {any[]} */ params) => {
           const ch = channels[params[0].dataIndex];
           const gap = ch.efficiency_gap;
-          const sign = gap > 0 ? '+' : '';
           const gapColor = gap > 0 ? '#4ade80' : '#fb7185';
+          // Единица разрыва — процентные пункты, формат один на всю программу
+          // (живой прогон 08.09, ЧИСЛА-1): доли в процентах, их разность — в пп.
           return `<div style="color:#fff;font-weight:600;margin-bottom:4px;">${escapeHtml(ch.name)}</div>` +
                  `<div style="color:#fff;">Доля расходов: <b>${ch.share_of_spend}%</b></div>` +
                  `<div style="color:#fff;">Доля эффекта: <b>${ch.share_of_effect}%</b></div>` +
-                 `<div style="color:${gapColor};font-weight:600;">Разрыв: ${sign}${gap}%</div>`;
+                 `<div style="color:${gapColor};font-weight:600;">Разрыв: ${formatEfficiencyGap(gap)}</div>`;
         },
       },
       // Custom legend rows - явно задаём цвет и иконку, чтобы соответствие

@@ -265,7 +265,7 @@
     });
 
     switch (step) {
-      case 0: {
+      case STEP.IMPORT: {
         if (!imp?.file) return [];
         const cols = imp.columns ?? [];
         const totalRows = imp.shape?.rows ?? imp.rows?.length ?? 0;
@@ -281,7 +281,7 @@
           fileName: imp.fileName ?? '',
         });
       }
-      case 1: {
+      case STEP.VALIDATE: {
         // v2.1.0 (rc2 U-05): контекстные инсайты по под-шагу Валидации.
         // На «1 Целевая метрика» инсайты про выбор режима/KPI (не про каналы),
         // на «2 Роли колонок» - текущая (общая) логика про каналы,
@@ -307,7 +307,7 @@
         // считал по байесовскому знаменателю и противоречил шапке над собой.
         return validateRolesInsights(val?.result, objective, $modelEngine, $useHolidays, $disabledHolidays.length);
       }
-      case 2: {
+      case STEP.MODEL: {
         // If training hasn't produced diagnostics yet → educational/context insights.
         // v2.1.0 (пилот 2026-05-16): передаём active media каналы из ConfigPanel,
         // чтобы счётчик «10 медиаканалов» отражал реальные галочки (7), не все
@@ -324,8 +324,8 @@
         const ssotRatio = $validationHeaderMetrics?.ratio;
         return modelInsights(mod, ssotRatio);
       }
-      case 3: return decomposeInsights(dec, kpi);
-      case 4: return optimizeInsights(opt, {
+      case STEP.DECOMPOSE: return decomposeInsights(dec, kpi);
+      case STEP.OPTIMIZE: return optimizeInsights(opt, {
         dec, mod,
         channelBudgets: live.channelBudgets,
         channelMinPct: live.channelMinPct,
@@ -334,15 +334,37 @@
         globalMaxPct: live.globalMaxPct,
         kpi,
       });
-      case 5: {
+      // 🔴 Живой прогон 08.09 (ТЕКСТ-1). Сводка отчёта висела на числе 5, а с тех пор
+      // как между «Оптимизацией» и «Отчётом» встал шаг «Планирование» (миграция мастера
+      // 6→7, `loadPipelineMeta`), 5 — это Планирование, а Отчёт — 6. Из-за сдвига панель
+      // на шаге «Отчёт» проваливалась в `default: []` и на полностью посчитанном проекте
+      // писала «Загрузите данные для получения рекомендаций», а на шаге «Планирование»
+      // показывала сводку отчёта — чужую шагу. Поэтому номера шагов здесь больше не
+      // пишутся числами: они берутся из общего источника `STEP` (tier2-context.js), где
+      // порядок УЖЕ был верен. Вставят ещё один шаг — сдвинется и здесь.
+      case STEP.REPORT: {
         // v2.1.0 (пилот 2026-05-17 audit C-3): передаём SSOT ratio чтобы
         // правая панель Отчёта показывала те же MQS/Ratio что плитка.
         const ssotRatio = $validationHeaderMetrics?.ratio;
         return reportInsights({ mod, dec, opt, kpi, ssotRatio });
       }
+      // Шаг «Планирование» (5) своих правил пока не имеет — панель молчит нейтрально
+      // (см. пустое состояние ниже), а не выдаёт сводку соседнего шага.
       default: return [];
     }
   });
+
+  /**
+   * Текст пустой панели. 🔴 Живой прогон 08.09 (ТЕКСТ-1): панель писала «Загрузите
+   * данные для получения рекомендаций» на полностью посчитанном проекте — продукт
+   * утверждал о себе то, чего нет. Совет «загрузите данные» уместен ровно тогда,
+   * когда данных действительно нет; во всех прочих случаях панель молчит нейтрально.
+   */
+  const emptyHint = $derived(
+    ($importData?.file || $validateData?.result || $modelData?.diagnostics)
+      ? 'Для этого шага подсказок нет.'
+      : 'Загрузите данные для получения рекомендаций.'
+  );
 
   /** @type {number | null} */
   let expandedTip = $state(null);
@@ -674,7 +696,7 @@
   {#if !collapsed}
     <div class="panel-body">
       {#if insights.length === 0}
-        <p class="empty-hint">Загрузите данные для получения рекомендаций.</p>
+        <p class="empty-hint">{emptyHint}</p>
       {:else}
         <ul class="insights-list" role="list">
           {#each insights as insight, i}

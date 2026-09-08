@@ -1070,19 +1070,50 @@ export const modelData = writable({ diagnostics: null, channelParams: null, pick
  * был null после reload → modelStaleStatus всегда stale=false → банера нет).
  */
 const LAST_TRAINED_KEY = 'aurora-last-trained-config';
-const initialLastTrained = /** @type {{kpi: string, media: string[], control: string[], disabled?: string[], use_holidays?: boolean, use_seasonality?: boolean} | null} */ ((() => {
+
+/**
+ * 🔴 Внешний аудит 08.09 (High-3). Ключ был ОДИН на всю программу, а конфигурация
+ * обучения принадлежит КОНКРЕТНОМУ проекту. Переключившись с обученного проекта А
+ * на обученный проект Б, пользователь получал вердикт «Декомпозиция устарела»,
+ * вынесенный по конфигурации А: «KPI: «Выручка» → «Упаковки», Медиа-каналы: было 7,
+ * стало 5». Модель Б при этом не менялась.
+ *
+ * Почему ключ РАЗДЕЛЁН по проектам, а не снимается на смене проекта: он и заведён
+ * был затем, чтобы баннер «модель устарела» пережил перезагрузку окна (пилот
+ * 2026-05-17, H-2). Снятие при каждой смене проекта убило бы ровно то свойство,
+ * ради которого ключ существует. Разделение сохраняет свойство и убирает протечку.
+ * Приём тот же, каким разделена мета мастера (`econ-pipeline-meta-<id>`).
+ *
+ * @param {string|null} projectId
+ * @returns {string}
+ */
+function lastTrainedStorageKey(projectId) {
+  return projectId ? `${LAST_TRAINED_KEY}-${projectId}` : LAST_TRAINED_KEY;
+}
+
+/**
+ * Поднять снимок конфигурации обучения ИМЕННО этого проекта.
+ * @param {string|null} projectId
+ * @returns {{kpi: string, media: string[], control: string[], disabled?: string[], use_holidays?: boolean, use_seasonality?: boolean} | null}
+ */
+function readLastTrainedConfig(projectId) {
   if (typeof localStorage === 'undefined') return null;
   try {
-    const raw = localStorage.getItem(LAST_TRAINED_KEY);
+    const raw = localStorage.getItem(lastTrainedStorageKey(projectId));
     return raw ? JSON.parse(raw) : null;
   } catch { return null; }
-})());
-export const lastTrainedConfig = writable(initialLastTrained);
+}
+
+export const lastTrainedConfig = writable(/** @type {{kpi: string, media: string[], control: string[], disabled?: string[], use_holidays?: boolean, use_seasonality?: boolean} | null} */ (null));
 if (typeof localStorage !== 'undefined') {
   lastTrainedConfig.subscribe((v) => {
     try {
-      if (v == null) localStorage.removeItem(LAST_TRAINED_KEY);
-      else localStorage.setItem(LAST_TRAINED_KEY, JSON.stringify(v));
+      // Ключ берётся по АКТИВНОМУ проекту: все пути смены проекта ставят
+      // activeProjectId ДО того, как тронут этот стор (ProjectSelector.selectProject,
+      // createProject, импорт архива, восстановление активного проекта в макете).
+      const key = lastTrainedStorageKey(get(activeProjectId));
+      if (v == null) localStorage.removeItem(key);
+      else localStorage.setItem(key, JSON.stringify(v));
     } catch { /* quota / private mode */ }
   });
 }
@@ -1179,6 +1210,22 @@ export const optimizeData = writable(null);
 /** @type {import('svelte/store').Writable<any|null>} Detected media plan data (Phase 2 planning step) */
 export const mediaPlanDetected = writable(null);
 
+/**
+ * Исход поиска плана на будущее в текущих данных — ТРИ честных состояния, а не два.
+ *
+ * 🔴 Внешний аудит 08.09 (Low-2). Писатель (`results/media_plan.json`) специально ввёл
+ * третье состояние «определить не удалось» (`n_future_periods: null`, `detection:
+ * 'unavailable'`) — оно записывается на ранних выходах проверки данных, когда файл не
+ * прочитан вовсе. Фронтовый читатель сводил его к «плана нет»: шаг «Планирование»
+ * молча оставался запертым, и продукт утверждал о данных то, чего про них не знает.
+ *
+ * Значения: `'found'` — план найден; `'absent'` — данных на будущее нет; `'unavailable'`
+ * — определить не удалось; `null` — поиск ещё не проводился.
+ *
+ * @type {import('svelte/store').Writable<'found'|'absent'|'unavailable'|null>}
+ */
+export const mediaPlanProbeStatus = writable(null);
+
 /** @type {import('svelte/store').Writable<any|null>} Planning manifest output (Phase 2 planning step) */
 export const planningManifest = writable(null);
 
@@ -1224,6 +1271,9 @@ export async function hydrateRolesFromProjectIfEmpty(pid, decomposition) {
   if (info?.id !== pid) {
     // cold-start гонка: activeProject ещё не догнал активированный pid.
     info = /** @type {any} */ (await invoke('project_get', { projectId: pid }));
+    // Сверка актуальности после ожидания (аудит 08.09, Medium-3): роли восстанавливаются
+    // ДЛЯ pid, и класть их в общий стор, когда активен уже другой проект, нельзя.
+    if (get(activeProjectId) !== pid) return false;
   }
   const cols = applyProjectRolesToColumns(info);
   if (!cols.length) return false; // пустые роли project.json → нет реконструкции
@@ -1250,6 +1300,13 @@ async function restoreProjectResults(pid) {
   if (!pid) return;
   try {
     const r = /** @type {any} */ (await invoke('project_load_results', { projectId: pid }));
+    // 🔴 Внешний аудит 08.09 (Medium-3). После КАЖДОГО ожидания сверяем, что проект
+    // всё ещё активен. Без этой сверки ответ по проекту А, вернувшийся после того как
+    // пользователь уже переключился на Б, безусловно раскладывался по сторам — и на
+    // экране проекта Б появлялись модель, разбор и оптимизация проекта А. Это тот же
+    // симптом «новый проект показывает результаты предыдущего», который наблюдали
+    // живьём, только приходящий через гонку, а не через отсутствие сброса.
+    if (get(activeProjectId) !== pid) return;
     const hasValidation = Boolean(r.validation);
     const hasModel = Boolean(r.modelDiagnostics);
     const hasDecompose = Boolean(r.decomposition);
@@ -1263,8 +1320,19 @@ async function restoreProjectResults(pid) {
     // и `null` («определить не удалось»). Такой файл — не обнаруженный медиаплан,
     // и в стор его класть нельзя: иначе на данных без плана поднялся бы баннер
     // подтверждения на Валидации и шаг Планирования увидел бы пустой план.
-    if (r.mediaPlan && (r.mediaPlan.n_future_periods ?? 0) > 0) mediaPlanDetected.set(r.mediaPlan);
+    // 🔴 Внешний аудит 08.09 (Low-2): читатель различает ТРИ состояния писателя.
+    // «Определить не удалось» (`detection: 'unavailable'` / `n_future_periods: null`)
+    // — это не «плана нет»: план в файле может быть, просто проверка данных до него
+    // не дошла. В стор обнаруженного плана такой ответ не кладётся (баннера
+    // подтверждения быть не должно), но и молчать о нём продукт не вправе —
+    // состояние поиска уезжает в отдельный стор и объясняется на Валидации.
+    const mp = r.mediaPlan;
+    const mpUnavailable = Boolean(mp) && (mp.detection === 'unavailable' || mp.n_future_periods == null);
+    if (mp && !mpUnavailable && (mp.n_future_periods ?? 0) > 0) mediaPlanDetected.set(mp);
     else mediaPlanDetected.set(null); // не тащить медиаплан чужого проекта
+    if (!mp) mediaPlanProbeStatus.set(null);
+    else if (mpUnavailable) mediaPlanProbeStatus.set('unavailable');
+    else mediaPlanProbeStatus.set((mp.n_future_periods ?? 0) > 0 ? 'found' : 'absent');
 
     if (hasModel) {
       modelData.update(m => ({
@@ -1286,6 +1354,10 @@ async function restoreProjectResults(pid) {
       // реконструировать роли из project.json, чтобы Валидация была роль-полной
       // (KPI/медиа/контроль видны), а не пустой («Целевая метрика не определена»).
       await hydrateRolesFromProjectIfEmpty(pid, r.decomposition);
+      // Сверка актуальности после ВТОРОГО ожидания (аудит 08.09, Medium-3): реконструкция
+      // ролей ходит на диск, и за это время активным мог стать другой проект. Отметки
+      // шагов ниже пишутся по диску ЭТОГО проекта — чужому они не принадлежат.
+      if (get(activeProjectId) !== pid) return;
     }
 
     // Синхронизировать stepMeta с реальным наличием данных на диске.
@@ -1605,6 +1677,43 @@ export function setStepError(step, message) {
 }
 
 /**
+ * Снять состояние, относящееся к РАСЧЁТАМ конкретного проекта, и поднять то, что
+ * принадлежит проекту `projectId`.
+ *
+ * 🔴 Внешний аудит 08.09 (High-3 и Low-3). Эти хранилища снимались ТОЛЬКО на пути
+ * «создать проект». На переключении между проектами, на импорте архива `.aurora` и на
+ * кнопке «Новый анализ» они переживали смену, и продукт выносил по проекту А вердикты
+ * о проекте Б: ложный баннер «Декомпозиция устарела» со списком расхождений, чужие
+ * гранулярность обучения и «сезонность обнаружена» в выборе горизонта прогноза, чужие
+ * коридоры и бюджеты каналов, чужой медиаплан.
+ *
+ * Импорт пользователя и отметки шагов здесь НЕ трогаются: за них отвечают вызывающие
+ * (`loadPipelineForProject` поднимает мету проекта, `resetResultsKeepImport` снимает
+ * всё, `resetForNewAnalysis` возвращает мастер в начало).
+ *
+ * @param {string|null} projectId - проект, чей снимок обучения поднять (null - без проекта)
+ */
+function resetProjectScopedState(projectId) {
+  optimizeLiveState.set({
+    channelBudgets: {},
+    channelMinPct: {},
+    channelMaxPct: {},
+    globalMinPct: 50,
+    globalMaxPct: 150,
+  });
+  forecastContext.set(null);
+  // Медиаплан прошлого проекта (Low-3): раньше расчёт был на то, что его снимет
+  // асинхронное восстановление. Если `project_load_results` отклонится (перехват
+  // ниже по функции — «Silent»), восстановление не доедет вовсе, а план останется.
+  mediaPlanDetected.set(null);
+  mediaPlanProbeStatus.set(null);
+  // Конфигурация обучения — ИМЕННО этого проекта (ключ разделён по проектам).
+  // Без проекта (создание проекта, «Новый анализ») снимок не поднимается вовсе:
+  // судить «модель устарела» не по чему и не о чем.
+  lastTrainedConfig.set(projectId ? readLastTrainedConfig(projectId) : null);
+}
+
+/**
  * Load pipeline metadata for a project from localStorage.
  * Data stores start empty (A4 - data is never persisted).
  * Call when switching projects.
@@ -1622,6 +1731,9 @@ export function loadPipelineForProject(projectId) {
   optimizeData.set(null);
   planningManifest.set(null);
   reportData.set(null);
+  // 🔴 Аудит 08.09 (High-3): смена проекта — это тоже смена проекта. Раньше здесь
+  // снимались только данные шагов, а состояние расчётов чужого проекта оставалось.
+  resetProjectScopedState(projectId);
 }
 
 /**
@@ -1657,19 +1769,15 @@ export function resetResultsKeepImport() {
   planningManifest.set(null);
   reportData.set(null);
   chartImages.set({});
-  // 🔴 Три хранилища, найденные аудитом: они переживали смену проекта молча.
+  // 🔴 Хранилища, найденные аудитом: они переживали смену проекта молча.
   // `optimizeLiveState` — коридоры и бюджеты каналов прошлого проекта;
   // `forecastContext` — гранулярность обучения и «сезонность обнаружена» от чужой модели;
-  // `lastTrainedConfig` — конфигурация, по которой судится «модель устарела».
-  optimizeLiveState.set({
-    channelBudgets: {},
-    channelMinPct: {},
-    channelMaxPct: {},
-    globalMinPct: 50,
-    globalMaxPct: 150,
-  });
-  forecastContext.set(null);
-  lastTrainedConfig.set(null);
+  // `lastTrainedConfig` — конфигурация, по которой судится «модель устарела»;
+  // `mediaPlanDetected` — медиаплан прошлого проекта.
+  // Второй заход аудита (High-3) вынес их в общую функцию: те же хранилища обязаны
+  // сниматься на ВСЕХ путях смены проекта, а не только при создании.
+  // null, а не активный проект: создаётся ПУСТОЙ проект, поднимать ему нечего.
+  resetProjectScopedState(null);
   pipelineStepMeta.set(defaultStepMeta());
   pipelineCurrentStep.set(0);
 }
@@ -1692,6 +1800,10 @@ export function resetForNewAnalysis() {
   planningManifest.set(null);
   reportData.set(null);
   chartImages.set({});
+  // 🔴 Аудит 08.09 (High-3): «Новый анализ» — тоже смена проекта. Раньше конфигурация
+  // обучения, контекст прогноза, коридоры каналов и медиаплан прошлого проекта
+  // переживали её и участвовали в вердиктах о следующем проекте.
+  resetProjectScopedState(null);
   isComputing.set(false);
   computeStatus.set('');
 }

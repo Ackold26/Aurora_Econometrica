@@ -33,6 +33,8 @@
     chosenKpiColumn,
     // Фаза 3 (2026-07-10): баннер обнаружения медиаплана.
     mediaPlanDetected,
+    // Внешний аудит 08.09 (Low-2): исход поиска плана — три состояния, не два.
+    mediaPlanProbeStatus,
     // P0.3: запас данных считается по режиму — байес заводит праздники, OLS нет.
     modelEngine,
     // Внешний аудит (High, 2026-08-03): мастер-переключатель праздников меняет
@@ -246,6 +248,10 @@
       if (res?.status === 'error' && !res.columns) {
         validateError = res.message ?? 'Ошибка валидации';
         setStepError(1, validateError);
+        // Аудит 08.09 (Low-2): проверка не дошла до поиска плана на будущее. Это НЕ
+        // «плана нет» — движок на таком выходе пишет в `results/media_plan.json`
+        // честное «определить не удалось», и интерфейс обязан говорить то же самое.
+        mediaPlanProbeStatus.set('unavailable');
         return;
       }
       validateData.set({
@@ -256,9 +262,13 @@
       // Фаза 3: записываем обнаруженный медиаплан в стор (A6 — явное подтверждение).
       if (res.media_plan_detected) {
         mediaPlanDetected.set(res.media_plan_detected);
+        mediaPlanProbeStatus.set('found');
         mediaPlanAnswered = false; // сбросить если валидация перезапущена
       } else {
         mediaPlanDetected.set(null);
+        // Проверка прошла целиком и хвоста не нашла — это уже уверенное «плана нет»,
+        // а не «определить не удалось» (аудит 08.09, Low-2).
+        mediaPlanProbeStatus.set('absent');
       }
       // NAV-2/3A-FOOTER-BYPASS fix (Вариант B, 2026-06-04): НЕ разлочиваем Модель
       // здесь. Авто-валидация показывает результаты (validateData), но Модель
@@ -1277,6 +1287,14 @@
   {:else if mediaPlanAnswered && !$mediaPlanDetected}
     <div class="mp-dismissed-note">
       Будущие строки проигнорированы – шаг «Планирование» будет недоступен.
+    </div>
+  {:else if $mediaPlanProbeStatus === 'unavailable' && !validateError}
+    <!-- 🔴 Внешний аудит 08.09 (Low-2): третье честное состояние движка. Раньше оно
+         сводилось к «плана нет»: шаг «Планирование» молча оставался запертым, и
+         продукт утверждал про данные то, чего про них не знает. -->
+    <div class="mp-dismissed-note">
+      Проверить, есть ли в файле план на будущее, не удалось – проверка данных не дошла до конца.
+      Шаг «Планирование» остаётся недоступным. Если план в файле есть, повторите проверку данных.
     </div>
   {/if}
 

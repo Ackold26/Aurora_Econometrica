@@ -19,10 +19,21 @@
   import { TOOLTIPS } from '$lib/data/tooltip-texts.js';
 
   /**
+   * 🔴 Живой прогон 08.09.2026. Тип ВРАЛ о данных: `low_variation`/`high_variation`
+   * приходят из `results/model-diagnostics.json` объектами `{value, delta_roi_pct}`,
+   * а объявлены были числами — и код, написанный по этому объявлению, брал
+   * `Math.abs` от объекта, получал NaN и рисовал подписи без единого столбца.
+   * Тип приведён к фактическому виду, чтобы проверка типов ловила такое сама.
+   *
+   * @typedef {{ value: number, delta_roi_pct: number }} TornadoVariation
+   */
+
+  /**
    * @typedef {{
    *   name: string,
-   *   low_variation: number,
-   *   high_variation: number,
+   *   baseline_value?: number,
+   *   low_variation: TornadoVariation,
+   *   high_variation: TornadoVariation,
    *   sensitivity_pct: number,
    *   channel?: string,
    *   param_type?: string,
@@ -66,8 +77,13 @@
     if (isEmpty) return {};
 
     const names = sortedParams.map(p => p.name);
-    const lowValues = sortedParams.map(p => -Math.abs(p.low_variation));   // always negative side
-    const highValues = sortedParams.map(p => Math.abs(p.high_variation));  // always positive side
+    // 🔴 Живой прогон 08.09.2026. `low_variation`/`high_variation` — ОБЪЕКТЫ
+    // вида {value, delta_roi_pct}, а не числа: `Math.abs` над объектом даёт NaN,
+    // и на экране оставались подписи параметров с осью, но без единого столбца.
+    // Длина столбца — величина отклика ROI на вариацию параметра; сторона
+    // фиксирована замыслом (слева вариация вниз, справа вверх), поэтому модуль.
+    const lowValues = sortedParams.map(p => -Math.abs(Number(p.low_variation?.delta_roi_pct) || 0));
+    const highValues = sortedParams.map(p => Math.abs(Number(p.high_variation?.delta_roi_pct) || 0));
 
     return {
       backgroundColor: 'transparent',
