@@ -1212,7 +1212,7 @@ class AuroraPPTXBuilder:
         # Category tag
         self._text(
             slide, self.safe, self.safe + 0.65, 10.0, 0.25,
-            "MARKETING MIX MODEL REPORT",
+            "ОТЧЁТ ПО МОДЕЛИ МЕДИАМИКСА",
             font=self.sans, size=9, color=self.deep_60,
         )
 
@@ -1239,8 +1239,8 @@ class AuroraPPTXBuilder:
         cols = [
             ("ПОДГОТОВЛЕНО ДЛЯ", self.client),
             ("ДАТА",              self.report_date),
-            ("REPORT ID",         self.report_id),
-            ("КЛАССИФИКАЦИЯ",    "Confidential"),
+            ("НОМЕР ОТЧЁТА",      self.report_id),
+            ("КЛАССИФИКАЦИЯ",    "Конфиденциально"),
         ]
         col_w = (self.w - 2 * self.safe - 0.2) / 4
         for i, (label, val) in enumerate(cols):
@@ -3516,7 +3516,7 @@ class AuroraPPTXBuilder:
         # Sources list bottom
         src_y = 6.0
         self._text(
-            slide, self.safe, src_y, 2.0, 0.2, "PRIMARY",
+            slide, self.safe, src_y, 2.0, 0.2, "ИСТОЧНИКИ ДАННЫХ",
             font=self.sans, size=8, bold=True, color=self.gold,
         )
         self._hairline(slide, self.safe, src_y + 0.22, 0.8, weight=0.5, color=self.gold)
@@ -3551,7 +3551,7 @@ class AuroraPPTXBuilder:
         if not self.is_live:
             sec_x = 7.0
             self._text(
-                slide, sec_x, src_y, 2.0, 0.2, "SECONDARY",
+                slide, sec_x, src_y, 2.0, 0.2, "ДОПОЛНИТЕЛЬНЫЕ ИСТОЧНИКИ",
                 font=self.sans, size=8, bold=True, color=self.deep_60,
             )
             self._hairline(slide, sec_x, src_y + 0.22, 0.8, weight=0.5, color=self.deep_60)
