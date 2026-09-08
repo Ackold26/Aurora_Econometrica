@@ -1625,6 +1625,36 @@ export function loadPipelineForProject(projectId) {
 }
 
 /**
+ * Сброс результатов при СОЗДАНИИ нового проекта, с сохранением незавершённого импорта.
+ *
+ * 🔴 Живой прогон 08.09.2026. Создание проекта намеренно не звало `resetPipeline`
+ * («creating a project while importing would nuke the user's current work»), и из-за
+ * этого новый — пустой на диске — проект показывал результаты ПРЕДЫДУЩЕГО: шаг «Модель»
+ * рапортовал «Модель обучена! MQS = 70, R² = 0,825», хотя каталоги `models/` и `results/`
+ * этого проекта пусты. Проверено на диске сразу после создания.
+ *
+ * Намерение исходной заметки сохранено: файл, который пользователь уже перетащил, и
+ * отметка шага «Импорт» остаются. Всё, что относится к РАСЧЁТАМ другого проекта, —
+ * снимается: приписывать чужие числа новому проекту нельзя ни на секунду.
+ */
+export function resetResultsKeepImport() {
+  validateData.set({ result: null, correlationMatrix: null, columnHistograms: null });
+  modelData.set({ diagnostics: null, channelParams: null, picklePath: null, normalization: null });
+  decomposeData.set(null);
+  optimizeData.set(null);
+  planningManifest.set(null);
+  reportData.set(null);
+  chartImages.set({});
+  // Шаг «Импорт» сохраняем как есть, остальные — в исходное состояние мастера.
+  const fresh = defaultStepMeta();
+  pipelineStepMeta.update((cur) => {
+    const keepImport = cur?.[0] ?? fresh[0];
+    return [keepImport, ...fresh.slice(1)];
+  });
+  pipelineCurrentStep.set(0);
+}
+
+/**
  * Full reset for a fresh analysis - clears active project, wipes all pipeline
  * data, returns user to step 0 with a clean stepper. Used by "Новый анализ"
  * button on the main screen.

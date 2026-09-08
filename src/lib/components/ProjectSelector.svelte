@@ -3,7 +3,9 @@
   import { save as saveDialog, open as openDialog } from '@tauri-apps/plugin-dialog';
   import { ChartColumn, Package } from 'lucide-svelte';
   import { onMount } from 'svelte';
-  import { activeProjectId, activeProject, resetPipeline } from '$lib/project-state.js';
+  import { activeProjectId, activeProject, resetPipeline,
+  resetResultsKeepImport,
+} from '$lib/project-state.js';
   import ProjectPickerModal from '$lib/components/comparison/ProjectPickerModal.svelte';
   import ModelComparisonView from '$lib/components/comparison/ModelComparisonView.svelte';
 
@@ -133,8 +135,12 @@
       });
       activeProjectId.set(info.id);
       activeProject.set(info);
-      // NOTE: do NOT resetPipeline() here - creating a project while importing
-      // would nuke the user's current work. Reset only on explicit project switch.
+      // 🔴 Живой прогон 08.09: прежде здесь не сбрасывалось НИЧЕГО («creating a project
+      // while importing would nuke the user's current work»), и новый пустой проект
+      // показывал модель предыдущего как свою — «Модель обучена, R² = 0,825» при пустых
+      // `models/` и `results/` на диске. Намерение сохранено: незавершённый импорт и
+      // отметка шага «Импорт» остаются, снимаются только чужие РЕЗУЛЬТАТЫ.
+      resetResultsKeepImport();
       projects = [...projects, info];
       showCreate = false;
       newName = '';
