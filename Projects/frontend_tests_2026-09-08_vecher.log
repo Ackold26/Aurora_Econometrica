@@ -1,0 +1,53 @@
+
+> aurora-ai-agency@2.5.1 test
+> vitest run
+
+
+ RUN  v4.1.2 D:/Docs/Aurora_Ai/Dev/Aurora_Econometrica_thinwt
+
+14:19:16 [vite-plugin-svelte] src/lib/components/pipeline/MultiScenarioPage.svelte:381:16 Redundant role 'row'
+https://svelte.dev/e/a11y_no_redundant_roles
+14:19:17 [vite-plugin-svelte] src/lib/components/pipeline/ScenarioWizard.svelte:644:2 Unused CSS selector ".step-placeholder"
+https://svelte.dev/e/css_unused_selector
+14:19:17 [vite-plugin-svelte] src/lib/components/pipeline/ScenarioWizard.svelte:651:2 Unused CSS selector ".step-placeholder h2"
+https://svelte.dev/e/css_unused_selector
+14:19:17 [vite-plugin-svelte] src/lib/components/pipeline/ScenarioWizard.svelte:658:2 Unused CSS selector ".step-placeholder-body"
+https://svelte.dev/e/css_unused_selector
+14:19:17 [vite-plugin-svelte] src/lib/components/pipeline/ConvergenceDashboard.svelte:456:2 Unused CSS selector ".chart-panel"
+https://svelte.dev/e/css_unused_selector
+14:19:17 [vite-plugin-svelte] src/lib/components/pipeline/ConvergenceDashboard.svelte:466:2 Unused CSS selector ".chart-title"
+https://svelte.dev/e/css_unused_selector
+14:19:17 [vite-plugin-svelte] src/lib/components/pipeline/ConvergenceDashboard.svelte:549:2 Unused CSS selector ".help-icon"
+https://svelte.dev/e/css_unused_selector
+14:19:17 [vite-plugin-svelte] src/lib/components/pipeline/ConvergenceDashboard.svelte:566:2 Unused CSS selector ".help-icon:hover"
+https://svelte.dev/e/css_unused_selector
+14:19:18 [vite-plugin-svelte] src/lib/components/ExpandableCard.svelte:54:2 Elements with the 'dialog' interactive role must have a tabindex value
+https://svelte.dev/e/a11y_interactive_supports_focus
+14:19:18 [vite-plugin-svelte] src/lib/components/ExpandableCard.svelte:54:2 Visible, non-interactive elements with a click event must be accompanied by a keyboard event handler. Consider whether an interactive element such as `<button type="button">` or `<a>` might be more appropriate
+https://svelte.dev/e/a11y_click_events_have_key_events
+14:19:18 [vite-plugin-svelte] src/lib/components/ExpandableCard.svelte:61:4 Non-interactive element `<div>` should not be assigned mouse or keyboard event listeners
+https://svelte.dev/e/a11y_no_noninteractive_element_interactions
+14:19:20 [vite-plugin-svelte] src/lib/components/Tooltip.svelte:45:20 This reference only captures the initial value of `id`. Did you mean to reference it inside a closure instead?
+https://svelte.dev/e/state_referenced_locally
+Not implemented: navigation to another Document
+Not implemented: navigation to another Document
+Not implemented: navigation to another Document
+Not implemented: navigation to another Document
+14:21:00 [vite-plugin-svelte] src/lib/components/ConfigPanel.svelte:569:4 A form label must be associated with a control
+https://svelte.dev/e/a11y_label_has_associated_control
+14:21:00 [vite-plugin-svelte] src/lib/components/ConfigPanel.svelte:583:6 Visible, non-interactive elements with a click event must be accompanied by a keyboard event handler. Consider whether an interactive element such as `<button type="button">` or `<a>` might be more appropriate
+https://svelte.dev/e/a11y_click_events_have_key_events
+14:21:00 [vite-plugin-svelte] src/lib/components/ConfigPanel.svelte:599:4 A form label must be associated with a control
+https://svelte.dev/e/a11y_label_has_associated_control
+14:21:00 [vite-plugin-svelte] src/lib/components/ConfigPanel.svelte:615:4 A form label must be associated with a control
+https://svelte.dev/e/a11y_label_has_associated_control
+14:21:00 [vite-plugin-svelte] src/lib/components/ConfigPanel.svelte:655:8 Visible, non-interactive elements with a click event must be accompanied by a keyboard event handler. Consider whether an interactive element such as `<button type="button">` or `<a>` might be more appropriate
+https://svelte.dev/e/a11y_click_events_have_key_events
+14:21:00 [vite-plugin-svelte] src/lib/components/ConfigPanel.svelte:709:10 A form label must be associated with a control
+https://svelte.dev/e/a11y_label_has_associated_control
+
+ Test Files  105 passed (105)
+      Tests  1489 passed (1489)
+   Start at  14:19:09
+   Duration  113.17s (transform 592.06s, setup 19.31s, import 1945.06s, tests 24.46s, environment 154.91s)
+
