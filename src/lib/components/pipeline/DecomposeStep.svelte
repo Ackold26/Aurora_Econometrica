@@ -517,6 +517,26 @@
     </div>
   {/if}
 
+  <!-- 🔴 2026-09-08 (живой прогон установленной сборки 2.5.1). Шаг ДВАЖДЫ уходит в
+       состояние `idle` — когда обученной модели нет в памяти (открыт ранее
+       завершённый проект в новой сессии программы) и когда её нет вовсе, — а ветки
+       разметки под это состояние не было ни одной. На экране не появлялось НИЧЕГО:
+       ни данных, ни объяснения, ни кнопки, при этом значок шага в мастере показывал
+       «Готово» из сохранённого состояния проекта. Соседние шаги («Оптимизация»,
+       «Отчёт») такую ветку имеют — здесь она просто отсутствовала. -->
+  {#if stepState === 'idle'}
+    <div class="idle-state">
+      {#if $modelData?.channelParams}
+        <p>Разбор вклада каналов в этой сессии ещё не считался.</p>
+        <p class="idle-hint">Нажмите «Рассчитать» — программа разложит продажи на базовую часть и вклад каждого канала по уже обученной модели.</p>
+        <button class="btn-idle-run" onclick={() => runDecompose()}>Рассчитать</button>
+      {:else}
+        <p>Модель ещё не обучена — раскладывать пока нечего.</p>
+        <p class="idle-hint">Вернитесь на шаг «Модель» и обучите её: декомпозиция считается по обученной модели, а не по исходным данным.</p>
+      {/if}
+    </div>
+  {/if}
+
   <!-- Results -->
   {#if stepState === 'done' && data}
 
@@ -785,6 +805,32 @@
     flex-shrink: 0;
   }
   @keyframes spin { to { transform: rotate(360deg); } }
+
+  .idle-state {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    padding: 48px 24px;
+    text-align: center;
+    color: var(--text-secondary, #5b6472);
+  }
+  .idle-state .idle-hint {
+    font-size: 13px;
+    color: var(--text-tertiary, #7a8494);
+    max-width: 560px;
+  }
+  .btn-idle-run {
+    margin-top: 8px;
+    padding: 8px 18px;
+    border: 1px solid var(--color-brand-deep-100, #0A1628);
+    border-radius: 6px;
+    background: var(--color-brand-deep-100, #0A1628);
+    color: #fff;
+    font-size: 14px;
+    cursor: pointer;
+  }
+  .btn-idle-run:hover { opacity: 0.9; }
 
   .error-banner {
     display: flex;
