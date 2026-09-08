@@ -442,6 +442,41 @@ def _write_media_plan_state(
             logger.warning('media_plan.json stale rename failed', exc_info=True)
 
 
+def _write_media_plan_unknown(project_dir: str | None) -> None:
+    """Записать «определить не удалось» на РАННЕМ выходе проверки данных.
+
+    🔴 2026-09-08 (аудит Medium-1). Договор «media_plan.json описывает текущие
+    данные» держался только на успешном пути: у `validate_data` четыре ранних
+    выхода (файла нет / чужое расширение / ошибка чтения / файл пуст), и на них
+    файл прошлого импорта переживал новую проверку. Живой сценарий: у проекта
+    есть медиаплан на 3 периода, пользователь выбирает на шаге «Импорт» файл,
+    который движок не прочитает (или переименовал ранее импортированный —
+    `econ_validate` зовётся по ВНЕШНЕМУ пути), проверка падает ранним выходом,
+    а на диске остаётся описание ПРОШЛЫХ данных, и признак `media_plan_absent`
+    уверенно отвечает «план есть».
+
+    Пишем именно третье состояние (`tail_found=None` → `n_future_periods: null`),
+    а не «плана нет»: данные не прочитаны, значит про хвост НИЧЕГО не известно.
+    «Плана нет» было бы утверждением, которого мы не проверяли — молчание не
+    врёт, неверное число врёт.
+
+    `source_hash` тоже None: хэшировать нечего — содержимое не читалось.
+
+    Функция обязана быть полной (ничего не бросать наружу): пользователь на этих
+    путях должен получить свой понятный отказ, а не трассировку. `project_dir`
+    необязателен — если его нет, писать некуда, тихо выходим.
+    """
+    if not project_dir:
+        return
+    try:
+        # Гейт тот же, что на успешном пути: пишем только по абсолютному пути.
+        if not Path(project_dir).is_absolute():
+            return
+        _write_media_plan_state(project_dir, None, None, None)
+    except Exception:
+        logger.warning('media_plan.json unknown-state write failed', exc_info=True)
+
+
 def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, Any]:
     """Validate dataset for MMM readiness.
 
@@ -454,6 +489,9 @@ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, A
     """
     path = Path(file_path)
     if not path.exists():
+        # Аудит Medium-1 (2026-09-08): состояние медиаплана обязано описывать
+        # текущие данные и на отказе — иначе переживает файл прошлого импорта.
+        _write_media_plan_unknown(project_dir)
         return {'status': 'error', 'message': f'Файл не найден: {file_path}'}
 
     # Read data
@@ -463,8 +501,12 @@ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, A
         elif path.suffix == '.csv':
             df = _read_csv_smart(path)
         else:
+            _write_media_plan_unknown(project_dir)
             return {'status': 'error', 'message': f'Неподдерживаемый формат: {path.suffix}. Нужен xlsx или csv.'}
     except Exception as e:
+        # Сюда же попадает пустой .csv: pandas бросает EmptyDataError раньше,
+        # чем управление дойдёт до проверки `n_cols == 0` ниже.
+        _write_media_plan_unknown(project_dir)
         return {'status': 'error', 'message': f'Ошибка чтения файла: {e}'}
 
     n_rows, n_cols = df.shape
@@ -473,6 +515,7 @@ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, A
     # Прежде каскад давал невпопад «Переименуйте столбец в "date"»,
     # хотя переименовывать нечего.
     if n_cols == 0 or (n_rows == 0 and n_cols == 0):
+        _write_media_plan_unknown(project_dir)
         return {
             'status': 'error',
             'message': ('Файл пуст — в нём нет данных. Загрузите файл с колонками: '

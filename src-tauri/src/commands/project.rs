@@ -135,6 +135,12 @@ fn default_true() -> bool {
     true
 }
 
+/// Каталог, в котором лежит `user_config.json`, — тот же, куда его пишет
+/// `app_config_dir()` Tauri (каталог идентификатора приложения, не имени пакета).
+fn user_config_dir(appdata: &str) -> PathBuf {
+    PathBuf::from(appdata).join(env!("AURORA_APP_IDENTIFIER"))
+}
+
 /// Get the projects root directory.
 /// Priority: env AURORA_PROJECTS_ROOT > user_config.econometrica_projects_root > default.
 /// Default: %APPDATA%/<identifier>/projects/
@@ -155,7 +161,22 @@ pub fn projects_dir() -> Result<PathBuf, String> {
 
     // User-configured override - читаем user_config.json напрямую с диска
     // (без AppHandle - чтобы не менять сигнатуру во всех вызовах вверх по стеку).
-    let config_dir = PathBuf::from(&appdata).join(identifier);
+    //
+    // 🔴 Живой прогон 08.09.2026. Настройку пишет `set_econometrica_projects_root`
+    // (lib.rs) в `app_config_dir()` Tauri, то есть в каталог ИДЕНТИФИКАТОРА
+    // (`%APPDATA%\com.aurora.econometrica`). Читалась же она отсюда из каталога
+    // ИМЕНИ ПАКЕТА (`env!("CARGO_PKG_NAME")` = `aurora-econometrica-gui`), где
+    // файла нет и не будет: пользователь выбирал свою папку для проектов, получал
+    // «сохранено», а проекты продолжали создаваться в прежнем месте.
+    // Идентификатор берём из того же источника, что и `durable_store`, —
+    // `AURORA_APP_IDENTIFIER` кладёт `build.rs` из фактической конфигурации сборки
+    // (с учётом оверлея редакции), поэтому он не разъедется с `app_config_dir()`.
+    //
+    // 🔴 Место хранения ПО УМОЛЧАНИЮ намеренно оставлено на имени пакета: у всех,
+    // кто уже работает с программой, проекты лежат именно там, и смена умолчания
+    // без переноса означала бы, что клиент открывает программу и не находит своей
+    // работы. Сведение двух каталогов — отдельная задача с переносом.
+    let config_dir = user_config_dir(&appdata);
     let config_path = config_dir.join("user_config.json");
     if config_path.exists() {
         if let Ok(data) = std::fs::read_to_string(&config_path) {
@@ -1366,5 +1387,37 @@ mod atomic_write_tests {
         // Только один thread должен держать lock в любой момент.
         assert_eq!(max_concurrent.load(Ordering::SeqCst), 1,
             "concurrent count must never exceed 1 (mutex serialization)");
+    }
+}
+
+#[cfg(test)]
+mod user_config_dir_tests {
+    use super::*;
+
+    /// 🔴 Живой прогон 08.09.2026. Настройка «папка проектов» пишется в каталог
+    /// ИДЕНТИФИКАТОРА (`app_config_dir()` Tauri), а читалась из каталога ИМЕНИ ПАКЕТА —
+    /// файла там нет, поэтому выбранная пользователем папка молча не применялась.
+    /// Сторож держит ровно это: читаем оттуда же, куда пишем.
+    #[test]
+    fn user_config_dir_uses_app_identifier_not_package_name() {
+        let dir = user_config_dir("C:/appdata");
+        let last = dir.file_name().unwrap().to_string_lossy().to_string();
+
+        assert_eq!(
+            last,
+            env!("AURORA_APP_IDENTIFIER"),
+            "user_config.json обязан читаться из каталога идентификатора приложения — \
+             того же, куда его пишет app_config_dir() Tauri"
+        );
+
+        // Именно расхождение этих двух имён и было дефектом: пока они различаются,
+        // сторож имеет смысл. Если когда-нибудь совпадут — проверка станет тавтологией,
+        // и об этом лучше узнать из упавшего теста, чем из молчаливо мёртвой настройки.
+        assert_ne!(
+            env!("AURORA_APP_IDENTIFIER"),
+            env!("CARGO_PKG_NAME"),
+            "идентификатор приложения и имя пакета Cargo совпали — перечитайте \
+             projects_dir(): умолчание всё ещё стоит на имени пакета намеренно"
+        );
     }
 }

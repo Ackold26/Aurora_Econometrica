@@ -226,3 +226,118 @@ def test_current_spend_history_only_for_tail(tmp_path: Path):
     # Точная проверка: история = первые 12 строк
     expected = float(df["tv_spend"].iloc[:n_hist].sum())
     assert hist_spend_sum == pytest.approx(expected)
+
+
+# ─── Тест 4: ранние выходы validate_data (аудит Medium-1, 2026-09-08) ────────
+
+
+def _seed_stale_media_plan(project_dir: Path) -> Path:
+    """Кладёт в каталог проекта media_plan.json от ПРОШЛОГО, планового импорта."""
+    results = project_dir / "results"
+    results.mkdir(parents=True, exist_ok=True)
+    mp_path = results / "media_plan.json"
+    mp_path.write_text(
+        json.dumps({
+            "n_future_periods": 3,
+            "period_labels": ["2026-10", "2026-11", "2026-12"],
+            "granularity": "month",
+            "future_dates": [],
+            "channels": ["tv_spend"],
+            "warnings": [],
+            "source_hash": "STALEHASH",
+            "confirmed": True,
+        }, ensure_ascii=False),
+        encoding="utf-8",
+    )
+    return mp_path
+
+
+def _make_early_exit_file(tmp_path: Path, kind: str) -> str:
+    """Готовит вход, на котором validate_data выходит РАНО, не прочитав данные."""
+    if kind == "missing":
+        return str(tmp_path / "нет_такого_файла_12345.xlsx")
+    if kind == "bad_ext":
+        p = tmp_path / "заметка.txt"
+        p.write_text("это не таблица", encoding="utf-8")
+        return str(p)
+    if kind == "broken_xlsx":
+        p = tmp_path / "битый.xlsx"
+        p.write_bytes(b"not an xlsx at all")
+        return str(p)
+    if kind == "empty_csv":
+        p = tmp_path / "пустой.csv"
+        p.write_text("", encoding="utf-8")
+        return str(p)
+    if kind == "empty_xlsx":
+        # Единственный вход, доходящий до ветки `n_cols == 0`: пустой .csv
+        # pandas отбивает раньше (EmptyDataError), а пустой лист xlsx читается
+        # в DataFrame формы (0, 0). Без него четвёртый ранний выход не покрыт.
+        import openpyxl
+
+        p = tmp_path / "пустой_лист.xlsx"
+        openpyxl.Workbook().save(p)
+        return str(p)
+    raise AssertionError(f"неизвестный вид входа: {kind}")
+
+
+@pytest.mark.parametrize(
+    "kind, expected_message_prefix",
+    [
+        ("missing", "Файл не найден:"),
+        ("bad_ext", "Неподдерживаемый формат:"),
+        ("broken_xlsx", "Ошибка чтения файла:"),
+        ("empty_csv", "Ошибка чтения файла:"),
+        ("empty_xlsx", "Файл пуст"),
+    ],
+)
+def test_validator_early_exit_writes_unknown_media_plan(
+    tmp_path: Path, kind: str, expected_message_prefix: str
+):
+    """На ранних выходах media_plan.json обязан стать «определить не удалось».
+
+    🔴 Аудит Medium-1 (2026-09-08). Договор «файл описывает ТЕКУЩИЕ данные»
+    держался только на успешном пути. У validate_data четыре ранних выхода
+    (файла нет / чужое расширение / ошибка чтения / файл пуст), и на них файл
+    прошлого импорта переживал новую проверку: у проекта с медиапланом на 3
+    периода пользователь выбирал нечитаемый файл, проверка падала — а признак
+    `media_plan_absent` продолжал уверенно отвечать «план есть».
+
+    Пишем именно третье состояние (`n_future_periods: null`), а не ноль:
+    данные не прочитаны, про хвост НИЧЕГО не известно. «Плана нет» было бы
+    утверждением, которого мы не проверяли.
+    """
+    from engines.optimizer import media_plan_absent
+
+    project_dir = tmp_path / "project"
+    mp_path = _seed_stale_media_plan(project_dir)
+    assert media_plan_absent(str(project_dir)) is False, "подготовка: план должен «быть»"
+
+    file_path = _make_early_exit_file(tmp_path, kind)
+    result = validate_data(file_path, project_dir=str(project_dir))
+
+    # Текст отказа пользователю не меняется — правка только про состояние на диске.
+    assert result["status"] == "error", result
+    assert result["message"].startswith(expected_message_prefix), result["message"]
+
+    payload = json.loads(mp_path.read_text(encoding="utf-8"))
+    assert payload["n_future_periods"] is None, (
+        f"media_plan.json пережил ранний выход ({kind}) и врёт про наличие плана: {payload}"
+    )
+    assert payload["detection"] == "unavailable", payload
+    assert payload["confirmed"] is False, payload
+
+    assert media_plan_absent(str(project_dir)) is None, (
+        "признак обязан вернуть «определить не удалось», а не True/False"
+    )
+
+
+@pytest.mark.parametrize(
+    "kind", ["missing", "bad_ext", "broken_xlsx", "empty_csv", "empty_xlsx"]
+)
+def test_validator_early_exit_without_project_dir_does_not_crash(tmp_path: Path, kind: str):
+    """`project_dir` необязателен: писать некуда — выходим как раньше, без падения."""
+    file_path = _make_early_exit_file(tmp_path, kind)
+
+    result = validate_data(file_path)
+    assert result["status"] == "error", result
+    assert result["message"], "пользователь обязан получить понятный отказ"
