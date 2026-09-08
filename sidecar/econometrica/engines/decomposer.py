@@ -183,7 +183,7 @@ def _build_channel_insight(
         if top.get('efficiency_gap', 0) > GAP_GOOD and worst.get('efficiency_gap', 0) < -GAP_GOOD:
             insight += (
                 f" Канал {worst_name} использует больше бюджета чем даёт эффекта "
-                f"(gap {worst['efficiency_gap']:+.0f} пп) - рассмотрите перераспределение "
+                f"(разрыв {worst['efficiency_gap']:+.1f} пп) - рассмотрите перераспределение "
                 f"в {top_name}. Точную оценку прироста см. в шаге «Оптимизация»."
             )
     else:
@@ -196,7 +196,7 @@ def _build_channel_insight(
             if top.get('efficiency_gap', 0) > GAP_GOOD and worst.get('efficiency_gap', 0) < -GAP_GOOD:
                 insight += (
                     f" Канал {worst_name} использует больше бюджета чем даёт эффекта "
-                    f"(gap {worst['efficiency_gap']:+.0f} пп) - рассмотрите перераспределение "
+                    f"(разрыв {worst['efficiency_gap']:+.1f} пп) - рассмотрите перераспределение "
                     f"в {top_name}. Точную оценку прироста см. в шаге «Оптимизация»."
                 )
         else:

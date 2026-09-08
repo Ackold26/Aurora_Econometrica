@@ -480,7 +480,7 @@ def compute_channel_action(
             key='Hold',
             label_ru=ACTION_LABEL_RU['Hold'],
             tone=ACTION_TONE['Hold'],
-            reasoning=f'{_metric_str} стабилен, gap {eff_gap:+.0f}пп - баланс',
+            reasoning=f'{_metric_str} стабилен, разрыв {eff_gap:+.1f} пп - баланс',
             priority=ACTION_PRIORITY['Hold'],
             confidence=confidence,
         )
@@ -490,7 +490,7 @@ def compute_channel_action(
         key='Watch',
         label_ru=ACTION_LABEL_RU['Watch'],
         tone=ACTION_TONE['Watch'],
-        reasoning=f'{_metric_str}, gap {eff_gap:+.0f}пп - нужен мониторинг',
+        reasoning=f'{_metric_str}, разрыв {eff_gap:+.1f} пп - нужен мониторинг',
         priority=ACTION_PRIORITY['Watch'],
         confidence=confidence,
     )
