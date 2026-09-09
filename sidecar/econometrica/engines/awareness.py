@@ -67,7 +67,7 @@ def _esov_module(df: 'pd.DataFrame', config: dict) -> dict[str, Any] | None:
         return {
             'available': False,
             'reason': (f'Колонки «{sov_col}»/«{som_col}» не похожи на доли '
-                       f'(значения вне 0–100) — ESOV-анализ пропущен.'),
+                       f'(значения вне 0–100) – ESOV-анализ пропущен.'),
         }
 
     m = min(len(sov_pct), len(som_pct))
@@ -96,7 +96,7 @@ def _esov_module(df: 'pd.DataFrame', config: dict) -> dict[str, Any] | None:
     if m >= 6:
         actual_delta = float(som_a[-1] - som_a[0])
         out['actual_som_delta_pp'] = round(actual_delta, 2)
-        out['note'] = ('Ожидание — отраслевая закономерность (усреднение сотен '
+        out['note'] = ('Ожидание – отраслевая закономерность (усреднение сотен '
                        'кампаний), не гарантия для конкретного бренда: сверяйте '
                        'с фактическим изменением доли.')
     return out

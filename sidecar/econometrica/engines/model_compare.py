@@ -117,7 +117,7 @@ def compare_generations(
         return {
             'status': 'error',
             'error_code': 'NO_MODEL',
-            'message': 'Модель не найдена — обучите модель, история появится после переобучений.',
+            'message': 'Модель не найдена – обучите модель, история появится после переобучений.',
         }
 
     generations = _list_generations(project_dir)
@@ -216,7 +216,7 @@ def compare_generations(
         t = by_contrib[0]
         headline = (
             f'ROI {t["name"]}: был {t["roi_old"]:.1f}{_fmt_ci(t["roi_ci_old"][0], t["roi_ci_old"][1])}, '
-            f'стал {t["roi_new"]:.1f}{_fmt_ci(t["roi_ci_new"][0], t["roi_ci_new"][1])} — {t["verdict_ru"]}.'
+            f'стал {t["roi_new"]:.1f}{_fmt_ci(t["roi_ci_new"][0], t["roi_ci_new"][1])} – {t["verdict_ru"]}.'
         )
 
     probable_causes = []
@@ -358,13 +358,13 @@ def drift_check(
     if not (project_path / 'models' / 'latest.pkl').exists():
         return {
             'status': 'error', 'error_code': 'NO_MODEL',
-            'message': 'Модель не найдена — обучите модель.',
+            'message': 'Модель не найдена – обучите модель.',
         }
     generations = _list_generations(project_dir)
     if not generations:
         return {
             'status': 'insufficient',
-            'message': 'Поколений в архиве нет — дрейф оценивается после первого переобучения.',
+            'message': 'Поколений в архиве нет – дрейф оценивается после первого переобучения.',
         }
     if baseline_ts:
         match = [g for g in generations if g['timestamp'] == baseline_ts]
@@ -385,7 +385,7 @@ def drift_check(
         return {
             'status': 'insufficient',
             'message': (
-                'Не удалось определить окно обучения поколения (нет params-снимка) — '
+                'Не удалось определить окно обучения поколения (нет params-снимка) – '
                 'дрейф недоступен для этого архива.'
             ),
         }
@@ -420,7 +420,7 @@ def drift_check(
         return {
             'status': 'insufficient',
             'message': (
-                f'Свежих точек всего {len(tail)} (нужно ≥ {MIN_TAIL_POINTS}) — '
+                f'Свежих точек всего {len(tail)} (нужно ≥ {MIN_TAIL_POINTS}) – '
                 f'вывод о дрейфе был бы шумом.'
             ),
         }
@@ -485,14 +485,14 @@ def drift_check(
     if drift:
         message = (
             'Пора переобучить: ' + '; '.join(reasons) +
-            '. Запустите обучение на полном ряде — прежняя версия сохранится в архив.'
+            '. Запустите обучение на полном ряде – прежняя версия сохранится в архив.'
         )
     else:
         message = (
             f'Поколение {gen["timestamp"]} держит точность на свежих точках '
             f'(MAPE {mape_tail:.1f}%'
             + (f' при {mape_train:.1f}% на обучении' if mape_train is not None else '')
-            + ') — переобучение не требуется.'
+            + ') – переобучение не требуется.'
         )
 
     return {

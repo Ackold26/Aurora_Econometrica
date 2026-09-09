@@ -632,7 +632,7 @@ def _build_methodology_certificate(
         return {
             'status': 'unavailable',
             'reason': 'Не удалось собрать заверение для этого расчёта. '
-                      'Подробности — в журнале программы.',
+                      'Подробности – в журнале программы.',
             'payload': None,
             'hash': None,
         }

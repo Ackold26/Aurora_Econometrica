@@ -243,7 +243,9 @@ def test_forecast_slide_shifts_after_promises(base_payload, tmp_path):
         bool(builder.promises_summary)
     )
     toc_text = _xml_text(prs)
-    assert f"в том числе «Прогноз на будущий период» — стр. {fc_pg:02d}" in toc_text, (
+    # 09.09.2026: тире в подстроке оглавления переведено на короткое вместе со всем
+    # клиентским текстом колоды.
+    assert f"в том числе «Прогноз на будущий период» – стр. {fc_pg:02d}" in toc_text, (
         "TOC-подстрока про прогноз не учла сдвиг от слайда promises"
     )
 

@@ -614,14 +614,18 @@ class AuroraHTMLBuilder:
         # и золотого — значок рисовался чёрным. Перечень собирается ЯВНО, поэтому каждый
         # новый источник стилей нужно добавлять сюда руками; ловит это проверка
         # «Every <style> block hash present in CSP style-src» в verify_aurora_html_brand.py.
-        _brand_mark_style = re.search(
+        # findall, а не search: в SVG может быть НЕСКОЛЬКО блоков стилей — обычное дело после
+        # пере-экспорта значка из редактора. Хешировался бы только первый, остальные браузер
+        # молча блокировал бы, и значок снова стал бы чёрным. Сегодня блок ровно один, поэтому
+        # дефекта нет — но он появился бы от чужой правки картинки, без единой строки кода.
+        _brand_mark_styles = re.findall(
             r"<style[^>]*>(.*?)</style>", ctx.get("brand_mark_svg", "") or "", re.S)
         style_blocks_as_emitted = (
             f"\n{fonts_css}\n",
             f"\n{tokens_css}\n",
             f"\n{layout_css}\n",
             noscript_css,  # already includes its own leading/trailing whitespace
-        ) + ((_brand_mark_style.group(1),) if _brand_mark_style else ())
+        ) + tuple(_brand_mark_styles)
         script_blocks_as_emitted = (
             f"\n{echarts_js}\n",
             f"\n{tokens_js}\n",

@@ -1385,7 +1385,7 @@ class AuroraPPTXBuilder:
                 # не прочерчивала подпись (находка аудита 2026-07-16).
                 self._text(
                     slide, self.safe + 0.9, y + 0.02, 7.5, 0.25,
-                    f"в том числе «Прогноз на будущий период» — стр. {fc_pg:02d}",
+                    f"в том числе «Прогноз на будущий период» – стр. {fc_pg:02d}",
                     font=self.sans, size=10, color=self.deep_60,
                 )
                 y += 0.32
@@ -3401,7 +3401,7 @@ class AuroraPPTXBuilder:
         _verdict_ru = {
             "reliable": "модель надёжна",
             "uncertain": "требует осторожности",
-            "unreliable": "ненадёжна — выводы ориентировочные",
+            "unreliable": "ненадёжна – выводы ориентировочные",
             # 2026-08-10: для unknown короткой машинной строки здесь больше нет —
             # это состояние ниже разворачивается в полноценную оговорку с причиной
             # и указанием, что делать. Две строки об одном и том же подряд («качество
@@ -3605,7 +3605,7 @@ class AuroraPPTXBuilder:
         win_word = "кварталов" if is_quarter else "окон проверки"
 
         if verdict == "validated" and hit is not None and n_int:
-            title = (f"Проверка на истории: {hit} из {n_int} {win_word} — "
+            title = (f"Проверка на истории: {hit} из {n_int} {win_word} – "
                      f"факт в прогнозном интервале")
         elif verdict == "worse_than_naive":
             title = "Проверка на истории: модель пока не точнее наивного прогноза"
@@ -3633,7 +3633,7 @@ class AuroraPPTXBuilder:
             )
             self._text(
                 slide, left_x, left_y + 1.6, left_w, 0.6,
-                f"{win_word} — фактические продажи попали в 90%-интервал прогноза",
+                f"{win_word} – фактические продажи попали в 90%-интервал прогноза",
                 font=self.sans, size=11, color=self.deep_60, line_spacing=1.2,
             )
         facts_y = left_y + 2.4
@@ -3649,7 +3649,7 @@ class AuroraPPTXBuilder:
             gain = (1 - float(mape_model) / float(mape_naive)) * 100 if mape_model is not None and mape_naive else None
             naive_line = f"Наивный прогноз: {self._mstr(mape_naive, '{:.1f}%')}"
             if gain is not None and gain > 0:
-                naive_line += f" — модель точнее на {gain:.0f}%"
+                naive_line += f" – модель точнее на {gain:.0f}%"
             fact_lines.append((naive_line, {"font": self.sans, "size": 11, "color": self.deep_100}))
         if cov_pp is not None:
             fact_lines.append((
@@ -3727,11 +3727,11 @@ class AuroraPPTXBuilder:
         _mean_only = bt.get("pi_method") == "posterior_hdi_90_mean_only"
         self._text(
             slide, left_x, 6.35, self.w - 2 * self.safe, 0.5,
-            ("Метод: скользящая проверка — модель каждый раз обучается только на прошлом "
+            ("Метод: скользящая проверка – модель каждый раз обучается только на прошлом "
              "и предсказывает следующий период; будущее ей не показывают. "
-             + ("Интервал — 90% по средней прогноза (без шума наблюдения)."
+             + ("Интервал – 90% по средней прогноза (без шума наблюдения)."
                 if _mean_only else
-                "Интервал — 90% предиктивный (неопределённость модели и шум наблюдений).")),
+                "Интервал – 90% предиктивный (неопределённость модели и шум наблюдений).")),
             font=self.sans, size=9, color=self.deep_60, line_spacing=1.25,
         )
         self._footer(slide, 6)
@@ -3829,7 +3829,7 @@ class AuroraPPTXBuilder:
 
         self._text(
             slide, left_x, 6.35, self.w - 2 * self.safe, 0.5,
-            ("Метод: обе версии модели пересчитаны на сегодняшних данных; вердикт — "
+            ("Метод: обе версии модели пересчитаны на сегодняшних данных; вердикт – "
              "по перекрытию интервалов неопределённости (у оценок есть разброс, "
              "сравниваются интервалы, а не голые точки)."),
             font=self.sans, size=9, color=self.deep_60, line_spacing=1.25,

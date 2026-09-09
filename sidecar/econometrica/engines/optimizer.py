@@ -964,10 +964,21 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
     # success=True nit=9 к тому же -14.29. Analyst mode не затронут (money
     # scale там training-horizon, достаточно хорошо обусловлен при n=48).
     #
-    # Фикс: при planning_mode нормализовать внутреннее пространство SLSQP на
-    # money_target. Снаружи всё остаётся в money-axis (result.x денормируется
-    # обратно, r.fun идентичен). Analyst mode (planning_mode=False) — без изменений.
-    _plan_scale = float(money_target) if (planning_mode and money_target > 1.0) else 1.0
+    # Фикс: нормализовать внутреннее пространство SLSQP на money_target.
+    # Снаружи всё остаётся в money-axis (result.x денормируется обратно, r.fun идентичен).
+    #
+    # 09.09.2026: нормировка была включена ТОЛЬКО для planning_mode — комментарий выше
+    # утверждал, что аналитический режим достаточно хорошо обусловлен. Замер показал
+    # обратное: там переменные того же порядка 1e9, и решатель останавливался почти
+    # сразу, объявляя `optimization_converged = True` в неоптимальной точке. Признак
+    # был виден в собственных числах продукта: у двух каналов ВНУТРИ границ предельные
+    # отдачи расходились в 227 раз, тогда как условие оптимума требует их совпадения.
+    # После правки расхождение 5e-8.
+    #
+    # Ограничение при нормировке эквивалентно исходному: Σx = money_target делится на
+    # тот же money_target и даёт Σy = 1 — потому масштаб берётся именно из money_target,
+    # а не из произвольной величины.
+    _plan_scale = float(money_target) if money_target > 1.0 else 1.0
 
     def _safe_minimize_money(x_start: np.ndarray, use_bounds=bounds_money, use_constraints=constraints):
         try:
@@ -994,7 +1005,16 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
                         self.fun = inner.fun  # objective value не зависит от масштаба
                         self.success = inner.success
                         self.message = inner.message
-                        self.nit = inner.nit
+                        # getattr, а не прямое чтение: при полностью зажатых границах
+                        # (нижняя равна верхней у ВСЕХ каналов) scipy возвращает результат вообще
+                        # без поля nit — «All independent variables were fixed by bounds». Прямое
+                        # обращение давало AttributeError, а он не входит в перехват строкой ниже
+                        # и вылетал из optimize() наружу, роняя весь запрос. До того как нормировка
+                        # стала общей, эта ветвь была достижима только в режиме планирования, где
+                        # такая конфигурация отбивается проверкой бюджета раньше, — то есть общая
+                        # нормировка сделала ранее недостижимое падение достижимым у всех клиентов.
+                        # В денежной ветви ниже (строка ~1104) защита стоит с самого начала.
+                        self.nit = getattr(inner, 'nit', 0)
                 return _ScaledResult(raw, _plan_scale)
             else:
                 r = minimize(

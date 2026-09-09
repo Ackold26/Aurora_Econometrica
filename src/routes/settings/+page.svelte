@@ -40,8 +40,16 @@
   function openSite(site) {
     /** @param {MouseEvent} event */
     return (event) => {
+      // preventDefault нужен и для средней кнопки мыши: она шлёт auxclick, а не click, и без
+      // перехвата сработало бы штатное действие ссылки — встроенное окно ушло бы на сайт, а
+      // вернуться из него нечем: полосы навигации и кнопки «назад» в приложении нет.
       event.preventDefault();
-      openUrl(siteUrl(site)).catch(() => {});
+      // Отказ не глушим молча: INV-146 сам называет тихий отказ главной опасностью этого места
+      // (без разрешения opener:allow-open-url ссылка просто ничего не делает, и на глаз это
+      // неотличимо от рабочей). Пишем причину, чтобы она попадала в журнал приложения.
+      openUrl(siteUrl(site)).catch((err) => {
+        console.error(`Не удалось открыть ${siteUrl(site)} в браузере системы:`, err);
+      });
     };
   }
 
@@ -992,9 +1000,9 @@
                ищет, чья это программа. Канон линейки взят из справки (13 страниц,
                `help-econometrica/*.html`): правообладатель – ООО «Платформа Аврора». -->
           <p class="about-text copyright">© 2026 ООО «Платформа Аврора» ·
-            <a class="site-link" href={siteUrl(PRODUCT_SITE)} onclick={openSite(PRODUCT_SITE)}>{PRODUCT_SITE}</a></p>
+            <a class="site-link" href={siteUrl(PRODUCT_SITE)} onclick={openSite(PRODUCT_SITE)} onauxclick={openSite(PRODUCT_SITE)}>{PRODUCT_SITE}</a></p>
           <p class="about-text copyright">{PRODUCT_NAME_FULL} – часть семьи решений Aurora AI ·
-            <a class="site-link" href={siteUrl(UMBRELLA_SITE)} onclick={openSite(UMBRELLA_SITE)}>{UMBRELLA_SITE}</a></p>
+            <a class="site-link" href={siteUrl(UMBRELLA_SITE)} onclick={openSite(UMBRELLA_SITE)} onauxclick={openSite(UMBRELLA_SITE)}>{UMBRELLA_SITE}</a></p>
         </div>
       </div>
     </section>

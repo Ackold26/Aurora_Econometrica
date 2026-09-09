@@ -158,7 +158,10 @@ def test_forecast_missing_money_renders_dash_not_zero(base_payload, tmp_path):
             break
     assert target is not None, "Слайд «Прогноз на будущий период» не найден"
     joined = "\n".join(target)
-    assert "—" in joined, "Прочерк для отсутствующих денег не найден"
+    # 09.09.2026: прочерк переведён на короткое тире вместе со всем клиентским текстом
+    # (правило продукта: «–», не «—»). Проверяем именно прочерк, а не любое тире: тест
+    # обязан краснеть, если вместо прочерка снова появится ложный ноль.
+    assert "–" in joined, "Прочерк для отсутствующих денег не найден"
     # Ложный ноль: отдельно стоящий «0» или «0.00» в ячейках таблицы
     cells = [t.strip() for t in joined.split("\n")]
     assert "0" not in cells and "0.00" not in cells, (

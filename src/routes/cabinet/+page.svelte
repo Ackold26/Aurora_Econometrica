@@ -10,6 +10,18 @@
   import CommandBrief from '$lib/components/CommandBrief.svelte';
   import { productType, activeBrand, isCreativeHub } from '$lib/creative-store.js';
   import { toast } from '$lib/toast.js';
+
+  /** Открыть страницу загрузки Python в браузере системы.
+   * Отдельная функция, потому что перехватывать надо и обычный клик, и средний: средняя кнопка
+   * шлёт auxclick, обработчик click на неё не срабатывает, и встроенное окно ушло бы на сайт
+   * без возможности вернуться. Отказ не глушим молча — пишем причину.
+   * @param {MouseEvent} event */
+  function openPythonDownloads(event) {
+    event.preventDefault();
+    openUrl('https://www.python.org/downloads/').catch((err) => {
+      console.error('Не удалось открыть python.org в браузере системы:', err);
+    });
+  }
   import { endSession, pluralRu, milestones, getCabinetMastery } from '$lib/psy.js';
   import { parseResponseSections, isSlideDeckResponse, isStructuredResponse, splitSlideSections, groupSlidesByBlocks } from '$lib/response-parser.js';
   import ChatPanel from '$lib/components/ChatPanel.svelte';
@@ -451,7 +463,8 @@
                   <a
                     href="https://www.python.org/downloads/"
                     class="dep-btn dep-btn-primary"
-                    onclick={(e) => { e.preventDefault(); openUrl('https://www.python.org/downloads/').catch(() => {}); }}
+                    onclick={(e) => { e.preventDefault(); openPythonDownloads(e); }}
+                    onauxclick={(e) => { e.preventDefault(); openPythonDownloads(e); }}
                   >Скачать Python</a>
                 {:else if depStatus.missing_packages.length > 0}
                   <p class="dep-text">Не установлены пакеты: {depStatus.missing_packages.join(', ')}</p>

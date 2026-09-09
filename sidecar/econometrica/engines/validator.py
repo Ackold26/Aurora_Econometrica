@@ -518,7 +518,7 @@ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, A
         _write_media_plan_unknown(project_dir)
         return {
             'status': 'error',
-            'message': ('Файл пуст — в нём нет данных. Загрузите файл с колонками: '
+            'message': ('Файл пуст – в нём нет данных. Загрузите файл с колонками: '
                         'дата, продажи (KPI) и медиа-каналы.'),
         }
 
@@ -614,7 +614,7 @@ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, A
                 'column': col,
                 'type': 'non_numeric_role',
                 'message': (
-                    f'{col} — столбец текстовый (не парсится в число), не может быть '
+                    f'{col} – столбец текстовый (не парсится в число), не может быть '
                     f'предиктором. Роль снята; при необходимости задайте её вручную.'
                 ),
                 'severity': 'warning',
@@ -638,7 +638,7 @@ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, A
                     'column': col,
                     'type': 'total_budget_as_media',
                     'message': (
-                        f'{col} — похоже на суммарный бюджет, а не отдельный канал '
+                        f'{col} – похоже на суммарный бюджет, а не отдельный канал '
                         f'(после снятия слов «Бюджет / до НДС» имени инструмента не '
                         f'осталось). Как медиа-канал он задвоит вклад и исказит ROI. '
                         f'Роль снята; при необходимости задайте её вручную.'
@@ -882,7 +882,7 @@ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, A
                 'column': '',
                 'type': 'suggest_category',
                 'message': (
-                    'Совет: добавьте столбец «продажи категории/рынка» (в руб. или уп.) — '
+                    'Совет: добавьте столбец «продажи категории/рынка» (в руб. или уп.) – '
                     'модель точнее отделит спрос от вклада рекламы (честнее ROI). '
                     'Особенно полезно для фармы и конкурентных рынков.'
                 ),
@@ -1032,7 +1032,7 @@ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, A
             warnings.append({
                 'type': 'short_period',
                 'message': (
-                    f'{n_rows} наблюдений — мало точек для устойчивой оценки '
+                    f'{n_rows} наблюдений – мало точек для устойчивой оценки '
                     f'(adstock+Hill на канал). Рекомендуем ≥24 периода.'
                 ),
                 'severity': 'warning',

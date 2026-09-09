@@ -549,7 +549,7 @@ def generate_media_plan_template(project_dir: str, n_future_periods: int = 12) -
 
     history_df: "pd.DataFrame" = frames["history_df"]
     if history_df.empty:
-        return {"status": "error", "message": "Исторические данные пусты — нечего продолжать."}
+        return {"status": "error", "message": "Исторические данные пусты – нечего продолжать."}
 
     # Определяем гранулярность по истории
     from utils.forecast_validation import detect_granularity  # SSOT
@@ -711,7 +711,7 @@ def save_planning_manifest(
 
     ids = [str(v) for v in (variant_ids or []) if v is not None and str(v) != '']
     if not ids:
-        return {"status": "error", "message": "variant_ids пуст — нечего сохранять"}
+        return {"status": "error", "message": "variant_ids пуст – нечего сохранять"}
 
     accepted = accepted_variant if accepted_variant in ids else ids[0]
 

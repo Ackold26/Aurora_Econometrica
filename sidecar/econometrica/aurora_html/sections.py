@@ -532,7 +532,11 @@ def render_cover(ctx: dict) -> str:
     # Значение берётся из таблицы строк, а не вписывается литералом: 09.09.2026 здесь
     # стояло английское «Confidential» рядом с русским «КОНФИДЕНЦИАЛЬНО» в шапке —
     # клиентский текст мимо таблицы строк не переводится и расходится молча.
-    classification = strings["sections"]["cover"].get("classification_value", "Конфиденциально")
+    # Запасное значение берётся из той же таблицы строк, а не литералом в коде: литерал — ровно
+    # тот дефект, который здесь и чинили (английское «Confidential» на русской обложке), и на
+    # нерусской таблице он вернул бы русское слово, а все проверки остались бы зелёными.
+    classification = (strings["sections"]["cover"].get("classification_value")
+                      or strings["brand"]["confidentiality"])
     brand_mark = ctx.get("brand_mark_svg") or ""
     # 2026-05-04: gold-accent sigil over h1 - Aurora deliverable brand mark.
     # Wrapped в <div class="cover-brand-mark"> для CSS sizing/positioning.

@@ -72,6 +72,38 @@ def stamp_app_properties(path):
     company = "ООО «Платформа Аврора»"
     tmp = tempfile.mktemp(suffix=".pptx")
     try:
+        with zipfile.ZipFile(path) as zin:
+            # Статистика колоды — считается по самому файлу, а не берётся из шаблона.
+            # 09.09.2026, внешний аудит: после первой правки поля автора и приложения стали
+            # наши, а статистика осталась шаблонной — «Слайдов: 0» и «4:3» в колоде из 13
+            # слайдов формата 16:9. Покупатель видит это в свойствах файла ровно там же, где
+            # раньше видел чужое имя. Чинили подмножество полей, а проверяли то же
+            # подмножество — потому и выглядело закрытым.
+            n_slides = len([n for n in zin.namelist()
+                            if re.match(r"ppt/slides/slide\d+\.xml$", n)])
+            n_notes = len([n for n in zin.namelist()
+                           if re.match(r"ppt/notesSlides/notesSlide\d+\.xml$", n)])
+            n_words = 0
+            n_paras = 0
+            for n in zin.namelist():
+                if not re.match(r"ppt/slides/slide\d+\.xml$", n):
+                    continue
+                body = zin.read(n).decode("utf-8", "replace")
+                n_paras += len(re.findall(r"<a:p[ >]", body))
+                for t in re.findall(r"<a:t>(.*?)</a:t>", body, re.S):
+                    n_words += len(re.sub(r"<[^>]+>", " ", t).split())
+            fmt = "On-screen Show (4:3)"
+            try:
+                pres = zin.read("ppt/presentation.xml").decode("utf-8", "replace")
+                m = re.search(r'<p:sldSz[^>]*cx="(\d+)"[^>]*cy="(\d+)"', pres)
+                if m:
+                    ratio = int(m.group(1)) / int(m.group(2))
+                    fmt = ("On-screen Show (16:9)" if abs(ratio - 16 / 9) < 0.05
+                           else "On-screen Show (4:3)" if abs(ratio - 4 / 3) < 0.05
+                           else "Custom")
+            except KeyError:
+                pass
+
         with zipfile.ZipFile(path) as zin, zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED) as zout:
             for item in zin.infolist():
                 data = zin.read(item.filename)
@@ -82,6 +114,12 @@ def stamp_app_properties(path):
                     x = re.sub(r"<AppVersion>.*?</AppVersion>", "", x)
                     if "<Company>" in x:
                         x = re.sub(r"<Company>.*?</Company>", f"<Company>{company}</Company>", x)
+                    for tag, value in (("Slides", n_slides), ("Notes", n_notes),
+                                       ("Words", n_words), ("Paragraphs", n_paras),
+                                       ("TotalTime", 0)):
+                        x = re.sub(rf"<{tag}>.*?</{tag}>", f"<{tag}>{value}</{tag}>", x)
+                    x = re.sub(r"<PresentationFormat>.*?</PresentationFormat>",
+                               f"<PresentationFormat>{fmt}</PresentationFormat>", x)
                     data = x.encode("utf-8")
                 zout.writestr(item, data)
         shutil.move(tmp, path)

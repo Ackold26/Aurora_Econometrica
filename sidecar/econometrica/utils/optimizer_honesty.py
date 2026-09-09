@@ -140,7 +140,7 @@ def model_reliability_verdict(diagnostics: dict[str, Any]) -> dict[str, Any]:
         return {
             'verdict': 'unknown',
             'refused': False,
-            'reasons': ['Диагностика модели недоступна — надёжность не проверена.'],
+            'reasons': ['Диагностика модели недоступна – надёжность не проверена.'],
             'caveat_text': ('Не удалось проверить надёжность модели (нет диагностики). '
                             'Трактуйте рекомендации осторожно.'),
         }
@@ -157,12 +157,12 @@ def model_reliability_verdict(diagnostics: dict[str, Any]) -> dict[str, Any]:
         return {
             'verdict': 'unknown',
             'refused': False,
-            'reasons': ['Сбой реконструкции прогноза при обучении — метрики '
+            'reasons': ['Сбой реконструкции прогноза при обучении – метрики '
                         'качества (R², MAPE) вычислены от вырожденного прогноза '
                         'и не отражают модель.'],
             'caveat_text': ('Диагностика модели деградировала (сбой реконструкции '
-                            'прогноза) — качество не измерено. Переобучите модель; '
-                            'если повторяется — сообщите в поддержку.'),
+                            'прогноза) – качество не измерено. Переобучите модель; '
+                            'если повторяется – сообщите в поддержку.'),
         }
 
     # OVB-маркер (аудит 2026-06-14): праздники РФ принудительно исключены
@@ -173,7 +173,7 @@ def model_reliability_verdict(diagnostics: dict[str, Any]) -> dict[str, Any]:
     ovb_reason = ('Праздники РФ исключены из модели: если категория сезонна к праздникам, '
                   'вклад медиаканалов может быть смещён (omitted-variable bias). Убедитесь, '
                   'что спрос категории к праздникам нечувствителен.')
-    ovb_caveat = ' Праздники исключены — возможен OVB, если категория сезонна.'
+    ovb_caveat = ' Праздники исключены – возможен OVB, если категория сезонна.'
 
     # ── OLS small-data fallback → НИКОГДА не reliable (аудит 2026-06-14) ────
     # OLS-диагностика (ols_modeler) НЕ содержит checks/mqs/ratio: ни одна ветка ниже
@@ -186,7 +186,7 @@ def model_reliability_verdict(diagnostics: dict[str, Any]) -> dict[str, Any]:
         ratio_ols = (n_obs / n_params) if (n_obs and n_params) else None
         rtxt = f', Ratio {ratio_ols:.1f}:1' if ratio_ols else ''
         reasons = [f'Режим малых данных OLS (n={n_obs}{rtxt}): Hill-параметры фиксированы '
-                   f'(не обучаются), правдоподобные диапазоны частотные — рекомендации '
+                   f'(не обучаются), правдоподобные диапазоны частотные – рекомендации '
                    f'ориентировочные.']
         caveat = ('Режим малых данных (OLS): рекомендации ориентировочные, опирайтесь на '
                   'правдоподобные диапазоны и валидируйте крупные сдвиги лифт-тестом.')
@@ -200,7 +200,7 @@ def model_reliability_verdict(diagnostics: dict[str, Any]) -> dict[str, Any]:
     divergences = int(metrics.get('divergences') or 0)
     ratio = metrics.get('ratio')
     tier = (mqs.get('tier') or '').lower()
-    tier_label = mqs.get('tier_label') or tier or '—'
+    tier_label = mqs.get('tier_label') or tier or '–'
     score = mqs.get('score')
 
     total_draws = _total_draws(metrics)
@@ -216,18 +216,18 @@ def model_reliability_verdict(diagnostics: dict[str, Any]) -> dict[str, Any]:
     bad_div = divergences > div_thresh
     if bad_rhat:
         reasons.append(
-            f'Модель не сошлась (R-hat {r_hat:.3f} ≥ {RHAT_REFUSE_THRESHOLD}) — '
+            f'Модель не сошлась (R-hat {r_hat:.3f} ≥ {RHAT_REFUSE_THRESHOLD}) – '
             f'переброска не строится на несошедшейся модели.')
     if bad_div:
         reasons.append(
-            f'{divergences} дивергенций MCMC (> порога {div_thresh}) — сэмплер не '
+            f'{divergences} дивергенций MCMC (> порога {div_thresh}) – сэмплер не '
             f'исследовал часть пространства параметров; результаты ненадёжны.')
     if bad_rhat or bad_div:
         return {
             'verdict': 'unreliable',
             'refused': True,
             'reasons': reasons,
-            'caveat_text': ('Модель не завершила расчёт корректно — рекомендации по '
+            'caveat_text': ('Модель не завершила расчёт корректно – рекомендации по '
                             'переброске бюджета отключены. Увеличьте число итераций или '
                             'упростите модель и переобучите.'),
         }
@@ -254,7 +254,7 @@ def model_reliability_verdict(diagnostics: dict[str, Any]) -> dict[str, Any]:
         # неопределённость. Формулируем сдержанность, а не «переобучение/поломку».
         ratio_txt = f' (Ratio {ratio}:1 < 4:1)' if ratio is not None else ''
         reasons.append(
-            f'Ограниченные данные{ratio_txt}: модель намеренно сдержана — опирается '
+            f'Ограниченные данные{ratio_txt}: модель намеренно сдержана – опирается '
             f'на априорные отраслевые знания (priors), поэтому точечные оценки '
             f'стянуты к разумному диапазону, а правдоподобные диапазоны широкие. Это '
             f'честное отражение неопределённости, а не ошибка; с ростом массива '
@@ -264,7 +264,7 @@ def model_reliability_verdict(diagnostics: dict[str, Any]) -> dict[str, Any]:
         reasons.append(f'Низкое качество модели{score_txt}, «{tier_label}».')
     if mild_div:
         reasons.append(
-            f'{divergences} дивергенц(ий) MCMC — лёгкая нестабильность сэмплера, '
+            f'{divergences} дивергенц(ий) MCMC – лёгкая нестабильность сэмплера, '
             f'трактуйте рекомендации осторожно.')
     if low_ess:
         _eb = metrics.get('ess_bulk_min')
@@ -279,20 +279,20 @@ def model_reliability_verdict(diagnostics: dict[str, Any]) -> dict[str, Any]:
             _ess_txt = f' ({", ".join(_parts)} < 400)'
         reasons.append(
             f'Эффективный размер выборки MCMC ниже порога 400{_ess_txt} '
-            f'(Vehtari et al. 2021) — цепи перемешаны слабо, при таком ESS сам '
+            f'(Vehtari et al. 2021) – цепи перемешаны слабо, при таком ESS сам '
             f'R-hat ненадёжен; правдоподобные диапазоны ориентировочны.')
     if low_bfmi:
         _bf = metrics.get('bfmi_min')
         _bf_txt = f' {_bf:.2f}' if _bf is not None else ''
         reasons.append(
-            f'E-BFMI{_bf_txt} < 0.3 (эвристика Stan/PyMC) — сэмплер плохо '
+            f'E-BFMI{_bf_txt} < 0.3 (эвристика Stan/PyMC) – сэмплер плохо '
             f'исследует хвосты распределения энергии; результаты менее надёжны '
             f'(обычно лечится non-centered параметризацией).')
     if prior_pred_fail:
         reasons.append(
-            'Prior predictive check: fail — априорные допущения модели дают '
+            'Prior predictive check: fail – априорные допущения модели дают '
             'неправдоподобный диапазон продаж ещё до данных (симуляция из priors); '
-            'оценки могут определяться приором, а не данными — трактуйте '
+            'оценки могут определяться приором, а не данными – трактуйте '
             'рекомендации осторожно.')
     data_uncertain = thin or weak_tier or mild_div or low_ess or low_bfmi or prior_pred_fail
     if data_uncertain or holidays_excluded:
@@ -303,7 +303,7 @@ def model_reliability_verdict(diagnostics: dict[str, Any]) -> dict[str, Any]:
             # праздники исключены). При тонких данных тон по McElreath: модель не
             # «сломана», а сдержана и опирается на priors (диапазоны честно широкие).
             prior_note = (' На ограниченных данных модель опирается на априорные '
-                          'отраслевые знания и сдержана — это снижает риск '
+                          'отраслевые знания и сдержана – это снижает риск '
                           'переобучения.') if thin else ''
             caveat = ('Рекомендации ориентировочные: модель на ограниченных данных. '
                       'Опирайтесь на правдоподобные диапазоны, а не точечные цифры; '
@@ -312,7 +312,7 @@ def model_reliability_verdict(diagnostics: dict[str, Any]) -> dict[str, Any]:
         else:
             # Данных достаточно, но праздники исключены — caveat именно про OVB
             # (не про «ограниченные данные», иначе вводит в заблуждение).
-            caveat = ('Рекомендации ориентировочные: праздники РФ исключены из модели — '
+            caveat = ('Рекомендации ориентировочные: праздники РФ исключены из модели – '
                       'если категория сезонна к праздникам, вклад медиаканалов может быть '
                       'смещён (OVB). Крупные сдвиги бюджета валидируйте лифт-тестом.')
         return {
@@ -394,7 +394,7 @@ def stamp_reliability(diagnostics: dict[str, Any]) -> dict[str, Any]:
         verdict = {
             'verdict': 'unknown',
             'refused': False,
-            'reasons': ['Сбой при вычислении вердикта надёжности — надёжность не проверена.'],
+            'reasons': ['Сбой при вычислении вердикта надёжности – надёжность не проверена.'],
             'caveat_text': ('Не удалось проверить надёжность модели. '
                             'Трактуйте рекомендации осторожно.'),
         }

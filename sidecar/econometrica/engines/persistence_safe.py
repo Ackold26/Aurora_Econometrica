@@ -197,7 +197,7 @@ def _split_arrays(
         if value.dtype == object or value.dtype.kind in ('O', 'V'):
             raise UnsupportedTypeError(
                 f'numpy.ndarray с dtype={value.dtype} (object/structured) не '
-                f'поддерживается — pickle-payload блокируется allow_pickle=False. '
+                f'поддерживается – pickle-payload блокируется allow_pickle=False. '
                 f'Путь {path}. Сконвертируйте в numeric array или list/dict.'
             )
         # Уникальное имя на основе пути. Двоеточия / точки / индексы → подчёркивания.
@@ -232,7 +232,7 @@ def _split_arrays(
     if isinstance(value, (bytes, bytearray)):
         raise UnsupportedTypeError(
             f'bytes/bytearray не поддерживается в этом формате: путь {path}. '
-            'Если нужно — кодируйте в base64 строку явно.'
+            'Если нужно – кодируйте в base64 строку явно.'
         )
 
     if isinstance(value, (set, frozenset)):
@@ -501,7 +501,7 @@ def load_model_safe(path: Path | str) -> dict[str, Any]:
             if actual_data_sha != expected_data_sha:
                 raise CorruptArchiveError(
                     f'sha256_data mismatch: manifest={expected_data_sha[:8]}.., '
-                    f'actual={actual_data_sha[:8]}.. — data.json подменён.'
+                    f'actual={actual_data_sha[:8]}.. – data.json подменён.'
                 )
 
         try:
@@ -520,7 +520,7 @@ def load_model_safe(path: Path | str) -> dict[str, Any]:
                 if actual_arrays_sha != expected_arrays_sha:
                     raise CorruptArchiveError(
                         f'sha256_arrays mismatch: manifest={expected_arrays_sha[:8]}.., '
-                        f'actual={actual_arrays_sha[:8]}.. — arrays.npz подменён.'
+                        f'actual={actual_arrays_sha[:8]}.. – arrays.npz подменён.'
                     )
 
             try:

@@ -393,7 +393,7 @@ def _rolling_verdict(
     if coverage_per_period is not None and coverage_per_period < _COVERAGE_ALERT_THRESHOLD:
         return 'coverage_low', (
             f'Факт попадает в 90%-интервал модели лишь в {coverage_per_period * 100:.0f}% '
-            f'периодов (норма ≈ 90%). Интервалы модели самоуверенны — реальная '
+            f'периодов (норма ≈ 90%). Интервалы модели самоуверенны – реальная '
             f'неопределённость выше заявленной. Точечная точность: MAPE {mape_model:.1f}%.'
         )
     beat = ''
@@ -490,7 +490,7 @@ def run_rolling_backtest(
         return {
             'status': 'error',
             'error_code': 'NO_MODEL',
-            'message': 'Модель не найдена — обучите модель перед проверкой на истории.',
+            'message': 'Модель не найдена – обучите модель перед проверкой на истории.',
         }
 
     from engines.persistence import load_model_with_compat
@@ -551,7 +551,7 @@ def run_rolling_backtest(
         return {
             'status': 'error',
             'error_code': 'NO_DATA',
-            'message': f'В файле данных нет колонки KPI «{kpi_col}» — файл изменился после обучения.',
+            'message': f'В файле данных нет колонки KPI «{kpi_col}» – файл изменился после обучения.',
         }
     missing_media = [c for c in media_cols if c not in df.columns]
     if missing_media:
@@ -559,7 +559,7 @@ def run_rolling_backtest(
             'status': 'error',
             'error_code': 'NO_DATA',
             'message': (
-                f'В файле данных нет медиа-колонок: {", ".join(missing_media)} — '
+                f'В файле данных нет медиа-колонок: {", ".join(missing_media)} – '
                 f'файл изменился после обучения.'
             ),
         }
@@ -577,10 +577,10 @@ def run_rolling_backtest(
         else:
             granularity_note = (
                 f'Гранулярность данных определена неуверенно '
-                f'(confidence {g["confidence"]:.2f}) — принят месячный шаг.'
+                f'(confidence {g["confidence"]:.2f}) – принят месячный шаг.'
             )
     else:
-        granularity_note = f'Колонка дат «{date_col}» не найдена — принят месячный шаг.'
+        granularity_note = f'Колонка дат «{date_col}» не найдена – принят месячный шаг.'
 
     h = int(horizon_periods) if horizon_periods else _H_QUARTER_BY_GRANULARITY[granularity]
     season = _SEASON_BY_GRANULARITY.get(granularity, 0)
@@ -593,7 +593,7 @@ def run_rolling_backtest(
             'message': (
                 f'Истории недостаточно для проверки: наблюдений {n_obs}, '
                 f'окно прогноза {h}, минимум обучения {min_train} → окон {n_possible} '
-                f'(нужно ≥ {_MIN_WINDOWS}). Соберите больше истории — проверка '
+                f'(нужно ≥ {_MIN_WINDOWS}). Соберите больше истории – проверка '
                 f'станет доступна автоматически.'
             ),
             'n_obs': n_obs,
@@ -638,7 +638,7 @@ def run_rolling_backtest(
 
     for (test_start, test_end) in windows:
         window_label = (
-            f'{date_labels[test_start]} — {date_labels[test_end - 1]}'
+            f'{date_labels[test_start]} – {date_labels[test_end - 1]}'
             if date_labels else f'периоды {test_start + 1}–{test_end}'
         )
         train_df = df.iloc[:test_start].copy()
@@ -838,7 +838,7 @@ def run_rolling_backtest(
             'error_code': 'ALL_WINDOWS_FAILED',
             'message': (
                 'Ни одно окно проверки не удалось обучить/спрогнозировать. '
-                'Подробности по окнам — в failed_windows.'
+                'Подробности по окнам – в failed_windows.'
             ),
             'failed_windows': failed_windows,
         }
@@ -847,7 +847,7 @@ def run_rolling_backtest(
             'status': 'insufficient',
             'message': (
                 f'Удалось проверить только {len(window_results)} окна(о) из '
-                f'{n_possible} (нужно ≥ {_MIN_WINDOWS}) — часть окон завершилась '
+                f'{n_possible} (нужно ≥ {_MIN_WINDOWS}) – часть окон завершилась '
                 f'ошибкой. Проверка на истории неубедительна.'
             ),
             'n_windows_possible': n_possible,

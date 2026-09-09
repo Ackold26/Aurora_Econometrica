@@ -104,14 +104,14 @@ def create_promise(
     if not action_text or not str(action_text).strip():
         return {
             'status': 'error', 'error_code': 'EMPTY_ACTION',
-            'message': 'Обещание без действия не имеет смысла — опишите рекомендацию.',
+            'message': 'Обещание без действия не имеет смысла – опишите рекомендацию.',
         }
     n_obs = _current_n_obs(project_dir)
     if n_obs is None:
         return {
             'status': 'error', 'error_code': 'NO_DATA',
             'message': (
-                'Не удалось прочитать данные проекта — обещание нельзя привязать '
+                'Не удалось прочитать данные проекта – обещание нельзя привязать '
                 'к точке отсчёта. Проверьте файл данных.'
             ),
         }
@@ -166,7 +166,7 @@ def check_promises(project_dir: str) -> dict[str, Any]:
     if not model_path.exists():
         return {
             'status': 'error', 'error_code': 'NO_MODEL',
-            'message': 'Модель не найдена — сверка обещаний требует проект с данными.',
+            'message': 'Модель не найдена – сверка обещаний требует проект с данными.',
         }
     model = load_model_with_compat(model_path)
     config = model['config']
@@ -187,7 +187,7 @@ def check_promises(project_dir: str) -> dict[str, Any]:
     if kpi_col not in df.columns:
         return {
             'status': 'error', 'error_code': 'NO_DATA',
-            'message': f'В данных нет колонки KPI «{kpi_col}» — сверка невозможна.',
+            'message': f'В данных нет колонки KPI «{kpi_col}» – сверка невозможна.',
         }
     y = df[kpi_col].fillna(0).to_numpy(dtype=float)
 
@@ -203,7 +203,7 @@ def check_promises(project_dir: str) -> dict[str, Any]:
             p['status'] = 'pending'
             p['status_ru'] = _STATUS_RU['pending']
             p['verdict_note'] = (
-                f'Свежих периодов {len(fresh)} из {horizon} — обновите данные, '
+                f'Свежих периодов {len(fresh)} из {horizon} – обновите данные, '
                 f'и продукт сверит обещание сам.'
             )
             continue
@@ -217,7 +217,7 @@ def check_promises(project_dir: str) -> dict[str, Any]:
             p['status'] = 'inconclusive'
             p['status_ru'] = _STATUS_RU['inconclusive']
             p['verdict_note'] = (
-                'У ожидания не было интервала — точечная сверка неубедительна.'
+                'У ожидания не было интервала – точечная сверка неубедительна.'
             )
             continue
         if float(lo) <= actual <= float(hi):
@@ -233,7 +233,7 @@ def check_promises(project_dir: str) -> dict[str, Any]:
             p['verdict_note'] = (
                 f'Факт {actual:,.0f} вне обещанного интервала '
                 f'[{float(lo):,.0f} – {float(hi):,.0f}]. Это сверка прогноза, '
-                f'не каузальный вывод: на KPI могли влиять внешние факторы — '
+                f'не каузальный вывод: на KPI могли влиять внешние факторы – '
                 f'разберите период с аналитиком.'
             ).replace(',', ' ')
     _save(project_dir, promises)

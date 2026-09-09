@@ -115,11 +115,21 @@ def build_pptx(
         prs.save(str(final_path))
         # INV-147: поле «Приложение» живёт в app.xml, до него python-pptx не достаёт —
         # переписываем в готовом файле, иначе у клиента остаётся «Microsoft Macintosh PowerPoint».
+        # Файл к этому моменту уже сохранён и годен. Если штамп не удался (нет доступа к
+        # временной папке, файл держит антивирус), выгрузку рушить нельзя: снаружи это выглядело
+        # бы как «ошибка выгрузки» при существующем на диске файле, а повторная попытка создала
+        # бы «имя (2).pptx». Поэтому отказ штампа — громкое предупреждение, а не отказ выгрузки.
         try:
-            from econometrica.aurora_pptx import stamp_app_properties
-        except ImportError:
-            from aurora_pptx import stamp_app_properties
-        stamp_app_properties(str(final_path))
+            try:
+                from econometrica.aurora_pptx import stamp_app_properties
+            except ImportError:
+                from aurora_pptx import stamp_app_properties
+            stamp_app_properties(str(final_path))
+        except Exception as _stamp_err:
+            logger.warning(
+                f"build_pptx: свойства файла не переписаны ({_stamp_err}); "
+                f"колода сохранена и пригодна, но поле «Приложение» осталось шаблонным"
+            )
         slides_count = len(prs.slides)
         logger.info(f"build_pptx OK: slides={slides_count} path={final_path}")
         return {

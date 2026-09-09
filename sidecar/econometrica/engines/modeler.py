@@ -2068,7 +2068,7 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
             # отсутствие пакета = повреждённая установка. Действие для клиента —
             # переустановка; техническая деталь остаётся для поддержки/dev.
             'message': (
-                f'Вычислительный модуль повреждён — не хватает компонента ({e}). '
+                f'Вычислительный модуль повреждён – не хватает компонента ({e}). '
                 f'Переустановите программу. Для разработчика: pip install pymc pymc-marketing.'
             ),
             'error_code': 'IMPORT_ERROR',
@@ -2088,7 +2088,7 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
             'status': 'error',
             'message': (
                 f'Ошибка обучения модели: {msg[:300]}. '
-                f'Повторите обучение; если повторится — уменьшите число каналов '
+                f'Повторите обучение; если повторится – уменьшите число каналов '
                 f'или попробуйте режим OLS (меньше требований к данным).'
             ),
             'error_code': 'RUNTIME_ERROR',
@@ -2110,7 +2110,7 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
             'status': 'error',
             'message': (
                 f'Ошибка обучения модели: {msg[:300]}. '
-                f'Повторите обучение; если повторится — обратитесь в поддержку '
+                f'Повторите обучение; если повторится – обратитесь в поддержку '
                 f'с кодом ATTRIBUTE_ERROR.'
             ),
             'error_code': 'ATTRIBUTE_ERROR',
@@ -2121,7 +2121,7 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
             'status': 'error',
             'message': (
                 f'Ошибка обучения модели: {str(e)[:300]}. '
-                f'Повторите обучение; если повторится — проверьте данные на шаге '
+                f'Повторите обучение; если повторится – проверьте данные на шаге '
                 f'«Валидация» или обратитесь в поддержку с кодом UNKNOWN_ERROR.'
             ),
             'error_code': 'UNKNOWN_ERROR',

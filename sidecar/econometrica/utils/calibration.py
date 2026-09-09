@@ -60,12 +60,12 @@ def prepare_calibrations(
         return []
     if date_column not in df.columns:
         raise CalibrationError(
-            f'Для калибровки нужна колонка дат «{date_column}» — в данных её нет.'
+            f'Для калибровки нужна колонка дат «{date_column}» – в данных её нет.'
         )
     dates = pd.to_datetime(df[date_column], errors='coerce')
     if dates.isna().all():
         raise CalibrationError(
-            f'Колонка дат «{date_column}» не распознаётся как даты — '
+            f'Колонка дат «{date_column}» не распознаётся как даты – '
             f'калибровка по периоду теста невозможна.'
         )
 
@@ -83,20 +83,20 @@ def prepare_calibrations(
         except (ValueError, TypeError) as exc:
             raise CalibrationError(
                 f'Калибровка №{i} ({ch}): даты периода теста не распознаны '
-                f'({c.get("date_from")!r} — {c.get("date_to")!r}).'
+                f'({c.get("date_from")!r} – {c.get("date_to")!r}).'
             ) from exc
         if pd.isna(d_from) or pd.isna(d_to) or d_to < d_from:
             raise CalibrationError(
                 f'Калибровка №{i} ({ch}): период теста задан неверно '
-                f'({c.get("date_from")!r} — {c.get("date_to")!r}).'
+                f'({c.get("date_from")!r} – {c.get("date_to")!r}).'
             )
         mask = (dates >= d_from) & (dates <= d_to)
         idx = np.flatnonzero(mask.to_numpy())
         if idx.size < MIN_TEST_PERIODS:
             raise CalibrationError(
                 f'Калибровка №{i} ({ch}): в период теста попадает {idx.size} '
-                f'наблюдений (нужно ≥ {MIN_TEST_PERIODS}). Проверьте даты — '
-                f'обучающие данные покрывают {dates.min().date()} — {dates.max().date()}.'
+                f'наблюдений (нужно ≥ {MIN_TEST_PERIODS}). Проверьте даты – '
+                f'обучающие данные покрывают {dates.min().date()} – {dates.max().date()}.'
             )
         idx_from, idx_to = int(idx[0]), int(idx[-1]) + 1
         if int(idx.size) != idx_to - idx_from:
@@ -107,7 +107,7 @@ def prepare_calibrations(
         spend = df[ch].iloc[idx_from:idx_to].fillna(0).to_numpy(dtype=float)
         if not np.any(spend > 0):
             raise CalibrationError(
-                f'Калибровка №{i} ({ch}): в период теста у канала нет затрат — '
+                f'Калибровка №{i} ({ch}): в период теста у канала нет затрат – '
                 f'измеренный lift не с чем связывать.'
             )
 
