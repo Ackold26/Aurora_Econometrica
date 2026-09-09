@@ -233,8 +233,13 @@ def main() -> int:
     # ─── Em dash (user-visible content only) ─────────────────
     # Exclude bundled ECharts Chinese i18n strings (third-party)
     # Heuristic: find em dashes NOT surrounded by CJK characters
+    # 09.09.2026: здесь стоял обычный дефис вместо длинного тире, поэтому проверка
+    # считала все дефисы подряд (CSS, атрибуты, base64) и не могла стать зелёной НИ НА
+    # КАКОМ документе — 4863 «находки» на корректном отчёте. Проверка, неспособная дать
+    # положительный ответ, бесполезна ровно так же, как неспособная дать отрицательный:
+    # на её сигнал перестают смотреть. Символ ниже — длинное тире U+2014.
     non_cjk_em_dashes = 0
-    for m in re.finditer(r'.{2}-.{2}', html):
+    for m in re.finditer(r'.{2}—.{2}', html):
         ctx = m.group()
         # Count only if surrounding is not CJK (U+4E00-U+9FFF)
         if not any(0x4E00 <= ord(c) <= 0x9FFF for c in ctx):
