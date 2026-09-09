@@ -29,6 +29,19 @@ sys.path.insert(0, str(SIDECAR))
 sys.path.insert(0, str(SIDECAR / "econometrica"))
 
 
+def _expected_confidentiality() -> str:
+    """Метка конфиденциальности — из той же таблицы строк, что и у сборщика отчёта.
+
+    Сборщик берёт её из strings["brand"]["confidentiality"] (aurora_html/builder.py),
+    поэтому и проверка обязана брать оттуда же. Жёстко вписанное сюда значение
+    разъезжается с таблицей при первом же переводе и красит корректный отчёт:
+    ровно это случилось 09.09.2026, когда строку перевели в «КОНФИДЕНЦИАЛЬНО».
+    """
+    import json
+    p = SIDECAR / "econometrica" / "aurora_html" / "strings_ru.json"
+    return json.loads(p.read_text(encoding="utf-8"))["brand"]["confidentiality"]
+
+
 def _check(label: str, cond: bool, detail: str = "") -> bool:
     tag = "[OK]  " if cond else "[FAIL]"
     line = f"{tag} {label}"
@@ -208,8 +221,9 @@ def main() -> int:
                           'property="og:title"' in html))
     results.append(_check("Methodology badge link",
                           '#method' in html))
+    _conf = _expected_confidentiality()
     results.append(_check("Confidentiality watermark",
-                          "CONFIDENTIAL" in html))
+                          _conf in html, _conf))
 
     # ─── Size budget ─────────────────────────────────────────
     size_kb = len(html) / 1024
