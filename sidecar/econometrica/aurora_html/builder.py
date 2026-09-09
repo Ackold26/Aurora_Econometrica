@@ -607,12 +607,21 @@ class AuroraHTMLBuilder:
         #    form, not the raw substitution value. Static noscript block is
         #    also read from shell.html exactly as written (incl. indentation).
         noscript_css = _extract_noscript_style()
+        # 09.09.2026: фирменный значок обложки несёт СВОЙ <style> внутри SVG и вставляется
+        # отдельным путём — как разметка, а не как стиль, поэтому в перечень ниже он не
+        # попадал. Его хеша в политике безопасности не было, и браузер блокировал блок
+        # целиком: замер на живой странице давал .st0 и .st1 = rgb(0,0,0) вместо тёмно-синего
+        # и золотого — значок рисовался чёрным. Перечень собирается ЯВНО, поэтому каждый
+        # новый источник стилей нужно добавлять сюда руками; ловит это проверка
+        # «Every <style> block hash present in CSP style-src» в verify_aurora_html_brand.py.
+        _brand_mark_style = re.search(
+            r"<style[^>]*>(.*?)</style>", ctx.get("brand_mark_svg", "") or "", re.S)
         style_blocks_as_emitted = (
             f"\n{fonts_css}\n",
             f"\n{tokens_css}\n",
             f"\n{layout_css}\n",
             noscript_css,  # already includes its own leading/trailing whitespace
-        )
+        ) + ((_brand_mark_style.group(1),) if _brand_mark_style else ())
         script_blocks_as_emitted = (
             f"\n{echarts_js}\n",
             f"\n{tokens_js}\n",

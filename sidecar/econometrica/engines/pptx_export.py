@@ -113,6 +113,13 @@ def build_pptx(
                 f"build_pptx: {output_path} уже существует, сохраняю как {final_path}"
             )
         prs.save(str(final_path))
+        # INV-147: поле «Приложение» живёт в app.xml, до него python-pptx не достаёт —
+        # переписываем в готовом файле, иначе у клиента остаётся «Microsoft Macintosh PowerPoint».
+        try:
+            from econometrica.aurora_pptx import stamp_app_properties
+        except ImportError:
+            from aurora_pptx import stamp_app_properties
+        stamp_app_properties(str(final_path))
         slides_count = len(prs.slides)
         logger.info(f"build_pptx OK: slides={slides_count} path={final_path}")
         return {

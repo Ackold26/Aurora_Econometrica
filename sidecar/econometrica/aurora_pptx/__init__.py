@@ -50,4 +50,74 @@ def build_pptx(data=None, lang: str = "ru"):
     """
     from .builder import AuroraPPTXBuilder
     builder = AuroraPPTXBuilder(data=data, lang=lang)
-    return builder.build()
+    prs = builder.build()
+    _stamp_properties(prs, data)
+    return prs
+
+
+def stamp_app_properties(path):
+    """Переписать docProps/app.xml в ГОТОВОМ файле (INV-147, вторая половина).
+
+    До свойств документа (`core.xml`) добирается python-pptx, а до поля «Приложение» — нет:
+    оно живёт в app.xml и остаётся шаблонным. Замер 09.09.2026 после починки core.xml:
+    автор и дата уже наши, а Application по-прежнему «Microsoft Macintosh PowerPoint».
+    Поэтому второй проход — по собранному файлу, перед тем как отдать его человеку.
+
+    Правило шире правки: проверять надо ВЕСЬ список полей из инварианта, а не то
+    подмножество, которое чинил. Первый замер читал только исправленные поля и выглядел
+    зелёным.
+    """
+    import re, shutil, tempfile, zipfile, os
+
+    company = "ООО «Платформа Аврора»"
+    tmp = tempfile.mktemp(suffix=".pptx")
+    try:
+        with zipfile.ZipFile(path) as zin, zipfile.ZipFile(tmp, "w", zipfile.ZIP_DEFLATED) as zout:
+            for item in zin.infolist():
+                data = zin.read(item.filename)
+                if item.filename == "docProps/app.xml":
+                    x = data.decode("utf-8", "replace")
+                    x = re.sub(r"<Application>.*?</Application>",
+                               "<Application>Aurora AI Econometrica</Application>", x)
+                    x = re.sub(r"<AppVersion>.*?</AppVersion>", "", x)
+                    if "<Company>" in x:
+                        x = re.sub(r"<Company>.*?</Company>", f"<Company>{company}</Company>", x)
+                    data = x.encode("utf-8")
+                zout.writestr(item, data)
+        shutil.move(tmp, path)
+    finally:
+        if os.path.exists(tmp):
+            os.remove(tmp)
+
+
+def _stamp_properties(prs, data=None):
+    """Подписать колоду нашими свойствами (INV-147).
+
+    python-pptx подписывает документ СОБОЙ, если этого не сделать: замер выгрузки 09.09.2026
+    показал «изменил: Steve Canny» (автор библиотеки), дату создания 27.01.2013 и приложение
+    «Microsoft Macintosh PowerPoint». Покупатель, открывший свойства файла, видит чужое имя и
+    дату тринадцатилетней давности в документе от нашей компании.
+
+    Грепом по своим строкам это не находится никогда — текст кладёт не наш код; проверять
+    только на СОБРАННОМ файле (`docProps/core.xml`).
+    """
+    from datetime import datetime, timezone
+
+    company = "ООО «Платформа Аврора»"
+    client = ""
+    if isinstance(data, dict):
+        client = str(data.get("client") or data.get("brand") or "").strip()
+
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    cp = prs.core_properties
+    cp.author = company
+    cp.last_modified_by = company
+    cp.title = f"Отчёт по модели медиамикса{f' – {client}' if client else ''}"
+    cp.subject = "Моделирование медиамикса"
+    cp.category = "Конфиденциально"
+    cp.comments = ""
+    cp.keywords = ""
+    cp.language = "ru-RU"
+    cp.created = now
+    cp.modified = now
+    cp.revision = 1

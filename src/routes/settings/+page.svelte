@@ -1,6 +1,7 @@
 <script>
   import { invoke } from '@tauri-apps/api/core';
   import { open } from '@tauri-apps/plugin-dialog';
+  import { openUrl } from '@tauri-apps/plugin-opener';
   import { theme, toggleTheme, cloudConsent, cloudConsentPromptOpen } from '$lib/store.js';
   import { productType } from '$lib/creative-store.js';
   import { getProductName, filterCabinetsByProduct } from '$lib/command-meta.js';
@@ -17,6 +18,32 @@
   import { onboardingEnabled } from '$lib/onboarding-state.js';
   import { hideEducationalHints, showGlossaryPanel, showIntroTutorial } from '$lib/project-state.js';
   import { resolveLicenseTier } from '$lib/license-display.js';
+
+  // INV-146: домен в местах для человека — читаемым регистром; машинный адрес ВЫВОДИТСЯ
+  // из него приведением к строчным, а не хранится второй строкой рядом. Две строки-константы
+  // расходятся молча: одну поправили, вторую забыли — человек видит один адрес, ссылка ведёт
+  // на другой. Собранная поставка не должна содержать строчного написания вовсе.
+  // Полное клиентское имя программы. Ни один источник его не содержит целиком: в пакете
+  // лежит «Aurora AI Econometrica» (семейство), в конфигурации сборки — «Optimizer MMM»
+  // (техническое имя поставки). На экране «о программе» человек должен видеть, чем именно
+  // он пользуется, поэтому имя собрано здесь явно.
+  const PRODUCT_NAME_FULL = 'Aurora AI Econometrica – MMM Optimizer';
+  const PRODUCT_SITE = 'MMM-Optimizer.pro';
+  const UMBRELLA_SITE = 'AuroraAi.pro';
+  /** @param {string} site @returns {string} */
+  const siteUrl = (site) => `https://${site.toLowerCase()}`;
+
+  // INV-146, часть 3: target="_blank" в настольной программе ссылку не открывает — либо пустое
+  // окно, либо уход из программы без возврата. Открываем системным способом; адрес в разметке
+  // остаётся настоящим, чтобы работали доступность и «копировать адрес» в правом клике.
+  /** @param {string} site */
+  function openSite(site) {
+    /** @param {MouseEvent} event */
+    return (event) => {
+      event.preventDefault();
+      openUrl(siteUrl(site)).catch(() => {});
+    };
+  }
 
   forgetAudioPreference();
 
@@ -958,13 +985,16 @@
       <div class="app-info">
         <img src="/logo-full.png" alt="" class="app-info-logo" />
         <div>
-          <span class="app-info-name">{getProductName($productType)}</span>
+          <span class="app-info-name">{PRODUCT_NAME_FULL}</span>
           <span class="app-info-version">v{APP_VERSION}</span>
           <!-- CPD-09: до 17.08 здесь стояло «© 2026 А. Сипович · www.sipovich.pro» –
                имя частного лица и посторонний адрес на единственном экране, где клиент
                ищет, чья это программа. Канон линейки взят из справки (13 страниц,
                `help-econometrica/*.html`): правообладатель – ООО «Платформа Аврора». -->
-          <p class="about-text copyright">© 2026 ООО «Платформа Аврора» · auroraai.pro</p>
+          <p class="about-text copyright">© 2026 ООО «Платформа Аврора» ·
+            <a class="site-link" href={siteUrl(PRODUCT_SITE)} onclick={openSite(PRODUCT_SITE)}>{PRODUCT_SITE}</a></p>
+          <p class="about-text copyright">{PRODUCT_NAME_FULL} – часть семьи решений Aurora AI ·
+            <a class="site-link" href={siteUrl(UMBRELLA_SITE)} onclick={openSite(UMBRELLA_SITE)}>{UMBRELLA_SITE}</a></p>
         </div>
       </div>
     </section>
@@ -1030,7 +1060,10 @@
   .content {
     flex: 1;
     overflow-y: auto;
-    padding: 32px 28px;
+    /* 09.09.2026: нижний отступ увеличен с 32 до 72 px. Карточка «о программе» получила
+       вторую строку (INV-146), и на невысоком окне она обрезалась нижней границей —
+       прокрутка доходила до предела раньше, чем текст помещался целиком. */
+    padding: 32px 28px 72px;
     max-width: 580px;
   }
 
@@ -1520,6 +1553,22 @@
     background: var(--hover-bg);
     padding: 1px 6px;
     border-radius: 4px;
+  }
+
+  /* Ссылка подчёркнута постоянно: на этом экране адрес — единственный элемент, по
+     которому можно нажать, и без подчёркивания он неотличим от обычного текста. */
+  .site-link {
+    color: inherit;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+    text-decoration-thickness: 1px;
+    cursor: pointer;
+  }
+
+  .site-link:hover,
+  .site-link:focus-visible {
+    color: var(--text-primary);
+    text-decoration-thickness: 2px;
   }
 
   .about-text.copyright {

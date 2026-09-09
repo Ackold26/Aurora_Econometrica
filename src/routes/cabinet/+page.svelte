@@ -1,5 +1,6 @@
 <script>
   import { invoke } from '@tauri-apps/api/core';
+  import { openUrl } from '@tauri-apps/plugin-opener';
   import { goto } from '$app/navigation';
   import { onMount } from 'svelte';
   import { activeCabinet, messages, isLoading, pendingCommand, lastCabinetId, recordRecentCommand, cabinetOnboarding, theme, toggleTheme, inboxFiles, cloudConsent, cloudConsentPromptOpen } from '$lib/store.js';
@@ -443,7 +444,15 @@
               <div class="dep-banner">
                 {#if !depStatus.python_available}
                   <p class="dep-text">Для работы с PPTX-презентациями необходим Python 3</p>
-                  <a href="https://www.python.org/downloads/" target="_blank" rel="noopener" class="dep-btn dep-btn-primary">Скачать Python</a>
+                  <!-- INV-146, часть 3: target="_blank" в настольной программе ссылку не
+                       открывает — встроенное окно браузером не является. Открываем системным
+                       способом, адрес в разметке оставлен настоящим (доступность, «копировать
+                       адрес» в правом клике). -->
+                  <a
+                    href="https://www.python.org/downloads/"
+                    class="dep-btn dep-btn-primary"
+                    onclick={(e) => { e.preventDefault(); openUrl('https://www.python.org/downloads/').catch(() => {}); }}
+                  >Скачать Python</a>
                 {:else if depStatus.missing_packages.length > 0}
                   <p class="dep-text">Не установлены пакеты: {depStatus.missing_packages.join(', ')}</p>
                   <button class="dep-btn dep-btn-primary" onclick={installDeps} disabled={depInstalling}>

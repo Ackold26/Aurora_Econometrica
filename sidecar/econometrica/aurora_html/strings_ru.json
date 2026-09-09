@@ -15,7 +15,8 @@
   "sections": {
     "cover": {
       "label": "Обложка",
-      "kicker": "ОТЧЁТ ПО МОДЕЛИ МЕДИАМИКСА"
+      "kicker": "ОТЧЁТ ПО МОДЕЛИ МЕДИАМИКСА",
+      "classification_value": "Конфиденциально"
     },
     "summary": {
       "label": "Резюме",

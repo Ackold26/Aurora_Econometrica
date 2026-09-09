@@ -330,7 +330,7 @@ def model_reliability_verdict(diagnostics: dict[str, Any]) -> dict[str, Any]:
         return {
             'verdict': 'unknown',
             'refused': False,
-            'reasons': ['Диагностика модели неполна — надёжность не подтверждена.'],
+            'reasons': ['Диагностика модели неполна – надёжность не подтверждена.'],
             'caveat_text': ('Не удалось подтвердить надёжность модели (неполная '
                             'диагностика). Трактуйте рекомендации осторожно.'),
         }

@@ -529,6 +529,10 @@ def render_cover(ctx: dict) -> str:
     period = meta.get("report_date") or ""
     version = meta.get("version") or ""
     kicker = strings["sections"]["cover"]["kicker"]
+    # Значение берётся из таблицы строк, а не вписывается литералом: 09.09.2026 здесь
+    # стояло английское «Confidential» рядом с русским «КОНФИДЕНЦИАЛЬНО» в шапке —
+    # клиентский текст мимо таблицы строк не переводится и расходится молча.
+    classification = strings["sections"]["cover"].get("classification_value", "Конфиденциально")
     brand_mark = ctx.get("brand_mark_svg") or ""
     # 2026-05-04: gold-accent sigil over h1 - Aurora deliverable brand mark.
     # Wrapped в <div class="cover-brand-mark"> для CSS sizing/positioning.
@@ -554,7 +558,7 @@ def render_cover(ctx: dict) -> str:
     </div>
     <div class="cover-meta-cell">
       <dt class="cover-meta-label">Классификация</dt>
-      <dd class="cover-meta-value">Confidential</dd>
+      <dd class="cover-meta-value">{escape(classification)}</dd>
     </div>
   </dl>
 </div>"""
