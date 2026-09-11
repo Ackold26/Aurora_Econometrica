@@ -28,19 +28,25 @@ const DEFAULT_K: u8 = 4;
 /// `http://` только на loopback (SSH-туннель до узла Б); всё внешнее — только
 /// `https://`. Иначе развёртывание с прямым http-адресом узла Б отдало бы
 /// секрет и вопросы пользователя в открытом виде.
+///
+/// 🔴 Адрес разбирается тем же разборщиком, что и у клиента, который по нему пойдёт
+/// (`reqwest::Url`, стандарт WHATWG), а не нарезкой строки. Нарезка до первого `:` видела в
+/// `http://localhost:80@evil.example/` хост `localhost`, тогда как настоящий хост —
+/// `evil.example`: секрет и вопрос ушли бы открытым http на чужую машину (находка
+/// проверяющего-противника 11.09.2026). Имя и пароль в адресе отвергаются вовсе.
 fn validate_rag_url(base_url: &str) -> Result<(), String> {
     let lower = base_url.trim().to_ascii_lowercase();
     if lower.starts_with("https://") {
         return Ok(());
     }
-    if let Some(rest) = lower.strip_prefix("http://") {
-        let host_port = rest.split(['/', '?', '#']).next().unwrap_or("");
-        let host = if host_port.starts_with('[') {
-            host_port.split(']').next().map(|h| &h[1..]).unwrap_or("")
-        } else {
-            host_port.split(':').next().unwrap_or("")
-        };
-        if host == "127.0.0.1" || host == "localhost" || host == "::1" {
+    if lower.starts_with("http://") {
+        let parsed = reqwest::Url::parse(base_url.trim()).map_err(|e| {
+            format!("[RAG-URL] Адрес библиотеки «{base_url}» не разбирается: {e}")
+        })?;
+        let no_credentials = parsed.username().is_empty() && parsed.password().is_none();
+        // Разборщик нормализует хост сам: IPv4 — в точечную запись, IPv6 — в скобках.
+        let loopback = matches!(parsed.host_str(), Some("localhost" | "127.0.0.1" | "[::1]"));
+        if no_credentials && loopback {
             return Ok(());
         }
         return Err(format!(
@@ -175,6 +181,21 @@ mod tests {
         assert!(validate_rag_url("http://evil.example.com/search").is_err());
         // localhost-похожий, но внешний хост не проходит по префиксу
         assert!(validate_rag_url("http://localhost.evil.com:8801").is_err());
+    }
+
+    /// Имя пользователя в адресе прячет настоящий хост: по стандарту WHATWG хост здесь —
+    /// `evil.example`, а нарезка строки до первого `:` видела `localhost`.
+    #[test]
+    fn userinfo_does_not_disguise_a_foreign_host_as_loopback() {
+        for url in [
+            "http://localhost:80@evil.example/search",
+            "http://[::1]@evil.example/x",
+            "http://127.0.0.1@evil.example",
+            "http://user:pass@127.0.0.1:8801",
+        ] {
+            assert!(validate_rag_url(url).is_err(), "обязан быть отвергнут: {url}");
+        }
+        assert!(validate_rag_url("http://[::1]:8801/").is_ok(), "IPv6-петля — своя машина");
     }
 
     #[test]

@@ -2478,6 +2478,8 @@ fn get_cloud_consent_status(app_handle: tauri::AppHandle) -> Result<serde_json::
     // уходят на наш сервер, хотя согласия ещё никто не давал (внешний аудит 11.09.2026).
     // Одно вычисление на продукт — одно утверждение о маршруте данных.
     let route = commands::execution_mode::route_state(&app_handle);
+    let (route_notice_pending, route_changed_notice) =
+        commands::execution_mode::route_notice_for(&config_dir, &route);
     Ok(serde_json::json!({
         "cloud_advisors_enabled": claude::CLOUD_ADVISORS_ENABLED,
         "consent_required": user_config::cloud_consent_required(&config_dir),
@@ -2493,8 +2495,8 @@ fn get_cloud_consent_status(app_handle: tauri::AppHandle) -> Result<serde_json::
         // Claude Code. Снимается командой `dismiss_route_notice` после показа. Текст —
         // по фактическому положению из того же вычисления, что и подпись: у кого согласие
         // отозвано или устарело, тот после переноса слева (внешний аудит 11.09.2026).
-        "route_notice_pending": user_config::route_notice_pending(&config_dir),
-        "route_changed_notice": commands::execution_mode::route_changed_notice(route.cloud, route.locked),
+        "route_notice_pending": route_notice_pending,
+        "route_changed_notice": route_changed_notice,
     }))
 }
 

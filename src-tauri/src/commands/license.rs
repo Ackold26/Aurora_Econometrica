@@ -267,9 +267,17 @@ pub fn quarantine_legacy_files() {
 /// сборка в первые часы после полуночи по UTC ложно отвергалась как «часы выставлены
 /// некорректно» (чеклист `aurora-fix` V57, класс LI-009). Сутки запаса — на расхождение
 /// часов машины сборки и машины клиента: сверка ловит перевод часов назад, а не минуты.
-fn clock_before_build(now_utc: chrono::DateTime<chrono::Utc>, build_ts: i64) -> bool {
+///
+/// Обобщена по поясу нарочно: тест подаёт «сейчас» в поясе клиента, и функция обязана
+/// сама привести его к UTC. Функция, принимающая только UTC, не давала тесту подставить
+/// пояс — и возврат исходного дефекта внутрь тела проходил зелёным (проверяющий-противник
+/// 11.09.2026).
+fn clock_before_build<Tz: chrono::TimeZone>(now: chrono::DateTime<Tz>, build_ts: i64) -> bool {
     match chrono::DateTime::from_timestamp(build_ts, 0) {
-        Some(build_dt) => now_utc.date_naive() + chrono::Duration::days(1) < build_dt.date_naive(),
+        Some(build_dt) => {
+            now.with_timezone(&chrono::Utc).date_naive() + chrono::Duration::days(1)
+                < build_dt.date_naive()
+        }
         None => false,
     }
 }
@@ -278,27 +286,24 @@ fn clock_before_build(now_utc: chrono::DateTime<chrono::Utc>, build_ts: i64) -> 
 mod tests {
     /// V57: свежая сборка не отвергается ни в одном поясе, перевод часов назад — ловится.
     ///
-    /// Рядом держится прежнее правило (местная дата против даты сборки в UTC): тест обязан
-    /// показать, что сценарий действительно был дефектом, иначе он доказывает не то.
+    /// Каждый сценарий переходит через полночь — иначе проверка зелёная по случайности:
+    /// в пределах одних суток и сутки запаса, и пояс ни на что не влияют.
     #[test]
     fn fresh_build_not_rejected_in_any_timezone() {
         use chrono::TimeZone;
-        // Сборка в 00:30 UTC 11.09 — это ещё 10.09 в поясах западнее Гринвича.
-        let build = chrono::Utc.with_ymd_and_hms(2026, 9, 11, 0, 30, 0).unwrap();
+        // Сборка в 00:02 UTC 11.09 — это ещё 10.09 в поясах западнее Гринвича.
+        let build = chrono::Utc.with_ymd_and_hms(2026, 9, 11, 0, 2, 0).unwrap();
         let now_utc = build + chrono::Duration::minutes(5);
-        let old_rule = |offset_h: i32| {
-            let local = chrono::FixedOffset::east_opt(offset_h * 3600).unwrap();
-            now_utc.with_timezone(&local).date_naive() < build.date_naive()
-        };
-        assert!(old_rule(-8), "прежнее правило обязано ложно отвергать в UTC-8 — это и был дефект");
         for offset_h in [-8i32, -5, 0, 3, 12] {
+            let local = chrono::FixedOffset::east_opt(offset_h * 3600).unwrap();
+            let now_local = now_utc.with_timezone(&local);
             assert!(
-                !super::clock_before_build(now_utc, build.timestamp()),
-                "свежая сборка отвергнута (клиент в UTC{offset_h:+}, прежнее правило: {})",
-                old_rule(offset_h),
+                !super::clock_before_build(now_local, build.timestamp()),
+                "свежая сборка отвергнута у клиента в UTC{offset_h:+} (местное время {now_local})",
             );
         }
-        // Часы клиента на 5 минут позади машины сборки — это не перевод часов назад.
+        // Часы клиента на 5 минут позади машины сборки, и это уже вчерашняя дата по UTC.
+        // Не перевод часов назад — сутки запаса обязаны это пропустить.
         let behind = build - chrono::Duration::minutes(5);
         assert!(!super::clock_before_build(behind, build.timestamp()));
         // А часы, переведённые на неделю назад, обязаны ловиться — иначе проверка мертва.

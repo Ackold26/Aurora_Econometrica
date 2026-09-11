@@ -206,14 +206,30 @@ pub const ROUTE_CHANGED_NOTICE_LOCKED: &str = "Маршрут ИИ-ассист�
 /// согласие отозвано или устарело, маршрут оставался левым — сообщение врало о маршруте
 /// данных. Текст выбирается здесь, из того же вычисления, что и подпись «Сейчас: …», а не
 /// в момент переноса: между переносом и показом согласие может смениться.
-pub fn route_changed_notice(cloud: bool, locked: bool) -> &'static str {
-    if cloud {
+///
+/// Принимает положение целиком, а не два признака: два соседних `bool` переставляются
+/// местами молча, и тогда заблокированной сборке сказали бы «теперь через шлюз» — ровно
+/// исходный дефект (так его и нашёл проверяющий-противник 11.09.2026).
+pub fn route_changed_notice(state: &RouteState) -> &'static str {
+    if state.cloud {
         ROUTE_CHANGED_NOTICE
-    } else if locked {
+    } else if state.locked {
         ROUTE_CHANGED_NOTICE_LOCKED
     } else {
         ROUTE_CHANGED_NOTICE_LEFT
     }
+}
+
+/// Что отдать интерфейсу про однократное сообщение о смене маршрута: показывать ли и что.
+///
+/// Единственная точка, из которой `get_cloud_consent_status` берёт оба поля, — чтобы тест
+/// проверял ту же сборку ответа, что уходит в интерфейс, а не её копию. Признак читается
+/// вместе с незаписанным признаком этого запуска (`user_config::route_notice_pending`).
+pub fn route_notice_for(config_dir: &std::path::Path, state: &RouteState) -> (bool, &'static str) {
+    (
+        crate::commands::user_config::route_notice_pending(config_dir),
+        route_changed_notice(state),
+    )
 }
 
 /// Подпись «Сейчас: …» для левого положения.
@@ -307,6 +323,18 @@ pub fn route_state(app_handle: &tauri::AppHandle) -> RouteState {
             (true, false)
         }
     };
+    route_state_from(local_only, consent_granted, advisors_built_in, gateway_built_in, cloud_refusal())
+}
+
+/// Положение из слагаемых — без обращения к среде, чтобы тесты строили ровно то положение,
+/// что увидит интерфейс, а не выводили `locked` своей копией правила.
+pub fn route_state_from(
+    local_only: bool,
+    consent_granted: bool,
+    advisors_built_in: bool,
+    gateway_built_in: bool,
+    gateway_refusal: String,
+) -> RouteState {
     let cloud = route_is_cloud(local_only, consent_granted, advisors_built_in, gateway_built_in);
     RouteState {
         cloud,
@@ -318,7 +346,7 @@ pub fn route_state(app_handle: &tauri::AppHandle) -> RouteState {
         locked_reason: route_locked_reason(advisors_built_in, gateway_built_in).to_string(),
         headline: if cloud { HEADLINE_CLOUD } else { HEADLINE_LOCAL }.to_string(),
         local_notice: LOCAL_MODE_NOTICE.to_string(),
-        gateway_refusal: cloud_refusal(),
+        gateway_refusal,
     }
 }
 
@@ -847,9 +875,10 @@ mod tests {
             let consent = mask & 2 != 0;
             let advisors = mask & 4 != 0;
             let gateway = mask & 8 != 0;
-            let cloud = route_is_cloud(local_only, consent, advisors, gateway);
-            let locked = !advisors || !gateway;
-            let text = route_changed_notice(cloud, locked);
+            // Положение строит та же функция, что и `route_state`, а не копия правила в тесте.
+            let state = route_state_from(local_only, consent, advisors, gateway, String::new());
+            let (cloud, locked) = (state.cloud, state.locked);
+            let text = route_changed_notice(&state);
             let why = format!(
                 "local_only={local_only} consent={consent} advisors={advisors} gateway={gateway}"
             );
@@ -870,6 +899,40 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// Сборка ответа интерфейсу: признак берётся из durable-настроек, текст — по положению.
+    ///
+    /// Это та самая функция, которую зовёт `get_cloud_consent_status`, поэтому тест держит
+    /// не копию, а провод до интерфейса (находка проверяющего-противника 11.09.2026: вызов
+    /// в `lib.rs` не держал ни один тест).
+    #[test]
+    fn route_notice_payload_reads_the_durable_flag_and_the_actual_route() {
+        let dir = std::env::temp_dir().join(format!("aurora-econ-payload-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+
+        let left_unlocked = route_state_from(false, false, true, true, String::new());
+        assert_eq!(
+            route_notice_for(&dir, &left_unlocked),
+            (false, ROUTE_CHANGED_NOTICE_LEFT),
+            "без переноса показывать нечего",
+        );
+
+        let cfg = crate::commands::user_config::UserConfig {
+            route_notice_pending: true,
+            ..Default::default()
+        };
+        crate::commands::user_config::save(&dir, &cfg).expect("признак записан");
+        let locked = route_state_from(false, true, true, false, String::new());
+        assert_eq!(
+            route_notice_for(&dir, &locked),
+            (true, ROUTE_CHANGED_NOTICE_LOCKED),
+            "заблокированной сборке не обещаем шлюз",
+        );
+        let right = route_state_from(false, true, true, true, String::new());
+        assert_eq!(route_notice_for(&dir, &right), (true, ROUTE_CHANGED_NOTICE));
+
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     /// Сообщение перед отправкой в левом положении называет причину и действие.

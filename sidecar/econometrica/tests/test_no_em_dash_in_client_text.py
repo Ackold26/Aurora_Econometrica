@@ -161,6 +161,27 @@ def _is_replace_call(call: ast.Call) -> bool:
     return isinstance(f, ast.Attribute) and f.attr == "replace"
 
 
+def _is_replace_search_pattern(node: ast.AST, call: ast.Call) -> bool:
+    """Литерал — ПЕРВЫЙ аргумент `.replace(...)`, то есть искомый образец, а второй
+    аргумент длинного тире не вносит.
+
+    Прощается только санитайзер вида `.replace("—", "–")`. Второй аргумент — это то, что
+    ВСТАВЛЯЕТСЯ в текст: `шаблон.replace("{вывод}", "Канал — убыточен")` кладёт длинное
+    тире клиенту, а обратная замена `.replace("–", "—")` его создаёт (обе — находки
+    проверяющего-противника 11.09.2026, прежде прощались как любой прямой аргумент)."""
+    if not call.args:
+        return False
+    first = call.args[0]
+    if node is not first and not (isinstance(first, ast.JoinedStr) and node in first.values):
+        return False
+    second = call.args[1] if len(call.args) > 1 else None
+    return not (
+        isinstance(second, ast.Constant)
+        and isinstance(second.value, str)
+        and EM_DASH in second.value
+    )
+
+
 def _is_print_call(call: ast.Call) -> bool:
     f = call.func
     return isinstance(f, ast.Name) and f.id == "print"
@@ -231,7 +252,11 @@ class _EmDashVisitor(ast.NodeVisitor):
                 "assign_target": assign_target,
                 "in_logging_call": call is not None and _is_logging_call(call),
                 "in_print_call": call is not None and _is_print_call(call),
-                "in_replace_call": call is not None and _is_replace_call(call),
+                "in_replace_call": (
+                    call is not None
+                    and _is_replace_call(call)
+                    and _is_replace_search_pattern(node, call)
+                ),
             })
         self.generic_visit(node)
 
@@ -393,3 +418,28 @@ def test_logger_fstring_direct_argument_still_forgiven():
     )
     findings = _scan_source_for_client_em_dash(control_source, "synthetic_logger_fstring.py")
     assert not findings, f"ложное срабатывание на f-строке в logger.warning(...): {findings}"
+
+
+def test_replace_replacement_argument_not_swallowed():
+    """Проверяющий-противник 11.09.2026: `.replace` прощал ЛЮБОЙ прямой аргумент, а
+    второй аргумент — вставляемый текст. Шаблон клиенту и обратная замена «–»→«—»
+    обязаны быть найдены; настоящий санитайзер `.replace("—", "–")` — по-прежнему прощён."""
+    template_source = (
+        "def build(шаблон):\n"
+        "    return шаблон.replace('{вывод}', 'Канал — убыточен')\n"
+    )
+    assert _scan_source_for_client_em_dash(template_source, "synthetic_replace_template.py"), (
+        "текст, вставляемый .replace клиенту, тонет молча"
+    )
+    reverse_source = (
+        "def build(текст):\n"
+        "    return текст.replace('–', '—')\n"
+    )
+    assert _scan_source_for_client_em_dash(reverse_source, "synthetic_replace_reverse.py"), (
+        "обратная замена, создающая длинное тире, тонет молча"
+    )
+    sanitizer_source = (
+        "def sanitize(текст):\n"
+        "    return текст.replace('—', '–')\n"
+    )
+    assert not _scan_source_for_client_em_dash(sanitizer_source, "synthetic_replace_ok.py")
