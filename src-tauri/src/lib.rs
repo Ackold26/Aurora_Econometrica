@@ -2490,9 +2490,11 @@ fn get_cloud_consent_status(app_handle: tauri::AppHandle) -> Result<serde_json::
         "route_headline": route.headline,
         "route_local_notice": route.local_notice,
         // Однократное сообщение о смене маршрута тем, у кого работа шла через свой
-        // Claude Code. Снимается командой `dismiss_route_notice` после показа.
-        "route_notice_pending": user_config::load(&config_dir).route_notice_pending,
-        "route_changed_notice": commands::execution_mode::ROUTE_CHANGED_NOTICE,
+        // Claude Code. Снимается командой `dismiss_route_notice` после показа. Текст —
+        // по фактическому положению из того же вычисления, что и подпись: у кого согласие
+        // отозвано или устарело, тот после переноса слева (внешний аудит 11.09.2026).
+        "route_notice_pending": user_config::route_notice_pending(&config_dir),
+        "route_changed_notice": commands::execution_mode::route_changed_notice(route.cloud, route.locked),
     }))
 }
 

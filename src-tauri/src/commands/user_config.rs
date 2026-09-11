@@ -1,6 +1,8 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::sync::Mutex;
 
 use crate::commands::cabinet;
 
@@ -98,27 +100,72 @@ pub fn stored_local_only(config: &UserConfig) -> bool {
     config.local_only
 }
 
+/// Каталоги настроек, где перенос маршрута случился, а записать признак сообщения не
+/// удалось (настройки только для чтения, диск полон).
+///
+/// 🔴 Смена маршрута от записи НЕ зависит: положение считается по `local_only` и согласию,
+/// а прежнее `execution_mode` его не задаёт. Значит, при отказе записи маршрут всё равно
+/// сменился — а признак на диске остался снятым, и человек не узнал бы об этом никогда
+/// (находка внешнего аудита 11.09.2026: `let _ = save(..)` глотал отказ). Здесь признак
+/// держится хотя бы до конца запуска. Ключ — каталог, а не общий флаг: тесты идут
+/// параллельно, и один общий флаг перетекал бы из теста в тест.
+static ROUTE_NOTICE_UNSAVED: Mutex<Vec<PathBuf>> = Mutex::new(Vec::new());
+
+fn route_notice_unsaved(config_dir: &Path) -> bool {
+    ROUTE_NOTICE_UNSAVED
+        .lock()
+        .map(|dirs| dirs.iter().any(|d| d == config_dir))
+        .unwrap_or(false)
+}
+
+fn set_route_notice_unsaved(config_dir: &Path, pending: bool) {
+    if let Ok(mut dirs) = ROUTE_NOTICE_UNSAVED.lock() {
+        dirs.retain(|d| d != config_dir);
+        if pending {
+            dirs.push(config_dir.to_path_buf());
+        }
+    }
+}
+
 /// Перенести прежние настройки на единственную ось. Возвращает `true`, если человеку нужно
 /// один раз сказать, что маршрут ассистента сменился.
 ///
-/// 🔴 Идемпотентна по построению: после переноса `execution_mode` становится зеркалом
-/// положения («cloud»), и второй раз условие не выполняется. Признак `route_notice_pending`
-/// живёт в durable-настройках, а не в памяти процесса: человек, закрывший программу до
-/// того, как прочитал сообщение, обязан увидеть его при следующем запуске — иначе смена
-/// маршрута данных пройдёт молча, а это ровно тот дефект, из-за которого всё и затевалось.
+/// Какой именно текст показать, решает не перенос, а фактическое положение в момент показа
+/// (`execution_mode::route_changed_notice`): у кого согласие отозвано или устарело, тот
+/// после переноса остаётся СЛЕВА, и сообщение «теперь через шлюз Авроры» было бы ложью.
+///
+/// 🔴 Идемпотентность держится на успешной ЗАПИСИ: после переноса `execution_mode`
+/// становится зеркалом положения («cloud»), и второй раз условие не выполняется. Если
+/// запись не удалась, перенос повторится при следующем запуске — и сообщение тоже, это
+/// честнее молчания. Признак `route_notice_pending` живёт в durable-настройках: человек,
+/// закрывший программу до того, как прочитал сообщение, обязан увидеть его при следующем
+/// запуске — иначе смена маршрута данных пройдёт молча.
 pub fn migrate_route_axis(config_dir: &Path) -> bool {
     let mut config = load(config_dir);
     if config.execution_mode.as_deref() == Some("local") && !config.local_only {
         config.execution_mode = Some("cloud".to_string());
         config.route_notice_pending = true;
-        let _ = save(config_dir, &config);
+        if let Err(e) = save(config_dir, &config) {
+            log::warn!(
+                "перенос маршрута ассистента не записан ({e}) – сообщение о смене маршрута \
+                 держится до конца запуска, перенос повторится при следующем"
+            );
+            set_route_notice_unsaved(config_dir, true);
+        }
         return true;
     }
-    config.route_notice_pending
+    config.route_notice_pending || route_notice_unsaved(config_dir)
+}
+
+/// Ждёт ли показа сообщение о смене маршрута: признак на диске или незаписанный признак
+/// этого запуска.
+pub fn route_notice_pending(config_dir: &Path) -> bool {
+    load(config_dir).route_notice_pending || route_notice_unsaved(config_dir)
 }
 
 /// Снять признак: сообщение о смене маршрута человеку показано.
 pub fn clear_route_notice(config_dir: &Path) -> Result<(), String> {
+    set_route_notice_unsaved(config_dir, false);
     let mut config = load(config_dir);
     if !config.route_notice_pending {
         return Ok(());
@@ -149,22 +196,62 @@ fn config_path(config_dir: &Path) -> PathBuf {
     config_dir.join("user_config.json")
 }
 
+/// Временный файл записи. Своё имя у каждого процесса: две копии программы, пишущие в
+/// один временный файл, склеили бы половинки друг друга.
+fn tmp_path(config_dir: &Path) -> PathBuf {
+    config_dir.join(format!("user_config.json.{}.tmp", std::process::id()))
+}
+
 pub fn load(config_dir: &Path) -> UserConfig {
     let path = config_path(config_dir);
     if !path.exists() {
         return UserConfig::default();
     }
     match std::fs::read_to_string(&path) {
-        Ok(data) => serde_json::from_str(&data).unwrap_or_default(),
+        Ok(data) => match serde_json::from_str(&data) {
+            Ok(config) => config,
+            Err(e) => {
+                // 🔴 Нечитаемые настройки подменяются значениями по умолчанию — и первая же
+                // запись затёрла бы их навсегда. Копия кладётся рядом один раз: без неё
+                // потерю всех настроек человека нечем ни объяснить, ни вернуть.
+                let kept = config_dir.join("user_config.json.corrupt");
+                if !kept.exists() {
+                    let _ = std::fs::copy(&path, &kept);
+                }
+                log::warn!(
+                    "настройки не разобрались ({e}) – действуют значения по умолчанию, \
+                     прежний файл сохранён как {}",
+                    kept.display()
+                );
+                UserConfig::default()
+            }
+        },
         Err(_) => UserConfig::default(),
     }
 }
 
+/// Записать настройки.
+///
+/// 🔴 Через временный файл и переименование, а не `fs::write` поверх: обрыв питания или
+/// снятие процесса посреди записи оставлял битый JSON, `load` молча возвращал значения по
+/// умолчанию, и все настройки человека исчезали без единого слова (находка внешнего аудита
+/// 11.09.2026). Переименование в пределах каталога заменяет файл целиком: на диске лежит
+/// либо прежняя версия, либо новая. Гонку двух одновременно запущенных копий программы
+/// (чтение–правка–запись) это не снимает — только порчу файла.
 pub fn save(config_dir: &Path, config: &UserConfig) -> Result<(), String> {
     let path = config_path(config_dir);
     let _ = std::fs::create_dir_all(config_dir);
     let data = serde_json::to_string_pretty(config).map_err(|e| e.to_string())?;
-    std::fs::write(&path, data).map_err(|e| e.to_string())
+    let tmp = tmp_path(config_dir);
+    let written = std::fs::File::create(&tmp).and_then(|mut f| {
+        f.write_all(data.as_bytes())?;
+        f.sync_all()
+    });
+    if let Err(e) = written.and_then(|_| std::fs::rename(&tmp, &path)) {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(e.to_string());
+    }
+    Ok(())
 }
 
 /// Returns the workspace root for a cabinet.
@@ -326,6 +413,63 @@ mod tests {
         save(&dir, &config).expect("настройки записаны");
         assert!(!migrate_route_axis(&dir), "выбравшему локальный режим сообщать не о чем");
         assert!(stored_local_only(&load(&dir)), "и он обязан остаться слева");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// 🔴 Отказ записи при переносе не делает смену маршрута молчаливой.
+    ///
+    /// Маршрут сменился независимо от записи (положение считает `local_only` и согласие),
+    /// поэтому признак сообщения обязан дожить хотя бы до показа в этом запуске, а отказ —
+    /// дойти до вызывающего, а не утонуть в `let _`. Отказ носителя изображён каталогом на
+    /// месте временного файла: создать файл поверх каталога нельзя ни в одной системе.
+    #[test]
+    fn route_notice_survives_a_failed_write() {
+        let dir = std::env::temp_dir().join(format!("aurora-econ-rofail-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let config = UserConfig { execution_mode: Some("local".to_string()), ..Default::default() };
+        save(&dir, &config).expect("прежние настройки записаны");
+
+        std::fs::create_dir_all(tmp_path(&dir)).expect("носитель испорчен нарочно");
+        assert!(save(&dir, &config).is_err(), "отказ записи обязан дойти до вызывающего");
+
+        assert!(migrate_route_axis(&dir), "о смене маршрута обязаны сказать и без записи");
+        assert_eq!(
+            load(&dir).execution_mode.as_deref(),
+            Some("local"),
+            "на диске перенос не записан – зонд действительно изобразил отказ",
+        );
+        assert!(route_notice_pending(&dir), "незаписанный признак обязан дожить до показа");
+
+        clear_route_notice(&dir).expect("снятие незаписанного признака не пишет на диск");
+        assert!(!route_notice_pending(&dir), "после показа в этом запуске не повторяем");
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Запись заменяет файл целиком и не оставляет временных файлов; битый файл не
+    /// затирается молча.
+    #[test]
+    fn save_replaces_whole_file_and_keeps_a_corrupt_one() {
+        let dir = std::env::temp_dir().join(format!("aurora-econ-atomic-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+
+        save(&dir, &UserConfig { local_only: true, ..Default::default() }).expect("первая запись");
+        save(&dir, &UserConfig { model: Some("opus".into()), ..Default::default() })
+            .expect("запись поверх существующего файла");
+        let back = load(&dir);
+        assert_eq!(back.model.as_deref(), Some("opus"));
+        assert!(!back.local_only, "файл заменён целиком, а не дописан");
+        assert!(!tmp_path(&dir).exists(), "временный файл не остаётся");
+
+        std::fs::write(config_path(&dir), "{\"local_only\": tru").expect("файл испорчен нарочно");
+        let fallback = load(&dir);
+        assert!(!fallback.local_only, "битый файл читается как значения по умолчанию");
+        let kept = dir.join("user_config.json.corrupt");
+        assert_eq!(
+            std::fs::read_to_string(&kept).expect("копия битого файла обязана остаться"),
+            "{\"local_only\": tru",
+        );
 
         let _ = std::fs::remove_dir_all(&dir);
     }
