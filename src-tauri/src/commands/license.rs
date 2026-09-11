@@ -163,19 +163,16 @@ impl License {
         // Sanity check: system clock must not be earlier than the build date
         const BUILD_TS: &str = env!("BUILD_TIMESTAMP");
         if let Ok(ts) = BUILD_TS.parse::<i64>() {
-            if let Some(build_dt) = chrono::DateTime::from_timestamp(ts, 0) {
-                let build_date = build_dt.date_naive();
-                if today < build_date {
-                    return Ok(LicenseStatus {
-                        valid: false,
-                        issued_to: self.issued_to.clone(),
-                        expires_at: self.expires_at.clone(),
-                        days_remaining,
-                        cabinets: vec![],
-                        machine_id: machine_id_short,
-                        error: Some(coded(ErrorCode::LI009, "Системные часы выставлены некорректно. Проверьте дату и время.")),
-                    });
-                }
+            if clock_before_build(chrono::Utc::now(), ts) {
+                return Ok(LicenseStatus {
+                    valid: false,
+                    issued_to: self.issued_to.clone(),
+                    expires_at: self.expires_at.clone(),
+                    days_remaining,
+                    cabinets: vec![],
+                    machine_id: machine_id_short,
+                    error: Some(coded(ErrorCode::LI009, "Системные часы выставлены некорректно. Проверьте дату и время.")),
+                });
             }
         }
 
@@ -263,8 +260,52 @@ pub fn quarantine_legacy_files() {
     }
 }
 
+/// Часы машины заведомо раньше сборки программы (LI009).
+///
+/// 🔴 Обе стороны — в UTC. Прежде слева стояла МЕСТНАЯ дата (`Local::now`), справа — дата
+/// сборки в UTC (`DateTime::from_timestamp` всегда UTC): западнее Гринвича свежая честная
+/// сборка в первые часы после полуночи по UTC ложно отвергалась как «часы выставлены
+/// некорректно» (чеклист `aurora-fix` V57, класс LI-009). Сутки запаса — на расхождение
+/// часов машины сборки и машины клиента: сверка ловит перевод часов назад, а не минуты.
+fn clock_before_build(now_utc: chrono::DateTime<chrono::Utc>, build_ts: i64) -> bool {
+    match chrono::DateTime::from_timestamp(build_ts, 0) {
+        Some(build_dt) => now_utc.date_naive() + chrono::Duration::days(1) < build_dt.date_naive(),
+        None => false,
+    }
+}
+
 #[cfg(test)]
 mod tests {
+    /// V57: свежая сборка не отвергается ни в одном поясе, перевод часов назад — ловится.
+    ///
+    /// Рядом держится прежнее правило (местная дата против даты сборки в UTC): тест обязан
+    /// показать, что сценарий действительно был дефектом, иначе он доказывает не то.
+    #[test]
+    fn fresh_build_not_rejected_in_any_timezone() {
+        use chrono::TimeZone;
+        // Сборка в 00:30 UTC 11.09 — это ещё 10.09 в поясах западнее Гринвича.
+        let build = chrono::Utc.with_ymd_and_hms(2026, 9, 11, 0, 30, 0).unwrap();
+        let now_utc = build + chrono::Duration::minutes(5);
+        let old_rule = |offset_h: i32| {
+            let local = chrono::FixedOffset::east_opt(offset_h * 3600).unwrap();
+            now_utc.with_timezone(&local).date_naive() < build.date_naive()
+        };
+        assert!(old_rule(-8), "прежнее правило обязано ложно отвергать в UTC-8 — это и был дефект");
+        for offset_h in [-8i32, -5, 0, 3, 12] {
+            assert!(
+                !super::clock_before_build(now_utc, build.timestamp()),
+                "свежая сборка отвергнута (клиент в UTC{offset_h:+}, прежнее правило: {})",
+                old_rule(offset_h),
+            );
+        }
+        // Часы клиента на 5 минут позади машины сборки — это не перевод часов назад.
+        let behind = build - chrono::Duration::minutes(5);
+        assert!(!super::clock_before_build(behind, build.timestamp()));
+        // А часы, переведённые на неделю назад, обязаны ловиться — иначе проверка мертва.
+        let rolled_back = build - chrono::Duration::days(7);
+        assert!(super::clock_before_build(rolled_back, build.timestamp()));
+    }
+
     use super::*;
     use std::fs;
 
