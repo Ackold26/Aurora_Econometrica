@@ -2,7 +2,8 @@
   import { invoke } from '@tauri-apps/api/core';
   import { open } from '@tauri-apps/plugin-dialog';
   import { openUrl } from '@tauri-apps/plugin-opener';
-  import { theme, toggleTheme, cloudConsent, cloudConsentPromptOpen } from '$lib/store.js';
+  import { theme, toggleTheme, cloudConsentPromptOpen } from '$lib/store.js';
+  import { assistantRoute, refreshAssistantRoute } from '$lib/assistant-route.js';
   import { productType } from '$lib/creative-store.js';
   import { getProductName, filterCabinetsByProduct } from '$lib/command-meta.js';
 
@@ -43,6 +44,12 @@
       // preventDefault нужен и для средней кнопки мыши: она шлёт auxclick, а не click, и без
       // перехвата сработало бы штатное действие ссылки — встроенное окно ушло бы на сайт, а
       // вернуться из него нечем: полосы навигации и кнопки «назад» в приложении нет.
+      //
+      // 🔴 Но auxclick шлёт НЕ ТОЛЬКО средняя кнопка: правая и боковые тоже (находка
+      // внешнего аудита 11.09.2026). Без разбора кнопки правый клик по ссылке — попытка
+      // открыть меню и скопировать адрес — молча уводил человека в системный браузер.
+      // Обычный клик (тип «click») проходит как прежде, разбор касается только auxclick.
+      if (event.type === 'auxclick' && event.button !== 1) return;
       event.preventDefault();
       // Отказ не глушим молча: INV-146 сам называет тихий отказ главной опасностью этого места
       // (без разрешения opener:allow-open-url ссылка просто ничего не делает, и на глаз это
@@ -55,95 +62,47 @@
 
   forgetAudioPreference();
 
-  // Cloud-consent (облачная редакция): отзыв — прямое действие тумблера; выдача — через
-  // экран согласия с чекбоксом-подтверждением (не молчаливый grant). Секция видна только
-  // в облачной редакции ($cloudConsent.advisorsEnabled).
-  let consentBusy = $state(false);
-  let consentMsg = $state('');
-  async function withdrawConsent() {
-    if (consentBusy) return;
-    consentBusy = true;
-    consentMsg = '';
+  // ── Единственный переключатель режима работы ──────────────────────────────────
+  //
+  // 🔴 Было три органа управления: «Облачная обработка» (согласие), «Только локально»
+  // (запрет обращений) и выбор из трёх маршрутов исполнения, включая автоопределение.
+  // Одно решение тремя переключателями — это и стоило отказа на показе 10.09.2026:
+  // владелец включил облачную обработку, а работа ушла в чужой Claude Code на машине.
+  // Осталось одно положение (решение владельца 10.09.2026): слева ассистента нет,
+  // справа он работает через шлюз Авроры. Согласие стало частью выбора режима —
+  // спрашивается один раз, при первом переводе вправо; отказ оставляет слева.
+  let routeBusy = $state(false);
+  let routeMsg = $state('');
+
+  /** @param {boolean} cloud */
+  async function setAssistantRoute(cloud) {
+    if (routeBusy) return;
+    routeBusy = true;
+    routeMsg = '';
     try {
-      await invoke('withdraw_cloud_consent');
-      cloudConsent.update((c) => ({ ...c, granted: false }));
-      consentMsg = '✓ Облачная обработка отключена. Кабинеты-советники недоступны; MMM-анализ работает.';
-      setTimeout(() => { consentMsg = ''; }, 7000);
+      await invoke('set_assistant_route', { cloud });
+      await refreshAssistantRoute();
+      routeMsg = cloud
+        ? '✓ Режим «через шлюз Авроры»: ИИ-ассистент отвечает, запросы идут через наш сервер.'
+        : '✓ Режим «полностью локально»: ИИ-ассистент отключён, материалы не покидают эту машину.';
+      setTimeout(() => { routeMsg = ''; }, 7000);
     } catch (e) {
-      consentMsg = 'Ошибка: ' + String(e);
+      const text = String(e);
+      // Согласия ещё нет — вместо отказа показываем экран согласия. Дальше решает
+      // человек: согласился — переключатель уходит вправо, «Позже» — остаётся слева.
+      if (text.includes('MODE-CONSENT')) {
+        cloudConsentPromptOpen.set(true);
+      } else {
+        routeMsg = 'Ошибка: ' + text;
+      }
     } finally {
-      consentBusy = false;
-    }
-  }
-  function toggleCloudConsent() {
-    if ($cloudConsent.granted) {
-      withdrawConsent();
-    } else {
-      cloudConsentPromptOpen.set(true);
+      routeBusy = false;
     }
   }
 
-  // Runtime-режим «только локально»: явное отключение облачного ИИ (egress).
-  // Гейт-поверх-согласия — даже при данном согласии пользователь может закрыть egress.
-  let localOnlyBusy = $state(false);
-
-  // ── Режим исполнения советника (ADR-049) ──────────────────────────────────────
-  // 🔴 Ось, отдельная от согласия и тумблера «только локально» выше: те решают,
-  // обращаться ли к облачному ИИ вообще, эта — чей Claude Code исполняет работу.
-  /** @type {{mode: string, source: string, explanation: string, explicit: string|null, cloud_built_in: boolean, local_available: boolean, cloud_refusal: string}|null} */
-  let executionMode = $state(null);
-  let modeBusy = $state(false);
-  let modeError = $state('');
-
-  async function loadExecutionMode() {
-    try {
-      executionMode = await invoke('get_execution_mode');
-      modeError = '';
-    } catch (e) {
-      modeError = String(e);
-    }
-  }
-
-  /** @param {string} mode */
-  async function chooseExecutionMode(mode) {
-    modeBusy = true;
-    try {
-      await invoke('set_execution_mode', { mode });
-      await loadExecutionMode();
-    } catch (e) {
-      modeError = String(e);
-    } finally {
-      modeBusy = false;
-    }
-  }
-
-  async function recheckLocalClaude() {
-    modeBusy = true;
-    try {
-      executionMode = await invoke('probe_local_claude');
-      modeError = '';
-    } catch (e) {
-      modeError = String(e);
-    } finally {
-      modeBusy = false;
-    }
-  }
-  async function toggleLocalOnly() {
-    if (localOnlyBusy) return;
-    localOnlyBusy = true;
-    try {
-      const next = !$cloudConsent.localOnly;
-      await invoke('set_local_only', { enabled: next });
-      cloudConsent.update((c) => ({ ...c, localOnly: next }));
-      consentMsg = next
-        ? '✓ Режим «только локально» включён: облачный ИИ отключён, ваши материалы не уходят с этой машины.'
-        : '✓ Режим «только локально» выключен: облачный ИИ доступен (при согласии).';
-      setTimeout(() => { consentMsg = ''; }, 7000);
-    } catch (e) {
-      consentMsg = 'Ошибка: ' + String(e);
-    } finally {
-      localOnlyBusy = false;
-    }
+  function toggleAssistantRoute() {
+    if ($assistantRoute.locked || !$assistantRoute.known) return;
+    setAssistantRoute(!$assistantRoute.cloud);
   }
 
   // Econometrica projects root
@@ -160,7 +119,10 @@
     }
   }
   loadEconRoot();
-  loadExecutionMode();
+  // Положение переключателя перечитывается при открытии настроек: человек мог отозвать
+  // согласие или сменить режим в другом окне, а подпись «Сейчас: …» обязана говорить о
+  // сегодняшнем положении дел, а не о том, что прочиталось при запуске программы.
+  refreshAssistantRoute();
 
   async function chooseEconRoot() {
     econRootBusy = true;
@@ -624,176 +586,57 @@
     </section>
     {/if}
 
-    {#if $cloudConsent.advisorsEnabled}
-      <section class="section">
-        <h2 class="section-title">Облачная обработка (кабинеты-советники)</h2>
-        <p class="section-desc">
-          Кабинеты-советники отправляют контекст задачи на защищённый AI-сервер по вашей команде.
-          MMM-анализ всегда выполняется локально. Отключение делает советников недоступными –
-          расчёты продолжают работать. Включение запросит согласие на облачную обработку.
-        </p>
-        <div class="theme-toggle-row">
-          <span class="theme-label">Облачная обработка</span>
-          <button
-            class="theme-toggle"
-            onclick={toggleCloudConsent}
-            disabled={consentBusy}
-            aria-label="Toggle cloud processing consent"
-          >
-            {#if $cloudConsent.granted}
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-                <polyline points="20 6 9 17 4 12"/>
-              </svg>
-              <span>Включена</span>
-            {:else}
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-                <circle cx="12" cy="12" r="9"/>
-                <line x1="15" y1="9" x2="9" y2="15"/>
-                <line x1="9" y1="9" x2="15" y2="15"/>
-              </svg>
-              <span>Выключена</span>
-            {/if}
-          </button>
-        </div>
-        <div class="theme-toggle-row" style="margin-top: 12px;">
-          <span class="theme-label">Только локально</span>
-          <button
-            class="theme-toggle"
-            onclick={toggleLocalOnly}
-            disabled={localOnlyBusy}
-            aria-label="Toggle local-only mode"
-          >
-            {#if $cloudConsent.localOnly}
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-                <polyline points="20 6 9 17 4 12"/>
-              </svg>
-              <span>Включён</span>
-            {:else}
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-                <circle cx="12" cy="12" r="9"/>
-                <line x1="15" y1="9" x2="9" y2="15"/>
-              </svg>
-              <span>Выключен</span>
-            {/if}
-          </button>
-        </div>
-        <!-- 🔴 Подпись обязана называть СВОЙ переключатель поимённо. В разделе их два, и оба
-             показывают «Включена / Выключен»; безличное «когда включено» читалось как пояснение
-             к «Облачной обработке» — то есть ровно наоборот. Цена ошибки здесь выше обычной: это
-             единственный текст в программе, отвечающий на вопрос «уходят ли мои данные», и
-             неверное прочтение оставляет человека в уверенности, что они защищены, когда они
-             уходят. Ниже дополнительно печатается, что происходит СЕЙЧАС, — состояние не нужно
-             выводить из двух переключателей в уме. -->
-        <p class="section-desc" style="margin-top: 6px;">
-          <strong>Сейчас: {$cloudConsent.localOnly
-            ? 'материалы не уходят с этой машины.'
-            : 'при обращении к ИИ-ассистенту материалы уходят на наш сервер.'}</strong>
-          Когда переключатель «Только локально» включён – ИИ-ассистент отключён полностью: ваши
-          материалы, вопросы и файлы не
-          уходят с этой машины ни к нам, ни к кому-либо ещё. Расчёт медиасплита работает как обычно.
-          Программа при этом продолжает обращаться к нашему серверу за проверкой лицензии и
-          обновлениями – туда уходят только служебные сведения о самой программе и машине
-          (отпечаток оборудования, версия программы, имя компьютера), без ваших данных.
-        </p>
-        {#if consentMsg}
-          <p class="import-status" style="color: {consentMsg.startsWith('Ошибка') ? 'var(--danger)' : 'var(--success)'}; margin-top: 8px;">{consentMsg}</p>
-        {/if}
-      </section>
+    <!--
+      🔴 Единственный переключатель режима работы. Стоит ВНЕ условия «советники есть»
+      намеренно (решение владельца Р-2 от 11.09.2026): в локальной редакции он остаётся
+      виден и заблокирован в левом положении с пояснением. Пропавший орган управления
+      человек читает как неисправность программы, а не как гарантию приватности.
 
-      <!--
-        🔴 Раздел стоит ВНУТРИ условия «советники есть» намеренно (ADR-049 §6, гейт
-        приёмки 3а): в локальной редакции советника нет вовсе, и предлагать там выбор
-        «каким путём он работает» значило бы спрашивать о несуществующем.
+      Подпись «Сейчас: …» приходит из продукта готовой строкой и считается от
+      ФАКТИЧЕСКОГО положения дел — редакция, наличие шлюза в сборке, согласие и выбор
+      человека. Прежняя подпись смотрела на один переключатель из двух и на свежей
+      установке жирным утверждала, что материалы уходят на наш сервер, хотя согласия
+      никто не давал и наружу не уходило ничего (внешний аудит 11.09.2026).
+    -->
+    <section class="section" id="assistant-route">
+      <h2 class="section-title">Режим работы</h2>
+      <p class="section-desc">
+        Расчёт медиасплита в любом режиме выполняется на вашей машине. Переключатель решает
+        судьбу ИИ-ассистента: слева его нет вовсе, справа он отвечает через шлюз Авроры –
+        своя подписка для этого не нужна.
+      </p>
 
-        Это ДРУГАЯ ось, чем тумблеры выше. Те решают, обращаться ли к облачному ИИ
-        вообще; этот раздел — если обращаемся, чей Claude Code исполняет работу.
-        Ползунком «менее приватно → более приватно» их объединять нельзя: ответы ведут
-        в разные режимы, и человеку, которому важно одно, подсказка про другое вредит.
+      <div class="route-switch">
+        <span class="route-side" class:route-side-on={$assistantRoute.known && !$assistantRoute.cloud}>
+          Полностью локально
+        </span>
+        <button
+          class="route-toggle"
+          class:route-toggle-on={$assistantRoute.known && $assistantRoute.cloud}
+          class:route-toggle-unknown={!$assistantRoute.known}
+          role="switch"
+          aria-checked={$assistantRoute.known ? $assistantRoute.cloud : 'mixed'}
+          aria-label="Режим работы: слева полностью локально, справа через шлюз Авроры"
+          disabled={routeBusy || $assistantRoute.locked || !$assistantRoute.known}
+          onclick={toggleAssistantRoute}
+        >
+          <span class="route-knob"></span>
+        </button>
+        <span class="route-side" class:route-side-on={$assistantRoute.known && $assistantRoute.cloud}>
+          Через шлюз Авроры
+        </span>
+      </div>
 
-        Тексты точны: сказать «данные никуда не уходят» про свой Claude Code было бы
-        неправдой — они уходят к Anthropic, просто напрямую, без нашего участия.
-      -->
-      <section class="section" id="execution-mode">
-        <h2 class="section-title">Где исполняется работа советника</h2>
-        {#if executionMode}
-          <p class="section-desc">{executionMode.explanation}</p>
-          <div class="mode-options">
-            <label class="mode-option" class:mode-active={executionMode.mode === 'local'}>
-              <input
-                type="radio"
-                name="execution-mode"
-                value="local"
-                checked={executionMode.explicit === 'local'}
-                disabled={modeBusy}
-                onchange={() => chooseExecutionMode('local')}
-              />
-              <span class="mode-body">
-                <span class="mode-name">Ваш Claude Code</span>
-                <span class="mode-note">
-                  Материалы идут с вашей машины прямо к Anthropic и не проходят через серверы
-                  Платформы Аврора. Нужна своя действующая подписка Claude.
-                </span>
-                {#if !executionMode.local_available}
-                  <span class="mode-warn">Сейчас недоступен: Claude Code на этой машине не запускается.</span>
-                {/if}
-              </span>
-            </label>
+      <p class="section-desc route-headline"><strong>{$assistantRoute.headline}</strong></p>
 
-            <label class="mode-option" class:mode-active={executionMode.mode === 'cloud'}>
-              <input
-                type="radio"
-                name="execution-mode"
-                value="cloud"
-                checked={executionMode.explicit === 'cloud'}
-                disabled={modeBusy || !executionMode.cloud_built_in}
-                onchange={() => chooseExecutionMode('cloud')}
-              />
-              <span class="mode-body">
-                <span class="mode-name">Шлюз Авроры</span>
-                <span class="mode-note">
-                  Работу советника выполняет наш сервер: своя подписка Claude не нужна. Материалы
-                  проходят через Платформу Аврора и дальше к Anthropic.
-                </span>
-                {#if !executionMode.cloud_built_in}
-                  <span class="mode-warn">Не входит в эту сборку.</span>
-                {:else if executionMode.cloud_refusal}
-                  <span class="mode-warn">{executionMode.cloud_refusal}</span>
-                {/if}
-              </span>
-            </label>
+      {#if $assistantRoute.locked}
+        <p class="section-desc route-locked">{$assistantRoute.lockedReason}</p>
+      {/if}
+      {#if routeMsg}
+        <p class="import-status" style="color: {routeMsg.startsWith('Ошибка') ? 'var(--danger)' : 'var(--success)'}; margin-top: 8px;">{routeMsg}</p>
+      {/if}
+    </section>
 
-            <label class="mode-option" class:mode-active={!executionMode.explicit}>
-              <input
-                type="radio"
-                name="execution-mode"
-                value=""
-                checked={!executionMode.explicit}
-                disabled={modeBusy}
-                onchange={() => chooseExecutionMode('')}
-              />
-              <span class="mode-body">
-                <span class="mode-name">Выбирать самостоятельно</span>
-                <span class="mode-note">
-                  Ваш Claude Code, если он запускается на этой машине; иначе шлюз Авроры.
-                </span>
-              </span>
-            </label>
-          </div>
-          <p class="section-desc">
-            Расчёт медиасплита выполняется на вашей машине в любом режиме – этот выбор касается
-            только кабинета-советника.
-          </p>
-          <button class="btn-logs" disabled={modeBusy} onclick={recheckLocalClaude}>
-            Проверить Claude Code сейчас
-          </button>
-        {:else}
-          <p class="section-desc">Определяю режим…</p>
-        {/if}
-        {#if modeError}
-          <p class="import-status" style="color: var(--danger)">{modeError}</p>
-        {/if}
-      </section>
-    {/if}
 
     <section class="section">
       <h2 class="section-title">Справочный центр</h2>
@@ -1126,60 +969,95 @@
     box-shadow: var(--shadow-elevation-1);
   }
 
-  /* Режим исполнения советника (ADR-049): выбор из двух путей плюс автоопределение. */
-  .mode-options {
+  /* Единственный переключатель режима работы: слева «полностью локально»,
+     справа «через шлюз Авроры». Промежуточного положения нет. */
+  .route-switch {
     display: flex;
-    flex-direction: column;
-    gap: 10px;
-    margin: 12px 0 14px;
+    align-items: center;
+    justify-content: center;
+    gap: 14px;
+    margin: 16px 0 12px;
+    flex-wrap: wrap;
   }
 
-  .mode-option {
-    display: flex;
-    gap: 10px;
-    align-items: flex-start;
-    padding: 12px 14px;
-    border: 1px solid var(--border);
-    border-radius: 8px;
-    cursor: pointer;
-    transition: all 0.15s ease;
+  .route-side {
+    font-size: 13px;
+    color: var(--text-secondary);
+    transition: color var(--transition-fast);
   }
 
-  .mode-option:hover {
-    background: var(--hover-bg);
-  }
-
-  /* Действующий сейчас режим виден, даже если выбран автоопределением. */
-  .mode-option.mode-active {
-    border-color: var(--accent-primary, var(--text-primary));
-    background: var(--hover-bg);
-  }
-
-  .mode-option input {
-    margin-top: 3px;
-    flex-shrink: 0;
-  }
-
-  .mode-body {
-    display: flex;
-    flex-direction: column;
-    gap: 4px;
-  }
-
-  .mode-name {
-    font-size: 14px;
+  /* Действующее положение читается без вглядывания в сам переключатель. */
+  .route-side-on {
     color: var(--text-primary);
+    font-weight: 600;
   }
 
-  .mode-note {
-    font-size: 12px;
-    line-height: 1.5;
+  .route-toggle {
+    position: relative;
+    width: 56px;
+    height: 28px;
+    flex-shrink: 0;
+    padding: 0;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--bg-tertiary);
+    cursor: pointer;
+    transition: background var(--transition-fast), border-color var(--transition-fast);
+  }
+
+  .route-toggle:hover:not(:disabled) {
+    border-color: var(--border-active);
+  }
+
+  .route-toggle:disabled {
+    cursor: not-allowed;
+    opacity: 0.6;
+  }
+
+  .route-toggle-on {
+    background: var(--accent-primary, var(--text-primary));
+    border-color: var(--accent-primary, var(--text-primary));
+  }
+
+  /* Положение не прочитано: ползунок посередине — ни одно из двух не утверждается. */
+  .route-toggle-unknown .route-knob {
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: var(--text-secondary);
+  }
+
+  .route-knob {
+    position: absolute;
+    top: 50%;
+    left: 3px;
+    transform: translateY(-50%);
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: var(--text-secondary);
+    transition: left var(--transition-fast), background var(--transition-fast);
+  }
+
+  .route-toggle-on .route-knob {
+    left: 31px;
+    background: var(--bg-primary, #fff);
+  }
+
+  .route-headline {
+    margin-top: 4px;
+  }
+
+  .route-locked {
+    margin-top: 6px;
     color: var(--text-secondary);
   }
 
-  .mode-warn {
-    font-size: 12px;
-    color: var(--danger);
+  @media (prefers-reduced-motion: reduce) {
+    .route-toggle,
+    .route-knob,
+    .route-side {
+      transition: none;
+    }
   }
 
   .section-title {

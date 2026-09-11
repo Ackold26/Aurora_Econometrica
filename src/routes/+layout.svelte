@@ -6,8 +6,9 @@
   import { page } from '$app/stores';
   import { goto } from '$app/navigation';
   import { theme, updateRequired, layoutCabinets, cabinetsLoaded, activeCabinet, messages, navCollapsed, licenseError, cloudConsent, cloudConsentPromptOpen } from '$lib/store.js';
+  import { refreshAssistantRoute, pendingRouteChangeNotice, acknowledgeRouteChange } from '$lib/assistant-route.js';
   import { initCreativeStore, productType } from '$lib/creative-store.js';
-  import { toasts, dismiss } from '$lib/toast.js';
+  import { toasts, dismiss, toast } from '$lib/toast.js';
   import { onMount } from 'svelte';
   import UpdateBlockingOverlay from '$lib/components/UpdateBlockingOverlay.svelte';
   import CloudConsentOverlay from '$lib/components/CloudConsentOverlay.svelte';
@@ -228,18 +229,21 @@
     // экран согласия на first-run. Graceful — MMM доступен и без согласия; экран лишь
     // информирует и разблокирует кабинеты-советники. В локальной редакции advisorsEnabled=false.
     (async () => {
-      try {
-        const st = /** @type {{cloud_advisors_enabled: boolean, consent_required: boolean, local_only: boolean}} */ (
-          await invoke('get_cloud_consent_status')
-        );
-        const advisorsEnabled = !!st?.cloud_advisors_enabled;
-        const granted = !st?.consent_required;
-        const localOnly = !!st?.local_only;
-        cloudConsent.set({ advisorsEnabled, granted, localOnly, loaded: true });
-        if (advisorsEnabled && !granted) cloudConsentPromptOpen.set(true);
-      } catch {
-        // Статус недоступен → гейт не активируем (бэкенд run_claude всё равно не даст egress без согласия).
-        cloudConsent.set({ advisorsEnabled: false, granted: false, localOnly: false, loaded: true });
+      // Положение режима и согласие читаются одним вызовом и одним разбором
+      // ($lib/assistant-route.js): подпись «Сейчас: …» обязана говорить о фактическом
+      // положении дел, а не складываться на каждом экране заново. Отказ чтения
+      // оставляет положение НЕПРОЧИТАННЫМ — ни «уходят», ни «не уходят».
+      const ok = await refreshAssistantRoute();
+      const st = get(cloudConsent);
+      if (ok && st.advisorsEnabled && !st.granted) cloudConsentPromptOpen.set(true);
+      // 🔴 Тому, у кого работа шла через свой Claude Code, маршрут сменился при обновлении.
+      // Говорим об этом один раз и словами: смена маршрута данных, о которой человеку не
+      // сказали, — тот же дефект, из-за которого всё и затевалось, только с другого конца.
+      // Держится дольше обычного уведомления: это не «файл сохранён», это про его данные.
+      const routeNotice = pendingRouteChangeNotice();
+      if (routeNotice) {
+        toast(routeNotice, 'info', 30000);
+        acknowledgeRouteChange();
       }
     })();
 

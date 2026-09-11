@@ -44,6 +44,13 @@ pub struct UserConfig {
     /// не проходили через наши серверы, молча окажется на шлюзе после перезапуска.
     #[serde(default)]
     pub execution_mode: Option<String>,
+    /// Нужно ли один раз сказать человеку, что маршрут ассистента сменился.
+    ///
+    /// Ставится переносом прежних настроек (`migrate_route_axis`) тем, у кого работа шла
+    /// через свой Claude Code, снимается после показа. Дефолт false — новым установкам
+    /// говорить не о чем.
+    #[serde(default)]
+    pub route_notice_pending: bool,
 }
 
 /// Версия условий облачной обработки. Bump → согласие запрашивается повторно
@@ -78,11 +85,64 @@ pub fn cloud_consent_required(config_dir: &Path) -> bool {
     consent_outdated(&load(config_dir).cloud_consent)
 }
 
-/// Включён ли пользователем runtime-режим «только локально» (egress отключён).
-/// Дефолт false (нет конфига / поле отсутствует → облачный ИИ разрешён, если
-/// редакция облачная и согласие дано).
+/// Левое положение единственного переключателя, выведенное из сохранённых настроек.
+///
+/// 🔴 Ось ровно одна — `local_only`. Прежнее поле `execution_mode` («чей Claude Code
+/// исполняет работу») положение НЕ задаёт: маршрут через свой Claude Code клиента убран,
+/// а человек, выбиравший его, согласие на облачную обработку уже давал — оно спрашивалось
+/// ДО развилки маршрута, в обеих ветках. Он выбирал не локальность, а путь мимо нашего
+/// шлюза, но всё равно наружу. Такого человека переносим ВПРАВО и говорим об этом вслух
+/// (решение владельца 11.09.2026, см. `migrate_route_axis`), а не отнимаем ассистента
+/// молча: молчаливая пропажа читается как поломка, а не как забота.
+pub fn stored_local_only(config: &UserConfig) -> bool {
+    config.local_only
+}
+
+/// Перенести прежние настройки на единственную ось. Возвращает `true`, если человеку нужно
+/// один раз сказать, что маршрут ассистента сменился.
+///
+/// 🔴 Идемпотентна по построению: после переноса `execution_mode` становится зеркалом
+/// положения («cloud»), и второй раз условие не выполняется. Признак `route_notice_pending`
+/// живёт в durable-настройках, а не в памяти процесса: человек, закрывший программу до
+/// того, как прочитал сообщение, обязан увидеть его при следующем запуске — иначе смена
+/// маршрута данных пройдёт молча, а это ровно тот дефект, из-за которого всё и затевалось.
+pub fn migrate_route_axis(config_dir: &Path) -> bool {
+    let mut config = load(config_dir);
+    if config.execution_mode.as_deref() == Some("local") && !config.local_only {
+        config.execution_mode = Some("cloud".to_string());
+        config.route_notice_pending = true;
+        let _ = save(config_dir, &config);
+        return true;
+    }
+    config.route_notice_pending
+}
+
+/// Снять признак: сообщение о смене маршрута человеку показано.
+pub fn clear_route_notice(config_dir: &Path) -> Result<(), String> {
+    let mut config = load(config_dir);
+    if !config.route_notice_pending {
+        return Ok(());
+    }
+    config.route_notice_pending = false;
+    save(config_dir, &config)
+}
+
+/// Включён ли режим «полностью локально» (левое положение переключателя, egress
+/// ассистента отключён). Дефолт false (нет конфига / поле отсутствует → правое
+/// положение, если редакция облачная, путь к шлюзу в сборке есть и согласие дано).
 pub fn local_only_enabled(config_dir: &Path) -> bool {
-    load(config_dir).local_only
+    stored_local_only(&load(config_dir))
+}
+
+/// Дано ли действующее согласие на облачную обработку (без учёта редакции).
+///
+/// Согласие — часть выбора режима (решение владельца 10.09.2026 №3): отдельного
+/// переключателя больше нет, вопрос задаётся один раз при первом переводе вправо, а
+/// отказ оставляет переключатель слева. Поэтому фактическое положение обязано читать
+/// и его тоже — иначе подпись под переключателем утверждает уход материалов там, где
+/// его нет (находка внешнего аудита 11.09.2026).
+pub fn cloud_consent_granted(config_dir: &Path) -> bool {
+    !consent_outdated(&load(config_dir).cloud_consent)
 }
 
 fn config_path(config_dir: &Path) -> PathBuf {
@@ -203,6 +263,69 @@ mod tests {
             Some("local"),
             "выбор режима обязан пережить перезапуск",
         );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// 🔴 Перенос прежних настроек при сведении трёх осей к одной (владелец, 11.09.2026).
+    ///
+    /// Левое положение задаёт РОВНО ОДНО хранимое поле. Прежний выбор «свой Claude Code»
+    /// влево не тянет: согласие на облачную обработку у такого человека уже есть, и молча
+    /// отнимать у него ассистента нельзя. Тест перебирает все сочетания — ошибиться в таком
+    /// правиле можно ровно в пропущенном сочетании, а не в разобранном.
+    #[test]
+    fn only_the_explicit_local_only_moves_the_switch_left() {
+        let cases: &[(bool, Option<&str>, bool, &str)] = &[
+            (false, None, false, "свежая установка — правое положение по умолчанию"),
+            (true, None, true, "включённый «только локально» остаётся слева"),
+            (false, Some("local"), false, "прежний свой Claude Code переносится вправо"),
+            (true, Some("local"), true, "но запрет обращений сильнее прежнего выбора пути"),
+            (false, Some("cloud"), false, "выбравший шлюз остаётся справа"),
+            (true, Some("cloud"), true, "запрет обращений сильнее прежнего выбора пути"),
+            (false, Some("узел-а"), false, "неизвестное значение не двигает переключатель"),
+        ];
+        for (local_only, execution_mode, expected_left, why) in cases {
+            let config = UserConfig {
+                local_only: *local_only,
+                execution_mode: execution_mode.map(|s| s.to_string()),
+                ..Default::default()
+            };
+            assert_eq!(stored_local_only(&config), *expected_left, "{why}");
+        }
+    }
+
+    /// Перенос маршрута: вправо, один раз, с сообщением — и не повторяется.
+    #[test]
+    fn moving_the_old_local_route_right_says_so_once() {
+        let dir = std::env::temp_dir().join(format!("aurora-econ-migrate-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+
+        // Человек работал через свой Claude Code.
+        let config = UserConfig { execution_mode: Some("local".to_string()), ..Default::default() };
+        save(&dir, &config).expect("прежние настройки записаны");
+
+        assert!(migrate_route_axis(&dir), "о смене маршрута обязаны сказать");
+        let after = load(&dir);
+        assert!(!stored_local_only(&after), "перенос обязан оставить человека справа");
+        assert_eq!(after.execution_mode.as_deref(), Some("cloud"), "зеркало положения обновлено");
+        assert!(after.route_notice_pending, "признак сообщения обязан пережить перезапуск");
+
+        // Повторный запуск до показа сообщения: признак держится, но перенос не повторяется.
+        assert!(migrate_route_axis(&dir), "непоказанное сообщение обязано дожить до показа");
+
+        clear_route_notice(&dir).expect("после показа признак снимается");
+        assert!(!migrate_route_axis(&dir), "показанное сообщение не повторяется");
+
+        // А тому, кто выбрал «только локально», ничего не переносим и ничего не говорим.
+        let _ = std::fs::remove_dir_all(&dir);
+        let config = UserConfig {
+            execution_mode: Some("local".to_string()),
+            local_only: true,
+            ..Default::default()
+        };
+        save(&dir, &config).expect("настройки записаны");
+        assert!(!migrate_route_axis(&dir), "выбравшему локальный режим сообщать не о чем");
+        assert!(stored_local_only(&load(&dir)), "и он обязан остаться слева");
 
         let _ = std::fs::remove_dir_all(&dir);
     }

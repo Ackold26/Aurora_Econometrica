@@ -1,6 +1,7 @@
 <script>
   import { invoke } from '@tauri-apps/api/core';
-  import { cloudConsent, cloudConsentPromptOpen } from '$lib/store.js';
+  import { cloudConsentPromptOpen } from '$lib/store.js';
+  import { refreshAssistantRoute } from '$lib/assistant-route.js';
 
   // Экран согласия на облачную обработку (F2-2/F2-3, User Story #10). Управляется стором
   // cloudConsentPromptOpen: открывается на первом запуске (информирование) и при попытке
@@ -30,7 +31,10 @@
     errorMsg = '';
     try {
       await invoke('accept_cloud_consent');
-      cloudConsent.update((c) => ({ ...c, granted: true }));
+      // 🔴 Положение перечитывается у продукта целиком, а не правится на месте одним
+      // полем: согласие — часть выбора режима, и после него меняется ФАКТИЧЕСКОЕ
+      // положение переключателя вместе с подписью «Сейчас: …».
+      await refreshAssistantRoute();
       cloudConsentPromptOpen.set(false);
       busy = false;
       reset();

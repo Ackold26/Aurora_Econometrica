@@ -5,6 +5,7 @@
   import { messages, isLoading, activeCabinet, pendingCommand, stickyContext, cabinetCommands, inboxFiles as inboxFilesStore } from '$lib/store.js';
   import { toast } from '$lib/toast.js';
   import { attachmentsSkippedText } from '$lib/cloud-warning-text.js';
+  import { assistantRoute, assistantAvailable } from '$lib/assistant-route.js';
   import { cancelledTailAction, insertBeforeActiveBubble } from '$lib/cancelled-run.js';
   import { getNextSteps, getRandomInsight, getCurrentPhase, trackRequest, getEmpathyError, getTimeGreeting, getUsageHint, startSession, incrementSessionMessages, endSession, pluralRu, getResponseActions, getSafetyTimeout, getEndowedProgressMessage, getContextInsight } from '$lib/psy.js';
   import { classifyMessage } from '$lib/chat-classifier.js';
@@ -813,6 +814,20 @@
 
     const cabinetId = $activeCabinet?.id;
     if (!cabinetId) return;
+
+    // 🔴 Левое положение переключателя: ассистента нет. Человек узнаёт об этом ДО
+    // отправки, а не отказом после неё (требование 5 задания владельца 10.09.2026), и
+    // показывается это постоянно, а не только в переходный период. Текст приходит из
+    // продукта — тот же самый, что вернул бы отказ бэкенда, второй правды тут не будет.
+    // Набранное сохраняется в поле ввода: переключив режим, человек отправляет его же,
+    // ничего не набирая заново.
+    if (!$assistantAvailable) {
+      messages.update(msgs => [...msgs, {
+        role: 'system', content: $assistantRoute.notice, ts: Date.now(),
+      }]);
+      scrollToBottom();
+      return;
+    }
 
     const ts = Date.now();
 

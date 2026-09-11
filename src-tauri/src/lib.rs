@@ -2472,12 +2472,68 @@ fn set_model_settings(model: String, effort: String, app_handle: tauri::AppHandl
 #[tauri::command]
 fn get_cloud_consent_status(app_handle: tauri::AppHandle) -> Result<serde_json::Value, String> {
     let config_dir = app_handle.path().app_config_dir().map_err(|e| e.to_string())?;
+    // 🔴 Отдаётся и ФАКТИЧЕСКОЕ положение переключателя, а не только слагаемые. Прежде
+    // фронт складывал его сам из двух полей и одно из них пропускал: подпись «Сейчас: …»
+    // смотрела только на `local_only` и на свежей установке утверждала, что материалы
+    // уходят на наш сервер, хотя согласия ещё никто не давал (внешний аудит 11.09.2026).
+    // Одно вычисление на продукт — одно утверждение о маршруте данных.
+    let route = commands::execution_mode::route_state(&app_handle);
     Ok(serde_json::json!({
         "cloud_advisors_enabled": claude::CLOUD_ADVISORS_ENABLED,
         "consent_required": user_config::cloud_consent_required(&config_dir),
         "terms_version": user_config::CLOUD_CONSENT_TERMS_VERSION,
         "local_only": user_config::local_only_enabled(&config_dir),
+        "gateway_built_in": route.gateway_built_in,
+        "route_cloud": route.cloud,
+        "route_locked": route.locked,
+        "route_locked_reason": route.locked_reason,
+        "route_headline": route.headline,
+        "route_local_notice": route.local_notice,
+        // Однократное сообщение о смене маршрута тем, у кого работа шла через свой
+        // Claude Code. Снимается командой `dismiss_route_notice` после показа.
+        "route_notice_pending": user_config::load(&config_dir).route_notice_pending,
+        "route_changed_notice": commands::execution_mode::ROUTE_CHANGED_NOTICE,
     }))
+}
+
+/// Отметить, что сообщение о смене маршрута человеку показано.
+#[tauri::command]
+fn dismiss_route_notice(app_handle: tauri::AppHandle) -> Result<(), String> {
+    let config_dir = app_handle.path().app_config_dir().map_err(|e| e.to_string())?;
+    user_config::clear_route_notice(&config_dir)
+}
+
+/// Фактическое положение единственного переключателя режима работы.
+#[tauri::command]
+fn get_assistant_route(
+    app_handle: tauri::AppHandle,
+) -> Result<commands::execution_mode::RouteState, String> {
+    Ok(commands::execution_mode::route_state(&app_handle))
+}
+
+/// Перевести переключатель. `cloud = true` — «через шлюз Авроры», `false` — «полностью
+/// локально».
+///
+/// 🔴 Согласие — часть выбора режима (решение владельца 10.09.2026 №3). Перевод вправо
+/// без действующего согласия НЕ выполняется: команда отказывает кодом `[MODE-CONSENT]`,
+/// по которому интерфейс открывает экран согласия, и переключатель остаётся слева, пока
+/// человек не согласится. Отказ = левое положение, отдельной настройки согласия нет.
+#[tauri::command]
+fn set_assistant_route(cloud: bool, app_handle: tauri::AppHandle) -> Result<(), String> {
+    let config_dir = app_handle.path().app_config_dir().map_err(|e| e.to_string())?;
+    if cloud {
+        if !claude::CLOUD_ADVISORS_ENABLED || !commands::execution_mode::cloud_built_in() {
+            return Err(commands::execution_mode::route_locked_reason(
+                claude::CLOUD_ADVISORS_ENABLED,
+                commands::execution_mode::cloud_built_in(),
+            )
+            .to_string());
+        }
+        if user_config::cloud_consent_required(&config_dir) {
+            return Err("[MODE-CONSENT] Требуется согласие на облачную обработку".to_string());
+        }
+    }
+    commands::execution_mode::set_route(&app_handle, cloud)
 }
 
 /// Зафиксировать согласие пользователя на облачную обработку (текущая версия условий).
@@ -3844,6 +3900,16 @@ fn build_app() -> Result<(), String> {
                 }
             }
 
+            // 🔴 Перенос прежних настроек маршрута на единственную ось (два режима вместо
+            // трёх, владелец 10–11.09.2026). Тому, у кого работа шла через свой Claude Code,
+            // маршрут сменился — и он обязан узнать об этом словами, один раз. Перенос
+            // идемпотентен, у новых установок ничего не трогает.
+            if let Ok(config_dir) = app.path().app_config_dir() {
+                if user_config::migrate_route_axis(&config_dir) {
+                    info!("Маршрут ассистента перенесён на шлюз Авроры – сообщение человеку ожидает показа");
+                }
+            }
+
             // One-time migration: content_version.txt → vault-versions.json
             if let (Some(config_dir), Some(data_dir)) = (
                 app.path().app_config_dir().ok(),
@@ -3936,6 +4002,9 @@ fn build_app() -> Result<(), String> {
             get_execution_mode,
             set_execution_mode,
             probe_local_claude,
+            get_assistant_route,
+            set_assistant_route,
+            dismiss_route_notice,
             close_cabinet,
             send_message,
             list_inbox_files,

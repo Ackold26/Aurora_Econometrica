@@ -131,6 +131,13 @@ pub fn user_message(err: &ClaudeError) -> String {
 /// статически недостижим (единственный путь спавна — `run_claude_inner` — за этим гейтом).
 pub const CLOUD_ADVISORS_ENABLED: bool = cfg!(feature = "cloud_advisors");
 
+/// Отказ сборки, в которую не входит путь к шлюзу. Одна формулировка на гейт и на обе
+/// развилки: расходящиеся тексты одного и того же отказа человек читает как разные
+/// неисправности и ищет несуществующую разницу.
+#[cfg(feature = "cloud_advisors")]
+const NO_GATEWAY_MESSAGE: &str = "[CL-NO-GATEWAY] В эту сборку не входит путь к шлюзу Авроры – \
+    ИИ-ассистенту некуда обращаться. Расчёт медиасплита работает как обычно.";
+
 /// Defense-in-depth: запретить egress к Anthropic, пока пользователь не дал согласие на
 /// облачную обработку. Блокирующий экран согласия — на фронте; это бэкенд-страховка на
 /// случай обхода UI. Тот же чок-поинт, что и egress-гард локальной редакции (run_claude*).
@@ -146,9 +153,10 @@ fn ensure_cloud_consent(app_handle: &tauri::AppHandle) -> Result<()> {
     Ok(())
 }
 
-/// Defense-in-depth (runtime): запретить egress, если пользователь включил режим
-/// «только локально» (данные не уходят). Тот же egress-чок-поинт, что и согласие.
-/// Одна сборка, два режима: тумблер в Настройках пишет `local_only` в user_config.
+/// Defense-in-depth (runtime): запретить egress, если человек выбрал левое положение
+/// переключателя — «полностью локально». Тот же egress-чок-поинт, что и согласие.
+/// Одна сборка, два режима: переключатель в Настройках пишет `local_only` в user_config,
+/// а `local_only_enabled` учитывает и перенос прежних настроек (`stored_local_only`).
 #[cfg(feature = "cloud_advisors")]
 fn ensure_not_local_only(app_handle: &tauri::AppHandle) -> Result<()> {
     let config_dir = app_handle
@@ -156,9 +164,54 @@ fn ensure_not_local_only(app_handle: &tauri::AppHandle) -> Result<()> {
         .app_config_dir()
         .map_err(|e| anyhow::anyhow!("app_config_dir: {e}"))?;
     if crate::commands::user_config::local_only_enabled(&config_dir) {
-        anyhow::bail!("[CL-LOCAL-ONLY] Включён режим «только локально» — облачный ИИ отключён, материалы не уходят с этой машины");
+        // Текст — тот же, что показывается ДО отправки на экране (единая формулировка
+        // на интерфейс и на отказ бэкенда): человек, дошедший сюда в обход экрана,
+        // обязан прочитать ровно то же самое, а не вторую версию правды.
+        anyhow::bail!(
+            "[CL-LOCAL-ONLY] {}",
+            crate::commands::execution_mode::LOCAL_MODE_NOTICE
+        );
     }
     Ok(())
+}
+
+/// Единственный гейт маршрута ассистента: работа идёт только через шлюз Авроры.
+///
+/// 🔴 Три прежние оси сведены к одной (решение владельца 10.09.2026). Порядок проверок
+/// сохранён от прежнего чок-поинта и значим: сначала — можно ли обращаться наружу
+/// вообще (левое положение), затем — есть ли действующее согласие (оно же часть выбора
+/// режима), и лишь потом — входит ли путь к шлюзу в эту сборку. Ответ «нельзя» на
+/// любом шаге называется человеку с причиной и кодом; НИКУДА не уводит.
+#[cfg(feature = "cloud_advisors")]
+fn ensure_gateway_route(app_handle: &tauri::AppHandle) -> Result<()> {
+    ensure_not_local_only(app_handle)?;
+    ensure_cloud_consent(app_handle)?;
+    if !crate::commands::execution_mode::cloud_built_in() {
+        anyhow::bail!("{NO_GATEWAY_MESSAGE}");
+    }
+    Ok(())
+}
+
+/// Отказ шлюза: причина остаётся дословной, к ней добавляется честное «дальше никуда».
+///
+/// 🔴 Требование 6 задания владельца. Уводить работу теперь некуда — локального пути
+/// нет, — но правило записано явно, чтобы следующая правка не завела запасной маршрут
+/// молча. Код в начале строки обязателен: по нему человек называет отказ поддержке.
+#[cfg(all(feature = "cloud_advisors", feature = "thin"))]
+fn gateway_failure(error: anyhow::Error) -> anyhow::Error {
+    let reason = error.to_string();
+    // Причина, уже пришедшая с кодом от шлюза, вторым кодом не оборачивается: две метки
+    // в одной строке человек читает как две разные ошибки.
+    let head = if reason.trim_start().starts_with('[') {
+        reason.clone()
+    } else {
+        format!("[CL-GW] {reason}")
+    };
+    anyhow::anyhow!(
+        "{head}\n\nРабота никуда больше не отправлялась: в этой программе ИИ-ассистент \
+         работает только через шлюз Авроры. Повторите вопрос позже или сообщите нам код \
+         ошибки."
+    )
 }
 
 /// Spawn Claude Code CLI and stream output via Tauri events.
@@ -181,42 +234,36 @@ pub async fn run_claude(
     }
     #[cfg(feature = "cloud_advisors")]
     {
-        // 🔴 Две РАЗНЫЕ оси, и порядок между ними не случаен (ADR-049 §4а). Сначала —
-        // допустимо ли обращение к облачному ИИ вообще: локальная редакция, согласие,
-        // тумблер «только локально». И лишь ВНУТРИ разрешённого решается вторая ось —
-        // чей Claude Code исполняет работу. Поменять порядок значит спросить «каким
-        // путём идти» там, где идти нельзя никаким.
-        ensure_not_local_only(&app_handle)?;
-        ensure_cloud_consent(&app_handle)?;
-
-        // Развилка режима (ADR-049): решение принимается ВО ВРЕМЯ РАБОТЫ, не при сборке.
-        // Признак `thin` отвечает лишь на вопрос «есть ли облачный путь в этом бинаре».
-        let decision = crate::commands::execution_mode::resolve(&app_handle).await;
-        info!(
-            "Режим исполнения [{cabinet_id}]: {} ({})",
-            decision.mode.human(),
-            decision.source.as_str(),
-        );
+        // 🔴 Одна ось вместо трёх (решение владельца 10.09.2026). Прежде здесь стояли
+        // два гейта и следом развилка «чей Claude Code исполняет работу»: продукт сам
+        // искал установленный у клиента Claude Code и молча уходил в него. Именно это
+        // сломало показ покупателю 10.09 — владелец включил облачную обработку, а запрос
+        // ушёл в чужую программу на машине и вернул её английский отказ. Выбирать больше
+        // не из чего: слева ассистента нет вовсе, справа единственный путь — шлюз Авроры.
+        ensure_gateway_route(&app_handle)?;
 
         #[cfg(feature = "thin")]
-        if decision.mode == crate::commands::execution_mode::ExecutionMode::Cloud {
-            // Исполнение кабинета — на нашем сервере, не локальный Claude CLI.
-            // active_pids — часть локального мира: шлюз не спавнит процесс.
-            // Модель доезжает до сервера: прежде тонкая поставка считала всё тем, что
-            // решит сервер, и работала слабее полной незаметно для человека.
+        {
+            // Исполнение кабинета — на нашем сервере. active_pids — часть локального
+            // мира: шлюз не спавнит процесс. Модель доезжает до сервера: прежде тонкая
+            // поставка считала всё тем, что решит сервер, и работала слабее полной
+            // незаметно для человека.
+            info!("Ассистент [{cabinet_id}]: работа идёт через шлюз Авроры");
             let _ = &active_pids;
             let (sid, response_text) = crate::commands::gateway_executor::run_claude_gateway(
                 work_dir, prompt, app_handle, cabinet_id, resume_session_id, suppress_export, model,
-            ).await?;
+            ).await.map_err(gateway_failure)?;
             return Ok((sid, response_text));
         }
 
-        // Локальный путь. 🔴 Его отказ НЕ переводит работу на шлюз — ни молча, ни
-        // «разово»: человек выбрал этот режим ради того, чтобы Платформа Аврора не
-        // участвовала в передаче (ADR-049 §4).
-        match run_claude_inner(work_dir, prompt, app_handle, cabinet_id, resume_session_id, active_pids, false, suppress_export, model).await {
-            Ok((sid, response_text)) => Ok((sid, response_text)),
-            Err(e) => Err(local_failure(e)),
+        // Сборка без признака `thin`: путь к шлюзу в неё не входит, а локального пути
+        // больше нет. Сюда штатно не доходит — `ensure_gateway_route` отказывает раньше;
+        // отказ повторён здесь, чтобы правило держалось само, а не опиралось на порядок
+        // строк выше.
+        #[cfg(not(feature = "thin"))]
+        {
+            let _ = (work_dir, prompt, cabinet_id, resume_session_id, active_pids, suppress_export, model);
+            anyhow::bail!("{NO_GATEWAY_MESSAGE}");
         }
     }
 }
@@ -224,6 +271,12 @@ pub async fn run_claude(
 /// Отказ локального пути: причина остаётся дословной, к ней добавляется предложение
 /// переключиться (ADR-049 §4). Заодно гасится ЛОКАЛЬНЫЙ выбор автоопределения — но не
 /// явный выбор человека: тот сильнее любой отметки.
+// 🔴 ВЫВЕДЕНО ИЗ УПОТРЕБЛЕНИЯ 11.09.2026 (два режима вместо трёх): маршрут через
+// Claude Code, установленный у клиента, убран из пути ассистента целиком. Код
+// оставлен до решения владельца об удалении, поэтому dead_code глушится точечно —
+// бланкетного разрешения на модуль нет намеренно, иначе настоящий мёртвый код в
+// живой части файла перестал бы находиться.
+#[allow(dead_code)]
 #[cfg(feature = "cloud_advisors")]
 fn local_failure(error: anyhow::Error) -> anyhow::Error {
     let reason = error.to_string();
@@ -247,34 +300,27 @@ pub async fn run_claude_pipeline(
     }
     #[cfg(feature = "cloud_advisors")]
     {
-        ensure_not_local_only(&app_handle)?;
-        ensure_cloud_consent(&app_handle)?;
-
-        // Фазы пайплайна идут тем же режимом, что и обычный вопрос (ADR-049): иначе одна
-        // и та же работа частями уходила бы разными маршрутами — худший вид дефекта
-        // «работает не в том режиме», потому что незаметен даже нам.
-        let decision = crate::commands::execution_mode::resolve(&app_handle).await;
-        info!(
-            "Режим исполнения фазы [{cabinet_id}]: {} ({})",
-            decision.mode.human(),
-            decision.source.as_str(),
-        );
+        // Фазы пайплайна идут тем же путём, что и обычный вопрос: иначе одна и та же
+        // работа частями уходила бы разными маршрутами — худший вид дефекта «работает
+        // не в том режиме», потому что незаметен даже нам. Гейт тот же самый, один.
+        ensure_gateway_route(&app_handle)?;
 
         #[cfg(feature = "thin")]
-        if decision.mode == crate::commands::execution_mode::ExecutionMode::Cloud {
+        {
             // Pipeline phases always suppress export/done - final output is built by
             // post-processor. Зеркалит suppress_done=true, suppress_export=true CLI-пути.
+            info!("Ассистент, фаза [{cabinet_id}]: работа идёт через шлюз Авроры");
             let _ = &active_pids;
             let (sid, response_text) = crate::commands::gateway_executor::run_claude_pipeline_gateway(
                 work_dir, prompt, app_handle, cabinet_id, resume_session_id,
-            ).await?;
+            ).await.map_err(gateway_failure)?;
             return Ok((sid, response_text));
         }
 
-        // Pipeline phases always suppress export - final output is built by post-processor
-        match run_claude_inner(work_dir, prompt, app_handle, cabinet_id, resume_session_id, active_pids, true, true, None).await {
-            Ok((sid, response_text)) => Ok((sid, response_text)),
-            Err(e) => Err(local_failure(e)),
+        #[cfg(not(feature = "thin"))]
+        {
+            let _ = (work_dir, prompt, cabinet_id, resume_session_id, active_pids);
+            anyhow::bail!("{NO_GATEWAY_MESSAGE}");
         }
     }
 }
@@ -285,7 +331,12 @@ pub async fn run_claude_pipeline(
 /// Project-уровень кабинета (work_dir/CLAUDE.md барьер+scope) СОХРАНЯЕТСЯ (грузится из cwd, CONFIG_DIR его не трогает).
 /// Используется только из `run_claude_inner`, которая при feature `thin` недостижима
 /// (gateway_executor заменяет её) — глушим dead_code точечно для этой конфигурации.
-#[cfg_attr(feature = "thin", allow(dead_code))]
+// 🔴 ВЫВЕДЕНО ИЗ УПОТРЕБЛЕНИЯ 11.09.2026 (два режима вместо трёх): маршрут через
+// Claude Code, установленный у клиента, убран из пути ассистента целиком. Код
+// оставлен до решения владельца об удалении, поэтому dead_code глушится точечно —
+// бланкетного разрешения на модуль нет намеренно, иначе настоящий мёртвый код в
+// живой части файла перестал бы находиться.
+#[allow(dead_code)]
 fn isolated_claude_config_dir(app_handle: &tauri::AppHandle) -> Option<std::path::PathBuf> {
     let iso = app_handle.path().app_local_data_dir().ok()?.join("claude-runtime");
     if let Err(e) = std::fs::create_dir_all(&iso) {
@@ -334,7 +385,12 @@ fn isolated_claude_config_dir(app_handle: &tauri::AppHandle) -> Option<std::path
 // При feature `thin` вызовы run_claude_inner заменены веткой gateway_executor
 // (см. run_claude/run_claude_pipeline выше) — функция становится недостижимой
 // в этой конфигурации; глушим dead_code точечно, не трогая остальной модуль.
-#[cfg_attr(feature = "thin", allow(dead_code))]
+// 🔴 ВЫВЕДЕНО ИЗ УПОТРЕБЛЕНИЯ 11.09.2026 (два режима вместо трёх): маршрут через
+// Claude Code, установленный у клиента, убран из пути ассистента целиком. Код
+// оставлен до решения владельца об удалении, поэтому dead_code глушится точечно —
+// бланкетного разрешения на модуль нет намеренно, иначе настоящий мёртвый код в
+// живой части файла перестал бы находиться.
+#[allow(dead_code)]
 #[allow(clippy::too_many_arguments)]
 async fn run_claude_inner(
     work_dir: &Path,

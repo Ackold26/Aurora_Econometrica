@@ -43,7 +43,7 @@
   // Tier 2 (Claude-усилитель инсайтов, «Phase 10»). Видим только в облачной
   // редакции с согласием и для продукта Econometrica.
   import { isEconometrica } from '$lib/creative-store.js';
-  import { cloudConsent } from '$lib/store.js';
+  import { assistantAvailable } from '$lib/assistant-route.js';
   import { buildTier2Context, buildTier2Prompt, TIER2_SYSTEM_RULES, STEP, sanitizePromptFragment } from '$lib/tier2-context.js';
   import { buildRagQuery, detectChannelType } from '$lib/rag-query.js';
   import { findUngroundedNumbers } from '$lib/insights-grounding.js';
@@ -377,14 +377,11 @@
   /** @type {string[]} негрунд-числа из ответа (рантайм-страж INV-50) */
   let askUngrounded = $state(/** @type {string[]} */ ([]));
 
-  // Видимость: облачная редакция + согласие дано + НЕ режим «только локально»
-  // + продукт Econometrica.
-  const canAsk = $derived(
-    $cloudConsent.advisorsEnabled &&
-      $cloudConsent.granted &&
-      !$cloudConsent.localOnly &&
-      $isEconometrica,
-  );
+  // Видимость: правое положение переключателя режима + продукт Econometrica.
+  // 🔴 Слагаемые складывает продукт ($lib/assistant-route.js), а не этот экран: пока
+  // каждое место считало положение само, одно из них считало иначе — так подпись в
+  // настройках и разошлась с действительностью (внешний аудит 11.09.2026).
+  const canAsk = $derived($assistantAvailable && $isEconometrica);
 
   // Ответ ИИ относится к конкретному шагу пайплайна — сбрасывать при смене шага,
   // иначе пользователь видит ответ про декомпозицию на шаге оптимизации.

@@ -163,14 +163,33 @@ export const cabinetOnboarding = createPersistentStore('ai-agency-cabinet-onboar
  * @type {import('svelte/store').Writable<string|null>} */
 export const licenseError = writable(null);
 
-/** Согласие на облачную обработку (облачная редакция).
+/** Режим работы и согласие на облачную обработку (облачная редакция).
  * advisorsEnabled — собрана ли облачная редакция (кабинеты-советники на Anthropic);
  * granted — дал ли пользователь согласие на облачную обработку;
- * localOnly — пользователь включил режим «только локально» (egress облачного ИИ отключён);
- * loaded — статус получен с бэкенда (до этого гейт не срабатывает).
+ * localOnly — выбрано «полностью локально» (левое положение переключателя);
+ * gatewayBuiltIn — входит ли путь к шлюзу Авроры в эту сборку;
+ * routeCloud — ФАКТИЧЕСКОЕ положение переключателя, посчитанное продуктом;
+ * routeLocked / routeLockedReason — переключатель заблокирован и почему;
+ * routeHeadline — готовая подпись «Сейчас: …» (текст приходит из продукта, не из экрана);
+ * routeNotice — готовое сообщение левого положения (показывается ДО отправки);
+ * loaded — статус получен с бэкенда (до этого положение считается непрочитанным).
+ * 🔴 Складывать положение самостоятельно из отдельных полей нельзя — ровно на этом
+ * подпись врала на свежей установке (внешний аудит 11.09.2026). Читать `routeCloud`
+ * либо производный стор `assistantRoute` из `$lib/assistant-route.js`.
  * Graceful: без согласия MMM-анализ доступен полностью, заблокированы только советники.
- * @type {import('svelte/store').Writable<{advisorsEnabled: boolean, granted: boolean, localOnly: boolean, loaded: boolean}>} */
-export const cloudConsent = writable({ advisorsEnabled: false, granted: false, localOnly: false, loaded: false });
+ * @type {import('svelte/store').Writable<{advisorsEnabled: boolean, granted: boolean, localOnly: boolean, gatewayBuiltIn: boolean, routeCloud: boolean, routeLocked: boolean, routeLockedReason: string, routeHeadline: string, routeNotice: string, loaded: boolean}>} */
+export const cloudConsent = writable({
+    advisorsEnabled: false,
+    granted: false,
+    localOnly: false,
+    gatewayBuiltIn: false,
+    routeCloud: false,
+    routeLocked: false,
+    routeLockedReason: '',
+    routeHeadline: '',
+    routeNotice: '',
+    loaded: false,
+});
 
 /** Открыт ли экран согласия (prompt-triggered: первый запуск или вход в кабинет-советник).
  * @type {import('svelte/store').Writable<boolean>} */

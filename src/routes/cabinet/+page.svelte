@@ -10,11 +10,14 @@
   import CommandBrief from '$lib/components/CommandBrief.svelte';
   import { productType, activeBrand, isCreativeHub } from '$lib/creative-store.js';
   import { toast } from '$lib/toast.js';
+  import { assistantRoute, refreshAssistantRoute } from '$lib/assistant-route.js';
 
   /** Открыть страницу загрузки Python в браузере системы.
    * Отдельная функция, потому что перехватывать надо и обычный клик, и средний: средняя кнопка
    * шлёт auxclick, обработчик click на неё не срабатывает, и встроенное окно ушло бы на сайт
    * без возможности вернуться. Отказ не глушим молча — пишем причину.
+   * 🔴 Разбор кнопки — на стороне обработчика auxclick: это событие шлёт и правая кнопка, и
+   * боковые, а правый клик по ссылке человек делает ради меню, а не ради ухода в браузер.
    * @param {MouseEvent} event */
   function openPythonDownloads(event) {
     event.preventDefault();
@@ -171,9 +174,10 @@
 
   // PSY-7: Zen Mode
   let zenMode = $state(false);
-  /** Признак режима исполнения советника в шапке (ADR-049 §5).
-   * @type {{mode: string, source: string, explanation: string}|null} */
-  let executionMode = $state(null);
+  // Признак режима работы в шапке читается из общего стора ($lib/assistant-route.js).
+  // 🔴 Своего чтения у кабинета больше нет намеренно: прежде на каждом входе в кабинет
+  // и на каждом возврате фокуса окна вызывался `get_execution_mode`, а тот запускал на
+  // машине клиента чужую программу (`claude --version`) — ровно то, что убрано.
 
   // ── SlidePanel: detect PPTX slide-deck responses ──
   let slidePanelVisible = $state(false);
@@ -270,21 +274,17 @@
   onMount(() => {
     window.addEventListener('keydown', handleCabinetKeydown);
     checkDeps();
-    // Признак режима (ADR-049 §5): читаем при входе в кабинет. Отказ не мешает работе —
-    // признак просто не показывается, а не рушит рабочий экран.
-    const readExecutionMode = () => {
-      invoke('get_execution_mode')
-        .then((state) => { executionMode = /** @type {any} */ (state); })
-        .catch((e) => { console.warn('режим исполнения недоступен', e); });
-    };
-    readExecutionMode();
+    // Признак режима читаем при входе в кабинет. Отказ не мешает работе — признак
+    // показывает «н/д», а не рушит рабочий экран и не выдумывает положение.
+    refreshAssistantRoute();
     // 🔴 Признак перечитывается при возврате фокуса: человек мог переключить режим в
-    // настройках или доступность локального пути могла измениться. Признак, который
-    // ОТСТАЁТ, хуже отсутствующего — он утверждает про маршрут данных то, чего уже нет.
-    window.addEventListener('focus', readExecutionMode);
+    // настройках. Признак, который ОТСТАЁТ, хуже отсутствующего — он утверждает про
+    // маршрут данных то, чего уже нет.
+    const readRoute = () => { refreshAssistantRoute(); };
+    window.addEventListener('focus', readRoute);
     return () => {
       window.removeEventListener('keydown', handleCabinetKeydown);
-      window.removeEventListener('focus', readExecutionMode);
+      window.removeEventListener('focus', readRoute);
     };
   });
 
@@ -354,16 +354,20 @@
           работа советника. Настройка отвечает «что выбрать», признак — «что
           происходит сейчас»; дефект «работает не в том режиме» иначе невидим.
         -->
-        {#if executionMode}
-          <a
-            class="mode-chip"
-            class:mode-chip-cloud={executionMode.mode === 'cloud'}
-            href="/settings#execution-mode"
-            title={executionMode.explanation}
-          >
-            {executionMode.mode === 'cloud' ? 'Шлюз Авроры' : 'Ваш Claude Code'}
-          </a>
-        {/if}
+        <a
+          class="mode-chip"
+          class:mode-chip-cloud={$assistantRoute.known && $assistantRoute.cloud}
+          href="/settings#assistant-route"
+          title={$assistantRoute.headline}
+        >
+          {#if !$assistantRoute.known}
+            Режим: н/д
+          {:else if $assistantRoute.cloud}
+            Шлюз Авроры
+          {:else}
+            Полностью локально
+          {/if}
+        </a>
 
         <div class="header-spacer"></div>
         <button class="header-icon-btn" title="Переключить тему" onclick={toggleTheme}>
@@ -464,7 +468,7 @@
                     href="https://www.python.org/downloads/"
                     class="dep-btn dep-btn-primary"
                     onclick={(e) => { e.preventDefault(); openPythonDownloads(e); }}
-                    onauxclick={(e) => { e.preventDefault(); openPythonDownloads(e); }}
+                    onauxclick={(e) => { if (e.button !== 1) return; e.preventDefault(); openPythonDownloads(e); }}
                   >Скачать Python</a>
                 {:else if depStatus.missing_packages.length > 0}
                   <p class="dep-text">Не установлены пакеты: {depStatus.missing_packages.join(', ')}</p>
