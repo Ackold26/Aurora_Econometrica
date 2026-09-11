@@ -44,10 +44,23 @@ _LOGGING_CALL_NAMES = {"debug", "info", "warning", "warn", "error", "exception",
 
 # Получатель вызова журнала - по факту именования в движке (grep по
 # `sidecar/econometrica`, 11.09.2026): `logger`, `_logger`, `LOG`/`LOGGER`, а также
-# префикс/суффикс-варианты - `m_logger` (server.py), `save_logger` (server.py),
+# суффикс-варианты - `m_logger` (server.py), `save_logger` (server.py),
 # `_scn_logger`/`_scenario_logger` (engines/scenario.py), `_preflight_logger`
 # (server.py). Якорь по последнему сегменту получателя (`self.logger` → `logger`).
-_LOGGER_RECEIVER_RE = re.compile(r"(?:^|_)(?:logger|log|logging)$", re.IGNORECASE)
+#
+# 🔴 Находка проверяющего-противника (11.09.2026): прежнее выражение
+# `(?:^|_)(?:logger|log|logging)$` прощало ЛЮБОЙ получатель на голый суффикс `_log`
+# (не только `_logger`) - `progress_log.warning(...)` тонуло наравне с
+# `logger.warning(...)`, хотя `progress_log` - клиентский объект со случайным именем,
+# не журнал. Сужено до РЕАЛЬНО встречающихся форм: точные `log`/`_log`/`logger`/
+# `_logger`/`logging` (регистронезависимо - `LOG`/`LOGGER` проходят той же веткой) и
+# суффикс `_logger` для произвольного префикса (`m_logger`, `save_logger`,
+# `_scn_logger`, `_preflight_logger`) - подтверждено grep-ом реальных получателей
+# `sidecar/econometrica` перед вызовами `.debug/.info/.warning/.warn/.error/
+# .exception/.critical(`: `_logger`, `_preflight_logger`, `_scenario_logger`,
+# `_scn_logger`, `LOG`, `logger`, `m_logger` - ни одного голого `*_log` в реальном
+# коде нет. Произвольный `*_log` (без `ger`) больше НЕ прощается.
+_LOGGER_RECEIVER_RE = re.compile(r"^(?:log|_log|logger|_logger|logging)$|_logger$", re.IGNORECASE)
 
 # Заведомо служебные литералы (б), НЕ клиентский текст - подтверждено лично при
 # разборе дефекта 3 анализом вызывающих (обход поверхностного "raise/return =
@@ -404,6 +417,21 @@ def test_real_logger_receiver_variants_still_forgiven():
     )
     findings = _scan_source_for_client_em_dash(control_source, "synthetic_logger_variants.py")
     assert not findings, f"ложное срабатывание на настоящих журналах движка: {findings}"
+
+
+def test_bare_underscore_log_suffix_receiver_not_forgiven():
+    """Находка проверяющего-противника (11.09.2026): прежнее выражение
+    `(?:^|_)(?:logger|log|logging)$` прощало ЛЮБОЙ получатель, заканчивающийся на
+    `_log` (не только `_logger`) - `progress_log.warning(...)` тонуло наравне с
+    `logger.warning(...)`, хотя `progress_log` - обычный клиентский объект со
+    случайным именем, не журнал. Сужение обязано ловить длинное тире внутри."""
+    mutated_source = (
+        "def build_client_message(progress_log):\n"
+        "    return progress_log.warning('Канал — убыточен')\n"
+    )
+    findings = _scan_source_for_client_em_dash(mutated_source, "synthetic_bare_log_suffix.py")
+    assert findings, "получатель на голый «_log» (не «_logger») тонет молча - сторож не покраснел"
+    assert findings[0][1] == "Канал — убыточен"
 
 
 def test_logger_fstring_direct_argument_still_forgiven():
