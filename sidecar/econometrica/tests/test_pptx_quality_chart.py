@@ -16,6 +16,8 @@ import copy
 import json
 import os
 
+from pptx.enum.chart import XL_MARKER_STYLE
+
 from aurora_pptx.builder import AuroraPPTXBuilder
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
@@ -99,3 +101,34 @@ def test_нумерация_остальных_слайдов_сдвигаетс
     prs_without = AuroraPPTXBuilder(_payload(None)).build()
     prs_with = AuroraPPTXBuilder(_payload(_avp_fixture())).build()
     assert len(prs_with.slides) == len(prs_without.slides) + 1
+
+
+def test_прогноз_виден_при_одной_точке():
+    """Аудит s41, High, charts.py:287: ряд из одной точки не рисует линию
+    (соединять нечего) — без маркера «Прогноз» пропадает со слайда вовсе,
+    хотя факт остаётся виден (у него маркер всегда есть). Проверяем
+    структурно, что у второго ряда («Прогноз») в этом случае есть видимый
+    маркер, а не XL_MARKER_STYLE.NONE."""
+    avp = {
+        "dates": ["2024-01-01"],
+        "actual": [1005000.0],
+        "predicted": [998000.0],
+        "residuals": [7000.0],
+    }
+    prs = AuroraPPTXBuilder(_payload(avp)).build()
+    _, chart = _quality_chart_slide(prs)
+    series_list = list(chart.plots[0].series)
+    assert series_list[1].name == "Прогноз"
+    assert series_list[1].marker.style != XL_MARKER_STYLE.NONE
+    assert series_list[1].marker.style is not None
+
+
+def test_прогноз_без_маркера_при_многих_точках():
+    """Обычный вид (несколько точек) не должен захламляться маркерами —
+    дашед-линия сама по себе достаточно читаема на фоне «Факта». Фиксирует,
+    что правка находки #1 не поменяла поведение для типичного случая."""
+    prs = AuroraPPTXBuilder(_payload(_avp_fixture())).build()
+    _, chart = _quality_chart_slide(prs)
+    series_list = list(chart.plots[0].series)
+    assert series_list[1].name == "Прогноз"
+    assert series_list[1].marker.style == XL_MARKER_STYLE.NONE

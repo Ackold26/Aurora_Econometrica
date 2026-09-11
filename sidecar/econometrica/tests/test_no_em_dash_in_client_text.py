@@ -5,9 +5,19 @@ ast-скан дефекта 3: разбор источников движка ч
 докстрок и БЕЗ tests/.
 
 Из клиентских строк исключены заведомо служебные:
-  1) автоматически - литерал внутри вызова `logger.*`/`logging.*`/`print(...)`
-     (формат журнала) или внутри вызова `.replace(...)` (сравнение символов) -
-     это `EM_DASH` в качестве ИСКОМОГО паттерна, не клиентская проза;
+  1) автоматически - литерал, который сам является ПРЯМЫМ аргументом (позиционным,
+     именованным, или частью f-строки, переданной прямым аргументом) вызова
+     `logger.*`/`log.*`/`self.logger.*`/`X.getLogger(...).*`/`logging.*`/`print(...)`
+     (формат журнала) или вызова `.replace(...)` (сравнение/замена символов) - это
+     `EM_DASH` в качестве ИСКОМОГО паттерна, не клиентская проза. Сужено аудитом s41
+     (High x2, 11.09.2026): раньше прощался литерал ГДЕ УГОДНО в стеке вызовов, если
+     где-то выше по стеку встречался `.replace(...)` (тонул литерал-получатель, не
+     только поисковый образец санитайзера) или метод с именем `error`/`info`/`warn`
+     у ЛЮБОГО получателя (`response.error(...)` тонуло наравне с `logger.error(...)`).
+     Теперь получатель вызова журнала обязан быть похож на журнал (см.
+     `_LOGGER_RECEIVER_RE` - `logger`/`log`/`logging`/`_log`/`_logger`/`LOG`/`LOGGER`
+     и варианты с префиксом/суффиксом по факту именования в движке - `m_logger`,
+     `save_logger`, `self.logger`, и т.п. - либо результат `x.getLogger(...)`);
   2) именным allowlist `_KNOWN_SERVICE_SCOPES` - конкретные функции/module-level
      переменные, лично проверенные при разборе дефекта 3 через анализ вызывающих
      (см. `Projects/enginefix_report.md`): либо перехватываются и уходят только в
@@ -20,6 +30,7 @@ ast-скан дефекта 3: разбор источников движка ч
 from __future__ import annotations
 
 import ast
+import re
 from pathlib import Path
 
 EM_DASH = "—"
@@ -30,6 +41,13 @@ EXCLUDE_DIRS = {
 }
 
 _LOGGING_CALL_NAMES = {"debug", "info", "warning", "warn", "error", "exception", "critical"}
+
+# Получатель вызова журнала - по факту именования в движке (grep по
+# `sidecar/econometrica`, 11.09.2026): `logger`, `_logger`, `LOG`/`LOGGER`, а также
+# префикс/суффикс-варианты - `m_logger` (server.py), `save_logger` (server.py),
+# `_scn_logger`/`_scenario_logger` (engines/scenario.py), `_preflight_logger`
+# (server.py). Якорь по последнему сегменту получателя (`self.logger` → `logger`).
+_LOGGER_RECEIVER_RE = re.compile(r"(?:^|_)(?:logger|log|logging)$", re.IGNORECASE)
 
 # Заведомо служебные литералы (б), НЕ клиентский текст - подтверждено лично при
 # разборе дефекта 3 анализом вызывающих (обход поверхностного "raise/return =
@@ -101,14 +119,85 @@ def _docstring_node_ids(tree: ast.Module) -> set[int]:
     return ids
 
 
+def _build_parent_map(tree: ast.AST) -> dict[int, ast.AST]:
+    """id(узел) → родитель, по всему дереву (не только по посещённым visitor'ом
+    узлам) - нужно, чтобы для каждого литерала подняться к БЛИЖАЙШЕМУ вызову, а
+    не проверять «есть ли где-то в стеке вызовов подходящее имя»."""
+    parents: dict[int, ast.AST] = {}
+    for node in ast.walk(tree):
+        for child in ast.iter_child_nodes(node):
+            parents[id(child)] = node
+    return parents
+
+
+def _direct_call_arg_context(node: ast.AST, parents: dict[int, ast.AST]) -> ast.Call | None:
+    """Ближайший ast.Call, которому УЗЕЛ передан ПРЯМЫМ аргументом (позиционным
+    или именованным) - либо None, если между узлом и ближайшим вызовом есть
+    что-то ещё (другой вызов, бинарная операция и т.п.).
+
+    Разрешён ровно один шаг вверх через ast.JoinedStr (f-строка) - если сам
+    литерал - один из фрагментов f-строки, а f-строка целиком передана прямым
+    аргументом вызова, это тоже засчитывается («часть f-строки, являющейся
+    прямым аргументом», аудит s41 finding #3). Литерал-ПОЛУЧАТЕЛЬ вызова
+    (`("текст").replace(...)`) НЕ считается аргументом - его родитель тоже
+    Call, но сам он лежит в `call.func`, не в `call.args`/`call.keywords`.
+    """
+    cur = node
+    parent = parents.get(id(cur))
+    if isinstance(parent, ast.JoinedStr) and cur in parent.values:
+        cur = parent
+        parent = parents.get(id(cur))
+    if not isinstance(parent, ast.Call):
+        return None
+    if cur in parent.args or cur in [kw.value for kw in parent.keywords]:
+        return parent
+    return None
+
+
+def _is_replace_call(call: ast.Call) -> bool:
+    """`<любое_выражение>.replace(...)` - метод по имени, тип получателя не
+    важен (может быть переменная, литерал, результат другого вызова)."""
+    f = call.func
+    return isinstance(f, ast.Attribute) and f.attr == "replace"
+
+
+def _is_print_call(call: ast.Call) -> bool:
+    f = call.func
+    return isinstance(f, ast.Name) and f.id == "print"
+
+
+def _is_logging_call(call: ast.Call) -> bool:
+    """`<журнал>.<имя_из_LOGGING_CALL_NAMES>(...)`, где получатель ПОХОЖ на
+    журнал - см. `_LOGGER_RECEIVER_RE` и докстрока модуля. `warn(...)` как
+    обычная функция (не метод получателя) сюда не попадает - находка s41
+    (`raise X(warn("… — …"))`) требует ИМЕННО получателя-журнала, не любую
+    функцию с подходящим именем."""
+    f = call.func
+    if not isinstance(f, ast.Attribute) or f.attr not in _LOGGING_CALL_NAMES:
+        return False
+    receiver = f.value
+    if isinstance(receiver, ast.Call):
+        # logging.getLogger(name).warning(...) / _logging.getLogger(...).warning(...)
+        rf = receiver.func
+        return isinstance(rf, ast.Attribute) and rf.attr == "getLogger"
+    if isinstance(receiver, ast.Name):
+        name = receiver.id
+    elif isinstance(receiver, ast.Attribute):
+        name = receiver.attr  # self.logger / self._logger → последний сегмент
+    else:
+        return False
+    return bool(_LOGGER_RECEIVER_RE.search(name))
+
+
 class _EmDashVisitor(ast.NodeVisitor):
     """Собирает строковые литералы с «—» вместе с контекстом (вызывающая функция,
-    module-level переменная-владелец, признак «внутри logger/print/replace»)."""
+    module-level переменная-владелец, признак «прямой аргумент logger/print/
+    replace»)."""
 
-    def __init__(self, doc_ids: set[int]):
+    def __init__(self, doc_ids: set[int], parents: dict[int, ast.AST]):
         self.doc_ids = doc_ids
+        self.parents = parents
         self._func_stack: list[str] = []
-        self._call_stack: list[str | None] = []
         self._assign_stack: list[str | None] = []
         self.findings: list[dict] = []
 
@@ -118,17 +207,6 @@ class _EmDashVisitor(ast.NodeVisitor):
         self._func_stack.pop()
 
     visit_AsyncFunctionDef = visit_FunctionDef
-
-    def visit_Call(self, node):
-        name = None
-        f = node.func
-        if isinstance(f, ast.Attribute):
-            name = f.attr
-        elif isinstance(f, ast.Name):
-            name = f.id
-        self._call_stack.append(name)
-        self.generic_visit(node)
-        self._call_stack.pop()
 
     def visit_Assign(self, node):
         target_name = None
@@ -145,14 +223,15 @@ class _EmDashVisitor(ast.NodeVisitor):
     def visit_Constant(self, node):
         if isinstance(node.value, str) and EM_DASH in node.value and id(node) not in self.doc_ids:
             assign_target = next((t for t in reversed(self._assign_stack) if t), None)
+            call = _direct_call_arg_context(node, self.parents)
             self.findings.append({
                 "lineno": node.lineno,
                 "value": node.value,
                 "func": self._func_stack[-1] if self._func_stack else None,
                 "assign_target": assign_target,
-                "in_logging_call": any(c in _LOGGING_CALL_NAMES for c in self._call_stack),
-                "in_print_call": any(c == "print" for c in self._call_stack),
-                "in_replace_call": any(c == "replace" for c in self._call_stack),
+                "in_logging_call": call is not None and _is_logging_call(call),
+                "in_print_call": call is not None and _is_print_call(call),
+                "in_replace_call": call is not None and _is_replace_call(call),
             })
         self.generic_visit(node)
 
@@ -164,7 +243,8 @@ def _scan_source_for_client_em_dash(source: str, rel_path: str) -> list[tuple[in
     сканер на синтетическом исходнике, не трогая файлы движка."""
     tree = ast.parse(source, filename=rel_path)
     doc_ids = _docstring_node_ids(tree)
-    visitor = _EmDashVisitor(doc_ids)
+    parents = _build_parent_map(tree)
+    visitor = _EmDashVisitor(doc_ids, parents)
     visitor.visit(tree)
 
     out = []
@@ -223,3 +303,93 @@ def test_no_em_dash_guard_catches_mutation():
     )
     control_findings = _scan_source_for_client_em_dash(control_source, "synthetic_control.py")
     assert not control_findings, "сканер ложно покраснел на служебном logger.warning(...)"
+
+
+def test_replace_receiver_literal_not_swallowed():
+    """Аудит s41, High, `in_replace_call` (test_no_em_dash_in_client_text.py:172): раньше гасился ВЕСЬ
+    стек вызовов, если где-то выше по дереву встречался `.replace(...)` - тонул
+    не только поисковый образец санитайзера, но и литерал-ПОЛУЧАТЕЛЬ вызова
+    (`("Канал — убыточен").replace("ё","е")` меняет «ё», длинное тире остаётся
+    как было). Теперь такой литерал должен быть найден - он не прямой аргумент
+    `.replace(...)`, он его получатель."""
+    mutated_source = (
+        "def build_client_message():\n"
+        "    return ('Канал — убыточен').replace('ё', 'е')\n"
+    )
+    findings = _scan_source_for_client_em_dash(mutated_source, "synthetic_replace_receiver.py")
+    assert findings, "литерал-получатель .replace() тонет молча - сторож не покраснел"
+    assert findings[0][1] == "Канал — убыточен"
+
+
+def test_replace_sanitizer_argument_still_forgiven():
+    """Контроль: настоящий санитайзер - литерал с «—», который САМ передан
+    ПРЯМЫМ аргументом `.replace(...)` (поисковый образец замены) - как и
+    раньше, прощается (это и есть единственный законный случай auto-
+    исключения по `.replace`, ср. `utils/holiday_calendar_ru.py`)."""
+    control_source = (
+        "def sanitize(текст):\n"
+        "    return str(текст).replace('—', '–')\n"
+    )
+    findings = _scan_source_for_client_em_dash(control_source, "synthetic_replace_sanitizer.py")
+    assert not findings, f"сторож ложно покраснел на настоящем санитайзере .replace: {findings}"
+
+
+def test_logging_call_by_method_name_only_not_swallowed():
+    """Аудит s41, High, `in_logging_call` (test_no_em_dash_in_client_text.py:153): раньше прощалось по
+    ИМЕНИ метода ГДЕ УГОДНО в стеке вызовов, у ЛЮБОГО получателя -
+    `response.error(...)` тонуло наравне с `logger.error(...)`, потому что
+    метод назвали `error`. Теперь получатель обязан быть похож на журнал."""
+    mutated_source = (
+        "def handle():\n"
+        "    return response.error('Бюджет пуст — расчёт невозможен')\n"
+    )
+    findings = _scan_source_for_client_em_dash(mutated_source, "synthetic_logging_name_only.py")
+    assert findings, "response.error(...) тонет молча - сторож не различает получателя"
+    assert findings[0][1] == "Бюджет пуст — расчёт невозможен"
+
+
+def test_logging_bare_function_not_swallowed():
+    """Из той же находки: `raise X(warn("… — …"))` - `warn(...)` здесь обычная
+    функция (не метод получателя-журнала), литерал обязан быть найден, не
+    прощён по одному только совпадению имени с `_LOGGING_CALL_NAMES`."""
+    mutated_source = (
+        "def handle():\n"
+        "    raise ValueError(warn('Бюджет пуст — расчёт невозможен'))\n"
+    )
+    findings = _scan_source_for_client_em_dash(mutated_source, "synthetic_bare_warn.py")
+    assert findings, "warn(...) как обычная функция тонет наравне с logger.warn(...)"
+
+
+def test_real_logger_receiver_variants_still_forgiven():
+    """Контроль: реальные имена журналов движка (grep по `sidecar/econometrica`,
+    11.09.2026) - `m_logger`/`save_logger`-подобные суффиксные имена, `self.logger`,
+    `LOG`/`LOGGER`, и цепочка `logging.getLogger(...).warning(...)` - остаются
+    прощены после сужения."""
+    control_source = (
+        "import logging\n"
+        "def a():\n"
+        "    m_logger = logging.getLogger('a')\n"
+        "    m_logger.warning('канал — превышен лимит')\n"
+        "def b(self):\n"
+        "    self.logger.error('канал — превышен лимит')\n"
+        "def c():\n"
+        "    LOG.info('канал — превышен лимит')\n"
+        "def d():\n"
+        "    logging.getLogger(__name__).warning('канал — превышен лимит')\n"
+    )
+    findings = _scan_source_for_client_em_dash(control_source, "synthetic_logger_variants.py")
+    assert not findings, f"ложное срабатывание на настоящих журналах движка: {findings}"
+
+
+def test_logger_fstring_direct_argument_still_forgiven():
+    """Часть находки #3: литерал внутри f-строки, которая САМА передана прямым
+    аргументом вызова журнала, должна прощаться - не только простой строковый
+    литерал."""
+    control_source = (
+        "import logging\n"
+        "logger = logging.getLogger(__name__)\n"
+        "def a(канал):\n"
+        "    logger.warning(f'{канал} — превышен лимит')\n"
+    )
+    findings = _scan_source_for_client_em_dash(control_source, "synthetic_logger_fstring.py")
+    assert not findings, f"ложное срабатывание на f-строке в logger.warning(...): {findings}"

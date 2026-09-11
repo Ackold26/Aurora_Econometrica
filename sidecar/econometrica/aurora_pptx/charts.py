@@ -284,7 +284,20 @@ def make_actual_vs_predicted(slide, x_in, y_in, w_in, h_in, *, dates, actual, pr
         s_pred.format.line.width = Pt(1.5)
         s_pred.format.line.color.rgb = COLOR.brand.deep_40
         s_pred.format.line.dash_style = MSO_LINE_DASH_STYLE.DASH
-        s_pred.marker.style = XL_MARKER_STYLE.NONE
+        # Ряд из одной точки не рисует линию (соединять нечего) — без маркера
+        # «Прогноз» пропадает со слайда вовсе, хотя подпись-норма обещает
+        # сравнение с фактом (аудит s41, High, charts.py:287). Маркер включаем
+        # только когда точек меньше двух: при обычном числе точек пунктирная
+        # линия сама по себе вторична и читаема без маркеров — этот вид
+        # сохраняем как есть, не захламляя дашед-линию точками.
+        if len(short_dates) < 2:
+            s_pred.marker.style = XL_MARKER_STYLE.CIRCLE
+            s_pred.marker.size = 5
+            s_pred.marker.format.fill.solid()
+            s_pred.marker.format.fill.fore_color.rgb = COLOR.brand.deep_40
+            s_pred.marker.format.line.color.rgb = COLOR.brand.deep_40
+        else:
+            s_pred.marker.style = XL_MARKER_STYLE.NONE
 
     # X-axis: when many dates, skip every Nth label to prevent overlap
     # (то же правило, что в make_timeline_area).
