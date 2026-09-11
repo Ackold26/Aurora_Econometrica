@@ -220,3 +220,80 @@ def make_timeline_area(slide, x_in, y_in, w_in, h_in, *, dates, baseline,
         pass
 
     return graphic_frame
+
+
+def make_actual_vs_predicted(slide, x_in, y_in, w_in, h_in, *, dates, actual, predicted):
+    """Line chart: факт против прогноза по периодам (график качества модели,
+    задача владельца 2026-09-11, слайд «Факт против прогноза»).
+
+    Два ряда — «Факт» (данные клиента) и «Прогноз» (посчитанные моделью
+    значения), обычный (не стековый) LINE_MARKERS. Значения передаются как
+    есть, без округления перед вставкой (округление — дело формата подписи,
+    не самих данных в книге графика; см. пример графика 1 колоды).
+    Легенда и подписи осей — родные средства PowerPoint (chart.legend,
+    _style_chart_text), суррогатов из текстовых блоков нет.
+    """
+    from pptx.enum.chart import XL_MARKER_STYLE
+    from pptx.enum.dml import MSO_LINE_DASH_STYLE
+
+    # Compact date labels: "2021-10-01" → "10.21" — тот же приём, что в
+    # make_timeline_area (единообразие оформления дат по всей колоде).
+    def _short_date(s):
+        try:
+            parts = str(s).split("-")
+            if len(parts) >= 2 and len(parts[0]) == 4:
+                return f"{parts[1]}.{parts[0][2:]}"
+        except Exception:
+            pass
+        return str(s)
+    short_dates = [_short_date(d) for d in dates]
+
+    data = CategoryChartData()
+    data.categories = short_dates
+    data.add_series("Факт", list(actual))
+    data.add_series("Прогноз", list(predicted))
+
+    graphic_frame = slide.shapes.add_chart(
+        XL_CHART_TYPE.LINE_MARKERS,
+        Inches(x_in), Inches(y_in), Inches(w_in), Inches(h_in),
+        data
+    )
+    chart = graphic_frame.chart
+    chart.has_legend = True
+    chart.legend.position = XL_LEGEND_POSITION.BOTTOM
+    chart.legend.include_in_layout = False
+    _style_chart_text(chart)
+
+    series_list = list(chart.plots[0].series)
+    # «Факт» — золото (единственный цветовой акцент слайда, как того требует
+    # стайлгайд колоды), с маркерами-точками. «Прогноз» — приглушённый серый,
+    # пунктиром, без маркеров: визуально вторичен, но виден рядом с фактом.
+    if len(series_list) >= 1:
+        s_fact = series_list[0]
+        s_fact.smooth = False
+        s_fact.format.line.width = Pt(2.25)
+        s_fact.format.line.color.rgb = COLOR.brand.gold
+        s_fact.marker.style = XL_MARKER_STYLE.CIRCLE
+        s_fact.marker.size = 6
+        s_fact.marker.format.fill.solid()
+        s_fact.marker.format.fill.fore_color.rgb = COLOR.brand.gold
+        s_fact.marker.format.line.color.rgb = COLOR.brand.gold
+    if len(series_list) >= 2:
+        s_pred = series_list[1]
+        s_pred.smooth = False
+        s_pred.format.line.width = Pt(1.5)
+        s_pred.format.line.color.rgb = COLOR.brand.deep_40
+        s_pred.format.line.dash_style = MSO_LINE_DASH_STYLE.DASH
+        s_pred.marker.style = XL_MARKER_STYLE.NONE
+
+    # X-axis: when many dates, skip every Nth label to prevent overlap
+    # (то же правило, что в make_timeline_area).
+    try:
+        n_dates = len(list(dates))
+        if n_dates >= 18:
+            skip = max(1, n_dates // 12)
+            chart.category_axis.tick_label_skip = skip
+    except Exception:
+        pass
+
+    return graphic_frame

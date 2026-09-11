@@ -11,7 +11,9 @@
   import EChartBase from '$lib/components/charts/EChartBase.svelte';
   import ExpandableCard from '$lib/components/ExpandableCard.svelte';
   import PPCScatter from '$lib/components/pipeline/PPCScatter.svelte';
-  import { chartTooltipDark, escapeHtml } from '$lib/echarts-setup.js';
+  import PPCResidualsChart from '$lib/components/pipeline/PPCResidualsChart.svelte';
+  import { chartTooltipDark, escapeHtml, getAxisThemeColors } from '$lib/echarts-setup.js';
+  import { theme } from '$lib/store.js';
   import { TriangleAlert, Check } from 'lucide-svelte';
   import Tooltip from '$lib/components/Tooltip.svelte';
   import { TOOLTIPS } from '$lib/data/tooltip-texts.js';
@@ -26,6 +28,8 @@
 
   /** ECharts option for R-hat bar chart (Panel A) */
   const rhatOption = $derived.by(() => {
+    void $theme; // F2: пересчитать цвета осей/сетки/подписей при смене темы
+    const { textSecondary, borderSubtle } = getAxisThemeColors();
     const rhat = diagnostics?.per_param_rhat || {};
     const params = Object.keys(rhat);
     const values = params.map(p => rhat[p]);
@@ -42,13 +46,13 @@
       xAxis: {
         type: 'value',
         min: 0.99,
-        axisLabel: { color: '#94a3b8', fontSize: 11 },
-        splitLine: { lineStyle: { color: 'rgba(255,255,255,0.06)' } },
+        axisLabel: { color: textSecondary, fontSize: 11 },
+        splitLine: { lineStyle: { color: borderSubtle } },
       },
       yAxis: {
         type: 'category',
         data: params,
-        axisLabel: { color: '#94a3b8', fontSize: 11 },
+        axisLabel: { color: textSecondary, fontSize: 11 },
         axisTick: { show: false },
         axisLine: { show: false },
       },
@@ -57,7 +61,7 @@
           type: 'bar',
           data: values.map((v, i) => ({ value: v, itemStyle: { color: colors[i] } })),
           barMaxWidth: 18,
-          label: { show: true, position: 'right', color: '#94a3b8', fontSize: 10,
+          label: { show: true, position: 'right', color: textSecondary, fontSize: 10,
                    formatter: (/** @type {any} */ p) => p.value.toFixed(4) },
         },
         {
@@ -100,9 +104,11 @@
 
   /** ECharts option for Actual vs Predicted (Panel B) */
   const avpOption = $derived.by(() => {
+    void $theme; // F2: пересчитать цвета осей/сетки/подписей при смене темы
     const avp = diagnostics?.actual_vs_predicted;
     if (!avp) return null;
 
+    const { textSecondary, borderSubtle } = getAxisThemeColors();
     const xData = avp.dates
       ? avp.dates
       : avp.actual.map((/** @type {any} */ _, /** @type {number} */ i) => `#${i + 1}`);
@@ -113,22 +119,22 @@
       legend: {
         top: 4,
         left: 'center',
-        textStyle: { color: '#94a3b8', fontSize: 11 },
+        textStyle: { color: textSecondary, fontSize: 11 },
       },
       xAxis: {
         type: 'category',
         data: xData,
         axisLabel: {
-          color: '#94a3b8', fontSize: 10,
+          color: textSecondary, fontSize: 10,
           rotate: xData.length > 20 ? 35 : 0,
           interval: Math.max(0, Math.floor(xData.length / 12) - 1),
         },
-        axisLine: { lineStyle: { color: 'rgba(255,255,255,0.1)' } },
+        axisLine: { lineStyle: { color: borderSubtle } },
       },
       yAxis: {
         type: 'value',
         axisLabel: {
-          color: '#94a3b8', fontSize: 10,
+          color: textSecondary, fontSize: 10,
           // Audit pass 10 (Антон 2026-05-03): compact formatter - full numbers
           // «100 000 000» (11 chars × ~7px = 77px) обрезались в grid.left=60px
           // → customer видел «00 000 000» (clipped). Compact «100M» (4 chars)
@@ -142,7 +148,7 @@
             return String(Math.round(v));
           },
         },
-        splitLine: { lineStyle: { color: 'rgba(255,255,255,0.06)' } },
+        splitLine: { lineStyle: { color: borderSubtle } },
       },
       series: [
         {
@@ -207,7 +213,8 @@
   const HELP = {
     rhatChart: 'R-hat по параметрам - проверка сходимости MCMC для каждого параметра модели отдельно.\n\nЧто это: горизонтальные бары для sigma (шум), intercept (базовая линия) и media_betas[N] (коэффициенты каналов). Красная зона - R-hat ≥ 1.05.\n\nКак читать: все бары в зелёной зоне → модель сошлась; один канал в красной → его ROI ненадёжен; sigma или intercept красные → нужно увеличить warmup/samples.',
     avpChart:  'Факт vs Прогноз - визуальная проверка качества модели.\n\nЧто это: синяя линия - реальные продажи, зелёная пунктирная - предсказание модели. В правом верхнем углу - R² и MAPE.\n\nКак читать: линии почти совпадают → модель хорошая; зелёная систематически выше/ниже синей → bias; большие выбросы в отдельных точках → пропущенный событие (промо, launch, кризис).',
-    ppcChart:  'Разброс прогноза и остатки - ещё одна проверка качества модели.\n\nЧто это: слева - точки «факт против прогноза» относительно диагонали идеальной подгонки; справа - остатки (факт минус прогноз) во времени с полосой среднее ± 2 стандартных отклонения.\n\nКак читать: точки плотно у диагонали → модель точна; остатки без явного тренда и в пределах полосы → ошибка случайна, не систематична.',
+    ppcScatterChart: 'Разброс прогноза - ещё одна проверка качества модели.\n\nЧто это: точки «факт против прогноза» относительно диагонали идеальной подгонки.\n\nКак читать: точки плотно у диагонали → модель точна.',
+    ppcResidualsChart: 'Остатки - ещё одна проверка качества модели.\n\nЧто это: остатки (факт минус прогноз) во времени с полосой среднее ± 2 стандартных отклонения.\n\nКак читать: остатки без явного тренда и в пределах полосы → ошибка случайна, не систематична.',
   };
 </script>
 
@@ -360,14 +367,26 @@
     </ExpandableCard>
   {/if}
 
-  <!-- Panel C: разброс прогноза (диагональ 45°) + остатки во времени (mean±2σ).
-       Осиротевший компонент PPCScatter подключён 2026-08-07 - те же данные,
-       что и Panel B, гейт идентичный. -->
+  <!-- Panel C: разброс прогноза (диагональ 45°) - те же данные, что и Panel B,
+       гейт идентичный. Осиротевший компонент PPCScatter подключён 2026-08-07,
+       2026-09-11 разведён на два самостоятельных графика (см. Panel D ниже) -
+       общая карточка открывала оба графика одним разворотом. -->
   {#if diagnostics.actual_vs_predicted}
-    <ExpandableCard title="Разброс прогноза и остатки">
+    <ExpandableCard title="Разброс прогноза">
       <div class="chart-panel-body">
-        <span class="chart-title-help" title={HELP.ppcChart}>?</span>
+        <span class="chart-title-help" title={HELP.ppcScatterChart}>?</span>
         <PPCScatter {ppcData} />
+      </div>
+    </ExpandableCard>
+  {/if}
+
+  <!-- Panel D: остатки во времени (mean±2σ) - вынесены из общей карточки Panel C
+       в собственную, со своим разворотом (2026-09-11). -->
+  {#if diagnostics.actual_vs_predicted}
+    <ExpandableCard title="Остатки">
+      <div class="chart-panel-body">
+        <span class="chart-title-help" title={HELP.ppcResidualsChart}>?</span>
+        <PPCResidualsChart {ppcData} />
       </div>
     </ExpandableCard>
   {/if}

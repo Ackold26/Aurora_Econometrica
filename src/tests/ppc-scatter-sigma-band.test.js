@@ -1,5 +1,5 @@
 /**
- * PPCScatter — полоса «среднее ± 2σ» на графике остатков (сторож на класс дефекта,
+ * PPCResidualsChart — полоса «среднее ± 2σ» на графике остатков (сторож на класс дефекта,
  * найденный внешним аудитом 2026-08-08).
  *
  * Слои с общим `stack: 'sigma_band'` складываются: невидимая опора + заливка.
@@ -11,6 +11,10 @@
  * ECharts option собирается внутри компонента и наружу не отдаётся — перехватываем его
  * через мок EChartBase (приём как в channel-timeline-click.test.js: копим каждый
  * применённый option, дальше сверяем ряды).
+ *
+ * 2026-09-11: график остатков выделен из общей карточки PPCScatter в самостоятельный
+ * компонент PPCResidualsChart (собственный разворот) - тест переведён на новый импорт,
+ * сама проверка инварианта не изменилась.
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render } from '@testing-library/svelte';
@@ -21,7 +25,7 @@ vi.mock('$lib/components/charts/EChartBase.svelte', async () => {
   return { default: MockEChartBase };
 });
 
-import PPCScatter from '$lib/components/pipeline/PPCScatter.svelte';
+import PPCResidualsChart from '$lib/components/pipeline/PPCResidualsChart.svelte';
 import { __getAppliedOptions, __resetAppliedOptions } from './__mocks__/MockEChartBase.svelte';
 
 /**
@@ -44,13 +48,13 @@ function findResidualsOption() {
   return opts.find((o) => (o.series ?? []).some((s) => s.name === 'mean-2σ'));
 }
 
-describe('PPCScatter — полоса mean±2σ охватывает остатки, не висит над ними', () => {
+describe('PPCResidualsChart — полоса mean±2σ охватывает остатки, не висит над ними', () => {
   beforeEach(() => {
     __resetAppliedOptions();
   });
 
   it('опора = mean-2σ, опора+заливка = mean+2σ (полоса охватывает диапазон остатков)', () => {
-    render(PPCScatter, { props: { ppcData: ppcDataFixture() } });
+    render(PPCResidualsChart, { props: { ppcData: ppcDataFixture() } });
     flushSync();
 
     const residualsOption = findResidualsOption();

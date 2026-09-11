@@ -53,6 +53,34 @@ export function getBaseChartOption() {
 }
 
 /**
+ * Read theme colors для чартов, которые сами задают свою structure (xAxis/yAxis/title
+ * целиком) - getBaseChartOption() тут не спасает, т.к. EChartBase делает {...base, ...option}
+ * поверхностным слиянием, и собственный xAxis/title из option полностью перекрывает base.
+ * Вызывать внутри $derived.by, подписанного на `$theme` store (ECharts canvas не понимает
+ * var(--x) в строке цвета - нужны уже разрешённые значения).
+ * @returns {{ textSecondary: string, textPrimary: string, borderSubtle: string, border: string, success: string }}
+ */
+export function getAxisThemeColors() {
+  if (typeof window === 'undefined') {
+    return {
+      textSecondary: '#94a3b8',
+      textPrimary: '#e2e8f0',
+      borderSubtle: 'rgba(255,255,255,0.06)',
+      border: 'rgba(255,255,255,0.2)',
+      success: '#10b981',
+    };
+  }
+  const s = getComputedStyle(document.documentElement);
+  return {
+    textSecondary: s.getPropertyValue('--text-secondary').trim() || '#94a3b8',
+    textPrimary: s.getPropertyValue('--text-primary').trim() || '#e2e8f0',
+    borderSubtle: s.getPropertyValue('--border-subtle').trim() || 'rgba(255,255,255,0.06)',
+    border: s.getPropertyValue('--border').trim() || 'rgba(255,255,255,0.2)',
+    success: s.getPropertyValue('--success').trim() || '#10b981',
+  };
+}
+
+/**
  * Universal dark tooltip option for ECharts.
  * Темный полупрозрачный фон + белый текст - читается одинаково в light/dark/fun темах.
  * Использует кастомный formatter, чтобы заголовок и подписи серий тоже были белыми

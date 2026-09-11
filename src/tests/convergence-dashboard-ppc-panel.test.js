@@ -1,10 +1,12 @@
 /**
- * ConvergenceDashboard — Panel C (PPCScatter подключение, 2026-08-07).
+ * ConvergenceDashboard — Panel C/D (PPCScatter подключение, 2026-08-07).
  *
  * Осиротевший компонент PPCScatter (рассеяние факт/прогноз + остатки во времени)
- * подключён третьей панелью рядом с «R-hat по параметрам» и «Факт vs Прогноз».
- * Контракт: показывается ТОЛЬКО когда diagnostics.actual_vs_predicted есть (тот же
- * гейт, что у Panel B); честно отсутствует для старых проектов без этого поля и
+ * подключён панелями рядом с «R-hat по параметрам» и «Факт vs Прогноз». 2026-09-11
+ * разведён на два самостоятельных графика («Разброс прогноза» + «Остатки»), каждый
+ * в своей карточке - раньше общая карточка открывала оба графика одним разворотом.
+ * Контракт: показываются ТОЛЬКО когда diagnostics.actual_vs_predicted есть (тот же
+ * гейт, что у Panel B); честно отсутствуют для старых проектов без этого поля и
  * при diagnostics=null - без падения компонента.
  */
 import { describe, it, expect } from 'vitest';
@@ -27,20 +29,22 @@ function diagnosticsFixture(overrides = {}) {
   };
 }
 
-describe('ConvergenceDashboard — Panel C «Разброс прогноза и остатки»', () => {
-  it('actual_vs_predicted есть → панель C показана', () => {
+describe('ConvergenceDashboard — Panel C/D «Разброс прогноза» + «Остатки»', () => {
+  it('actual_vs_predicted есть → обе панели показаны', () => {
     const { getByText } = render(ConvergenceDashboard, { props: { diagnostics: diagnosticsFixture() } });
-    expect(getByText('Разброс прогноза и остатки')).toBeInTheDocument();
+    expect(getByText('Разброс прогноза')).toBeInTheDocument();
+    expect(getByText('Остатки')).toBeInTheDocument();
   });
 
-  it('actual_vs_predicted отсутствует (старый проект) → панель C честно скрыта, без падения', () => {
+  it('actual_vs_predicted отсутствует (старый проект) → обе панели честно скрыты, без падения', () => {
     const { queryByText } = render(ConvergenceDashboard, {
       props: { diagnostics: diagnosticsFixture({ actual_vs_predicted: undefined }) },
     });
-    expect(queryByText('Разброс прогноза и остатки')).not.toBeInTheDocument();
+    expect(queryByText('Разброс прогноза')).not.toBeInTheDocument();
+    expect(queryByText('Остатки')).not.toBeInTheDocument();
   });
 
-  it('diagnostics=null → без падения, панель C отсутствует', () => {
+  it('diagnostics=null → без падения, обе панели отсутствуют', () => {
     expect(() =>
       render(ConvergenceDashboard, { props: { diagnostics: null } })
     ).not.toThrow();

@@ -59,7 +59,7 @@ def optimal_split_ci(
     if betas is None:
         return {'status': 'error', 'error_code': 'NO_POSTERIOR',
                 'message': ('Для интервалов оптимального сплита нужны апостериорные '
-                            'выборки — модель обучена без байесовского вывода (OLS/legacy).')}
+                            'выборки – модель обучена без байесовского вывода (OLS/legacy).')}
 
     media_cols = [c for c in cfg['media_columns']
                   if c not in set(norm.get('untrained_channels', []) or [])]
@@ -86,7 +86,7 @@ def optimal_split_ci(
     budget = float(total_budget_money) if total_budget_money else sum(current_money.values())
     if budget <= 0:
         return {'status': 'error', 'error_code': 'NO_BUDGET',
-                'message': 'Суммарный бюджет равен нулю — сплит не определён.'}
+                'message': 'Суммарный бюджет равен нулю – сплит не определён.'}
 
     betas_a = np.asarray(betas, dtype=float)
     alphas_a = np.asarray(ps.get('alphas'), dtype=float)
@@ -174,6 +174,6 @@ def optimal_split_ci(
         'channels': channels_out,
         'overlapping_pairs': overlaps,
         'note': ('Интервалы показывают разброс оптимального сплита по апостериорным '
-                 'сценариям модели (Jin et al., 2017). Перекрытие интервалов — '
+                 'сценариям модели (Jin et al., 2017). Перекрытие интервалов – '
                  'разница долей статистически не выделяется.'),
     }

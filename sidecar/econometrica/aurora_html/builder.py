@@ -417,9 +417,28 @@ class AuroraHTMLBuilder:
                 "current": opt_current,
                 "optimal": opt_optimal,
             },
+            # Графики качества модели (2026-09-11, задача владельца): факт против
+            # прогноза, остатки во времени, остатки против прогноза. Ряды берём
+            # из общего адаптера (narrative_adapter._map_pipeline_to_builder_data
+            # → self.diagnostics["actual_vs_predicted"]) — тот же источник, что
+            # у колоды, без повторного счёта остатков.
+            "quality": self._quality_series(),
             "scenarios": scenarios_payload,
         }
         return security.escape_js_embed(payload)
+
+    def _quality_series(self) -> dict:
+        """Ряды для графиков качества модели («Качество модели и источники
+        данных»): факт/прогноз по датам + остатки. Пустые списки, когда
+        диагностика отсутствует — JS/HTML различают это от «есть, но нулевые»
+        по непустоте self.diagnostics, а не по этому payload (см. render_sources)."""
+        avp = self.diagnostics.get("actual_vs_predicted") or {}
+        return {
+            "dates":     list(avp.get("dates") or []),
+            "actual":    [float(v) for v in (avp.get("actual") or [])],
+            "predicted": [float(v) for v in (avp.get("predicted") or [])],
+            "residuals": [float(v) for v in (avp.get("residuals") or [])],
+        }
 
     def _spend_pct_series(self) -> list[float]:
         total = sum(float(c.get("spend") or 0) for c in self.channels) or 1.0

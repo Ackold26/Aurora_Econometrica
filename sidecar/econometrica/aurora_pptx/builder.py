@@ -372,9 +372,25 @@ class AuroraPPTXBuilder:
             _fc if (self.is_live and _fc.get("status") == "ok" and _fc.get("scenarios"))
             else None
         )
+        # Графики качества модели (2026-09-11, задача владельца): ряд «факт
+        # против прогноза» из общего адаптера (см. engines/narrative_adapter.py).
+        # Слайд «Данные и качество» (s11_sources) уже плотно занят цифрами MQS
+        # и honesty-контуром (измерено на боевой фикстуре Kagocel — свободной
+        # полосы для читаемого графика там нет ни слева, ни справа), поэтому
+        # график получает свой слайд по тому же принципу, что и остальные
+        # вставные витрины честности выше (backtest/gen_compare/promises/
+        # forecast) — рисуется ТОЛЬКО при живых данных, добавляется в тот же
+        # _page_shift, чтобы вся нумерация ниже сдвинулась автоматически.
+        _avp = diag.get("actual_vs_predicted") or {}
+        self.quality_avp = (
+            _avp if (self.is_live and _avp.get("dates") and _avp.get("actual")
+                     and _avp.get("predicted"))
+            else None
+        )
         self._page_shift = (
             int(bool(self.backtest)) + int(bool(self.gen_compare))
             + int(bool(self.promises_summary)) + int(bool(self.forecast))
+            + int(bool(self.quality_avp))
         )
         if self._page_shift:
             _s = self._page_shift
@@ -3982,6 +3998,70 @@ class AuroraPPTXBuilder:
 
         self._footer(slide, slide_num)
 
+    def s10e_quality_chart(self):
+        """Задача владельца (2026-09-11): слайд «Факт против прогноза» —
+        главный график доверия к модели: виден ли рост и падение факта в
+        предсказании, попадает ли модель в пики.
+
+        Рисуется ТОЛЬКО при живом ряде actual_vs_predicted (self.quality_avp) —
+        wireframe-режима нет, по тому же принципу, что у соседних вставных
+        слайдов честности (backtest/gen_compare/promises/forecast).
+
+        Слайд «Данные и качество» (s11_sources) уже плотно занят MQS-карточкой
+        и honesty-контуром переменной длины — свободной полосы для читаемого
+        графика там нет ни слева, ни справа (проверено на боевой фикстуре
+        Kagocel: полосы 0.25"-0.38", графику нужно на порядок больше). Приём —
+        тот же вставной слайд, что у остальных витрин честности выше, поэтому
+        добавлен в общий _page_shift и получает свой порядковый номер.
+
+        График — родная диаграмма PowerPoint (make_actual_vs_predicted,
+        aurora_pptx/charts.py), НЕ картинка: клиент открывает «Изменить
+        данные» и видит числа, по которым построен график.
+        """
+        avp = self.quality_avp
+        slide = self._blank()
+        slide_num = (
+            6 + int(bool(self.backtest)) + int(bool(self.gen_compare))
+            + int(bool(self.promises_summary)) + int(bool(self.forecast))
+        )
+        self._header(slide, slide_num=slide_num)
+
+        self._action_title(
+            slide, "Факт против прогноза",
+            show_lime=True, y=0.80, height=0.80,
+        )
+
+        content_x = self.safe
+        content_y = 1.85
+        content_w = self.w - 2 * self.safe
+        content_h = 4.15
+
+        self._text(
+            slide, content_x, content_y - 0.35, content_w, 0.25,
+            "ФАКТИЧЕСКИЕ И ПРОГНОЗНЫЕ ЗНАЧЕНИЯ ПО ПЕРИОДАМ",
+            font=self.sans, size=9, bold=True, color=self.gold,
+        )
+
+        from .charts import make_actual_vs_predicted
+        make_actual_vs_predicted(
+            slide, content_x, content_y, content_w, content_h,
+            dates=avp.get("dates") or [],
+            actual=avp.get("actual") or [],
+            predicted=avp.get("predicted") or [],
+        )
+
+        # Подпись-норма — что считать нормой у этого графика (клиентский
+        # текст: короткое тире, без англицизмов, без псевдоточности).
+        self._text(
+            slide, content_x, content_y + content_h + 0.15, content_w, 0.5,
+            ("Норма – прогноз повторяет форму факта, включая пики и провалы. "
+             "Систематическое расхождение в отдельные периоды – сигнал "
+             "проверить эти периоды отдельно."),
+            font=self.sans, size=9, italic=True, color=self.deep_60, line_spacing=1.25,
+        )
+
+        self._footer(slide, slide_num)
+
     def s10d_promises(self):
         """E4 (2026-08-16): слайд «Проверка рекомендаций» — обещания против факта.
 
@@ -4325,6 +4405,8 @@ class AuroraPPTXBuilder:
             self.s10d_promises()
         if self.forecast:
             self.s_forecast_plan()
+        if self.quality_avp:
+            self.s10e_quality_chart()
         self.s06_action_chart()
         self.s07_action_table()
         self.s08_action_timeline()

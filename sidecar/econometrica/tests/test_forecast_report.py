@@ -140,8 +140,51 @@ def test_forecast_interval_is_horizon_total_not_last_period(base_payload, tmp_pa
     )
 
 
+def _find_forecast_plan_slide(prs):
+    """Слайд ПЛАНА (таблица сценариев бюджета), не слайд оглавления.
+
+    10.09.2026, второе уточнение (zond5, probe1_results.md): оба слайда содержат
+    фразу «Прогноз на будущий период», но по-разному. У оглавления это ПОДСТРОКА
+    внутри булета «в том числе "Прогноз на будущий период" – стр. NN»
+    (`aurora_pptx/builder.py:1388`) — и оглавление идёт РАНЬШЕ по порядку слайдов
+    (index=1, footer «2/13»), чем сам слайд плана (index=5, footer «6/13»). Старый
+    substring-поиск (`any(... in t for t in texts)`) матчился на оглавление и
+    останавливался, до слайда плана не доходя НИКОГДА — ни поиск слайда, ни
+    последующая проверка ложного нуля не работали ни разу.
+
+    Два НЕЗАВИСИМЫХ структурных признака слайда плана (не совпадение по случайной
+    подстроке): (1) заголовок «Прогноз на будущий период» — ОТДЕЛЬНАЯ ячейка
+    (точное совпадение элемента списка, не substring), которой у оглавления в
+    принципе быть не может — там это часть более длинной строки; (2) заголовок
+    таблицы «ВАРИАНТЫ БЮДЖЕТНОГО ПЛАНА», которого на оглавлении нет вовсе.
+    Возвращает (индекс слайда, список текстов фигур) или (None, None).
+    """
+    for idx, slide in enumerate(prs.slides):
+        texts = [sh.text_frame.text for sh in slide.shapes if sh.has_text_frame]
+        if "Прогноз на будущий период" in texts and "ВАРИАНТЫ БЮДЖЕТНОГО ПЛАНА" in texts:
+            return idx, texts
+    return None, None
+
+
+def _missing_money_marked(cell_values):
+    """Отсутствующие деньги на слайде плана — отдельно стоящая ячейка «н/д»
+    (`aurora_pptx/builder.py::s_forecast_plan`, budget_str/roas_str fallback),
+    НЕ символ тире. Проверено прямой инспекцией: короткое тире на этом слайде
+    встречается ТОЛЬКО как разделитель диапазона в интервале KPI («414 – 506»),
+    к отсутствующим деньгам отношения не имеет. Комментарий раньше описывал
+    поведение, которого в коде для денежных полей нет (тире вместо «н/д») —
+    исправлено под фактический рендер, не под прежнее предположение."""
+    return "н/д" in cell_values
+
+
+def _false_zero_present(cell_values):
+    """INV-50: ложный ноль — отдельно стоящий «0» или «0.00» в ячейке таблицы."""
+    return "0" in cell_values or "0.00" in cell_values
+
+
 def test_forecast_missing_money_renders_dash_not_zero(base_payload, tmp_path):
-    """INV-50: сценарий физметрик (spend/roas = None) рисует «—», не ложный 0."""
+    """INV-50: сценарий физметрик (spend/roas = None) рисует «н/д», не ложный 0,
+    на слайде ПЛАНА (не на оглавлении)."""
     payload_fc = copy.deepcopy(base_payload)
     fc = copy.deepcopy(FORECAST_DATA)
     fc["scenarios"][0]["total_spend_money"] = None
@@ -149,23 +192,67 @@ def test_forecast_missing_money_renders_dash_not_zero(base_payload, tmp_path):
     payload_fc["forecast"] = fc
     out = str(tmp_path / "deck_forecast_dash.pptx")
     prs = _build_deck(payload_fc, out)
-    # Слайд прогноза — ищем по заголовку и проверяем его тексты точечно
-    target = None
-    for slide in prs.slides:
-        texts = [sh.text_frame.text for sh in slide.shapes if sh.has_text_frame]
-        if any("Прогноз на будущий период" in t for t in texts):
-            target = texts
-            break
-    assert target is not None, "Слайд «Прогноз на будущий период» не найден"
-    joined = "\n".join(target)
-    # 09.09.2026: прочерк переведён на короткое тире вместе со всем клиентским текстом
-    # (правило продукта: «–», не «—»). Проверяем именно прочерк, а не любое тире: тест
-    # обязан краснеть, если вместо прочерка снова появится ложный ноль.
-    assert "–" in joined, "Прочерк для отсутствующих денег не найден"
-    # Ложный ноль: отдельно стоящий «0» или «0.00» в ячейках таблицы
-    cells = [t.strip() for t in joined.split("\n")]
-    assert "0" not in cells and "0.00" not in cells, (
+
+    idx, target = _find_forecast_plan_slide(prs)
+    assert target is not None, "Слайд плана («ВАРИАНТЫ БЮДЖЕТНОГО ПЛАНА») не найден"
+    cells = [t.strip() for t in target]
+
+    # Доказательство, что это именно слайд плана (footer «6/13»), а не оглавление
+    # (footer «2/13») — эмпирически подтверждено дважды (zond5 и это же прогоном).
+    assert "6/13" in cells, (
+        f"Найден слайд с неожиданным footer (ожидали «6/13» — слайд плана): {cells}"
+    )
+
+    assert _missing_money_marked(cells), (
+        f"«н/д» для отсутствующих денег не найдено как отдельная ячейка: {cells}"
+    )
+    assert not _false_zero_present(cells), (
         f"Ложный ноль в ячейках слайда прогноза (INV-50): {cells}"
+    )
+
+
+def test_forecast_missing_money_guard_catches_mutations(base_payload, tmp_path):
+    """Сторож обязан уметь покраснеть — три обязательные мутации (Антон, 10.09.2026):
+    1) «н/д» → «0» (в данных прогона) — проверка ложного нуля обязана упасть;
+    2) «н/д» → «» (в данных прогона) — проверка «н/д» обязана упасть;
+    3) слайд плана не строится вовсе (payload без forecast) — поиск слайда
+       обязан провалиться сам, а не молча найти оглавление."""
+    payload_fc = copy.deepcopy(base_payload)
+    fc = copy.deepcopy(FORECAST_DATA)
+    fc["scenarios"][0]["total_spend_money"] = None
+    fc["scenarios"][0]["roas_money"] = None
+    payload_fc["forecast"] = fc
+    out = str(tmp_path / "deck_forecast_dash_mut.pptx")
+    prs = _build_deck(payload_fc, out)
+
+    idx, target = _find_forecast_plan_slide(prs)
+    assert target is not None
+    cells = [t.strip() for t in target]
+    assert "н/д" in cells, "sanity: в реальном выводе нет «н/д» - мутацию ставить не на что"
+
+    # Мутация 1: «н/д» → «0» (ложный ноль на месте отсутствующих денег).
+    mutated_to_zero = ["0" if c == "н/д" else c for c in cells]
+    assert _false_zero_present(mutated_to_zero), (
+        "проверка не покраснела при подмене «н/д» на ложный ноль — мутация 1 не сработала"
+    )
+
+    # Мутация 2: «н/д» → «» (прочерк исчезает молча).
+    mutated_to_empty = ["" if c == "н/д" else c for c in cells]
+    assert not _missing_money_marked(mutated_to_empty), (
+        "проверка не покраснела при подмене «н/д» на пустую строку — мутация 2 не сработала"
+    )
+
+    # Мутация 3: слайд плана не строится вовсе (payload без ключа 'forecast') —
+    # поиск обязан провалиться (target is None), а НЕ молча подобрать оглавление
+    # (что и было исходным дефектом до починки этой сессии).
+    payload_no_fc = copy.deepcopy(base_payload)
+    payload_no_fc.pop("forecast", None)
+    out_no_fc = str(tmp_path / "deck_no_forecast_mut.pptx")
+    prs_no_fc = _build_deck(payload_no_fc, out_no_fc)
+    idx_no_fc, target_no_fc = _find_forecast_plan_slide(prs_no_fc)
+    assert target_no_fc is None, (
+        "слайд плана 'найден' в колоде без forecast — поиск матчится на что-то постороннее "
+        f"(мутация 3 не сработала): idx={idx_no_fc}, texts={target_no_fc}"
     )
 
 

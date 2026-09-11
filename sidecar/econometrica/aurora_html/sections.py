@@ -2211,6 +2211,54 @@ def render_sources(ctx: dict) -> str:
             '<div class="mqs-absent">Оценка не выполнялась для этого расчёта</div>'
         )
 
+    # Графики качества модели (2026-09-11, задача владельца): факт против
+    # прогноза, остатки во времени, остатки против прогноза. Строится ТОЛЬКО
+    # когда есть ряд actual_vs_predicted (общий адаптер narrative_adapter) —
+    # нет ряда, нет и раздела вовсе (правило «график только если есть данные»,
+    # то же, что у MQS-карточки выше и у waterfall в findings). Легенда и
+    # подписи осей — родные средства ECharts (interactive.py), не наложенный
+    # текст.
+    avp = diag.get("actual_vs_predicted") or {}
+    quality_charts_html = ""
+    if avp.get("dates") and avp.get("actual") and avp.get("predicted"):
+        quality_charts_html = f"""
+<div class="chart-container" style="margin-top:32px;">
+  <div class="chart-title-bar">
+    <div>
+      <div class="chart-title">Факт против прогноза</div>
+      <div class="chart-subtitle">Норма – прогноз повторяет форму факта, включая пики и провалы; систематическое расхождение в отдельные периоды – повод проверить их отдельно</div>
+    </div>
+    <button class="btn-inline" data-copy-chart="chart-quality-avp">Сохранить PNG</button>
+  </div>
+  <div class="chart-host" id="chart-quality-avp" data-chart="quality-avp">
+    <div class="chart-skeleton" aria-hidden="true"></div>
+  </div>
+</div>
+<div class="chart-container" style="margin-top:20px;">
+  <div class="chart-title-bar">
+    <div>
+      <div class="chart-title">Остатки во времени</div>
+      <div class="chart-subtitle">Норма – колебание вокруг нуля без длинных полос одного знака; несколько подряд столбцов одного знака означают, что модель в этот период систематически занижает или завышает прогноз</div>
+    </div>
+    <button class="btn-inline" data-copy-chart="chart-quality-residuals">Сохранить PNG</button>
+  </div>
+  <div class="chart-host" id="chart-quality-residuals" data-chart="quality-residuals">
+    <div class="chart-skeleton" aria-hidden="true"></div>
+  </div>
+</div>
+<div class="chart-container" style="margin-top:20px;">
+  <div class="chart-title-bar">
+    <div>
+      <div class="chart-title">Остатки против прогноза</div>
+      <div class="chart-subtitle">Норма – облако точек без выраженной формы (воронка, дуга, наклон); такая форма означает, что в ошибках модели осталась закономерность, которую она не учла</div>
+    </div>
+    <button class="btn-inline" data-copy-chart="chart-quality-scatter">Сохранить PNG</button>
+  </div>
+  <div class="chart-host" id="chart-quality-scatter" data-chart="quality-scatter">
+    <div class="chart-skeleton" aria-hidden="true"></div>
+  </div>
+</div>"""
+
     body = f"""
 {_action_title("Качество модели и источники данных")}
 <div class="sources-grid">
@@ -2233,7 +2281,8 @@ def render_sources(ctx: dict) -> str:
       <li>{escape(_src_line)}</li>
     </ul>
   </div>
-</div>"""
+</div>
+{quality_charts_html}"""
     return _section("sources", kicker, body)
 
 

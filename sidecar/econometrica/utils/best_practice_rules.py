@@ -62,7 +62,7 @@ PREFERRED_METRICS_BY_FORMAT: Dict[str, Dict[str, str]] = {
         'discouraged': ['clicks'],
         'severity_violation': 'warn',
         'rationale': 'Display advertising (banners) measure reach + frequency через '
-                     'impressions. Click-through rate на больших баннерах низкая и noisy — '
+                     'impressions. Click-through rate на больших баннерах низкая и noisy – '
                      'клики не репрезентативны для response.',
     },
     'tv': {
@@ -70,8 +70,8 @@ PREFERRED_METRICS_BY_FORMAT: Dict[str, Dict[str, str]] = {
         'acceptable': ['trp', 'grp'],
         'discouraged': ['impressions', 'reach', 'spots'],
         'severity_violation': 'info',  # less strict — TRP/GRP industry standard
-        'rationale': 'TV TRP (Target Rating Points) — стандарт РФ медиабаинга. TRP должны '
-                     'быть приведёнными (gross или net — consistent). Использование reach или '
+        'rationale': 'TV TRP (Target Rating Points) – стандарт РФ медиабаинга. TRP должны '
+                     'быть приведёнными (gross или net – consistent). Использование reach или '
                      'spots без TRP лишает модель temporal scale.',
     },
     'ooh': {
@@ -80,7 +80,7 @@ PREFERRED_METRICS_BY_FORMAT: Dict[str, Dict[str, str]] = {
         'discouraged': ['impressions', 'spend'],
         'severity_violation': 'warn',
         'rationale': 'OOH (наружная реклама) measure через OTS (opportunity to see) или '
-                     'контакты. Impressions для outdoor — устаревший термин, не отражает '
+                     'контакты. Impressions для outdoor – устаревший термин, не отражает '
                      'реальный exposure.',
     },
     'radio': {
@@ -175,7 +175,7 @@ def check_channel_best_practice(
         'severity': 'info',
         'message': (
             f'Канал «{channel_name}» использует «{detected_metric}», '
-            f'стандарт для {media_format} — «{rule["preferred"]}».'
+            f'стандарт для {media_format} – «{rule["preferred"]}».'
         ),
     }
 
@@ -239,7 +239,7 @@ def check_mode_consistency(
             'message': (
                 'Смешанные единицы media inputs + monetary KPI = mixed mode (Expert only). '
                 'Точность ROI зависит от unit_costs ставок (±10-25% дополнительной uncertainty). '
-                'Рекомендуем выбрать единый режим — либо все каналы в ₽ (ROI mode), либо все в '
+                'Рекомендуем выбрать единый режим – либо все каналы в ₽ (ROI mode), либо все в '
                 'физических метриках (Эффективность mode).'
             ),
         }

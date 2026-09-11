@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import hashlib
 import logging
+import math
 import re
 from datetime import datetime
 from typing import Any
@@ -1009,6 +1010,52 @@ def _map_pipeline_to_builder_data(
         try:
             diagnostics["effective_parameters"] = float(eff_params)
         except (TypeError, ValueError):
+            pass
+
+    # Графики качества модели (2026-09-11, задача владельца): ряд «факт против
+    # прогноза» уже считает движок (engines/modeler.py:1538-1542), но раньше
+    # через этот адаптер не прокидывался — ни колода, ни веб-отчёт его не
+    # видели. Кладём здесь ОДИН раз, оба построителя (pptx_export.py,
+    # html_export.py) читают из общего diagnostics, как скаляры выше. Остатки
+    # отдельно движком не хранятся (производная величина) — считаем их тоже
+    # здесь, в одном месте, а не в каждом из двух выходов заново.
+    _avp_src = diag_src.get("actual_vs_predicted") or {}
+    _avp_actual = _avp_src.get("actual")
+    _avp_predicted = _avp_src.get("predicted")
+    _avp_dates = _avp_src.get("dates")
+    if (isinstance(_avp_actual, list) and isinstance(_avp_predicted, list)
+            and isinstance(_avp_dates, list) and _avp_actual
+            and len(_avp_actual) == len(_avp_predicted) == len(_avp_dates)):
+        try:
+            _actual_f = [float(v) for v in _avp_actual]
+            _predicted_f = [float(v) for v in _avp_predicted]
+            # 🔴 Нечисловые значения ОБЯЗАНЫ отбраковываться здесь, и `float()`
+            # для этого недостаточен: `float(float("nan"))` не бросает ничего,
+            # и NaN проходит проверку молча. Дальше родная диаграмма колоды
+            # встраивает книгу данных (python-pptx → xlsxwriter), а та на NaN
+            # и бесконечности падает `TypeError: NAN/INF not supported in
+            # write_number()` — исключение поднимается на `add_chart`, то есть
+            # ДО возврата из слайда качества, и уходит наружу из построителя.
+            # Клиент в этом случае не получает колоду ВОВСЕ, а не колоду без
+            # одного графика. Найдено внешним аудитом 11.09.2026 и
+            # воспроизведено зондом; вход достижим — пропуск наблюдения в
+            # факте, разошедшаяся цепь в прогнозе, `NaN` в файле результата
+            # (модуль json его и пишет, и читает по умолчанию).
+            # Ровно то свойство, ради которого требовалась родная диаграмма с
+            # данными вместо картинки, делает нечисловое значение фатальным.
+            if not all(math.isfinite(v) for v in _actual_f + _predicted_f):
+                raise ValueError("ряд факт/прогноз содержит нечисловые значения")
+            diagnostics["actual_vs_predicted"] = {
+                "dates": [str(d) for d in _avp_dates],
+                "actual": _actual_f,
+                "predicted": _predicted_f,
+                "residuals": [a - p for a, p in zip(_actual_f, _predicted_f)],
+            }
+        except (TypeError, ValueError):
+            # Испорченные числа в источнике не должны ронять сборку отчёта
+            # целиком — тот же принцип, что у honesty-контура ниже: молча
+            # пропускаем эту секцию, график на неё не построится (§ «график
+            # только если есть данные»), остальной отчёт не страдает.
             pass
 
     # B1-fix R-16 (2026-07-03): honesty-контур модели в отчёт. Прежде вердикт

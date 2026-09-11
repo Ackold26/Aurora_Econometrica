@@ -777,6 +777,9 @@ def get_holiday_metadata(holiday_name: str) -> Optional[Dict[str, str]]:
                 'name': h['name'],
                 'category': h['category'],
                 'window_kind': h.get('window_kind', 'calendar_period'),
-                'description': h['description'],
+                # 10.09.2026: та же типографская правка клиентской копии, что и в
+                # describe_holiday_windows (_короткое_тире) - этот геттер тоже
+                # публичный экспорт метаданных, а не внутренний читатель реестра.
+                'description': _короткое_тире(h['description']),
             }
     return None

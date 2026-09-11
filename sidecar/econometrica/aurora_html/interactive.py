@@ -435,6 +435,94 @@ def bootstrap_js(
     }};
   }}
 
+  // ─── Графики качества модели (2026-09-11, задача владельца) ─────────
+  // Все три читают общий CHART_DATA.quality {{dates, actual, predicted,
+  // residuals}} – тот же ряд, что у колоды (narrative_adapter, один расчёт
+  // остатков на оба выхода). Каждая функция проверяет СВОИ поля и возвращает
+  // null, если их нет: initChart тогда покажет явное «нет данных» вместо
+  // пустого графика (правило «график только если есть данные»).
+
+  function buildQualityAvpOption(data) {{
+    if (!data || !data.dates || !data.dates.length ||
+        !data.actual || !data.actual.length ||
+        !data.predicted || !data.predicted.length) return null;
+    var pal = currentPalette();
+    return {{
+      animation: !PREFERS_REDUCED_MOTION,
+      animationDuration: 600,
+      textStyle: {{ color: pal.textColor, fontFamily: 'Inter, sans-serif' }},
+      legend: {{ top: 0, textStyle: {{ color: pal.textMutedColor, fontSize: 11 }}, itemWidth: 10, itemHeight: 10 }},
+      grid: {{ left: 8, right: 8, bottom: 8, top: 40, containLabel: true }},
+      tooltip: baseTooltip(pal),
+      xAxis: Object.assign({{ type: 'category', data: data.dates }}, baseAxisStyle(pal)),
+      yAxis: Object.assign({{ type: 'value' }}, baseAxisStyle(pal)),
+      series: [
+        {{ name: 'Факт', type: 'line', showSymbol: false, smooth: 0.2,
+          data: data.actual, lineStyle: {{ width: 2, color: pal.heroColor }},
+          itemStyle: {{ color: pal.heroColor }} }},
+        {{ name: 'Прогноз', type: 'line', showSymbol: false, smooth: 0.2,
+          data: data.predicted, lineStyle: {{ width: 2, color: pal.mutedColor, type: 'dashed' }},
+          itemStyle: {{ color: pal.mutedColor }} }}
+      ]
+    }};
+  }}
+
+  function buildQualityResidualsOption(data) {{
+    if (!data || !data.dates || !data.dates.length ||
+        !data.residuals || !data.residuals.length) return null;
+    var pal = currentPalette();
+    var posColor = (pal.palette && pal.palette[1]) || pal.heroColor;
+    var negColor = (pal.palette && pal.palette[2]) || pal.mutedColor;
+    return {{
+      animation: !PREFERS_REDUCED_MOTION,
+      animationDuration: 600,
+      textStyle: {{ color: pal.textColor, fontFamily: 'Inter, sans-serif' }},
+      grid: {{ left: 8, right: 8, bottom: 8, top: 8, containLabel: true }},
+      tooltip: baseTooltip(pal),
+      xAxis: Object.assign({{ type: 'category', data: data.dates }}, baseAxisStyle(pal)),
+      yAxis: Object.assign({{ type: 'value' }}, baseAxisStyle(pal)),
+      series: [{{
+        name: 'Остаток', type: 'bar',
+        data: data.residuals.map(function(v) {{
+          return {{ value: v, itemStyle: {{ color: v >= 0 ? posColor : negColor }} }};
+        }}),
+        barMaxWidth: 14
+      }}]
+    }};
+  }}
+
+  function buildQualityScatterOption(data) {{
+    if (!data || !data.predicted || !data.predicted.length ||
+        !data.residuals || !data.residuals.length) return null;
+    var pal = currentPalette();
+    var n = Math.min(data.predicted.length, data.residuals.length);
+    var points = [];
+    for (var i = 0; i < n; i++) {{ points.push([data.predicted[i], data.residuals[i]]); }}
+    return {{
+      animation: !PREFERS_REDUCED_MOTION,
+      animationDuration: 500,
+      textStyle: {{ color: pal.textColor, fontFamily: 'Inter, sans-serif' }},
+      grid: {{ left: 8, right: 8, bottom: 8, top: 8, containLabel: true }},
+      tooltip: Object.assign(baseTooltip(pal), {{
+        trigger: 'item',
+        formatter: function(p) {{
+          return 'Прогноз: ' + p.value[0].toFixed(1) + '<br/>Остаток: ' + p.value[1].toFixed(1);
+        }}
+      }}),
+      xAxis: Object.assign({{ type: 'value', name: 'Прогноз', nameLocation: 'middle', nameGap: 28,
+        nameTextStyle: {{ color: pal.textMutedColor, fontSize: 11 }} }}, baseAxisStyle(pal)),
+      yAxis: Object.assign({{ type: 'value', name: 'Остаток', nameLocation: 'middle', nameGap: 40,
+        nameTextStyle: {{ color: pal.textMutedColor, fontSize: 11 }} }}, baseAxisStyle(pal)),
+      series: [{{
+        type: 'scatter', symbolSize: 7, data: points,
+        itemStyle: {{ color: pal.heroColor, opacity: 0.75 }},
+        markLine: {{ silent: true, symbol: 'none',
+          lineStyle: {{ color: pal.gridColor, type: 'dashed' }},
+          data: [{{ yAxis: 0 }}] }}
+      }}]
+    }};
+  }}
+
   function buildOptimizeOption(data) {{
     if (!data || !data.names || !data.names.length) return null;
     var pal = currentPalette();
@@ -494,6 +582,13 @@ def bootstrap_js(
     // sections that reference them; skip gracefully if absent.
     initChart('chart-optimize', buildOptimizeOption, 'optimize');
     initChart('chart-waterfall', buildWaterfallOption, 'waterfall');
+    // Графики качества модели – те же условия отсутствия данных
+    // (host верстается в sections.py только когда CHART_DATA.quality непуст,
+    // поэтому initChart здесь либо находит контейнер и данные вместе, либо
+    // не находит ни того, ни другого).
+    initChart('chart-quality-avp',       buildQualityAvpOption,      'quality');
+    initChart('chart-quality-residuals', buildQualityResidualsOption, 'quality');
+    initChart('chart-quality-scatter',   buildQualityScatterOption,  'quality');
 
     // Resize handler (debounced)
     var resizeTimer;
