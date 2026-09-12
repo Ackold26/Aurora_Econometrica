@@ -133,6 +133,11 @@
       },
       yAxis: {
         type: 'value',
+        // F-A3-01 (2026-09-12): scale:true - ось тянулась от нуля вместо диапазона
+        // данных (сравни с PPCScatter, тот же класс дефекта). Здесь ноль не несёт
+        // смысла (продажи/медиа-показатели, не остаток вокруг нуля) - подбор
+        // диапазона по данным делает линии читаемыми, а не сплюснутыми у потолка.
+        scale: true,
         axisLabel: {
           color: textSecondary, fontSize: 10,
           // Audit pass 10 (Антон 2026-05-03): compact formatter - full numbers
@@ -325,13 +330,15 @@
   <!-- Panel A: R-hat per parameter -->
   {#if rhatCount > 0}
     <ExpandableCard title="R-hat по параметрам">
-      <div class="chart-panel-body">
-        <span class="chart-title-help" title={HELP.rhatChart}>?</span>
-        <EChartBase option={rhatOption} height={rhatHeight} />
-        <p class="chart-hint">
-          {rhatCount - rhatFailed} из {rhatCount} параметров сошлись (R-hat &lt; 1.05)
-        </p>
-      </div>
+      {#snippet children(expanded)}
+        <div class="chart-panel-body">
+          <span class="chart-title-help" title={HELP.rhatChart}>?</span>
+          <EChartBase option={rhatOption} height={expanded ? '70vh' : rhatHeight} />
+          <p class="chart-hint">
+            {rhatCount - rhatFailed} из {rhatCount} параметров сошлись (R-hat &lt; 1.05)
+          </p>
+        </div>
+      {/snippet}
     </ExpandableCard>
   {/if}
 
@@ -339,31 +346,33 @@
        Метрики R²/MAPE - HTML overlay через CSS tokens (theme-contrastable). -->
   {#if diagnostics.actual_vs_predicted}
     <ExpandableCard title="Факт vs Прогноз">
-      <div class="chart-panel-body avp-panel">
-        <span class="chart-title-help" title={HELP.avpChart}>?</span>
-        {#if avpMetrics.r2 != null || avpMetrics.mape != null}
-          <div class="avp-metrics">
-            {#if avpMetrics.r2 != null}
-              <span class="metric-item">
-                <Tooltip text={TOOLTIPS['metric.r2']} position="top">
-                  <span class="metric-label metric-label-tip">R²</span>
-                </Tooltip>
-                <span class="metric-sep">=</span><b>{avpMetrics.r2}</b>
-              </span>
-            {/if}
-            {#if avpMetrics.r2 != null && avpMetrics.mape != null}<span class="metric-dot">·</span>{/if}
-            {#if avpMetrics.mape != null}
-              <span class="metric-item">
-                <Tooltip text={TOOLTIPS['metric.mape']} position="top">
-                  <span class="metric-label metric-label-tip">MAPE</span>
-                </Tooltip>
-                <span class="metric-sep">=</span><b>{avpMetrics.mape}%</b>
-              </span>
-            {/if}
-          </div>
-        {/if}
-        <EChartBase option={avpOption} height="260px" />
-      </div>
+      {#snippet children(expanded)}
+        <div class="chart-panel-body avp-panel">
+          <span class="chart-title-help" title={HELP.avpChart}>?</span>
+          {#if avpMetrics.r2 != null || avpMetrics.mape != null}
+            <div class="avp-metrics">
+              {#if avpMetrics.r2 != null}
+                <span class="metric-item">
+                  <Tooltip text={TOOLTIPS['metric.r2']} position="top">
+                    <span class="metric-label metric-label-tip">R²</span>
+                  </Tooltip>
+                  <span class="metric-sep">=</span><b>{avpMetrics.r2}</b>
+                </span>
+              {/if}
+              {#if avpMetrics.r2 != null && avpMetrics.mape != null}<span class="metric-dot">·</span>{/if}
+              {#if avpMetrics.mape != null}
+                <span class="metric-item">
+                  <Tooltip text={TOOLTIPS['metric.mape']} position="top">
+                    <span class="metric-label metric-label-tip">MAPE</span>
+                  </Tooltip>
+                  <span class="metric-sep">=</span><b>{avpMetrics.mape}%</b>
+                </span>
+              {/if}
+            </div>
+          {/if}
+          <EChartBase option={avpOption} height={expanded ? '70vh' : '260px'} />
+        </div>
+      {/snippet}
     </ExpandableCard>
   {/if}
 
@@ -373,10 +382,12 @@
        общая карточка открывала оба графика одним разворотом. -->
   {#if diagnostics.actual_vs_predicted}
     <ExpandableCard title="Разброс прогноза">
-      <div class="chart-panel-body">
-        <span class="chart-title-help" title={HELP.ppcScatterChart}>?</span>
-        <PPCScatter {ppcData} />
-      </div>
+      {#snippet children(expanded)}
+        <div class="chart-panel-body">
+          <span class="chart-title-help" title={HELP.ppcScatterChart}>?</span>
+          <PPCScatter {ppcData} {expanded} />
+        </div>
+      {/snippet}
     </ExpandableCard>
   {/if}
 
@@ -384,10 +395,12 @@
        в собственную, со своим разворотом (2026-09-11). -->
   {#if diagnostics.actual_vs_predicted}
     <ExpandableCard title="Остатки">
-      <div class="chart-panel-body">
-        <span class="chart-title-help" title={HELP.ppcResidualsChart}>?</span>
-        <PPCResidualsChart {ppcData} />
-      </div>
+      {#snippet children(expanded)}
+        <div class="chart-panel-body">
+          <span class="chart-title-help" title={HELP.ppcResidualsChart}>?</span>
+          <PPCResidualsChart {ppcData} {expanded} />
+        </div>
+      {/snippet}
     </ExpandableCard>
   {/if}
 {/if}

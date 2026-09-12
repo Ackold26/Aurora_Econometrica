@@ -24,9 +24,14 @@
    *     predicted: number[],
    *     r2?: number,
    *   } | null,
+   *   expanded?: boolean,
    * }}
    */
-  const { ppcData = null } = $props();
+  const { ppcData = null, expanded = false } = $props();
+
+  /** Разворот на весь экран (ExpandableCard) - график занимает доступную высоту
+   *  вместо фиксированных 240px. */
+  const chartHeight = $derived(expanded ? '70vh' : '240px');
 
   const r2Label = $derived(
     ppcData?.r2 != null ? `R² = ${Number(ppcData.r2).toFixed(3)}` : ''
@@ -53,7 +58,7 @@
     void $theme; // F2: пересчитать цвета осей/сетки/подписей при смене темы
     if (!ppcData?.actual?.length || !ppcData?.predicted?.length) return {};
 
-    const { textSecondary, borderSubtle, border, success } = getAxisThemeColors();
+    const { textSecondary, borderSubtle, border } = getAxisThemeColors();
     const actual = ppcData.actual;
     const predicted = ppcData.predicted;
     const n = Math.min(actual.length, predicted.length);
@@ -63,26 +68,36 @@
       itemStyle: { color: recencyColor(i, n), opacity: 0.8 },
     }));
 
-    // 45° reference line: from min to max
+    // 45° reference line + общие пределы осей: диагональ читается как 45° ТОЛЬКО
+    // если у обеих осей одинаковый диапазон - иначе прямоугольная (не квадратная)
+    // область построения искажает угол. Запас 5% с обеих сторон, чтобы крайние
+    // точки не липли к рамке графика.
     const allVals = [...actual, ...predicted].filter(Number.isFinite);
     const minV = Math.min(...allVals);
     const maxV = Math.max(...allVals);
+    const span = maxV - minV;
+    const pad = span > 0 ? span * 0.05 : (Math.abs(maxV) || 1) * 0.05;
+    const axisMin = minV - pad;
+    const axisMax = maxV + pad;
 
     return {
       backgroundColor: 'transparent',
-      grid: { left: '52px', right: '16px', top: '32px', bottom: '40px' },
-      title: {
-        text: 'Факт vs Прогноз',
-        subtext: r2Label,
-        left: 'center',
-        top: 2,
-        textStyle: { color: textSecondary, fontSize: 11, fontWeight: 600 },
-        subtextStyle: { color: success, fontSize: 10 },
-      },
+      // F-A3-01 (2026-09-12): заголовок «Факт vs Прогноз» + R² убраны отсюда -
+      // карточка (ExpandableCard) уже подписана «Разброс прогноза», внутренний
+      // заголовок дублировал её латиницей «vs», а base-легенда ECharts (см.
+      // legend в getBaseChartOption) накладывалась на title/subtext сверху -
+      // showInLegend у серий ниже не настоящее свойство ECharts и легенду не
+      // прячет, поэтому легенда явно отключена (legend.show:false). R² уже
+      // показан в legend-row под графиком.
+      legend: { show: false },
+      grid: { left: '52px', right: '16px', top: '16px', bottom: '40px' },
       xAxis: {
         type: 'value',
         name: 'Прогноз',
         nameTextStyle: { color: textSecondary, fontSize: 10 },
+        scale: true,
+        min: axisMin,
+        max: axisMax,
         axisLabel: { color: textSecondary, fontSize: 9, formatter: (/** @type {number} */ v) => Math.round(v).toLocaleString('ru-RU') },
         splitLine: { lineStyle: { color: borderSubtle } },
         axisLine: { lineStyle: { color: borderSubtle } },
@@ -91,6 +106,9 @@
         type: 'value',
         name: 'Факт',
         nameTextStyle: { color: textSecondary, fontSize: 10 },
+        scale: true,
+        min: axisMin,
+        max: axisMax,
         axisLabel: { color: textSecondary, fontSize: 9, formatter: (/** @type {number} */ v) => Math.round(v).toLocaleString('ru-RU') },
         splitLine: { lineStyle: { color: borderSubtle } },
         axisLine: { lineStyle: { color: borderSubtle } },
@@ -114,7 +132,7 @@
         {
           name: 'Идеальная подгонка',
           type: 'line',
-          data: [[minV, minV], [maxV, maxV]],
+          data: [[axisMin, axisMin], [axisMax, axisMax]],
           lineStyle: { color: border, type: 'dashed', width: 1 },
           itemStyle: { opacity: 0 },
           symbol: 'none',
@@ -147,7 +165,7 @@
     </div>
   {:else}
     <div class="chart-cell">
-      <EChartBase option={scatterOption} height="240px" />
+      <EChartBase option={scatterOption} height={chartHeight} />
     </div>
     <div class="legend-row">
       <span class="legend-item">

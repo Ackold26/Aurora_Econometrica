@@ -23,9 +23,14 @@
    *     residuals?: number[],
    *     durbin_watson?: number,
    *   } | null,
+   *   expanded?: boolean,
    * }}
    */
-  const { ppcData = null } = $props();
+  const { ppcData = null, expanded = false } = $props();
+
+  /** Разворот на весь экран (ExpandableCard) - график занимает доступную высоту
+   *  вместо фиксированных 240px. */
+  const chartHeight = $derived(expanded ? '70vh' : '240px');
 
   // ── Derived statistics ───────────────────────────────────────────────────────
 
@@ -181,7 +186,7 @@
     </div>
   {:else}
     <div class="chart-cell">
-      <EChartBase option={residualsOption} height="240px" />
+      <EChartBase option={residualsOption} height={chartHeight} />
     </div>
     {#if dwLabel}
       <div class="legend-row">

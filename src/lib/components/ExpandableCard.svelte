@@ -5,7 +5,12 @@
    *
    * Props:
    *   title - заголовок карточки (то что раньше было .card-title)
-   *   children - содержимое (Svelte 5 snippet)
+   *   children - содержимое (Svelte 5 snippet), принимает параметром текущее
+   *     состояние expanded - чтобы контент (график) знал, что карточка развёрнута,
+   *     и мог занять доступную высоту. Пример:
+   *       {#snippet children(expanded)}
+   *         <EChartBase height={expanded ? '70vh' : '240px'} .../>
+   *       {/snippet}
    *
    * Поведение:
    *   - Клик по кнопке в углу → fullscreen overlay (fixed, backdrop-blur, centered)
@@ -17,7 +22,7 @@
   import { onDestroy } from 'svelte';
 
   /**
-   * @type {{ title?: string, tourKey?: string, children: import('svelte').Snippet }}
+   * @type {{ title?: string, tourKey?: string, children: import('svelte').Snippet<[boolean]> }}
    */
   let { title = '', tourKey = '', children } = $props();
 
@@ -80,7 +85,7 @@
       </div>
       <div class="overlay-body">
         <div class="overlay-content">
-          {@render children()}
+          {@render children(true)}
         </div>
       </div>
     </div>
@@ -113,7 +118,7 @@
   </div>
   {#if !expanded}
     <div class="card-body">
-      {@render children()}
+      {@render children(false)}
     </div>
   {:else}
     <!-- Placeholder чтобы не схлопнулась высота карточки на странице -->
