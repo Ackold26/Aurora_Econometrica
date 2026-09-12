@@ -18,6 +18,19 @@ ast-скан дефекта 3: разбор источников движка ч
      `_LOGGER_RECEIVER_RE` - `logger`/`log`/`logging`/`_log`/`_logger`/`LOG`/`LOGGER`
      и варианты с префиксом/суффиксом по факту именования в движке - `m_logger`,
      `save_logger`, `self.logger`, и т.п. - либо результат `x.getLogger(...)`);
+     прощение для `logger.*`/`print(...)` распространяется и на ЧЕСТНУЮ СКЛЕЙКУ
+     литерала внутри ОДНОГО прямого аргумента - конкатенацию (`"Канал — " + x`),
+     %-форматирование (`"Канал — %s" % x`), `.format(...)` (`"Канал — {}".format(x)`)
+     и `str.join(...)` (литерал-элемент списка/кортежа, переданного в `.join(...)`,
+     или сам литерал-разделитель) - в любой глубине и вперемешку с f-строкой (см.
+     `_composed_call_context`). Находка внешнего аудита s42 (Б-51, 12.09.2026):
+     после сужения по получателю остался узкий побочный эффект - сторож прощал
+     ТОЛЬКО литерал, лежащий ПРЯМО в вызове журнала, поэтому честная запись вида
+     `logger.info("Канал — " + name)` стала бы ложным отказом (в движке такого
+     кода на 11.09.2026 не было - латентная неточность правила, не живой баг).
+     `.replace(...)`-прощение (`_is_replace_call`/`_is_replace_search_pattern`, та
+     же часть п.1) сборку НЕ поднимает и остаётся узким как было - расширять
+     прощение составных `.replace(...)`-цепочек никто не просил;
   2) именным allowlist `_KNOWN_SERVICE_SCOPES` - конкретные функции/module-level
      переменные, лично проверенные при разборе дефекта 3 через анализ вызывающих
      (см. `Projects/enginefix_report.md`): либо перехватываются и уходят только в
@@ -167,6 +180,59 @@ def _direct_call_arg_context(node: ast.AST, parents: dict[int, ast.AST]) -> ast.
     return None
 
 
+def _composed_call_context(node: ast.AST, parents: dict[int, ast.AST]) -> ast.Call | None:
+    """Как `_direct_call_arg_context`, но сперва поднимается от литерала через
+    ЧЕСТНУЮ СБОРКУ СТРОКИ внутри одного прямого аргумента - конкатенацию (+),
+    %-форматирование, `.format(...)` и `str.join(...)`, вперемешку с f-строкой,
+    сколько угодно раз, - и лишь ЗАТЕМ проверяет «то, что получилось, - прямой
+    аргумент вызова?». Нужна для Б-51 (аудит s42, 12.09.2026): узкая версия
+    видела только литерал, лежащий ПРЯМО в вызове журнала, и честная запись вида
+    `logger.info("Канал — " + name)` тонула бы как клиентский текст.
+
+    Используется ТОЛЬКО для распознавания logger/print - `.replace(...)`
+    по-прежнему проверяется узкой `_direct_call_arg_context` без подъёма (см.
+    докстрока модуля): расширять прощение составных `.replace(...)`-цепочек
+    никто не просил, а `_is_replace_search_pattern` сверяет literal с
+    ПЕРВЫМ аргументом буквально - на не поднятом узле она и обязана остаться.
+    """
+    cur = node
+    while True:
+        parent = parents.get(id(cur))
+        if isinstance(parent, ast.JoinedStr) and cur in parent.values:
+            cur = parent
+            continue
+        if (
+            isinstance(parent, ast.BinOp)
+            and isinstance(parent.op, (ast.Add, ast.Mod))
+            and cur in (parent.left, parent.right)
+        ):
+            cur = parent
+            continue
+        if isinstance(parent, ast.Attribute) and parent.attr == "format" and parent.value is cur:
+            grandparent = parents.get(id(parent))
+            if isinstance(grandparent, ast.Call) and grandparent.func is parent:
+                cur = grandparent
+                continue
+        if isinstance(parent, (ast.List, ast.Tuple)) and cur in parent.elts:
+            grandparent = parents.get(id(parent))
+            if (
+                isinstance(grandparent, ast.Call)
+                and grandparent.args
+                and grandparent.args[0] is parent
+                and isinstance(grandparent.func, ast.Attribute)
+                and grandparent.func.attr == "join"
+            ):
+                cur = grandparent
+                continue
+        if isinstance(parent, ast.Attribute) and parent.attr == "join" and parent.value is cur:
+            grandparent = parents.get(id(parent))
+            if isinstance(grandparent, ast.Call) and grandparent.func is parent:
+                cur = grandparent
+                continue
+        break
+    return _direct_call_arg_context(cur, parents)
+
+
 def _is_replace_call(call: ast.Call) -> bool:
     """`<любое_выражение>.replace(...)` - метод по имени, тип получателя не
     важен (может быть переменная, литерал, результат другого вызова)."""
@@ -258,13 +324,18 @@ class _EmDashVisitor(ast.NodeVisitor):
         if isinstance(node.value, str) and EM_DASH in node.value and id(node) not in self.doc_ids:
             assign_target = next((t for t in reversed(self._assign_stack) if t), None)
             call = _direct_call_arg_context(node, self.parents)
+            # logger/print прощают и честную склейку (+, %, .format, .join) внутри
+            # одного прямого аргумента - composed_call поднимается через неё перед
+            # проверкой; .replace(...) намеренно проверяется УЗКИМ call (см.
+            # докстрока `_composed_call_context`).
+            composed_call = _composed_call_context(node, self.parents)
             self.findings.append({
                 "lineno": node.lineno,
                 "value": node.value,
                 "func": self._func_stack[-1] if self._func_stack else None,
                 "assign_target": assign_target,
-                "in_logging_call": call is not None and _is_logging_call(call),
-                "in_print_call": call is not None and _is_print_call(call),
+                "in_logging_call": composed_call is not None and _is_logging_call(composed_call),
+                "in_print_call": composed_call is not None and _is_print_call(composed_call),
                 "in_replace_call": (
                     call is not None
                     and _is_replace_call(call)
@@ -471,3 +542,102 @@ def test_replace_replacement_argument_not_swallowed():
         "    return текст.replace('—', '–')\n"
     )
     assert not _scan_source_for_client_em_dash(sanitizer_source, "synthetic_replace_ok.py")
+
+
+# ─── Б-51 (аудит s42, 12.09.2026): честная склейка внутри лог-вызова ────────────
+#
+# Находка: после сужения по получателю (High x2, s41) сторож видел только литерал,
+# лежащий ПРЯМО в вызове журнала - `logger.info("Канал — " + name)` (конкатенация),
+# `logger.info("Канал — %s" % value)` (%-форматирование), `.format(...)` и
+# `str.join(...)` тонули бы как клиентский текст, хотя честно уходят только в
+# журнал. Самопроверки ниже - ровно три обязательных случая из задания плюс
+# формы .format()/.join(), которые в задании названы явно.
+
+def test_logging_concatenation_forgiven():
+    """`logger.info("Канал — " + x)` - сторож МОЛЧИТ (прощает честную склейку)."""
+    control_source = (
+        "import logging\n"
+        "logger = logging.getLogger(__name__)\n"
+        "def a(name):\n"
+        "    logger.info('Канал — ' + name)\n"
+    )
+    findings = _scan_source_for_client_em_dash(control_source, "synthetic_logging_concat.py")
+    assert not findings, f"честная конкатенация в logger.info(...) ложно покраснела: {findings}"
+
+
+def test_logging_percent_format_forgiven():
+    """`logger.info("Итог — %s" % value)` - %-форматирование внутри лог-вызова прощено."""
+    control_source = (
+        "import logging\n"
+        "logger = logging.getLogger(__name__)\n"
+        "def a(value):\n"
+        "    logger.info('Итог — %s' % value)\n"
+    )
+    findings = _scan_source_for_client_em_dash(control_source, "synthetic_logging_percent.py")
+    assert not findings, f"честное %-форматирование в logger.info(...) ложно покраснело: {findings}"
+
+
+def test_logging_str_format_method_forgiven():
+    """`logger.warning("Канал — {}".format(x))` - `.format(...)` внутри лог-вызова прощено."""
+    control_source = (
+        "import logging\n"
+        "logger = logging.getLogger(__name__)\n"
+        "def a(x):\n"
+        "    logger.warning('Канал — {}'.format(x))\n"
+    )
+    findings = _scan_source_for_client_em_dash(control_source, "synthetic_logging_format.py")
+    assert not findings, f"честный .format(...) в logger.warning(...) ложно покраснел: {findings}"
+
+
+def test_logging_join_forgiven():
+    """`print(" | ".join(["Канал — Итог", str(x)]))` - `str.join(...)` внутри
+    диагностического print прощён (литерал-элемент списка, переданного в .join)."""
+    control_source = (
+        "def a(x):\n"
+        "    print(' | '.join(['Канал — Итог', str(x)]))\n"
+    )
+    findings = _scan_source_for_client_em_dash(control_source, "synthetic_logging_join.py")
+    assert not findings, f"честный .join(...) в print(...) ложно покраснел: {findings}"
+
+
+def test_client_text_em_dash_still_reddens():
+    """Длинное тире в клиентской строке (например в тексте отчёта или подписи
+    слайда, БЕЗ какого-либо лог-вызова рядом) - сторож КРАСНЕЕТ, как и раньше.
+    Обязательная самопроверка задания: расширение прощения на склейку не
+    должно задеть обычный клиентский текст."""
+    mutated_source = (
+        "def render_slide_caption():\n"
+        "    return {'caption': 'Итог кампании — рост продаж'}\n"
+    )
+    findings = _scan_source_for_client_em_dash(mutated_source, "synthetic_client_caption.py")
+    assert findings, "клиентская подпись слайда с длинным тире не покраснела"
+    assert findings[0][1] == "Итог кампании — рост продаж"
+
+
+def test_log_shaped_concatenation_leaking_to_client_still_reddens():
+    """Обязательная самопроверка задания: строка, СОБРАННАЯ той же техникой, что
+    и лог-сообщение (конкатенация), но уходящая в КЛИЕНТСКИЙ текст, а не в
+    вызов журнала, - сторож обязан КРАСНЕТЬ. Прощение склейки распространяется
+    только на литерал, чья цепочка сборки упирается в logger/print - а не на
+    любую конкатенацию с похожим видом."""
+    mutated_source = (
+        "def build_client_message(name):\n"
+        "    note = 'Канал — ' + name\n"
+        "    return {'message': note}\n"
+    )
+    findings = _scan_source_for_client_em_dash(mutated_source, "synthetic_log_shaped_client.py")
+    assert findings, "склейка, уходящая в клиентский текст (не в лог), не покраснела"
+    assert findings[0][1] == "Канал — "
+
+
+def test_composed_call_context_does_not_widen_replace_forgiveness():
+    """`.replace(...)` намеренно НЕ получает подъём через склейку - иначе
+    `("шаблон" + "Канал — убыточен").replace('ё', 'е')` тихо простился бы,
+    хотя литерал с длинным тире уходит клиенту, а `.replace` тут - косметика
+    другой части строки, не санитайзер длинного тире."""
+    mutated_source = (
+        "def build(x):\n"
+        "    return ('шаблон ' + 'Канал — убыточен').replace('ё', 'е')\n"
+    )
+    findings = _scan_source_for_client_em_dash(mutated_source, "synthetic_replace_no_widen.py")
+    assert findings, "составная цепочка с .replace() поверх не покраснела - прощение расширилось молча"

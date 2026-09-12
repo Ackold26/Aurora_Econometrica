@@ -867,29 +867,48 @@ fn gated_by_route_files_actually_gate_their_egress() {
                 let src = fs::read_to_string(src_dir().join("commands").join("rag_client.rs"))
                     .expect("rag_client.rs обязан читаться");
                 let code = strip_comments(&src);
-                let body = extract_fn(&code, "pub async fn econ_rag_search(")
-                    .expect("единственная точка входа библиотеки методологии обязана существовать");
-                // 🔴 Порядок «гейт до обращения» и «гейт не в замыкании» — находки
-                // проверяющего-противника (11.09.2026): прежде проверялось только
-                // ПРИСУТСТВИЕ обеих проверок где-то в теле, не их позиция и не то,
-                // исполняются ли они безусловно. Первое реальное обращение наружу в
-                // этой функции — построение HTTP-клиента (`reqwest::`).
-                let egress_pos = body.find("reqwest::");
-                for gate in ["ensure_not_local_only(", "ensure_cloud_consent("] {
-                    let gate_pos = body.find(gate).unwrap_or_else(|| {
-                        panic!("econ_rag_search обязана проверять {gate} ДО обращения наружу: {body}")
+                // 🔴 Б-47 (находка внешнего аудита, s43): прежде здесь проверялась ОДНА
+                // поимённая `econ_rag_search` — новая pub fn с собственным обращением
+                // наружу в этом же файле прощалась бы целиком, список имён на разбор
+                // вообще не влиял. Имена берутся ИЗ исходника (`pub_fn_names`), тем же
+                // приёмом, что уже применён для `gateway_executor.rs` ниже: список на
+                // веру ничему не верит, каждая pub fn проверяется по факту наличия
+                // обращения в СВОЁМ теле, а не по совпадению с ожидаемым именем.
+                //
+                // Мутация, которую обязан ловить этот цикл: добавить в rag_client.rs
+                // ВТОРУЮ pub fn с `reqwest::`-обращением без гейта — прежняя версия
+                // (разбор одной econ_rag_search) её не увидела бы вовсе.
+                for fn_name in pub_fn_names(&code) {
+                    let body = extract_pub_fn_body(&code, &fn_name).unwrap_or_else(|| {
+                        panic!(
+                            "rag_client.rs: pub fn «{fn_name}» найдена по имени, но тело не \
+                             вырезалось — разметка разошлась с разбором",
+                        )
                     });
-                    assert!(
-                        !position_is_inside_closure(&body, gate_pos),
-                        "econ_rag_search: {gate} стоит внутри замыкания — замыкание можно \
-                         объявить и ни разу не вызвать, гейт исполнится, только если его \
-                         позвать: {body}",
-                    );
-                    if let Some(egress_pos) = egress_pos {
+                    // Функция без обращения наружу в собственном теле — гейтовать нечего
+                    // (например, будущая чисто локальная pub fn этого файла).
+                    let Some(egress_pos) = first_raw_egress_pos(&body) else { continue };
+                    // 🔴 Порядок «гейт до обращения» и «гейт не в замыкании» — находки
+                    // проверяющего-противника (11.09.2026), сохранены при обобщении.
+                    for gate in
+                        ["ensure_not_local_only(", "ensure_cloud_consent(", "cloud_built_in("]
+                    {
+                        let gate_pos = body.find(gate).unwrap_or_else(|| {
+                            panic!(
+                                "rag_client.rs::{fn_name} обращается наружу, но не проверяет \
+                                 {gate} ДО обращения: {body}",
+                            )
+                        });
+                        assert!(
+                            !position_is_inside_closure(&body, gate_pos),
+                            "rag_client.rs::{fn_name}: {gate} стоит внутри замыкания — \
+                             замыкание можно объявить и ни разу не вызвать, гейт исполнится, \
+                             только если его позвать: {body}",
+                        );
                         assert!(
                             gate_pos < egress_pos,
-                            "econ_rag_search: {gate} стоит ПОСЛЕ обращения наружу (reqwest::), \
-                             а не до него: {body}",
+                            "rag_client.rs::{fn_name}: {gate} стоит ПОСЛЕ обращения наружу, а \
+                             не до него: {body}",
                         );
                     }
                 }
@@ -1005,8 +1024,51 @@ fn gated_by_route_files_actually_gate_their_egress() {
                 }
             }
             "commands/claude.rs" => {
-                // Свой гейт — тот же ensure_gateway_route, уже проверен
-                // `the_gate_of_the_left_position_is_in_place`.
+                // 🔴 Б-47 (находка внешнего аудита, s43): эта ветка была ПУСТОЙ —
+                // комментарий без единого assert, вся проверка целиком полагалась на
+                // `the_gate_of_the_left_position_is_in_place`, а та разбирает РОВНО ДВЕ
+                // поимённые функции (`run_claude`/`run_claude_pipeline`). Новая pub fn
+                // в этом же файле с собственным сырым сетевым обращением проходила бы
+                // мимо ОБЕИХ проверок молча — сегодня таких pub fn нет (проверено:
+                // `discover_egress` не находит в claude.rs ни одного `RAW_EGRESS_SYMBOLS`
+                // на верхнем уровне ни одной pub fn), но список имён на разбор так же не
+                // влиял, как и в rag_client.rs выше до этой же правки.
+                //
+                // Тем же общим приёмом: КАЖДАЯ pub fn файла, что реально обращается
+                // наружу сырым способом (`RAW_EGRESS_SYMBOLS`), обязана звать
+                // `ensure_gateway_route` до обращения и не внутри замыкания. Сегодня
+                // цикл проходит вхолостую (совпадающих pub fn нет) — проверено
+                // мутацией ниже по тексту отчёта; это не ослабляет уже существующую
+                // проверку `the_gate_of_the_left_position_is_in_place`, а закрывает
+                // дыру РЯДОМ с ней.
+                let claude_src = fs::read_to_string(src_dir().join("commands").join("claude.rs"))
+                    .expect("claude.rs обязан читаться");
+                let claude_code = strip_comments(&claude_src);
+                for fn_name in pub_fn_names(&claude_code) {
+                    let body = extract_pub_fn_body(&claude_code, &fn_name).unwrap_or_else(|| {
+                        panic!(
+                            "claude.rs: pub fn «{fn_name}» найдена по имени, но тело не \
+                             вырезалось — разметка разошлась с разбором",
+                        )
+                    });
+                    let Some(egress_pos) = first_raw_egress_pos(&body) else { continue };
+                    let gate_pos = body.find("ensure_gateway_route(").unwrap_or_else(|| {
+                        panic!(
+                            "claude.rs::{fn_name} обращается наружу напрямую, но не зовёт \
+                             ensure_gateway_route ДО обращения: {body}",
+                        )
+                    });
+                    assert!(
+                        !position_is_inside_closure(&body, gate_pos),
+                        "claude.rs::{fn_name}: ensure_gateway_route стоит внутри замыкания: \
+                         {body}",
+                    );
+                    assert!(
+                        gate_pos < egress_pos,
+                        "claude.rs::{fn_name}: ensure_gateway_route стоит ПОСЛЕ обращения \
+                         наружу, а не до него: {body}",
+                    );
+                }
             }
             other => panic!(
                 "«{other}» в GATED_BY_ROUTE, но для него нет структурного доказательства \
@@ -1060,6 +1122,25 @@ fn extract_fn(code: &str, signature: &str) -> Option<String> {
     let tail = &code[start..];
     let end = tail.find("\n}").map(|e| e + 2).unwrap_or(tail.len());
     Some(tail[..end].to_string())
+}
+
+/// Тело `pub fn <name>(`/`pub async fn <name>(` — сигнатура заранее не известна
+/// (обе формы законны), поэтому пробуются обе.
+///
+/// 🔴 Б-47 (внешний аудит, s43): используется, чтобы доказывать гейт для КАЖДОЙ
+/// pub fn файла по имени из `pub_fn_names`, а не для одной поимённой заранее —
+/// см. докстрок `gated_by_route_files_actually_gate_their_egress`.
+fn extract_pub_fn_body(code: &str, name: &str) -> Option<String> {
+    extract_fn(code, &format!("pub async fn {name}("))
+        .or_else(|| extract_fn(code, &format!("pub fn {name}(")))
+}
+
+/// Позиция первого сырого сетевого символа (`RAW_EGRESS_SYMBOLS`) ВНУТРИ тела одной
+/// функции — не всего файла целиком, в отличие от `discover_egress`. `None`, если в
+/// теле нет ни одного обращения наружу такого рода (тогда функцию нечем гейтовать,
+/// и её нечего проверять).
+fn first_raw_egress_pos(body: &str) -> Option<usize> {
+    RAW_EGRESS_SYMBOLS.iter().filter_map(|marker| body.find(marker)).min()
 }
 
 /// Разметка исходника проверяется сама: сторож, читающий комментарии как код (или
