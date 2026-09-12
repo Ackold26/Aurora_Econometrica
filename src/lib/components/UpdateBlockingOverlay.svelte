@@ -2,12 +2,18 @@
   import { invoke } from '@tauri-apps/api/core';
   import { listen } from '@tauri-apps/api/event';
   import { updateRequired } from '$lib/store.js';
+  import { describeUpdateError } from '$lib/updateErrorText.js';
   import AetherLogo from './AetherLogo.svelte';
 
   /** @type {'idle'|'downloading'|'installing'|'error'} */
   let updateState = $state('idle');
   let progress = $state(0);
+  // CPD-167: человеку показываем объяснение (errorMsg), код отказа даём мелко рядом
+  // для поддержки (errorCode), а сырую строку из глубины программы — только под
+  // раскрытием «Подробности» (errorRaw). Раньше человек первым делом видел именно её.
   let errorMsg = $state('');
+  let errorCode = $state('');
+  let errorRaw = $state('');
 
   let noUrl = $state(false);
 
@@ -40,6 +46,8 @@
     updateState = 'downloading';
     progress = 0;
     errorMsg = '';
+    errorCode = '';
+    errorRaw = '';
 
     const unlisten = await listen('update-progress', (event) => {
       const data = /** @type {{percent: number}} */ (event.payload);
@@ -55,7 +63,13 @@
     } catch (err) {
       unlisten();
       updateState = 'error';
-      errorMsg = String(err);
+      const described = describeUpdateError(err);
+      errorMsg = described.human;
+      errorCode = described.code;
+      errorRaw = described.raw;
+      // Сырую строку не теряем даже если человек не раскроет подробности: она нужна
+      // нам для разбора обращения в поддержку.
+      console.error('[обновление] отказ', described.code || 'без кода', described.raw);
     }
   }
 </script>
@@ -104,6 +118,12 @@
         </div>
       {:else if updateState === 'error'}
         <p class="error-text">{errorMsg}</p>
+        {#if errorRaw}
+          <details class="error-details">
+            <summary>Подробности{errorCode ? ` · ${errorCode}` : ''}</summary>
+            <p class="error-raw">{errorRaw}</p>
+          </details>
+        {/if}
         <button class="update-btn retry" onclick={startUpdate}>
           Повторить
         </button>
@@ -254,6 +274,28 @@
     padding: 8px 14px;
     border-radius: 6px;
     border: 1px solid color-mix(in srgb, var(--danger) 15%, transparent);
+    word-break: break-word;
+  }
+
+  /* CPD-167: сырой текст отказа не первый, что видит человек, но и не потерян —
+     лежит под раскрытием, откуда его можно прочитать и передать в поддержку. */
+  .error-details {
+    width: 100%;
+    font-size: 11.5px;
+    color: var(--text-muted);
+    text-align: left;
+  }
+
+  .error-details summary {
+    cursor: pointer;
+    user-select: none;
+  }
+
+  .error-raw {
+    margin-top: 6px;
+    font-size: 11px;
+    line-height: 1.45;
+    color: var(--text-muted);
     word-break: break-word;
   }
 
