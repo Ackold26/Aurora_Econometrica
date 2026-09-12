@@ -36,17 +36,23 @@ const DEFAULT_K: u8 = 4;
 /// проверяющего-противника 11.09.2026). Имя и пароль в адресе отвергаются вовсе.
 fn validate_rag_url(base_url: &str) -> Result<(), String> {
     let lower = base_url.trim().to_ascii_lowercase();
-    if lower.starts_with("https://") {
-        return Ok(());
-    }
-    if lower.starts_with("http://") {
+    if lower.starts_with("https://") || lower.starts_with("http://") {
         let parsed = reqwest::Url::parse(base_url.trim()).map_err(|e| {
             format!("[RAG-URL] Адрес библиотеки «{base_url}» не разбирается: {e}")
         })?;
-        let no_credentials = parsed.username().is_empty() && parsed.password().is_none();
+        // Имя и пароль в адресе отвергаются в ЛЮБОЙ схеме: прежде ветка https возвращала
+        // «годен» до разбора, и докстрока обещала больше, чем делал код (внешний аудит s42).
+        if !parsed.username().is_empty() || parsed.password().is_some() {
+            return Err(format!(
+                "[RAG-USERINFO] В адресе библиотеки «{base_url}» есть имя или пароль – такой адрес не принимается: настоящий хост в нём легко спутать"
+            ));
+        }
+        if lower.starts_with("https://") {
+            return Ok(());
+        }
         // Разборщик нормализует хост сам: IPv4 — в точечную запись, IPv6 — в скобках.
         let loopback = matches!(parsed.host_str(), Some("localhost" | "127.0.0.1" | "[::1]"));
-        if no_credentials && loopback {
+        if loopback {
             return Ok(());
         }
         return Err(format!(
@@ -196,6 +202,10 @@ mod tests {
             assert!(validate_rag_url(url).is_err(), "обязан быть отвергнут: {url}");
         }
         assert!(validate_rag_url("http://[::1]:8801/").is_ok(), "IPv6-петля — своя машина");
+        // Внешний аудит s42: ветка https возвращала «годен» до разбора, и имя с паролем
+        // проходили, хотя докстрока обещала обратное. Теперь отвергаются в любой схеме.
+        assert!(validate_rag_url("https://user:pass@rag.aurora-platform.pro").is_err());
+        assert!(validate_rag_url("https://rag.aurora-platform.pro").is_ok(), "честный https цел");
     }
 
     #[test]
