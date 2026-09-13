@@ -68,8 +68,13 @@ ColumnKind = Literal[
 # Helper: pattern matches if surrounded by separator (_-space-hyphen) or start/end.
 # Python `\b` word boundary НЕ работает между `_` и letter (оба word chars).
 # Используем lookbehind+lookahead для (start|sep) + token + (sep|end|word_suffix).
-_SEP = r'(?:^|(?<=[_\s\-]))'    # start of string OR preceded by sep
-_END = r'(?=[_\s\-]|$)'         # followed by sep OR end of string
+# 14.09.2026: в класс разделителей добавлены запятая, точка, двоеточие, точка с
+# запятой и скобки. Клиентские заголовки почти всегда такие: «Инфляция, %»,
+# «Продажи, руб.», «Индекс потреб. цен», «ТВ (TRP)». Прежний класс знал только
+# пробел, подчёркивание и дефис — поэтому «Инфляция, %» второй детектор не узнавал
+# вовсе (первый, плоский, узнавал), и детекторы молча расходились.
+_SEP = r'(?:^|(?<=[_\s\-,.;:()]))'    # start of string OR preceded by sep
+_END = r'(?=[_\s\-,.;:()]|$)'         # followed by sep OR end of string
 
 
 def _sep_pattern(token: str) -> str:
