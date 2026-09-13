@@ -27,7 +27,7 @@
  */
 
 /** Адрес поддержки, который называем человеку, когда сам он исправить не может. */
-const SUPPORT_EMAIL = 'support@auroraai.pro';
+const SUPPORT_EMAIL = 'sales@auroraai.pro';
 
 /**
  * Метка «эта деталь написана для клиента» — её ставит `user_err`/`user_text`

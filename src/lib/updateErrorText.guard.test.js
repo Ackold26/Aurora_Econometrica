@@ -132,7 +132,7 @@ describe('отказ обновления: деталь из Rust доезжае
   });
 
   it.each(МЕТКИ)('правила клиентского текста: [$code] $text', ({ text }) => {
-    const безПодстановок = text.replace(/\{[^}]*\}/g, '…').replace(/support@auroraai\.pro/g, '…');
+    const безПодстановок = text.replace(/\{[^}]*\}/g, '…').replace(/sales@auroraai.pro/g, '…');
     expect(text, `длинное тире вместо короткого: ${text}`).not.toContain('—');
     expect(безПодстановок, `латиница в клиентском тексте: ${text}`).not.toMatch(/[A-Za-z]/);
     expect(text, `текст обязан говорить, что сделать: ${text}`).toMatch(
@@ -196,7 +196,7 @@ describe('отказ обновления: самые дорогие сцена�
 
   it('запасной текст говорит про подключение раньше, чем про письмо в поддержку', () => {
     expect(UPDATE_ERROR_FALLBACK.indexOf('подключение'))
-      .toBeLessThan(UPDATE_ERROR_FALLBACK.indexOf('support@auroraai.pro'));
+      .toBeLessThan(UPDATE_ERROR_FALLBACK.indexOf('sales@auroraai.pro'));
   });
 
   it('«обновление не требуется» — не то же, что отказ загрузки', () => {

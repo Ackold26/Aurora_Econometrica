@@ -2848,7 +2848,7 @@ async fn download_update(app: tauri::AppHandle) -> Result<String, String> {
         .await
         .map_err(|e| e.to_string())?
         .ok_or_else(|| updater::user_text(
-            "Сервер обновлений не предлагает новой версии – похоже, сведения о требуемом обновлении устарели. Перезапустите программу; если окно появится снова, напишите нам на support@auroraai.pro."
+            "Сервер обновлений не предлагает новой версии – похоже, сведения о требуемом обновлении устарели. Перезапустите программу; если окно появится снова, напишите нам на sales@auroraai.pro."
         ))?;
     let path = updater::download_update(&info.download_url, &app).await.map_err(|e| e.to_string())?;
     updater::verify_checksum(&path, &info.checksum).map_err(|e| e.to_string())?;

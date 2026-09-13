@@ -98,7 +98,7 @@ export const PROGRAM_OVERVIEW = [
   '- MAPE > 20% (красный) – упущен важный фактор (промо, цена, конкурент);',
   '  добавить его отдельной колонкой (сезонность учитывается автоматически).',
   '',
-  'Поддержка: support@auroraai.pro; логи – папка %LOCALAPPDATA%\\com.aurora.econometrica\\',
+  'Поддержка: sales@auroraai.pro; логи – папка %LOCALAPPDATA%\\com.aurora.econometrica\\',
   'logs\\ (для локальной редакции – com.aurora.econometrica.local); версия – меню «О программе».',
 ].join('\n');
 

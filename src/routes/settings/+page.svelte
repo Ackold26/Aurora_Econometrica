@@ -302,7 +302,7 @@
   function feedbackErrorText(raw) {
     const без_кода = String(raw).replace(/^\[[A-Z]{2}-?\d{3}\]\s*/, '').trim();
     return без_кода
-      || 'Открыть форму обратной связи не удалось. Напишите нам на support@auroraai.pro – ответим так же.';
+      || 'Открыть форму обратной связи не удалось. Напишите нам на sales@auroraai.pro – ответим так же.';
   }
 
   async function openFeedbackForm() {

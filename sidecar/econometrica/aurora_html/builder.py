@@ -555,6 +555,17 @@ class AuroraHTMLBuilder:
                 or (self.diagnostics.get("calibration") or {}).get("applied")
             ):
                 continue
+            # F-forecast-toc (находка внешнего аудита 13.09.2026, повторная проверка):
+            # тот же пропуск для «Прогноза» - render_forecast_plan (sections.py) честно
+            # возвращает "" без сценариев, но пункт оглавления безусловный вёл на
+            # отсутствующий якорь #forecast (демо-проект без сохранённых сценариев -
+            # самый вероятный первый отчёт покупателя). Условие зеркалит
+            # render_forecast_plan:2488 (status != "ok" or not scenarios → "").
+            if sid == "forecast" and not (
+                (self.data.get("forecast") or {}).get("status") == "ok"
+                and (self.data.get("forecast") or {}).get("scenarios")
+            ):
+                continue
             # F-lang-1 (2026-09-13): раньше отсутствующий label тихо подменялся
             # внутренним ключом sid (напр. "forecast"/"retro" утекали в оглавление
             # латиницей) - падаем громко на этапе сборки, чтобы утечка ключа была

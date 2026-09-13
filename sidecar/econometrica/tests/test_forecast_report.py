@@ -16,6 +16,7 @@ import tempfile
 
 import pytest
 
+from aurora_html.builder import AuroraHTMLBuilder
 from aurora_pptx.builder import AuroraPPTXBuilder
 from aurora_html.sections import render_forecast_plan
 
@@ -607,3 +608,40 @@ def test_retro_insights_preflight_fail():
     assert html != ""
     assert "Априорные предположения расходятся" in html
     assert "42%" in html
+
+
+# ─── (g) HTML-отчёт: пункт оглавления «Прогноз» ведёт в никуда без сценариев ──
+# Находка внешнего аудита 13.09.2026 (повторная проверка): render_forecast_plan
+# (sections.py:2488) честно возвращает "" без сценариев, а _toc_items
+# (aurora_html/builder.py) добавлял пункт «Прогноз» БЕЗУСЛОВНО — читатель кликал
+# и попадал на отсутствующий якорь #forecast. У «trust» такой же пропуск уже
+# стоял (comment builder.py:548-556); теперь зеркально сделан и для «forecast».
+# Четыре состояния — ровно те, что аудитор прогнал на боевом сборщике.
+
+def test_html_toc_skips_forecast_link_without_scenarios(base_payload):
+    """Пункта «Прогноз» в оглавлении нет ни без forecast, ни с пустыми/невалидными
+    сценариями, ни при непройденном шаге (status != ok) — и он есть, когда
+    сценарии реально сохранены."""
+    # 1. forecast отсутствует вовсе (демо-проект без сохранённого плана).
+    payload_absent = copy.deepcopy(base_payload)
+    payload_absent.pop("forecast", None)
+    toc = AuroraHTMLBuilder(payload_absent)._toc_items()
+    assert 'data-toc-target="forecast"' not in toc, "пункт «Прогноз» есть при отсутствующем forecast"
+
+    # 2. planning.json есть, но сценарии пустые.
+    payload_empty = copy.deepcopy(base_payload)
+    payload_empty["forecast"] = {"status": "ok", "scenarios": []}
+    toc = AuroraHTMLBuilder(payload_empty)._toc_items()
+    assert 'data-toc-target="forecast"' not in toc, "пункт «Прогноз» есть при пустых сценариях"
+
+    # 3. Шаг не пройден (status != "ok").
+    payload_not_ok = copy.deepcopy(base_payload)
+    payload_not_ok["forecast"] = {"status": "error", "scenarios": [FORECAST_DATA["scenarios"][0]]}
+    toc = AuroraHTMLBuilder(payload_not_ok)._toc_items()
+    assert 'data-toc-target="forecast"' not in toc, "пункт «Прогноз» есть при status != ok"
+
+    # 4. Сценарии реально сохранены (норма) — пункт обязан присутствовать.
+    payload_ok = copy.deepcopy(base_payload)
+    payload_ok["forecast"] = FORECAST_DATA
+    toc = AuroraHTMLBuilder(payload_ok)._toc_items()
+    assert 'data-toc-target="forecast"' in toc, "пункт «Прогноз» пропал при реально сохранённых сценариях"
