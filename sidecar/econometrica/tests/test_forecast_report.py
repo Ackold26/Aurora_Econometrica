@@ -177,7 +177,7 @@ def _find_forecast_plan_slide(prs):
     """
     for idx, slide in enumerate(prs.slides):
         texts = [sh.text_frame.text for sh in slide.shapes if sh.has_text_frame]
-        if "Прогноз на будущий период" in texts and "ВАРИАНТЫ БЮДЖЕТНОГО ПЛАНА" in texts:
+        if "Планирование: прогноз на будущий период" in texts and "ВАРИАНТЫ БЮДЖЕТНОГО ПЛАНА" in texts:
             return idx, texts
     return None, None
 
@@ -280,7 +280,7 @@ def test_toc_mentions_forecast_when_present(base_payload, tmp_path):
     out_fc = str(tmp_path / "deck_toc_fc.pptx")
     prs_fc = _build_deck(payload_fc, out_fc)
     toc_text = _xml_text(prs_fc)
-    assert "в том числе «Прогноз на будущий период»" in toc_text, (
+    assert "в том числе «Планирование: прогноз на будущий период»" in toc_text, (
         "TOC-подстрока о прогнозе не найдена"
     )
 
@@ -288,7 +288,7 @@ def test_toc_mentions_forecast_when_present(base_payload, tmp_path):
     payload_no.pop("forecast", None)
     out_no = str(tmp_path / "deck_toc_no_fc.pptx")
     prs_no = _build_deck(payload_no, out_no)
-    assert "в том числе «Прогноз на будущий период»" not in _xml_text(prs_no), (
+    assert "в том числе «Планирование: прогноз на будущий период»" not in _xml_text(prs_no), (
         "TOC упоминает прогноз, которого нет (INV-50)"
     )
 

@@ -181,6 +181,15 @@ def test_verdict_needs_two_comparable():
 
 # ─── (d) веб-отчёт ────────────────────────────────────────────────────────────
 
+def test_section_title_names_the_screen_step():
+    """Владелец 13.09.2026: экранный шаг называется «Планирование», документ –
+    «Прогноз на будущий период»; клиент ищет в отчёте то, что видел на экране и
+    не находит. Заголовок обязан называть оба имени – в обоих документах."""
+    html = render_forecast_plan(_s({"forecast": FC_TWO}))
+    assert "Планирование" in html
+    assert "Планирование: прогноз на будущий период" in html
+
+
 def test_html_section_carries_planning_answers():
     """В разделе есть срок, принятый план, диапазон, отличие и вердикт."""
     html = render_forecast_plan(_s({"forecast": FC_TWO}))
@@ -318,6 +327,32 @@ def test_deck_planning_slide_carries_answers(base_payload, tmp_path):
     assert "Против «Базовый план»" in text
     assert "+1 000 000 ₽" in text
     assert "не доказано" in text
+
+
+def test_deck_section_title_names_the_screen_step(base_payload, tmp_path):
+    """Владелец 13.09.2026: заголовок слайда и строка оглавления обязаны
+    называть экранный шаг «Планирование», не только «Прогноз на будущий
+    период» – иначе клиент не находит в колоде то, что видел на экране.
+
+    Проверяет заголовок САМОГО слайда отдельным признаком (не подстрокой всей
+    колоды) – первая редакция сторожа находила текст только в строке
+    оглавления и не падала, если сам заголовок слайда откатили назад.
+    """
+    payload = copy.deepcopy(base_payload)
+    payload["forecast"] = FC_TWO
+    prs, text = _deck_text(payload, str(tmp_path / "deck_title.pptx"))
+
+    plan_slide_texts = None
+    for slide in prs.slides:
+        texts = [sh.text_frame.text for sh in slide.shapes if sh.has_text_frame]
+        if "ВАРИАНТЫ БЮДЖЕТНОГО ПЛАНА" in texts:
+            plan_slide_texts = texts
+            break
+    assert plan_slide_texts is not None, "Слайд плана в колоде не найден"
+    assert any("Планирование: прогноз на будущий период" in t for t in plan_slide_texts), (
+        "Заголовок именно слайда плана не связывает имена"
+    )
+    assert "в том числе «Планирование: прогноз на будущий период»" in text
 
 
 def test_deck_planning_slide_no_overflow(base_payload, tmp_path):
@@ -515,7 +550,7 @@ def _plan_slide_text(prs):
     """
     for slide in prs.slides:
         texts = [sh.text_frame.text for sh in slide.shapes if sh.has_text_frame]
-        if "Прогноз на будущий период" in texts and "ВАРИАНТЫ БЮДЖЕТНОГО ПЛАНА" in texts:
+        if "Планирование: прогноз на будущий период" in texts and "ВАРИАНТЫ БЮДЖЕТНОГО ПЛАНА" in texts:
             return "\n".join(texts)
     return None
 
