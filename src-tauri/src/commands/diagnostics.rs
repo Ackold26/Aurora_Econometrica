@@ -173,6 +173,20 @@ fn section_app() -> String {
     format!("Name:           {name}\nVersion:        {version}\nProduct:        {product}\nUptime:         {uptime}")
 }
 
+/// Версия ОС и разрядность без имени машины — то же, что уходит в первые строки раздела
+/// «System» диагностического отчёта ниже (`section_system`), но без хвоста, который наружу
+/// отдавать не должен (имя машины, диск, WebView2). Читает `cmd /C ver`: тот же путь, что и
+/// у раздела «System» — источник один, чтобы версия в отчёте и в обращении не разъезжались.
+///
+/// Используется в `commands/feedback.rs` для поля «sistema» обращения (INV-38: без имени
+/// машины и пользователя, только версия ОС).
+pub fn os_version_summary() -> String {
+    let os = std::env::consts::OS;
+    let arch = std::env::consts::ARCH;
+    let winver = cmd_output("cmd", &["/C", "ver"]);
+    format!("{os} {arch}, {winver}")
+}
+
 fn section_system() -> String {
     let os = std::env::consts::OS;
     let arch = std::env::consts::ARCH;

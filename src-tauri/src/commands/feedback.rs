@@ -46,6 +46,12 @@ const FIELD_PRODUCT: &str = "produkt";
 const FIELD_VERSION: &str = "versiya";
 const FIELD_MACHINE: &str = "licenziya";
 const FIELD_SENT_AT: &str = "vremya";
+/// Версия Windows (без имени машины) — берётся из `diagnostics::os_version_summary()`.
+const FIELD_SYSTEM: &str = "sistema";
+/// Шаг мастера, на котором был человек — знает только фронтенд, приходит параметром команды.
+const FIELD_SCREEN: &str = "ekran";
+/// Текст последней ошибки — тоже параметром с фронтенда, вычищенный `sanitize_error_text`.
+const FIELD_ERROR: &str = "oshibka";
 
 /// Метка незаполненной заглушки. Одна на все пять значений выше.
 const PLACEHOLDER_MARK: &str = "ПОДСТАВИТЬ";
@@ -92,18 +98,54 @@ fn percent_encode(value: &str) -> String {
     out
 }
 
+/// Предел текста последней ошибки в обращении.
+///
+/// 🔴 Зачем именно предел (задача владельца 13.09.2026): адрес с семью полями способен
+/// перерасти предел, который принимает системный вызов открытия браузера — тогда браузер
+/// молча не откроется. 300 знаков — ориентир с запасом даже после процентного кодирования
+/// (кириллица раздувается втрое: 300 знаков кириллицы дают около 900 байт в адресе).
+const ERROR_TEXT_MAX_CHARS: usize = 300;
+
+/// Путь к файлу Windows в тексте ошибки: буква диска с двоеточием и обратным слешем
+/// (`C:\...`) либо сетевой путь (`\\сервер\...`). Останавливается на пробеле, кавычке или
+/// скобке — том, чем путь обычно отделён от остального текста ошибки.
+fn path_pattern() -> &'static regex::Regex {
+    static PATTERN: std::sync::OnceLock<regex::Regex> = std::sync::OnceLock::new();
+    PATTERN.get_or_init(|| {
+        regex::Regex::new(r#"(?:[A-Za-z]:\\|\\\\)[^\s"'()<>]*"#).expect("путь-паттерн верен")
+    })
+}
+
+/// Вычистить путь к файлу из текста ошибки и обрезать его до безопасной длины (INV-38 +
+/// предел адреса выше).
+///
+/// 🔴 Путь способен назвать человека: `C:\Users\Иван\Documents\отчёт.xlsx` несёт имя учётной
+/// записи. Вырезаем не молча, а меткой — так причина отказа остаётся понятной («не удалось
+/// открыть [путь]» читается, голое «не удалось открыть» — нет).
+fn sanitize_error_text(text: &str) -> String {
+    let scrubbed = path_pattern().replace_all(text, "[путь]");
+    let char_count = scrubbed.chars().count();
+    let truncated: String = scrubbed.chars().take(ERROR_TEXT_MAX_CHARS).collect();
+    if char_count > ERROR_TEXT_MAX_CHARS {
+        format!("{truncated}…")
+    } else {
+        truncated
+    }
+}
+
 /// Ссылка на форму обратной связи с предзаполненными скрытыми полями.
 ///
-/// 🔴 Состав тот же, что прежде уезжал подписью к тексту: программа, версия, ПОЛНЫЙ отпечаток
-/// машины, время. Отпечаток целиком, а не первыми 12 знаками, как в журнале входа: в нашей
-/// модели лицензия опознаётся парой «отпечаток + программа», и оба поля нужны, чтобы найти
-/// запись в панели управления. Персональными данными отпечаток не является — это хеш
+/// 🔴 Состав: программа, версия, ПОЛНЫЙ отпечаток машины, время, версия Windows — всегда;
+/// шаг мастера и текст ошибки — необязательно, их знает только вызывающая сторона (окно
+/// ошибки в мастере). Отпечаток целиком, а не первыми 12 знаками, как в журнале входа: в
+/// нашей модели лицензия опознаётся парой «отпечаток + программа», и оба поля нужны, чтобы
+/// найти запись в панели управления. Персональными данными отпечаток не является — это хеш
 /// характеристик машины, человек по нему не называется.
 ///
 /// Ни имени пользователя, ни имени машины, ни путей к файлам здесь нет и быть не должно
-/// (INV-38). Состав собирается целиком в этой функции — значит и проверять его надо в одном
-/// месте, сторожем ниже.
-fn feedback_form_link() -> String {
+/// (INV-38): текст ошибки проходит через `sanitize_error_text`. Состав собирается целиком в
+/// этой функции — значит и проверять его надо в одном месте, сторожем ниже.
+fn feedback_form_link(ekran: Option<&str>, oshibka: Option<&str>) -> String {
     // Незнакомое имя пакета `detect_product` отдаёт как "unknown" — это потеря атрибуции ровно
     // там, где она и нужна. Подставляем сырое имя пакета: оно хотя бы называет сборку.
     let product = match crate::commands::online_auth::detect_product() {
@@ -116,12 +158,13 @@ fn feedback_form_link() -> String {
         // чем закрытая дорога. Причина при этом названа, а не скрыта пустотой.
         .unwrap_or_else(|_| "определить не удалось".to_string());
     let sent_at = chrono::Local::now().format("%d.%m.%Y %H:%M (%:z)").to_string();
+    let system = crate::commands::diagnostics::os_version_summary();
 
     // Разделитель — `?` или `&`: у адреса формы могут быть свои параметры.
     let separator = if FEEDBACK_FORM_URL.contains('?') { '&' } else { '?' };
 
-    format!(
-        "{}{}{}={}&{}={}&{}={}&{}={}",
+    let mut link = format!(
+        "{}{}{}={}&{}={}&{}={}&{}={}&{}={}",
         FEEDBACK_FORM_URL,
         separator,
         FIELD_PRODUCT,
@@ -131,16 +174,32 @@ fn feedback_form_link() -> String {
         FIELD_MACHINE,
         percent_encode(&machine),
         FIELD_SENT_AT,
-        percent_encode(&sent_at)
-    )
+        percent_encode(&sent_at),
+        FIELD_SYSTEM,
+        percent_encode(&system),
+    );
+
+    // Необязательные поля уходят, только когда есть что сказать: пустое значение бесполезно
+    // так же, как отсутствующее, а для формы — короче ссылка.
+    if let Some(screen) = ekran.filter(|s| !s.trim().is_empty()) {
+        link.push_str(&format!("&{FIELD_SCREEN}={}", percent_encode(screen)));
+    }
+    if let Some(error_text) = oshibka.filter(|s| !s.trim().is_empty()) {
+        let cleaned = sanitize_error_text(error_text);
+        link.push_str(&format!("&{FIELD_ERROR}={}", percent_encode(&cleaned)));
+    }
+
+    link
 }
 
 /// Открыть форму обратной связи в браузере с предзаполненными скрытыми полями.
 ///
-/// Возвращает открытую ссылку — она нужна для разбора и для живого прогона. Отказ не ломает
-/// работу программы: обратная связь не основная её обязанность.
+/// `ekran` и `oshibka` — необязательные: страница настроек их знать не может (там просто
+/// кнопка «Обратная связь»), а окно ошибки в мастере передаёт оба сама, ничего не спрашивая
+/// у человека. Возвращает открытую ссылку — она нужна для разбора и для живого прогона.
+/// Отказ не ломает работу программы: обратная связь не основная её обязанность.
 #[tauri::command]
-pub async fn open_feedback_form() -> Result<String, String> {
+pub async fn open_feedback_form(ekran: Option<String>, oshibka: Option<String>) -> Result<String, String> {
     if !form_is_connected() {
         warn!("Обратная связь: адрес формы не подставлен — открывать нечего");
         return Err(coded(
@@ -150,7 +209,7 @@ pub async fn open_feedback_form() -> Result<String, String> {
         ));
     }
 
-    let link = feedback_form_link();
+    let link = feedback_form_link(ekran.as_deref(), oshibka.as_deref());
     info!("Обратная связь: открываю форму в браузере");
 
     tauri_plugin_opener::open_url(&link, None::<&str>).map_err(|e| {
@@ -261,7 +320,7 @@ mod tests {
     /// адресе значит пробел и молча подменил бы версию.
     #[test]
     fn feedback_link_carries_all_four_hidden_fields_encoded() {
-        let link = feedback_form_link();
+        let link = feedback_form_link(None, None);
         // Печатаем ссылку: при разборе и при подстановке настоящего адреса её хочется видеть
         // целиком, а не собирать в голове (`cargo test … -- --nocapture`).
         println!("ссылка на форму: {link}");
@@ -271,6 +330,7 @@ mod tests {
             (FIELD_VERSION, "версия"),
             (FIELD_MACHINE, "машина"),
             (FIELD_SENT_AT, "время"),
+            (FIELD_SYSTEM, "система"),
         ] {
             assert!(
                 link.contains(&format!("{field}=")),
@@ -352,13 +412,13 @@ mod tests {
             "адрес формы и имена полей обязаны быть подставлены — иначе кнопка обращения молчит"
         );
 
-        let link = feedback_form_link();
+        let link = feedback_form_link(None, None);
 
         assert!(
             link.starts_with(FEEDBACK_FORM_URL),
             "ссылка не начинается с адреса формы: {link}"
         );
-        for field in [FIELD_PRODUCT, FIELD_VERSION, FIELD_MACHINE, FIELD_SENT_AT] {
+        for field in [FIELD_PRODUCT, FIELD_VERSION, FIELD_MACHINE, FIELD_SENT_AT, FIELD_SYSTEM] {
             assert!(
                 link.contains(&format!("{field}=")),
                 "в ссылке нет поля {field}: {link}"
@@ -396,6 +456,81 @@ mod tests {
         assert!(
             !link.contains("C%3A%5C") && !link.contains("C:\\"),
             "в ссылку обращения попал путь к файлу — так туда уедут имена папок человека: {link}"
+        );
+    }
+
+    /// Необязательные поля (шаг мастера, текст ошибки) отсутствуют в ссылке, когда их не дали:
+    /// пустое поле в форме хуже отсутствующего — выглядит как «человек не заполнил».
+    ///
+    /// Ось мутации: подставить `ekran`/`oshibka` в ссылку даже при `None` — краснеет.
+    #[test]
+    fn optional_fields_are_absent_from_link_when_not_given() {
+        let link = feedback_form_link(None, None);
+        assert!(
+            !link.contains(&format!("{FIELD_SCREEN}=")),
+            "поле «шаг» ушло в ссылку без значения: {link}"
+        );
+        assert!(
+            !link.contains(&format!("{FIELD_ERROR}=")),
+            "поле «ошибка» ушло в ссылку без значения: {link}"
+        );
+    }
+
+    /// Необязательные поля попадают в ссылку и кодируются, когда их дали — окно ошибки в
+    /// мастере передаёт оба сама, человека не спрашивая.
+    ///
+    /// Оси мутации: (1) не добавить `ekran`/`oshibka` в ссылку при `Some` — краснеет;
+    /// (2) не кодировать значение — краснеет на пробеле в тексте ошибки.
+    #[test]
+    fn optional_fields_are_present_and_encoded_when_given() {
+        let link = feedback_form_link(Some("Шаг 3: Модель"), Some("не удалось обучить модель"));
+        assert!(
+            link.contains(&format!("{FIELD_SCREEN}=")),
+            "поле «шаг» не попало в ссылку: {link}"
+        );
+        assert!(
+            link.contains(&format!("{FIELD_ERROR}=")),
+            "поле «ошибка» не попало в ссылку: {link}"
+        );
+        assert!(
+            !link.contains(' '),
+            "пробел в значениях ekran/oshibka остался незакодированным: {link}"
+        );
+    }
+
+    /// Путь к файлу в тексте ошибки вычищается меткой, а не пропадает молча (INV-38): причина
+    /// отказа остаётся понятной.
+    ///
+    /// Ось мутации: перестать заменять путь — краснеет на всё ещё видимом `C:\Users\...`.
+    #[test]
+    fn sanitize_error_text_scrubs_windows_path() {
+        let cleaned = sanitize_error_text(r"не удалось открыть C:\Users\Иван\Documents\отчёт.xlsx");
+        assert!(
+            !cleaned.contains(r"C:\Users\Иван"),
+            "путь с именем человека не вычищен: {cleaned}"
+        );
+        assert!(
+            cleaned.contains("[путь]"),
+            "причина отказа потеряна вместе с путём, а не заменена меткой: {cleaned}"
+        );
+        assert!(
+            cleaned.contains("не удалось открыть"),
+            "текст причины ошибки не должен пропадать при вычистке пути: {cleaned}"
+        );
+    }
+
+    /// Длинный текст ошибки обрезается до предела — иначе адрес с семью полями рискует
+    /// перерасти то, что принимает системный вызов открытия браузера.
+    ///
+    /// Ось мутации: убрать обрезку — краснеет на длине результата.
+    #[test]
+    fn sanitize_error_text_truncates_long_text() {
+        let long_text = "а".repeat(ERROR_TEXT_MAX_CHARS + 50);
+        let cleaned = sanitize_error_text(&long_text);
+        assert!(
+            cleaned.chars().count() <= ERROR_TEXT_MAX_CHARS + 1, // +1 — многоточие
+            "текст ошибки не обрезан до предела {ERROR_TEXT_MAX_CHARS}: длина {}",
+            cleaned.chars().count()
         );
     }
 
@@ -453,5 +588,41 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// 🔴 Сторож на КЛАСС (задача B, 13.09.2026): кнопка обращения не должна жить только в
+    /// закоулке настроек — человек, у которого сломалось, туда не идёт. Проверяет, что все
+    /// шесть окон ошибки шага пайплайна и шапка мастера предлагают «Сообщить о проблеме».
+    ///
+    /// Оси мутации: (1) убрать `FeedbackReportButton` из любого окна ошибки шага — краснеет с
+    /// именем потерянного файла; (2) убрать кнопку из шапки — краснеет на последней проверке.
+    #[test]
+    fn pipeline_error_screens_and_header_offer_a_way_to_report_a_problem() {
+        const IMPORT: &str = include_str!("../../../src/lib/components/pipeline/ImportStep.svelte");
+        const VALIDATE: &str = include_str!("../../../src/lib/components/pipeline/ValidateStep.svelte");
+        const DECOMPOSE: &str = include_str!("../../../src/lib/components/pipeline/DecomposeStep.svelte");
+        const MODEL_TRAINING: &str = include_str!("../../../src/lib/components/pipeline/ModelTrainingStep.svelte");
+        const OPTIMIZE: &str = include_str!("../../../src/lib/components/pipeline/OptimizeStep.svelte");
+        const REPORT: &str = include_str!("../../../src/lib/components/pipeline/ReportStep.svelte");
+        const LAYOUT: &str = include_str!("../../../src/routes/pipeline/+layout.svelte");
+
+        for (name, source) in [
+            ("ImportStep", IMPORT),
+            ("ValidateStep", VALIDATE),
+            ("DecomposeStep", DECOMPOSE),
+            ("ModelTrainingStep", MODEL_TRAINING),
+            ("OptimizeStep", OPTIMIZE),
+            ("ReportStep", REPORT),
+        ] {
+            assert!(
+                source.contains("<FeedbackReportButton"),
+                "окно ошибки шага «{name}» не предлагает сообщить о проблеме"
+            );
+        }
+
+        assert!(
+            LAYOUT.contains("onclick={reportProblemFromHeader}"),
+            "в шапке мастера нет кнопки обращения рядом со справкой"
+        );
     }
 }
