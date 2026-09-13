@@ -1,7 +1,7 @@
 """
 Aurora Econometrica - РФ holiday calendar auto-injection (v2.1, 2026-07-05).
 
-Per ADR-019 §5: silent auto-injection 12 hardcoded РФ-events как dummy
+Per ADR-019 §5: silent auto-injection 13 hardcoded РФ-events как dummy
 control columns. Customer customization (opt-out specific holidays, custom events)
 отложено в v2.2.0 (Quality of Life sprint).
 
@@ -27,7 +27,9 @@ control columns. Customer customization (opt-out specific holidays, custom event
 прежние 0/1. Старые модели (β обучены на бинарных X) воспроизводятся через
 mode='binary_point' — decomposer выбирает по normalization.holiday_dummies_mode.
 
-12 holidays cover ~80%+ типичной РФ-сезонности для FMCG / OTC / ритейл / e-commerce.
+13 holidays cover ~80%+ типичной РФ-сезонности для FMCG / OTC / ритейл / e-commerce.
+13-е событие — православная Пасха (13.09.2026, просьба владельца): единственное
+переходящее, дата считается пасхалией (см. orthodox_easter).
 
 Auto-injection происходит в modeler (data preprocessing). Model
 подхватывает holidays как control factors через `validator.py::CONTROL_PATTERNS`
@@ -50,7 +52,7 @@ from itertools import combinations
 from typing import Dict, List, Optional
 
 
-# ─── Holiday definitions (12 events, hardcoded РФ-календарь) ───────────────
+# ─── Holiday definitions (13 events, hardcoded РФ-календарь) ───────────────
 
 # Each holiday: column_name, category, date predicate fn (year → list of dates).
 # Date predicates handle fixed dates + movable feasts (Black Friday = last Friday
@@ -179,6 +181,16 @@ HOLIDAY_DEFINITIONS = [
         'description': 'Школьные каникулы (4 окна: осенние / зимние / весенние / летние)',
         'date_range': lambda year: _school_breaks_dates(year),
     },
+    {
+        # 13-е событие, добавлено 13.09.2026 по просьбе владельца. Единственный
+        # переходящий праздник набора: дата считается пасхалией, а не задаётся
+        # числом месяца (см. orthodox_easter ниже).
+        'name': 'holiday_easter_orthodox',
+        'category': 'general',
+        'window_kind': 'calendar_period',
+        'description': 'Православная Пасха — период влияния: неделя до, сам день и 3 дня после',
+        'date_range': lambda year: _orthodox_easter_window(year),
+    },
 ]
 
 
@@ -187,6 +199,55 @@ def _sale_window(start: date, days: int) -> List[date]:
     покупательская активность идёт с момента старта распродажи и по её
     завершении (~2-3 недели), а не до события, как у праздников."""
     return [start + timedelta(days=i) for i in range(days)]
+
+
+def orthodox_easter(year: int) -> date:
+    """Дата православной Пасхи в григорианском календаре.
+
+    Праздник переходящий: считается по александрийской пасхалии (формула
+    Гаусса). Формула даёт день по ЮЛИАНСКОМУ календарю, поэтому к нему
+    прибавляется накопленное расхождение календарей: 13 суток для 1900–2099,
+    14 — для 2100–2199. Проверено по известным годам: 2024 — 5 мая,
+    2025 — 20 апреля, 2026 — 12 апреля, 2021 — 2 мая.
+
+    Таблиц и обращений в сеть не требуется — чистая арифметика, как и у
+    Чёрной пятницы («последняя пятница ноября»).
+    """
+    a = year % 19
+    b = year % 4
+    c = year % 7
+    d = (19 * a + 15) % 30
+    e = (2 * b + 4 * c + 6 * d + 6) % 7
+    day = 22 + d + e          # день марта по юлианскому календарю
+    julian = date(year, 3, day) if day <= 31 else date(year, 4, day - 31)
+    # Расхождение календарей: по одному дню за каждый «невисокосный» вековой
+    # год григорианского счёта. Формула общая, значения для наших веков —
+    # 13 и 14 суток.
+    shift = year // 100 - year // 400 - 2
+    return julian + timedelta(days=shift)
+
+
+def _orthodox_easter_window(year: int) -> List[date]:
+    """Окно Пасхи: неделя ДО праздника + сам день + 3 дня ПОСЛЕ (11 дней).
+
+    🔴 Границы заданы владельцем (13.09.2026) как период влияния праздника на
+    потребительское поведение, а не выведены из общего принципа окон. Поэтому
+    класс — 'calendar_period' (активность в сам период), хотя окно и начинается
+    до события: неделя до — закупки к столу (куличи, яйца, творог, скоромное к
+    разговению, пик на Чистый четверг и Великую субботу), три дня после —
+    продолжение потребления на Светлой седмице.
+
+    🔴 Известное пересечение с майскими праздниками (28 апреля — 9 мая).
+    Посчитано по пасхалии для окна −7…+3: 2024 (Пасха 5 мая) — 11 дней из 11,
+    полное совпадение; 2021 и 2027 (2 мая) — 8 из 11; 2019 и 2030 (28 апреля) —
+    4 из 11; в годы ранней Пасхи (2020, 2022, 2023, 2025, 2026, 2028, 2029)
+    пересечения нет вовсе. В годы поздней Пасхи разделить вклады двух факторов
+    на таких данных нельзя, поэтому пара внесена в EXPECTED_OVERLAPS: программа
+    предупредит о совпадении, а при доле выше 85 % предложит объединить, вместо
+    того чтобы показать выдуманный вклад каждого.
+    """
+    easter = orthodox_easter(year)
+    return [easter + timedelta(days=i) for i in range(-7, 4)]
 
 
 def _last_friday_of_november(year: int) -> date:
@@ -590,6 +651,14 @@ def detect_holiday_collinearity(
         ('holiday_newyear_postsale', 'holiday_school_breaks'),
         ('holiday_back_to_school', 'holiday_school_breaks'),  # summer break + back-to-school
         ('holiday_black_friday', 'holiday_cyber_monday'),  # adjacent
+        # 13.09.2026: Пасха переходящая, и в годы поздней Пасхи её окно уходит
+        # внутрь майских. Посчитано по пасхалии для окна −7…+3: 2024 (5 мая) —
+        # 11 дней из 11, то есть полное совпадение; 2021 и 2027 (2 мая) — 8 из
+        # 11; 2019 и 2030 (28 апреля) — 4 из 11. В такие годы разделить вклады
+        # нельзя, и порог «85 % — рекомендуем объединить» сработает сам. В годы
+        # ранней Пасхи (2020, 2022, 2023, 2025, 2026, 2028, 2029) пересечения
+        # нет вовсе, пара просто не всплывёт.
+        ('holiday_easter_orthodox', 'holiday_may_holidays'),
     }
     # Threshold for «very high overlap — merge recommended».
     MERGE_RECOMMENDED_THRESHOLD = 0.85
