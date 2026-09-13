@@ -1,0 +1,412 @@
+diff --git a/sidecar/econometrica/aurora_html/interactive.py b/sidecar/econometrica/aurora_html/interactive.py
+index 98979f07..f853d80c 100644
+--- a/sidecar/econometrica/aurora_html/interactive.py
++++ b/sidecar/econometrica/aurora_html/interactive.py
+@@ -325,10 +325,14 @@ def bootstrap_js(
+         axisLabel: Object.assign({{}}, baseAxisStyle(pal).axisLabel, {{ formatter: '{{value}}%' }})
+       }}),
+       series: [
++        // CHART_SPEC 2.3 (2026-09-13): подписи '{{c}}%' на столбцах – раньше доля
++        // читалась только по оси Y.
+         {{ name: '% бюджета', type: 'bar', data: data.spend_pct,
+-          itemStyle: {{ color: pal.mutedColor, borderRadius: [3, 3, 0, 0] }}, barMaxWidth: 22 }},
++          itemStyle: {{ color: pal.mutedColor, borderRadius: [3, 3, 0, 0] }}, barMaxWidth: 22,
++          label: {{ show: true, position: 'top', color: pal.textColor, fontSize: 10, fontWeight: 600, formatter: '{{c}}%' }} }},
+         {{ name: '% эффекта', type: 'bar', data: data.effect_pct,
+-          itemStyle: {{ color: pal.heroColor, borderRadius: [3, 3, 0, 0] }}, barMaxWidth: 22 }}
++          itemStyle: {{ color: pal.heroColor, borderRadius: [3, 3, 0, 0] }}, barMaxWidth: 22,
++          label: {{ show: true, position: 'top', color: pal.textColor, fontSize: 10, fontWeight: 600, formatter: '{{c}}%' }} }}
+       ]
+     }};
+   }}
+@@ -430,6 +434,14 @@ def bootstrap_js(
+             }}
+           }};
+         }}),
++        // CHART_SPEC 2.1 (2026-09-13): подпись значения на столбце – без наведения
++        // мышью число раньше читалось только по оси Y (тот же приём, что у mROAS,
++        // buildMroasOption выше).
++        label: {{
++          show: true, position: 'top',
++          color: pal.textColor, fontSize: 11, fontWeight: 600,
++          formatter: function(p) {{ return Math.round(p.value).toLocaleString('ru-RU'); }}
++        }},
+         barMaxWidth: 32
+       }}]
+     }};
+@@ -455,7 +467,10 @@ def bootstrap_js(
+       grid: {{ left: 8, right: 8, bottom: 8, top: 40, containLabel: true }},
+       tooltip: baseTooltip(pal),
+       xAxis: Object.assign({{ type: 'category', data: data.dates }}, baseAxisStyle(pal)),
+-      yAxis: Object.assign({{ type: 'value' }}, baseAxisStyle(pal)),
++      // CHART_SPEC 2.6 (2026-09-13): scale:true – тот же класс дефекта, что F-A3-01
++      // в ConvergenceDashboard.svelte (ось тянулась от нуля вместо диапазона данных;
++      // здесь ноль не несёт смысла – продажи/KPI, не остаток вокруг нуля).
++      yAxis: Object.assign({{ type: 'value', scale: true }}, baseAxisStyle(pal)),
+       series: [
+         {{ name: 'Факт', type: 'line', showSymbol: false, smooth: 0.2,
+           data: data.actual, lineStyle: {{ width: 2, color: pal.heroColor }},
+@@ -509,7 +524,13 @@ def bootstrap_js(
+           return 'Прогноз: ' + p.value[0].toFixed(1) + '<br/>Остаток: ' + p.value[1].toFixed(1);
+         }}
+       }}),
++      // CHART_SPEC 2.8 (2026-09-13): scale:true на оси X – тот же класс дефекта,
++      // что F-A3-01 в ConvergenceDashboard.svelte / прежний scale:true в
++      // PPCScatter.svelte (прогнозные значения почти никогда не близки к нулю,
++      // принудительный ноль сжал бы всё облако точек в угол). Ось Y (остаток)
++      // не трогаем – остатки естественно тяготеют к нулю.
+       xAxis: Object.assign({{ type: 'value', name: 'Прогноз', nameLocation: 'middle', nameGap: 28,
++        scale: true,
+         nameTextStyle: {{ color: pal.textMutedColor, fontSize: 11 }} }}, baseAxisStyle(pal)),
+       yAxis: Object.assign({{ type: 'value', name: 'Остаток', nameLocation: 'middle', nameGap: 40,
+         nameTextStyle: {{ color: pal.textMutedColor, fontSize: 11 }} }}, baseAxisStyle(pal)),
+@@ -547,10 +568,16 @@ def bootstrap_js(
+         axisLabel: Object.assign({{}}, baseAxisStyle(pal).axisLabel, {{ formatter: '{{value}} млн' }})
+       }}),
+       series: [
++        // CHART_SPEC 2.5 (2026-09-13): подписи значений в млн ₽ на столбцах –
++        // раньше сумма читалась только по оси Y.
+         {{ name: 'Текущий', type: 'bar', data: data.current,
+-          itemStyle: {{ color: pal.mutedColor, borderRadius: [3, 3, 0, 0] }}, barMaxWidth: 22 }},
++          itemStyle: {{ color: pal.mutedColor, borderRadius: [3, 3, 0, 0] }}, barMaxWidth: 22,
++          label: {{ show: true, position: 'top', color: pal.textColor, fontSize: 10, fontWeight: 600,
++            formatter: function(p) {{ return p.value.toFixed(0) + ' млн'; }} }} }},
+         {{ name: 'Оптимальный', type: 'bar', data: data.optimal,
+-          itemStyle: {{ color: pal.heroColor, borderRadius: [3, 3, 0, 0] }}, barMaxWidth: 22 }}
++          itemStyle: {{ color: pal.heroColor, borderRadius: [3, 3, 0, 0] }}, barMaxWidth: 22,
++          label: {{ show: true, position: 'top', color: pal.textColor, fontSize: 10, fontWeight: 600,
++            formatter: function(p) {{ return p.value.toFixed(0) + ' млн'; }} }} }}
+       ]
+     }};
+   }}
+diff --git a/sidecar/econometrica/engines/validator.py b/sidecar/econometrica/engines/validator.py
+index 0e97137c..e93ebd36 100644
+--- a/sidecar/econometrica/engines/validator.py
++++ b/sidecar/econometrica/engines/validator.py
+@@ -919,8 +919,8 @@ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, A
+     # F-A1-5: оценочное число эффективных параметров ДО обучения.
+     # Учитывает авто-инжектируемые контроли которые пользователь не видит
+     # в таблице ролей, но которые реально раздувают n_params в модели:
+-    #   - 12 праздников РФ (дефолт use_holidays=True; disabled_holidays в конфиге
+-    #     не известен на этапе validate, используем дефолтные 12)
++    #   - праздники РФ, число берётся из календаря (дефолт use_holidays=True;
++    #     disabled_holidays в конфиге не известен на этапе validate)
+     #   - intercept (1 параметр, всегда)
+     #   - Фурье-члены сезонности: условны (нужно ≥2 цикла + autocorr ≥ 0.2),
+     #     здесь НЕ включаем — честнее показать минимальную оценку; при обучении
+@@ -941,18 +941,28 @@ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, A
+     # Единая константа +13 соврала бы для OLS ровно настолько же, насколько
+     # сырой знаменатель врал для байеса.
+     #
+-    # Праздников не всегда 12: modeler.py пропускает те, что пользователь дал
+-    # сам (семантический дедуп по нормализованному имени), и отключённые в
+-    # конфиге. Отключённые на этапе валидации неизвестны, а вот покрытые
+-    # пользователем — видны прямо здесь, по списку колонок. Считаем их.
+-    N_HOLIDAYS_DEFAULT = 12
++    # Праздников не всегда все из календаря: modeler.py пропускает те, что
++    # пользователь дал сам (семантический дедуп по нормализованному имени), и
++    # отключённые в конфиге. Отключённые на этапе валидации неизвестны, а вот
++    # покрытые пользователем — видны прямо здесь, по списку колонок. Считаем их.
++    # 🔴 Число праздников — БЕЗ собственной константы (задвоение источника
++    # истины, найдено 13.09.2026: календарь добавил 13-е событие (Пасху), а
++    # здесь годами лежала своя N_HOLIDAYS_DEFAULT = 12 — знаменатель занижался
++    # на единицу, «запас данных» выглядел лучше настоящего (нарушение INV-50).
++    # Источник истины ОДИН — сам календарь: len(list_holiday_names()).
++    # Добавление 14-го события впредь не разойдётся само по себе.
+     N_INTERCEPT = 1
+     try:
+-        from utils.holiday_calendar_ru import user_covered_auto_holidays
++        from utils.holiday_calendar_ru import (
++            list_holiday_names,
++            user_covered_auto_holidays,
++        )
++        _total_holidays = len(list_holiday_names())
+         _covered = len(user_covered_auto_holidays([c['name'] for c in columns]))
+     except Exception:  # noqa: BLE001 — оценка не имеет права ронять валидацию
++        _total_holidays = 12  # запасной минимум при недоступном календаре
+         _covered = 0
+-    n_holidays_auto = max(N_HOLIDAYS_DEFAULT - _covered, 0)
++    n_holidays_auto = max(_total_holidays - _covered, 0)
+     n_params_effective_bayesian = n_predictors + n_holidays_auto + N_INTERCEPT
+     n_params_effective_ols = n_predictors + N_INTERCEPT
+     # Историческое имя поля: оставлено, чтобы не сломать уже сохранённые
+diff --git a/sidecar/econometrica/tests/test_html_static_chart_labels.py b/sidecar/econometrica/tests/test_html_static_chart_labels.py
+new file mode 100644
+index 00000000..f2642986
+--- /dev/null
++++ b/sidecar/econometrica/tests/test_html_static_chart_labels.py
+@@ -0,0 +1,60 @@
++"""Первая ступень CHART_SPEC_static_reports.md (2026-09-13) — дешёвые точечные
++правки пяти графиков веб-отчёта: подписи значений там, где число раньше
++читалось только по оси, и scale:true там, где принудительный ноль в диапазоне
++сжимает линии/облако точек (см. F-A3-01 в ConvergenceDashboard.svelte — тот же
++класс дефекта, уже закрытый в интерфейсе программы, но не в html-отчёте).
++
++Стережём наличие конкретных фрагментов в собранном JS-бандле (aurora_html.
++interactive.bootstrap_js), а не поведение ECharts в браузере — дешёвая и
++точная проверка на уровне текста, которая физически не может пройти до
++правки (фрагментов не было в файле) и не может молча перестать проходить
++при откате (grep по опции, а не по факту существования функции).
++"""
++from __future__ import annotations
++
++from aurora_html.interactive import bootstrap_js
++
++_STRINGS = {"ui": {}, "empty_states": {}, "verdicts": {}}
++
++
++def _js() -> str:
++    return bootstrap_js("light", "{}", "{}", _STRINGS)
++
++
++def test_waterfall_2_1_несёт_подпись_значения_на_столбце():
++    js = _js()
++    assert "function buildWaterfallOption" in js
++    waterfall = js.split("function buildWaterfallOption", 1)[1].split("function build", 1)[0]
++    assert "label:" in waterfall and "show: true" in waterfall
++
++
++def test_share_2_3_несёт_подписи_процентов_на_обеих_сериях():
++    js = _js()
++    assert "function buildShareOption" in js
++    share = js.split("function buildShareOption", 1)[1].split("function build", 1)[0]
++    assert share.count("label:") == 2
++    assert "{c}%" in share
++
++
++def test_optimize_2_5_несёт_подписи_млн_на_обеих_сериях():
++    js = _js()
++    assert "function buildOptimizeOption" in js
++    optimize = js.split("function buildOptimizeOption", 1)[1].split("function initChart", 1)[0]
++    assert optimize.count("label:") == 2
++    assert "млн" in optimize
++
++
++def test_quality_avp_2_6_ось_y_несёт_scale_true():
++    js = _js()
++    assert "function buildQualityAvpOption" in js
++    avp = js.split("function buildQualityAvpOption", 1)[1].split("function build", 1)[0]
++    assert "yAxis: Object.assign({ type: 'value', scale: true }" in avp
++
++
++def test_quality_scatter_2_8_ось_x_несёт_scale_true_ось_y_без_него():
++    js = _js()
++    assert "function buildQualityScatterOption" in js
++    scatter = js.split("function buildQualityScatterOption", 1)[1].split("function build", 1)[0]
++    x_axis, y_axis = scatter.split("yAxis: Object.assign(", 1)
++    assert "scale: true" in x_axis
++    assert "scale: true" not in y_axis
+diff --git a/sidecar/econometrica/tests/test_validator_holiday_count_ssot.py b/sidecar/econometrica/tests/test_validator_holiday_count_ssot.py
+new file mode 100644
+index 00000000..d23b5537
+--- /dev/null
++++ b/sidecar/econometrica/tests/test_validator_holiday_count_ssot.py
+@@ -0,0 +1,66 @@
++"""Сторож против повторного задвоения источника истины числа праздников.
++
++Контекст (найдено 13.09.2026): в `holiday_calendar_ru.py` живёт список
++`HOLIDAY_DEFINITIONS` — 13 событий после добавления православной Пасхи. Рядом
++в `validator.py::validate_data` годами лежала СВОЯ константа
++`N_HOLIDAYS_DEFAULT = 12`, которой считался `n_params_effective_bayesian` —
++число эффективных параметров модели ДО обучения. Задвоение источника истины:
++календарь вырос на одно событие, константа — нет, и знаменатель «запас данных»
++(наблюдений на параметр) занижался на единицу, показывая клиенту более
++надёжную модель, чем есть на самом деле (нарушение INV-50).
++
++Починка: число праздников берётся из календаря (`list_holiday_names()`), а не
++из своей константы. Этот тест охраняет СВЯЗЬ, а не число: если завтра
++добавится 14-е событие, тест обязан пройти без изменений — иначе он повторит
++ту же ошибку, только с другой цифрой (см. поручение задачи, шаг 4).
++"""
++
++from __future__ import annotations
++
++import sys
++from pathlib import Path
++
++import numpy as np
++import pandas as pd
++
++sys.path.insert(0, str(Path(__file__).parent.parent))
++
++
++def _build(tmp_path: Path, n: int = 60, n_media: int = 3) -> Path:
++    """Минимальный датасет без праздничных/пользовательских holiday-колонок,
++    чтобы n_holidays_auto считался по ПОЛНОМУ списку календаря (_covered=0)."""
++    rng = np.random.RandomState(0)
++    data = {
++        'Дата': pd.date_range('2022-01-01', periods=n, freq='W'),
++        'sales_rub': rng.uniform(100, 1000, n),
++    }
++    for i in range(n_media):
++        data[f'tv_spend_{i}'] = rng.uniform(50, 500, n)
++    df = pd.DataFrame(data)
++    f = tmp_path / 'data.xlsx'
++    df.to_excel(f, index=False)
++    return f
++
++
++def test_n_holidays_auto_равно_длине_календаря_а_не_зашитому_числу(tmp_path):
++    """Знаменатель обязан расти и падать ВМЕСТЕ с календарём.
++
++    Не «== 13»: зашитая здесь цифра повторила бы ту же ошибку через полгода,
++    когда в календаре появится 14-е событие. Сверка — с самим календарём.
++    """
++    from engines.validator import validate_data
++    from utils.holiday_calendar_ru import list_holiday_names
++
++    res = validate_data(str(_build(tmp_path)))
++    detected = res['detected']
++
++    n_calendar_holidays = len(list_holiday_names())
++    assert detected['n_holidays_auto'] == n_calendar_holidays, (
++        f"n_holidays_auto={detected['n_holidays_auto']} разошёлся с календарём "
++        f"({n_calendar_holidays} событий) — источник истины снова задвоен."
++    )
++
++    # Знаменатель байесовской оценки обязан включать именно это число праздников
++    # + intercept, а не какую-то отдельно живущую константу.
++    expected_denominator = detected['n_predictors'] + n_calendar_holidays + detected['n_intercept']
++    assert detected['n_params_effective_bayesian'] == expected_denominator
+diff --git a/src-tauri/src/commands/feedback.rs b/src-tauri/src/commands/feedback.rs
+index 68c0f4a3..287e5796 100644
+--- a/src-tauri/src/commands/feedback.rs
++++ b/src-tauri/src/commands/feedback.rs
+@@ -36,11 +36,11 @@ use log::{info, warn};
+ ///
+ /// Имена полей Яндекс Форм выглядят как `answer_short_text_12345`; их даёт сама форма, угадать
+ /// нельзя. Менять адрес и имена только здесь: ни одно другое место их не знает.
+-const FEEDBACK_FORM_URL: &str = "ПОДСТАВИТЬ-АДРЕС-ФОРМЫ";
+-const FIELD_PRODUCT: &str = "ПОДСТАВИТЬ-ПОЛЕ-ПРОГРАММА";
+-const FIELD_VERSION: &str = "ПОДСТАВИТЬ-ПОЛЕ-ВЕРСИЯ";
+-const FIELD_MACHINE: &str = "ПОДСТАВИТЬ-ПОЛЕ-МАШИНА";
+-const FIELD_SENT_AT: &str = "ПОДСТАВИТЬ-ПОЛЕ-ВРЕМЯ";
++const FEEDBACK_FORM_URL: &str = "https://forms.yandex.ru/cloud/6aa6912e6d2d73e851bbccda/";
++const FIELD_PRODUCT: &str = "produkt";
++const FIELD_VERSION: &str = "versiya";
++const FIELD_MACHINE: &str = "licenziya";
++const FIELD_SENT_AT: &str = "vremya";
+ 
+ /// Метка незаполненной заглушки. Одна на все пять значений выше.
+ const PLACEHOLDER_MARK: &str = "ПОДСТАВИТЬ";
+@@ -329,29 +329,43 @@ mod tests {
+         ]));
+     }
+ 
+-    /// Пока адрес формы не подставлен, кнопка обращения ОТКАЗЫВАЕТ, а не открывает браузер.
++    /// Ссылка обращения несёт все четыре поля и закодирована целиком.
+     ///
+-    /// 🔴 Это тот же класс дефекта, от которого мы уходим, только с другой стороны: открыть
+-    /// заглушку в браузере значило бы пообещать человеку форму и показать ему пустую страницу.
+-    /// Проверка условная — после подстановки настоящего адреса она проверяет обратное: что
+-    /// отказа по этой причине больше нет.
++    /// 🔴 Почему сторож проверяет ссылку, а не команду. Прежняя редакция звала
++    /// `open_feedback_form()` и после подстановки настоящего адреса уходила в ветку «обязана
++    /// открыться» — то есть открывала БРАУЗЕР на каждом прогоне тестов, а на сборочной машине,
++    /// где браузера нет, краснела бы на ровном месте. Сборка ссылки чистая и проверяется
++    /// целиком; побочное действие (открытие браузера) остаётся за границей проверки намеренно.
+     ///
+-    /// Ось мутации: убрать проверку `form_is_connected` из `open_feedback_form` — краснеет,
+-    /// пока стоят заглушки.
+-    #[tokio::test]
+-    async fn unconnected_form_refuses_instead_of_opening_blindly() {
+-        let исход = open_feedback_form().await;
+-        if form_is_connected() {
++    /// Оси мутации: (1) убрать любое из четырёх полей из `feedback_form_link` — краснеет на
++    /// своём имени; (2) перестать кодировать значения — краснеет на пробеле, потому что время
++    /// содержит пробелы; (3) вернуть заглушку в любую постоянную — краснеет на первой проверке.
++    #[test]
++    fn link_carries_all_four_fields_and_is_encoded() {
++        assert!(
++            form_is_connected(),
++            "адрес формы и имена полей обязаны быть подставлены — иначе кнопка обращения молчит"
++        );
++
++        let link = feedback_form_link();
++
++        assert!(
++            link.starts_with(FEEDBACK_FORM_URL),
++            "ссылка не начинается с адреса формы: {link}"
++        );
++        for field in [FIELD_PRODUCT, FIELD_VERSION, FIELD_MACHINE, FIELD_SENT_AT] {
+             assert!(
+-                исход.is_ok(),
+-                "адрес формы подставлен, но открыть её не удалось: {исход:?}"
++                link.contains(&format!("{field}=")),
++                "в ссылке нет поля {field}: {link}"
+             );
+-            return;
+         }
+-        let отказ = исход.expect_err("при заглушке обращение обязано отказать, а не открыться");
+         assert!(
+-            отказ.contains("support@auroraai.pro"),
+-            "отказ обязан назвать человеку путь, по которому до нас можно дойти: {отказ}"
++            link.contains(&percent_encode(env!("CARGO_PKG_VERSION"))),
++            "версия в ссылке не совпадает с версией сборки: {link}"
++        );
++        assert!(
++            !link.contains(' '),
++            "в ссылке остался незакодированный пробел — время уехало бы обрезанным: {link}"
+         );
+     }
+ 
+@@ -378,6 +392,7 @@ mod tests {
+             SETTINGS.contains("open_feedback_form"),
+             "страница настроек не открывает форму обратной связи — кнопка осталась без действия"
+         );
++    }
+ 
+     /// Технический хвост называет программу, версию и машину — и не называет ничего лишнего.
+     ///
+@@ -410,4 +425,3 @@ mod tests {
+         }
+     }
+ }
+-}
+diff --git a/src-tauri/src/commands/project.rs b/src-tauri/src/commands/project.rs
+index 42d602dc..a00fdb7a 100644
+--- a/src-tauri/src/commands/project.rs
++++ b/src-tauri/src/commands/project.rs
+@@ -666,6 +666,34 @@ pub async fn project_load_results(project_id: String) -> Result<Value, String> {
+         }
+     };
+ 
++    // Параметры каналов (alpha/gamma/beta/decay/adstock_mean_posterior) лежат НЕ в
++    // results/, а рядом с моделью: тренер пишет models/latest-params.json тем же
++    // действием, что и latest.pkl. Без них фронт не может построить кривые отдачи
++    // на открытом заново проекте (находка 2026-09-13 — блок «Кривые отдачи» прятался
++    // после успешной оптимизации). Файл несёт КОПИЮ диагностики со своим
++    // model_fingerprint — по нему читатель сверяет, что снимок принадлежит той же
++    // модели, что и results/model-diagnostics.json (SSOT диагностики).
++    let model_params = {
++        let path = dir.join("models").join("latest-params.json");
++        if !path.exists() {
++            Value::Null
++        } else {
++            match std::fs::read_to_string(&path) {
++                Ok(s) => match serde_json::from_str::<Value>(&s) {
++                    Ok(v) => v,
++                    Err(e) => {
++                        warn!("project_load_results: 'latest-params.json' parse failed → null ({e}).");
++                        Value::Null
++                    }
++                },
++                Err(e) => {
++                    warn!("project_load_results: 'latest-params.json' read failed → null ({e}).");
++                    Value::Null
++                }
++            }
++        }
++    };
++
+     Ok(serde_json::json!({
+         "validation":       read_json("validation.json"),
+         "modelDiagnostics": read_json("model-diagnostics.json"),
+@@ -675,6 +703,7 @@ pub async fn project_load_results(project_id: String) -> Result<Value, String> {
+         // завершённое Планирование деградировало в ready при каждом открытии проекта.
+         "planning":         read_json("planning.json"),
+         "mediaPlan":        read_json("media_plan.json"),
++        "modelParams":      model_params,
+     }))
+ }
+ 

@@ -1,0 +1,2299 @@
+diff --git a/src-tauri/help-econometrica/econ-nav.js b/src-tauri/help-econometrica/econ-nav.js
+index 9118bb1f..b9bc75bf 100644
+--- a/src-tauri/help-econometrica/econ-nav.js
++++ b/src-tauri/help-econometrica/econ-nav.js
+@@ -16,21 +16,22 @@
+     { id: 'error-codes',       title: 'Коды ошибок',             group: 'start',    keywords: 'ошибка код диагностика проблема' },
+     { id: 'install',           title: 'Установка и удаление',    group: 'start',    keywords: 'установка удаление деинсталляция инструкция WebView2 брандмауэр firewall loopback без прав администратора активация лицензия uninstall-cleanup' },
+ 
+-    { id: 'data-preparation',  title: 'Подготовка данных',       group: 'data',     keywords: 'данные подготовка структура столбцы kpi media control date формат недельные помесячные FMCG pharma фарма объём ratio csv xlsx' },
+-    { id: 'pipeline',          title: 'Pipeline: 7 шагов',       group: 'data',     keywords: 'pipeline import validate train decompose optimize planning report импорт валидация шаги процесс планирование горизонт инфляция backtest сценарии' },
+-    { id: 'methodology',       title: 'Методология MMM',         group: 'data',     keywords: 'MMM bayesian байес MCMC NUTS hill adstock saturation насыщение trust levels CPP' },
+-    { id: 'glossary',          title: 'Глоссарий терминов',      group: 'data',     keywords: 'глоссарий термины словарь определения ROAS ROI adstock насыщение MCMC R-hat ESS CPU CPP GRP TRP охват частота эластичность декомпозиция база lift backtest' },
++    { id: 'step-1-import',     title: 'Шаг 1. Импорт',           group: 'steps',    keywords: 'импорт загрузка файл xlsx csv столбцы роли автоопределение предпросмотр пример шаблон макроэкономика курс инфляция ключевая ставка ипц ввп изменение уровень названия столбцов' },
++    { id: 'step-2-validate',   title: 'Шаг 2. Валидация',        group: 'steps',    keywords: 'валидация проверка светофор запас данных ratio корреляция матрица роли столбцов стоимость юнита TRP режим KPI праздники слабые каналы мультиколлинеарность выбросы дубликаты' },
++    { id: 'step-3-model',      title: 'Шаг 3. Модель',           group: 'steps',    keywords: 'модель обучение adstock перенос насыщение hill MCMC NUTS байес MQS качество R-hat сходимость дивергенции праздники пасха майские окна бренд перформанс' },
++    { id: 'step-4-decompose',  title: 'Шаг 4. Декомпозиция',     group: 'steps',    keywords: 'декомпозиция каскад waterfall база baseline вклад каналов ROI окупаемость доля бюджета доля эффекта вердикт CPU стоимость единицы' },
++    { id: 'step-5-optimize',   title: 'Шаг 5. Оптимизация',      group: 'steps',    keywords: 'оптимизация бюджет распределение прирост lift кривые отдачи насыщение ограничения min max рекомендации наращивать сократить пилот' },
++    { id: 'step-6-planning',   title: 'Шаг 6. Планирование',     group: 'steps',    keywords: 'планирование медиаплан прогноз горизонт инфляция медиа backtest проверка на истории витрина доверия сценарии варианты зафиксировать прогноз' },
++    { id: 'step-7-report',     title: 'Шаг 7. Отчёт',            group: 'steps',    keywords: 'отчёт экспорт презентация pptx таблица xlsx html интерактивный офлайн папка exports ограничения тест устойчивости' },
+ 
+-    { id: 'interpretation',    title: 'Интерпретация результатов', group: 'results', keywords: 'интерпретация результаты как читать отчёт MQS ROI CPU вердикт переобучение overfitting правдоподобный диапазон R-hat ratio waterfall декомпозиция baseline база spend effect доля бюджета эффект action label scale hold cut' },
+-
+-    { id: 'econometrica',      title: 'Visual Pipeline (UI)',    group: 'pipeline', keywords: 'pipeline импорт валидация колонки drag drop светофор корреляция матрица KPI медиа adstock обучение модель декомпозиция оптимизация отчёт xlsx' },
++    { id: 'kpi-passports',     title: 'Паспорта показателей',    group: 'ref',      keywords: 'паспорт показатель KPI счётный упаковки лиды регистрации карты подписки установки узнаваемость ценность единицы CPU единицы измерения подписи осей' },
++    { id: 'glossary',          title: 'Глоссарий терминов',      group: 'ref',      keywords: 'глоссарий термины словарь определения ROAS ROI adstock насыщение MCMC R-hat ESS CPU CPP GRP TRP охват частота эластичность декомпозиция база lift backtest' },
+   ];
+ 
+   const GROUPS = {
+-    start:    { label: 'Начало',    color: '#2E5BFF' },
+-    data:     { label: 'Данные и MMM', color: '#3fb950' },
+-    results:  { label: 'Результаты',  color: '#39d0d8' },
+-    pipeline: { label: 'Интерфейс',  color: '#58a6ff' },
++    start: { label: 'Начало',       color: '#2E5BFF' },
++    steps: { label: 'Шаги мастера', color: '#3fb950' },
++    ref:   { label: 'Справочное',   color: '#39d0d8' },
+   };
+ 
+   // Determine current page
+diff --git a/src/lib/__tests__/help-pages-exist.test.js b/src/lib/__tests__/help-pages-exist.test.js
+new file mode 100644
+index 00000000..60eda878
+--- /dev/null
++++ b/src/lib/__tests__/help-pages-exist.test.js
+@@ -0,0 +1,73 @@
++// @ts-nocheck — node-side тест (fs/path/url); svelte-check checkJs не имеет
++// @types/node в scope. Логика проверяется через vitest, не через типы.
++/**
++ * Сторож кнопки «Справка по этому шагу» (перестройка справки по шагам,
++ * 2026-09-13).
++ *
++ * Кнопка в шапке мастера зовёт `open_help` с именем страницы из массива
++ * HELP_PAGES (`src/routes/pipeline/+layout.svelte`). Rust-команда просто
++ * складывает путь и открывает файл во внешнем браузере: если файла нет,
++ * НИЧЕГО не падает — клиент получает пустоту по кнопке справки, а сборка
++ * остаётся зелёной. Ровно этот дефект и сторожим.
++ *
++ * Проверяем три инварианта:
++ *   1. записей в HELP_PAGES ровно столько же, сколько шагов мастера;
++ *   2. каждое имя из HELP_PAGES имеет файл <имя>.html на диске;
++ *   3. каждое имя из HELP_PAGES есть в PAGES econ-nav.js — иначе у страницы
++ *      не будет ни навбара, ни попадания в поиск по справке.
++ *
++ * Имена читаются ЖИВЫМ разбором исходников, не замороженным снимком: снимок
++ * сверял бы фронт сам с собой и пропустил бы переименование файла справки.
++ */
++import { describe, it, expect } from 'vitest';
++import { existsSync, readFileSync } from 'node:fs';
++import { fileURLToPath } from 'node:url';
++import { dirname, resolve } from 'node:path';
++import { PIPELINE_STEPS } from '../project-state.js';
++
++const __dirname = dirname(fileURLToPath(import.meta.url));
++
++const LAYOUT_PATH = resolve(__dirname, '../../routes/pipeline/+layout.svelte');
++const HELP_DIR = resolve(__dirname, '../../../src-tauri/help-econometrica');
++const NAV_JS_PATH = resolve(HELP_DIR, 'econ-nav.js');
++
++/** Имена страниц из массива HELP_PAGES в +layout.svelte. */
++function parseHelpPages() {
++  const src = readFileSync(LAYOUT_PATH, 'utf-8');
++  const block = src.match(/const HELP_PAGES\s*=\s*\[([\s\S]*?)\]/);
++  if (!block) return [];
++  return [...block[1].matchAll(/'([\w-]+)'/g)].map((m) => m[1]);
++}
++
++/** Идентификаторы страниц из PAGES в econ-nav.js. */
++function parseNavPages() {
++  const src = readFileSync(NAV_JS_PATH, 'utf-8');
++  const block = src.match(/const PAGES\s*=\s*\[([\s\S]*?)\n\s*\];/);
++  if (!block) return [];
++  return [...block[1].matchAll(/id:\s*'([\w-]+)'/g)].map((m) => m[1]);
++}
++
++describe('справка по шагу мастера', () => {
++  const helpPages = parseHelpPages();
++
++  it('парсер вообще что-то нашёл (иначе тест мёртвый)', () => {
++    expect(helpPages.length).toBeGreaterThan(0);
++    expect(parseNavPages().length).toBeGreaterThan(0);
++  });
++
++  it('на каждый шаг мастера есть своя запись', () => {
++    expect(helpPages).toHaveLength(PIPELINE_STEPS.length);
++  });
++
++  it.each(
++    helpPages.map((page, i) => [PIPELINE_STEPS[i]?.labelRu ?? `шаг ${i}`, page]),
++  )('шаг «%s» открывает существующий файл %s.html', (_label, page) => {
++    expect(existsSync(resolve(HELP_DIR, `${page}.html`))).toBe(true);
++  });
++
++  it('каждая страница шага есть в навигации справки (econ-nav.js)', () => {
++    const navIds = new Set(parseNavPages());
++    const missing = helpPages.filter((p) => !navIds.has(p));
++    expect(missing).toEqual([]);
++  });
++});
+diff --git a/src/lib/__tests__/holiday-calendar.test.js b/src/lib/__tests__/holiday-calendar.test.js
+index 95a742fc..b703541e 100644
+--- a/src/lib/__tests__/holiday-calendar.test.js
++++ b/src/lib/__tests__/holiday-calendar.test.js
+@@ -1,34 +1,73 @@
++// @ts-nocheck — node-side тест (fs/path/url); svelte-check checkJs не имеет
++// @types/node в scope. Логика проверяется через vitest, не через типы.
+ /**
+  * #6 Tier-3/OVB (2026-06-07): фронт-календарь праздников — структурный гард.
+  *
+  * Имена + порядок ДОЛЖНЫ совпадать с backend HOLIDAY_DEFINITIONS
+- * (sidecar/econometrica/utils/holiday_calendar_ru.py). Backend-паритет ручной
+- * (нельзя импортить Python из vitest), но этот тест фиксирует ИНВАРИАНТЫ фронт-списка,
+- * чтобы случайная правка (дубль/опечатка имени/потеря праздника) краснила CI.
+- * Список из 12 ожидаемых имён здесь = снимок backend на 2026-06-07.
++ * (sidecar/econometrica/utils/holiday_calendar_ru.py). Этот тест фиксирует
++ * ИНВАРИАНТЫ фронт-списка, чтобы случайная правка (дубль/опечатка имени/
++ * потеря праздника) краснила CI.
++ *
++ * 🔴 13.09.2026: раньше здесь был ЗАМОРОЖЕННЫЙ снимок backend-имён
++ * (`BACKEND_NAMES`), вписанный прямо в этот файл. Он сверял фронт САМ С
++ * СОБОЙ (обе стороны — фронтовые артефакты) и не мог поймать расхождение с
++ * настоящим движком: когда в moveler.py добавили 13-е событие (Пасху), тест
++ * остался зелёным, а фронт молча отстал на одно событие. Теперь имена читаются
++ * ЖИВЫМ разбором backend-файла (единственный источник истины), не копией.
++ * Путь взят СТРОГО вне dist/ и _internal/ (там лежат копии собранного пакета,
++ * они устаревают и дали бы ложный зелёный — тот же класс ошибки, что уже
++ * стоил нам расхождения на 13-м празднике).
+  */
+ import { describe, it, expect } from 'vitest';
++import { readFileSync } from 'node:fs';
++import { fileURLToPath } from 'node:url';
++import { dirname, resolve } from 'node:path';
+ import { HOLIDAY_CALENDAR_RU, HOLIDAY_BY_NAME, holidayLabel } from '../holiday-calendar.js';
+ 
+-// Снимок backend HOLIDAY_DEFINITIONS (порядок значим — зеркалит инъекцию dummy).
+-const BACKEND_NAMES = [
+-  'holiday_newyear_preshop',
+-  'holiday_newyear_postsale',
+-  'holiday_valentine',
+-  'holiday_defender_day',
+-  'holiday_march8',
+-  'holiday_may_holidays',
+-  'holiday_russia_day',
+-  'holiday_back_to_school',
+-  'holiday_unity_day',
+-  'holiday_black_friday',
+-  'holiday_cyber_monday',
+-  'holiday_school_breaks',
+-];
+-
+-describe('#6 holiday-calendar фронт-зеркало', () => {
+-  it('12 праздников, имена и порядок совпадают со снимком backend', () => {
+-    expect(HOLIDAY_CALENDAR_RU.map((h) => h.name)).toEqual(BACKEND_NAMES);
++const __dirname = dirname(fileURLToPath(import.meta.url));
++
++// СТРОГО исходник движка, не dist/_internal копия сборки.
++const BACKEND_PATH = resolve(
++  __dirname,
++  '../../../sidecar/econometrica/utils/holiday_calendar_ru.py',
++);
++
++/**
++ * Читает имена событий из HOLIDAY_DEFINITIONS backend-файла разбором regexp.
++ * Ловит только строковые литералы `'name': '...'` (записи определений) —
++ * НЕ ссылки вида `'name': h_def['name']` (используются в describe_holiday_windows
++ * / get_holiday_metadata для сборки ответа, там значение не строковый литерал,
++ * и regex их не матчит).
++ * @returns {string[]}
++ */
++function readBackendHolidayNames() {
++  const source = readFileSync(BACKEND_PATH, 'utf-8');
++  const names = [];
++  const re = /'name':\s*'([^']+)'/g;
++  let m;
++  while ((m = re.exec(source)) !== null) {
++    names.push(m[1]);
++  }
++  return names;
++}
++
++describe('#6 holiday-calendar фронт-зеркало (живая сверка с backend)', () => {
++  it('имена и порядок совпадают с HOLIDAY_DEFINITIONS в holiday_calendar_ru.py', () => {
++    const backendNames = readBackendHolidayNames();
++    const frontNames = HOLIDAY_CALENDAR_RU.map((h) => h.name);
++
++    const missingOnFront = backendNames.filter((n) => !frontNames.includes(n));
++    const extraOnFront = frontNames.filter((n) => !backendNames.includes(n));
++
++    expect(
++      frontNames,
++      `Расхождение фронта (${BACKEND_PATH}) с backend HOLIDAY_DEFINITIONS.\n` +
++        `Backend (${backendNames.length}): ${backendNames.join(', ')}\n` +
++        `Фронт (${frontNames.length}): ${frontNames.join(', ')}\n` +
++        (missingOnFront.length ? `На фронте НЕТ, но есть в backend: ${missingOnFront.join(', ')}\n` : '') +
++        (extraOnFront.length ? `На фронте ЕСТЬ лишние (нет в backend): ${extraOnFront.join(', ')}\n` : '') +
++        'Обнови HOLIDAY_CALENDAR_RU в src/lib/holiday-calendar.js.',
++    ).toEqual(backendNames);
+   });
+ 
+   it('все имена с префиксом holiday_ и уникальны', () => {
+diff --git a/src/lib/components/pipeline/ContinuationChart.svelte b/src/lib/components/pipeline/ContinuationChart.svelte
+index dd1031fb..bb072677 100644
+--- a/src/lib/components/pipeline/ContinuationChart.svelte
++++ b/src/lib/components/pipeline/ContinuationChart.svelte
+@@ -14,6 +14,7 @@
+    * @component ContinuationChart
+    */
+   import EChartBase from '$lib/components/charts/EChartBase.svelte';
++  import ExpandableCard from '$lib/components/ExpandableCard.svelte';
+   import { chartTooltipDark } from '$lib/echarts-setup.js';
+   import { Info } from 'lucide-svelte';
+ 
+@@ -289,55 +290,43 @@
+     };
+   });
+ 
++  /** Заголовок карточки (текст важен для сторожа: «{kpiLabel} - Прогноз по сценариям»). */
++  const chartTitle = $derived(`${kpiLabel} - Прогноз по сценариям`);
++
+   /** Chart height based on data size */
+   const chartHeight = $derived(allDates.length > 40 ? '340px' : '280px');
+ </script>
+ 
+-<div class="continuation-chart">
+-  <div class="chart-header">
+-    <h3 class="chart-title">{kpiLabel} - Прогноз по сценариям</h3>
+-    {#if hiddenCount > 0}
+-      <div class="overflow-warn" role="alert">
+-        <Info size={12} />
+-        <span>Показаны первые {maxScenarios} из {scenarios.length} сценариев - toggle через legend</span>
+-      </div>
+-    {/if}
+-  </div>
+-
+-  {#if allDates.length === 0}
+-    <div class="empty-state">
+-      <p>Нет данных для отображения</p>
++<div class="cc-root">
++  {#if hiddenCount > 0}
++    <div class="overflow-warn" role="alert">
++      <Info size={12} />
++      <span>Показаны первые {maxScenarios} из {scenarios.length} сценариев – остальные есть в таблице сравнения ниже</span>
+     </div>
+-  {:else}
+-    <EChartBase option={option} height={chartHeight} />
+   {/if}
++
++  <!-- Разворот на весь экран и ручное изменение размера – готовым приёмом карточки
++       (ExpandableCard + метка data-echart в EChartBase, запись c8f4a49b). Своей
++       вёрстки под разворот компонент не держит: высоту раздаёт карточка. -->
++  <ExpandableCard title={chartTitle}>
++    {#if allDates.length === 0}
++      <div class="empty-state">
++        <p>Нет данных для отображения</p>
++      </div>
++    {:else}
++      <EChartBase option={option} height={chartHeight} />
++    {/if}
++  </ExpandableCard>
+ </div>
+ 
+ <style>
+-  .continuation-chart {
+-    background: var(--bg-card, #181824);
+-    border: 1px solid var(--border, rgba(255,255,255,0.08));
+-    border-radius: var(--radius-card, 12px);
+-    padding: 16px 18px 12px;
++  /* Рамку, заголовок и кнопку разворота даёт ExpandableCard – здесь только
++     колонка «предупреждение над карточкой + сама карточка». */
++  .cc-root {
+     display: flex;
+     flex-direction: column;
+     gap: 10px;
+-  }
+-
+-  .chart-header {
+-    display: flex;
+-    align-items: center;
+-    gap: 10px;
+-    flex-wrap: wrap;
+-  }
+-
+-  .chart-title {
+-    font-size: 13px;
+-    font-weight: 600;
+-    color: var(--text-primary);
+-    margin: 0;
+-    flex: 1;
+-    letter-spacing: 0.01em;
++    min-width: 0;
+   }
+ 
+   .overflow-warn {
+diff --git a/src/lib/components/pipeline/HolidayControlsPanel.svelte b/src/lib/components/pipeline/HolidayControlsPanel.svelte
+index 826ec1cd..de39bc86 100644
+--- a/src/lib/components/pipeline/HolidayControlsPanel.svelte
++++ b/src/lib/components/pipeline/HolidayControlsPanel.svelte
+@@ -2,7 +2,7 @@
+   /**
+    * HolidayControlsPanel — #6 Tier-3/OVB (2026-06-07).
+    *
+-   * Панель управления 12 авто-праздниками РФ (holiday_*), которые modeler.py
++   * Панель управления 13 авто-праздниками РФ (holiday_*), которые modeler.py
+    * инжектит как control-факторы из даты. Юзер может ОТКЛЮЧИТЬ отдельные праздники.
+    *
+    * Когда отключать: после обучения у каждого праздника появляется badge posterior
+@@ -34,7 +34,7 @@
+   // Тултип ? на выключателе — описание + мотивация шага (требование 2026-06-13).
+   const MASTER_TIP =
+     'Праздники РФ (Новый год, 8 марта, чёрная пятница и др.) автоматически учитываются ' +
+-    'как факторы при обучении – это ~12 дополнительных контролей. Отключите, если ' +
++    'как факторы при обучении – это ~13 дополнительных контролей. Отключите, если ' +
+     'данных мало или категория не зависит от праздников: модель станет проще, число ' +
+     'параметров упадёт, а Ratio (наблюдения ÷ параметры – мера надёжности) вырастет. ' +
+     'Риск: если праздники реально влияют на продажи, их отключение исказит вклад ' +
+@@ -149,7 +149,7 @@
+     <span class="head-main">
+       <span class="chevron" class:open={expanded}>▸</span>
+       <h4 class="panel-title">Авто-праздники РФ</h4>
+-      <span class="count-badge">12{#if disabledCount > 0} · {disabledCount} откл.{/if}</span>
++      <span class="count-badge">{HOLIDAY_CALENDAR_RU.length}{#if disabledCount > 0} · {disabledCount} откл.{/if}</span>
+     </span>
+     {#if uninformativeEnabled > 0}
+       <span class="tip-badge" title="После обучения видно, какие праздники не повлияли">
+@@ -181,7 +181,7 @@
+ 
+     {#if masterOn}
+     <p class="panel-hint">
+-      Модель автоматически учитывает 12 праздников РФ как контрольные факторы.
++      Модель автоматически учитывает {HOLIDAY_CALENDAR_RU.length} праздников РФ как контрольные факторы.
+       {#if contraction}
+         После обучения у каждого виден вклад: <strong>не повлиял</strong> – данных
+         не хватило, можно отключить для чистоты модели (ROI каналов и честный MQS
+diff --git a/src/lib/components/pipeline/InsightsPanel.svelte b/src/lib/components/pipeline/InsightsPanel.svelte
+index f8d70675..71a91767 100644
+--- a/src/lib/components/pipeline/InsightsPanel.svelte
++++ b/src/lib/components/pipeline/InsightsPanel.svelte
+@@ -32,12 +32,17 @@
+     invoke('project_update', { projectId, updates }).catch(() => { /* best-effort */ });
+   }
+   import {
+-    importInsights, validateInsights, modelInsights, modelPreTrainingInsights, decomposeInsights, optimizeInsights, reportInsights,
++    importInsights, validateInsights, modelInsights, modelPreTrainingInsights, decomposeInsights, optimizeInsights, planningInsights, reportInsights,
+     // v2.1.0 (rc2 U-05): функции по под-шагам Валидации.
+     validateKpiInsights, validateRolesInsights, validateMetricsInsights, validateConfirmInsights,
+   } from '$lib/insights-rules.js';
+   // v2.1.0 (rc2 U-05): subStep store для контекстной маршрутизации.
+   import { validateSubStep, analysisMode, perChannelInput, unitCosts, unitCostInputMode, budgetInputs, modelEnabledMediaNames, validationHeaderMetrics, modelEngine, useHolidays, disabledHolidays } from '$lib/project-state.js';
++  // Шаг «Планирование»: план на будущее из файла + исход его поиска + горизонт.
++  import { mediaPlanDetected, mediaPlanProbeStatus, forecastConfig } from '$lib/project-state.js';
++  // Живое состояние шага «Планирование» (прогноз базового плана и варианты) –
++  // подсказки шага условны от НАСТОЯЩИХ чисел, а они живут в PlanningStep.
++  import { planningLiveState } from '$lib/planning-live-state.js';
+   // Гейт шага считается тем же знаменателем, что и гейт кнопки, — знаменателем движка.
+   import { gateRatio } from '$lib/ratio-classifier.js';
+   // Tier 2 (Claude-усилитель инсайтов, «Phase 10»). Видим только в облачной
+@@ -334,6 +339,26 @@
+         globalMaxPct: live.globalMaxPct,
+         kpi,
+       });
++      case STEP.PLANNING: {
++        // Подсказки шага строятся ТОЛЬКО из посчитанных чисел: план из файла,
++        // длина истории, горизонт, прогноз базового плана и варианты с их
++        // правдоподобными диапазонами. Ни одна из них не печатается безусловно –
++        // у каждой свой порог (INV-50), см. planningInsights в insights-rules.js.
++        const live = $planningLiveState;
++        const ds = dec?.decomposition_series;
++        const historyPeriods = (ds?.dates ?? dec?.time_series?.dates ?? []).length;
++        const mp = $mediaPlanDetected;
++        return planningInsights({
++          mediaPlan: mp,
++          probeStatus: $mediaPlanProbeStatus,
++          horizonPeriods: mp?.n_future_periods ?? $forecastConfig?.periods ?? 0,
++          historyPeriods,
++          baseline: live?.baseline ?? null,
++          variants: live?.variants ?? [],
++          diagnostics: mod?.diagnostics ?? null,
++          ssotRatio: $validationHeaderMetrics?.ratio ?? null,
++        });
++      }
+       // 🔴 Живой прогон 08.09 (ТЕКСТ-1). Сводка отчёта висела на числе 5, а с тех пор
+       // как между «Оптимизацией» и «Отчётом» встал шаг «Планирование» (миграция мастера
+       // 6→7, `loadPipelineMeta`), 5 — это Планирование, а Отчёт — 6. Из-за сдвига панель
+@@ -348,8 +373,6 @@
+         const ssotRatio = $validationHeaderMetrics?.ratio;
+         return reportInsights({ mod, dec, opt, kpi, ssotRatio });
+       }
+-      // Шаг «Планирование» (5) своих правил пока не имеет — панель молчит нейтрально
+-      // (см. пустое состояние ниже), а не выдаёт сводку соседнего шага.
+       default: return [];
+     }
+   });
+diff --git a/src/lib/components/pipeline/MultiScenarioPage.svelte b/src/lib/components/pipeline/MultiScenarioPage.svelte
+index 259be8bc..b76abd4d 100644
+--- a/src/lib/components/pipeline/MultiScenarioPage.svelte
++++ b/src/lib/components/pipeline/MultiScenarioPage.svelte
+@@ -59,6 +59,7 @@
+    * @type {{
+    *   scenarios: Scenario[],
+    *   baseline?: Scenario | null,
++   *   showChart?: boolean,
+    *   kpiLabel?: string,
+    *   onAccept?: ((scenario: Scenario) => void) | null,
+    *   onDuplicate?: ((scenario: Scenario) => void) | null,
+@@ -68,6 +69,10 @@
+   const {
+     scenarios = [],
+     baseline = null,
++    // Своё поле графика. Шаг «Планирование» держит единое поле сравнения выше
++    // (история + базовый план + варианты), и второе, повторяющее те же линии без
++    // истории, ему не нужно; отдельная страница сравнения рисует своё.
++    showChart = true,
+     kpiLabel = 'KPI',
+     onAccept = null,
+     onDuplicate = null,
+@@ -337,14 +342,16 @@
+ 
+   {:else}
+     <!-- ── Chart ──────────────────────────────────────────────────────────────── -->
+-    <div class="chart-block">
+-      <MultiScenarioChart
+-        scenarios={scenarios}
+-        baseline={baseline}
+-        maxVisible={5}
+-        kpiLabel={kpiLabel}
+-      />
+-    </div>
++    {#if showChart}
++      <div class="chart-block">
++        <MultiScenarioChart
++          scenarios={scenarios}
++          baseline={baseline}
++          maxVisible={5}
++          kpiLabel={kpiLabel}
++        />
++      </div>
++    {/if}
+ 
+     <!-- ── Comparison Table ───────────────────────────────────────────────────── -->
+     <div class="table-block" aria-label="Таблица сравнения сценариев">
+diff --git a/src/lib/components/pipeline/OptimizeStep.svelte b/src/lib/components/pipeline/OptimizeStep.svelte
+index 6632bd51..f2b3a236 100644
+--- a/src/lib/components/pipeline/OptimizeStep.svelte
++++ b/src/lib/components/pipeline/OptimizeStep.svelte
+@@ -33,6 +33,7 @@
+     valuePerCountUnit,
+     kpiKind,
+     mediaPlanDetected,
++    modelParamsSnapshot,
+     pipelineCurrentStep,
+     lockStep,
+     unlockStep,
+@@ -660,15 +661,32 @@
+     return {};
+   });
+ 
++  /**
++   * Параметры каналов для Hill-кривых. Основной источник — обучение в этой сессии
++   * (`modelData.channelParams`). Запасной — снимок с диска, поднятый при открытии
++   * проекта (`models/latest-params.json`), с проверкой принадлежности проекту.
++   *
++   * 🔴 2026-09-13. Без запасного источника открытый заново проект давал пустой
++   * `scaledParams`, и блок «Кривые отдачи» прятался даже после успешной
++   * оптимизации: условие показа требует непустой набор параметров.
++   * @type {Record<string, any> | null}
++   */
++  const channelParamsSource = $derived(
++    mData?.channelParams
++    ?? (($modelParamsSnapshot && $modelParamsSnapshot.projectId === $activeProjectId)
++      ? $modelParamsSnapshot.channelParams
++      : null)
++  );
++
+   /** @type {Record<string, {alpha: number, gammaScaled: number, beta: number}>} */
+   const scaledParams = $derived.by(() => {
+-    if (!mData?.channelParams || !Object.keys(currentSpend).length) return {};
++    if (!channelParamsSource || !Object.keys(currentSpend).length) return {};
+     // v2.1.0 (pilot D4 round 4 EDGE-D4-02 2026-05-17): pass meanForScale для legacy
+     // pickle fallback. Без этого v1.0/v1.1 pickle (без adstock_mean_posterior) дает
+     // gammaScaled = γ × currentSpend (native TRP sum 22100) → Hill saturate=1 →
+     // slider plateau. media_means в normalization для всех pickle versions.
+     const meanForScale = /** @type {any} */ (mData?.normalization)?.media_means || undefined;
+-    return buildScaledParams(mData.channelParams, currentSpend, meanForScale);
++    return buildScaledParams(channelParamsSource, currentSpend, meanForScale);
+   });
+ 
+   /** Normalization из тренировки модели (y_mean, y_std) - для денормализации в реальные единицы. */
+@@ -682,10 +700,10 @@
+    * @type {Record<string, number> | null}
+    */
+   const channelDecays = $derived.by(() => {
+-    if (!mData?.channelParams) return null;
++    if (!channelParamsSource) return null;
+     /** @type {Record<string, number>} */
+     const out = {};
+-    for (const [ch, p] of Object.entries(mData.channelParams)) {
++    for (const [ch, p] of Object.entries(channelParamsSource)) {
+       const d = /** @type {any} */ (p)?.decay;
+       if (typeof d === 'number' && d > 0 && d < 1) out[ch] = d;
+     }
+@@ -2509,6 +2527,15 @@
+               onBudgetChange={handleBudgetChange}
+               unitCosts={effectiveUnitCosts}
+             />
++          {:else if optData?.response_curves}
++            <!-- 🔴 2026-09-13. Оптимизация отработала (кривые в ответе есть), но
++                 параметры каналов не восстановились — рисовать нечем. Прежний текст
++                 советовал запустить оптимизацию, то есть сделать уже сделанное:
++                 заглушка лгала о причине. INV-50 — говорим правду и даём действие. -->
++            <div class="no-curves">
++              Кривые отдачи не построены: параметры каналов этой модели недоступны.
++              Переобучите модель на шаге «Модель» – после обучения кривые появятся.
++            </div>
+           {:else}
+             <div class="no-curves">Запустите оптимизацию для отображения кривых</div>
+           {/if}
+diff --git a/src/lib/components/pipeline/PlanningStep.svelte b/src/lib/components/pipeline/PlanningStep.svelte
+index d0099aa4..8a46a1f5 100644
+--- a/src/lib/components/pipeline/PlanningStep.svelte
++++ b/src/lib/components/pipeline/PlanningStep.svelte
+@@ -54,6 +54,7 @@
+   import MultiScenarioPage from './MultiScenarioPage.svelte';
+   import PromisesCard from './PromisesCard.svelte';
+   import BacktestCard from './BacktestCard.svelte';
++  import { planningLiveState } from '$lib/planning-live-state.js';
+   import { Info, AlertTriangle, ChevronDown } from 'lucide-svelte';
+ 
+   // ── Helpers ───────────────────────────────────────────────────────────────
+@@ -554,6 +555,93 @@
+ 
+   const verdict = $derived(computeVerdict(variants));
+ 
++  // ── Единое поле сравнения ─────────────────────────────────────────────────
++
++  /**
++   * Линии прогноза для ОДНОГО графика: базовый план первым, следом все варианты.
++   * Смысл шага – выбор между вариантами, а выбирать, листая графики по одному,
++   * нельзя: сравнивать можно только то, что нарисовано в одних осях.
++   * @type {Array<{ name: string, dates: string[], predictions: number[], ciLow?: number[], ciHigh?: number[] }>}
++   */
++  const forecastScenarios = $derived.by(() => {
++    /** @type {Array<{ name: string, dates: string[], predictions: number[], ciLow?: number[], ciHigh?: number[] }>} */
++    const lines = [];
++    if (baselineForecast) {
++      lines.push({
++        name: BASELINE_NAME,
++        dates: baselineForecast.dates,
++        predictions: baselineForecast.predictions,
++        ciLow: baselineForecast.ciLow,
++        ciHigh: baselineForecast.ciHigh,
++      });
++    }
++    for (const v of variants) {
++      lines.push({
++        name: v.name,
++        dates: v.dates ?? [],
++        predictions: v.predictions ?? [],
++        ciLow: v.ciLowSeries,
++        ciHigh: v.ciHighSeries,
++      });
++    }
++    return lines;
++  });
++
++  /**
++   * Базовый план как равноправный сценарий для таблицы сравнения.
++   * Раньше сюда шёл `null`, и таблица требовала «≥2 сценария» даже когда рядом
++   * был посчитанный базовый прогноз – сравнить первый вариант было не с чем,
++   * колонка Δ% не появлялась никогда.
++   * Бюджет берём только в деньгах: `total_spend_money` = null означает, что
++   * движок НЕ перевёл все каналы в рубли (TRP/показы без цены), и подписывать
++   * такую сумму валютой нельзя – NaN печатается как «-» (INV-50).
++   */
++  const baselineScenario = $derived.by(() => {
++    if (!baselineForecast) return null;
++    /** @type {Record<string, number>} */
++    const alloc = {};
++    for (const [ch, vals] of Object.entries(mpData?.channels ?? {})) {
++      const arr = /** @type {number[]} */ (vals) ?? [];
++      alloc[ch] = arr.reduce((a, b) => a + (Number(b) || 0), 0);
++    }
++    return {
++      id: 'baseline',
++      name: BASELINE_NAME,
++      budget: baselineForecast.totalSpend ?? Number.NaN,
++      predictedKpi: baselineForecast.totalKpi,
++      ciLow: baselineForecast.ciLowTotal ?? undefined,
++      ciHigh: baselineForecast.ciHighTotal ?? undefined,
++      perChannelAllocation: Object.keys(alloc).length ? alloc : undefined,
++      dates: baselineForecast.dates,
++      predictions: baselineForecast.predictions,
++      ciLowSeries: baselineForecast.ciLow,
++      ciHighSeries: baselineForecast.ciHigh,
++      mediaPlan: mpData?.channels ?? {},
++    };
++  });
++
++  // Снимок живого состояния шага для панели подсказок. Панель обязана быть
++  // условной от НАСТОЯЩИХ чисел прогноза (INV-50), а они живут здесь.
++  $effect(() => {
++    planningLiveState.set({
++      baseline: baselineForecast
++        ? {
++            totalKpi: baselineForecast.totalKpi,
++            totalSpend: baselineForecast.totalSpend,
++            ciLowTotal: baselineForecast.ciLowTotal,
++            ciHighTotal: baselineForecast.ciHighTotal,
++          }
++        : null,
++      variants: variants.map((v) => ({
++        name: v.name,
++        budget: v.budget,
++        predictedKpi: v.predictedKpi,
++        ciLow: v.ciLow,
++        ciHigh: v.ciHigh,
++      })),
++    });
++  });
++
+   // ── Завершение шага ───────────────────────────────────────────────────────
+ 
+   async function goToReport() {
+@@ -697,37 +785,30 @@
+           {/if}
+         </div>
+ 
+-        {#if historicalSeries}
+-          <div class="chart-wrap">
+-            <ContinuationChart
+-              historical={historicalSeries}
+-              modelFit={null}
+-              scenarios={[
+-                {
+-                  name: BASELINE_NAME,
+-                  dates: baselineForecast.dates,
+-                  predictions: baselineForecast.predictions,
+-                  ciLow: baselineForecast.ciLow,
+-                  ciHigh: baselineForecast.ciHigh,
+-                },
+-                ...variants.map((v) => ({
+-                  name: v.name,
+-                  dates: v.dates ?? [],
+-                  predictions: v.predictions ?? [],
+-                  ciLow: v.ciLowSeries,
+-                  ciHigh: v.ciHighSeries,
+-                })),
+-              ]}
+-              cutoffIndex={historicalSeries.dates.length - 1}
+-              kpiLabel={kpiLabelText}
+-              maxScenarios={6}
+-            />
+-          </div>
+-        {/if}
+       {/if}
+     </section>
+   {/if}
+ 
++  <!-- ── Единое поле сравнения: история + базовый план + все варианты ─────────
++       Раньше график жил ВНУТРИ секции базового плана и показывался только при
++       подтверждённом медиаплане из файла: без файла сравнивать варианты было
++       негде вовсе. Теперь поле одно и появляется, как только есть хотя бы одна
++       линия прогноза – базовый план или вариант. -->
++  {#if historicalSeries && forecastScenarios.length > 0}
++    <section class="forecast-chart-section">
++      <div class="chart-wrap">
++        <ContinuationChart
++          historical={historicalSeries}
++          modelFit={null}
++          scenarios={forecastScenarios}
++          cutoffIndex={historicalSeries.dates.length - 1}
++          kpiLabel={kpiLabelText}
++          maxScenarios={6}
++        />
++      </div>
++    </section>
++  {/if}
++
+   <!-- ── Варианты медиаплана ─────────────────────────────────────────────── -->
+   <section class="variants-section">
+     <div class="variants-header">
+@@ -825,13 +906,15 @@
+     <section class="comparison-section">
+       <h3 class="section-title">Сравнение вариантов</h3>
+ 
+-      <!-- График истории+прогноза — единый, в секции «Прогноз базового плана»
+-           выше (baseline + варианты поверх). Здесь — табличное сравнение. -->
++      <!-- График истории и прогноза – единый, своей секцией выше (базовый план
++           и все варианты в одних осях). Здесь – табличное сравнение, поэтому
++           MultiScenarioPage получает showChart={false} и своего поля не рисует. -->
+       {#if variants.length >= 1}
+         <div class="scenario-page-wrap">
+           <MultiScenarioPage
+             scenarios={variants}
+-            baseline={null}
++            baseline={baselineScenario}
++            showChart={false}
+             kpiLabel={kpiLabelText}
+             onDelete={deleteVariant}
+           />
+@@ -1258,11 +1341,15 @@
+     flex-direction: column;
+     gap: 20px;
+   }
++  /* Рамку, фон и заголовок графика даёт карточка ExpandableCard внутри
++     ContinuationChart – своя рамка здесь давала бы вторую, вложенную. */
++  .forecast-chart-section {
++    display: flex;
++    flex-direction: column;
++    gap: 16px;
++  }
+   .chart-wrap {
+-    border-radius: 12px;
+-    overflow: hidden;
+-    border: 1px solid var(--border-subtle, rgba(255,255,255,0.08));
+-    background: var(--bg-surface-quiet, rgba(30,33,44,0.92));
++    min-width: 0;
+   }
+   .scenario-page-wrap { /* MultiScenarioPage управляет высотой */ }
+ 
+diff --git a/src/lib/holiday-calendar.js b/src/lib/holiday-calendar.js
+index 0c89636e..037dd2ed 100644
+--- a/src/lib/holiday-calendar.js
++++ b/src/lib/holiday-calendar.js
+@@ -1,5 +1,5 @@
+ /**
+- * #6 Tier-3/OVB (2026-06-07): фронт-зеркало 12 авто-праздников РФ для UI-панели
++ * #6 Tier-3/OVB (2026-06-07): фронт-зеркало 13 авто-праздников РФ для UI-панели
+  * отключения (HolidayControlsPanel). Имена + порядок ДОЛЖНЫ совпадать с backend
+  * `sidecar/econometrica/utils/holiday_calendar_ru.py::HOLIDAY_DEFINITIONS`
+  * (SSOT для генерации dummy при обучении). Здесь только display-лейблы (RU) +
+@@ -7,8 +7,11 @@
+  *
+  * ⚠️ СИНХРОНИЗАЦИЯ: при изменении списка праздников в holiday_calendar_ru.py —
+  * обновить здесь. Паритет имён покрыт тестом `holiday-calendar.test.js` (сверяет
+- * фронт-имена с порядком/составом из этого же файла; backend-паритет — ручной,
+- * 12 праздников hardcoded и стабильны с ADR-019, opt-out был отложен до v2.2.0).
++ * фронт-список с backend-файлом ЖИВЫМ разбором, не замороженным снимком —
++ * 13.09.2026, до этого сторож сравнивал фронт сам с собой и не поймал 13-е
++ * событие). Поштучный opt-out реализован (modeler.py: `disabled_holidays`
++ * пропускается при инъекции) — комментарий про «отложено до v2.2.0» был
++ * устаревшим, opt-out работает с #6 Tier-3/OVB (2026-06-07).
+  *
+  * @typedef {{ name: string, label: string, hint: string }} HolidayDef
+  */
+@@ -27,6 +30,7 @@ export const HOLIDAY_CALENDAR_RU = [
+   { name: 'holiday_black_friday',     label: 'Чёрная пятница',          hint: 'Последняя пятница ноября + выходные' },
+   { name: 'holiday_cyber_monday',     label: 'Киберпонедельник',        hint: 'Понедельник после Чёрной пятницы' },
+   { name: 'holiday_school_breaks',    label: 'Школьные каникулы',       hint: 'Осенние / зимние / весенние / летние окна' },
++  { name: 'holiday_easter_orthodox',  label: 'Православная Пасха',      hint: 'Неделя до, сам день и три дня после (дата переходящая, считается по годам)' },
+ ];
+ 
+ /** @type {Record<string, HolidayDef>} быстрый доступ по machine-имени */
+diff --git a/src/lib/insights-rules.js b/src/lib/insights-rules.js
+index 5c0c0faf..5bd169f0 100644
+--- a/src/lib/insights-rules.js
++++ b/src/lib/insights-rules.js
+@@ -2318,6 +2318,246 @@ export function optimizeInsights(data, ctx = {}) {
+   return out;
+ }
+ 
++// ── Planning Step ───────────────────────────────────────
++
++/**
++ * Вариант плана в том виде, в каком его видит панель подсказок.
++ * @typedef {Object} PlanningVariantView
++ * @property {string} name
++ * @property {number} budget        суммарный бюджет варианта за горизонт
++ * @property {number} predictedKpi  центр прогноза за горизонт
++ * @property {number} [ciLow]       нижняя граница правдоподобного диапазона
++ * @property {number} [ciHigh]      верхняя граница
++ */
++
++/**
++ * @typedef {Object} PlanningBaselineView
++ * @property {number} totalKpi
++ * @property {number|null} totalSpend     бюджет плана в деньгах; null – движок НЕ перевёл все каналы в рубли
++ * @property {number|null} ciLowTotal
++ * @property {number|null} ciHighTotal
++ */
++
++/**
++ * @typedef {Object} PlanningContext
++ * @property {any} [mediaPlan]            mediaPlanDetected: план на будущее, найденный в файле
++ * @property {'found'|'absent'|'unavailable'|null} [probeStatus] исход поиска плана в данных
++ * @property {number} [horizonPeriods]    сколько периодов вперёд считаем
++ * @property {number} [historyPeriods]    сколько периодов истории у модели
++ * @property {PlanningBaselineView|null} [baseline] прогноз базового плана
++ * @property {PlanningVariantView[]} [variants]     созданные варианты
++ * @property {any} [diagnostics]          modelData.diagnostics – качество модели
++ * @property {number|null} [ssotRatio]    pre-train ratio, только как fallback
++ */
++
++/**
++ * Подсказки шага «Планирование».
++ *
++ * 🔴 ПРАВИЛО ЭТОГО БЛОКА (INV-50, честность метрик). Каждая подсказка здесь –
++ * УСЛОВНАЯ от проверяемого порога и называет число, которое этот порог перешло.
++ * Безусловных фраз вида «с медиапланом прогноз будет точнее» тут нет и быть не
++ * может: такая фраза печатается всегда, звучит как вывод из данных, а выводом
++ * не является. Проверка при добавлении нового правила одна – назвать данные,
++ * при которых подсказка НЕ появится. Нет таких данных – правило негодное.
++ *
++ * @param {PlanningContext} [ctx]
++ * @returns {Insight[]}
++ */
++export function planningInsights(ctx = {}) {
++  /** @type {Insight[]} */
++  const out = [];
++  const {
++    mediaPlan = null,
++    probeStatus = null,
++    horizonPeriods = 0,
++    historyPeriods = 0,
++    baseline = null,
++    variants = [],
++    diagnostics = null,
++    ssotRatio = null,
++  } = ctx;
++
++  /** @param {number} v */
++  const fmt = (v) => Math.round(v).toLocaleString('ru-RU');
++
++  const nFuture = Number(mediaPlan?.n_future_periods ?? 0);
++  const horizon = Number(horizonPeriods) > 0 ? Number(horizonPeriods) : nFuture;
++  // Валюту показываем только когда движок сам перевёл ВСЕ каналы в деньги
++  // (totals.total_spend_money != null). Для TRP/показов без цены сумма каналов –
++  // не рубли, и подписывать её знаком рубля нельзя.
++  const moneyConfirmed = baseline?.totalSpend != null;
++
++  // ── P1. Плана на будущее в данных нет ─────────────────────────────────────
++  // Порог: n_future_periods в файле = 0 (или поиск не состоялся).
++  // НЕ появится: как только в файле найдена хотя бы одна строка за горизонтом истории.
++  if (!(nFuture > 0)) {
++    const unavailable = probeStatus === 'unavailable';
++    out.push({
++      severity: unavailable ? 'info' : 'warning',
++      text: unavailable
++        ? 'Определить план на будущее в этих данных не удалось – строки за горизонтом истории программа не прочитала, поэтому базового прогноза нет.'
++        : 'В загруженных данных нет ни одной строки на будущее – базовому плану взяться неоткуда, прогноза по вашему медиаплану не будет.',
++      tip: 'Скачайте шаблон медиаплана кнопкой на этом шаге, впишите бюджеты по периодам и загрузите файл заново – прогноз по плану посчитается сам. Либо соберите вариант вручную от оптимального распределения и сравните варианты между собой.',
++    });
++  }
++
++  // ── P2. Замечания к плану из файла ────────────────────────────────────────
++  // Порог: warnings.length ≥ 1 у найденного плана.
++  // НЕ появится: плана нет вовсе, либо движок вернул пустой список замечаний.
++  const planWarnings = Array.isArray(mediaPlan?.warnings) ? mediaPlan.warnings : [];
++  if (nFuture > 0 && planWarnings.length > 0) {
++    const more = planWarnings.length > 1 ? ` И ещё ${planWarnings.length - 1}.` : '';
++    out.push({
++      severity: 'warning',
++      text: `К плану из файла ${planWarnings.length} ${pluralizeRu(planWarnings.length, ['замечание', 'замечания', 'замечаний'])}: «${planWarnings[0]}».${more} Поправьте файл и загрузите заново – иначе прогноз считается по данным, которые программа сама считает сомнительными.`,
++      tip: 'Замечания перечислены над таблицей плана. Чаще всего это пропуски в периодах, нулевые бюджеты у активного канала или канал, которого не было в обучении.',
++    });
++  }
++
++  // ── P3. Горизонт длиннее половины истории ─────────────────────────────────
++  // Порог: horizon / history > 0.5.
++  // НЕ появится: истории вдвое и более больше горизонта (36 периодов истории и
++  // прогноз на 12 – доля 33%, подсказки не будет).
++  if (horizon > 0 && historyPeriods > 0 && horizon / historyPeriods > 0.5) {
++    const sharePct = Math.round((horizon / historyPeriods) * 100);
++    const safe = Math.max(1, Math.floor(historyPeriods / 2));
++    out.push({
++      severity: 'warning',
++      text: `Горизонт прогноза ${horizon} ${pluralizeRu(horizon, ['период', 'периода', 'периодов'])} против ${historyPeriods} ${pluralizeRu(historyPeriods, ['периода', 'периодов', 'периодов'])} истории – это ${sharePct}% её длины. Сократите горизонт до ${safe} ${pluralizeRu(safe, ['периода', 'периодов', 'периодов'])} или разбейте план на два этапа с пересчётом посередине.`,
++      tip: 'За половиной длины истории модель перестаёт опираться на наблюдённое и продолжает подобранные тренды. Числа она выдаст на любой горизонт – но доверие к ним падает быстрее, чем растут интервалы.',
++    });
++  }
++
++  // ── P4. Ширина диапазона базового прогноза ────────────────────────────────
++  // Порог: (верх – низ) / центр ≥ 0.4 (широко) либо ≤ 0.15 (узко).
++  // НЕ появится: диапазона нет, центр ≤ 0, либо ширина между 15% и 40%.
++  if (baseline && baseline.ciLowTotal != null && baseline.ciHighTotal != null && baseline.totalKpi > 0) {
++    const lo = Number(baseline.ciLowTotal);
++    const hi = Number(baseline.ciHighTotal);
++    const width = (hi - lo) / baseline.totalKpi;
++    if (width >= 0.4) {
++      out.push({
++        severity: 'warning',
++        text: `Правдоподобный диапазон базового прогноза ${fmt(lo)} – ${fmt(hi)} при центре ${fmt(baseline.totalKpi)}: ширина ${Math.round(width * 100)}% от прогноза. Обязательства берите по нижней границе ${fmt(lo)}, а не по центру.`,
++        tip: 'Широкий диапазон – это не ошибка расчёта, а честная мера незнания: истории мало либо каналы меняются вместе. Сузить его можно только данными – большей историей или разведением бюджетов каналов во времени.',
++      });
++    } else if (width <= 0.15) {
++      out.push({
++        severity: 'success',
++        text: `Правдоподобный диапазон базового прогноза ${fmt(lo)} – ${fmt(hi)}, ширина ${Math.round(width * 100)}% от центра ${fmt(baseline.totalKpi)} – узкий. Можно планировать от центра, оставив нижнюю границу как страховой сценарий.`,
++        tip: 'Узкий диапазон означает, что модель уверенно отделяет вклад каналов на этой истории. Это свойство данных, а не гарантия – внешние события в диапазон не заложены.',
++      });
++    }
++  }
++
++  // ── P5. Качество модели, на которой строится прогноз ───────────────────────
++  // Порог: расчёт не сошёлся (штамп надёжности) либо MQS ниже уровня «Хорошее» (70).
++  // НЕ появится: балла нет вовсе, либо MQS ≥ 70 и расчёт сошёлся.
++  const mqs = mqsView(diagnostics);
++  const rv = ratioView(diagnostics, ssotRatio);
++  const refused = verdictRefuses(diagnostics?.honesty_verdict)
++    || diagnostics?.model_reliability?.refused === true;
++  if (mqs && refused) {
++    out.push({
++      severity: 'warning',
++      text: `Качество модели ${mqs.score.toFixed(0)} из 100${mqs.tierLabel ? ` (${mqs.tierLabel.toLowerCase()})` : ''}. ${RELIABILITY_STATEMENT_REFUSED} Прогноз на будущее строится на той же модели – пока она не переобучена, показывайте эти числа как прикидку.`,
++      tip: 'Показатель качества считается и при несошедшемся расчёте, поэтому высокий балл здесь не противоречит отказу. Вернитесь на шаг «Модель», увеличьте число итераций или упростите набор переменных.',
++    });
++  } else if (mqs && !mqsIsDependable(mqs.score)) {
++    const thin = rv?.isThin
++      ? ` Наблюдений на параметр ${rv.ratio.toFixed(1)} – меньше четырёх, отсюда и широкие диапазоны.`
++      : '';
++    out.push({
++      severity: 'warning',
++      text: `Качество модели ${mqs.score.toFixed(0)} из 100${mqs.tierLabel ? ` (${mqs.tierLabel.toLowerCase()})` : ''} – ниже уровня «Хорошее» (70).${thin} Прогноз наследует ту же неопределённость: закладывайте нижнюю границу диапазона и не обещайте центр.`,
++      tip: 'Поднять качество можно на шаге «Модель»: добавить истории, убрать переменные, которые движутся вместе, или задать цену контакта физическим каналам.',
++    });
++  }
++
++  // ── P6. Вариант всего один, сравнивать не с чем ───────────────────────────
++  // Порог: ровно 1 вариант И базового прогноза нет.
++  // НЕ появится: вариантов ноль, вариантов два и больше, либо посчитан базовый план.
++  if (variants.length === 1 && !baseline) {
++    out.push({
++      severity: 'info',
++      text: `Создан один вариант «${variants[0].name}» – сравнивать не с чем, а смысл этого шага именно в сравнении. Создайте второй вариант с другим распределением бюджета.`,
++      tip: 'Разумная пара для сравнения: текущее распределение как есть и оптимальное со шага «Оптимизация». Разница между ними и есть цена решения.',
++    });
++  }
++
++  // ── P7. Бюджеты вариантов почти совпадают ─────────────────────────────────
++  // Порог: (макс – мин) / макс < 5% при двух и более вариантах с ненулевым бюджетом.
++  // НЕ появится: вариантов меньше двух, у кого-то бюджет не посчитан,
++  // либо разброс 5% и выше.
++  if (variants.length >= 2) {
++    const budgets = variants.map((v) => Number(v.budget) || 0);
++    if (budgets.every((b) => b > 0)) {
++      const minB = Math.min(...budgets);
++      const maxB = Math.max(...budgets);
++      const spread = (maxB - minB) / maxB;
++      if (spread < 0.05) {
++        const money = moneyConfirmed ? ` (${fmt(minB)} ₽ против ${fmt(maxB)} ₽)` : '';
++        out.push({
++          severity: 'warning',
++          text: `Бюджеты вариантов различаются на ${(spread * 100).toFixed(1)}%${money} – меньше 5%. На такой разнице исходы почти наверняка окажутся неразличимы. Разведите планы: либо меняйте сумму на 10% и больше, либо оставьте сумму и перекладывайте доли между каналами.`,
++          tip: 'Сравнивать имеет смысл решения, а не округления. Если сумма зафиксирована договором – стройте варианты на перекладке долей: их различие модель видит лучше, чем разницу в пару процентов общей суммы.',
++        });
++      }
++    }
++  }
++
++  // ── P8 / P9. Различимы ли варианты между собой ────────────────────────────
++  // Сравниваем базовый план и варианты как равноправные линии.
++  /** @type {{ name: string, kpi: number, lo: number, hi: number }[]} */
++  const comparable = [];
++  if (baseline && baseline.ciLowTotal != null && baseline.ciHighTotal != null) {
++    comparable.push({
++      name: 'Базовый план',
++      kpi: Number(baseline.totalKpi),
++      lo: Number(baseline.ciLowTotal),
++      hi: Number(baseline.ciHighTotal),
++    });
++  }
++  for (const v of variants) {
++    if (v.ciLow != null && v.ciHigh != null) {
++      comparable.push({ name: v.name, kpi: Number(v.predictedKpi), lo: Number(v.ciLow), hi: Number(v.ciHigh) });
++    }
++  }
++  if (comparable.length >= 2) {
++    const sorted = [...comparable].sort((a, b) => b.kpi - a.kpi);
++    let pairCount = 0;
++    let overlapCount = 0;
++    for (let i = 0; i < sorted.length - 1; i++) {
++      for (let j = i + 1; j < sorted.length; j++) {
++        pairCount += 1;
++        if (sorted[i].lo < sorted[j].hi && sorted[j].lo < sorted[i].hi) overlapCount += 1;
++      }
++    }
++    // P8. Порог: перекрывается половина пар и больше.
++    // НЕ появится: сравнимых линий меньше двух либо перекрывается меньше половины пар.
++    if (pairCount > 0 && overlapCount / pairCount >= 0.5) {
++      out.push({
++        severity: 'warning',
++        text: `Из ${pairCount} ${pluralizeRu(pairCount, ['пары', 'пар', 'пар'])} сравнения ${overlapCount} ${pluralizeRu(overlapCount, ['перекрывается', 'перекрываются', 'перекрываются'])} диапазонами – преимущество лидера «${sorted[0].name}» (${fmt(sorted[0].kpi)}) данными не доказано. Выбирайте по цене исполнения и рискам, а не по разнице прогнозов; либо разведите планы сильнее.`,
++        tip: 'Перекрытие диапазонов означает, что при тех же данных оба исхода одинаково правдоподобны. Это не запрет выбирать – это запрет обещать разницу как факт.',
++      });
++    }
++    // P9. Порог: нижняя граница лидера строго выше верхней границы второго.
++    // НЕ появится: диапазоны лидера и второго пересекаются хотя бы краем.
++    const first = sorted[0];
++    const second = sorted[1];
++    if (first.lo > second.hi) {
++      out.push({
++        severity: 'success',
++        text: `«${first.name}» устойчиво лучше «${second.name}»: нижняя граница лидера ${fmt(first.lo)} выше верхней границы второго ${fmt(second.hi)} – диапазоны не пересекаются. Это тот случай, когда разницу можно называть вслух; принимайте «${first.name}».`,
++        tip: 'Непересечение диапазонов – самый сильный вывод, который даёт этот шаг. Зафиксируйте прогноз кнопкой ниже: программа сверит его с фактом, когда придут новые данные.',
++      });
++    }
++  }
++
++  return out;
++}
++
+ /**
+  * Report step insights - structured per-stage summary + recommendations.
+  * Каждый этап пайплайна получает свой key insight с recко, чтобы пользователь
+diff --git a/src/lib/planning-live-state.js b/src/lib/planning-live-state.js
+new file mode 100644
+index 00000000..614683c0
+--- /dev/null
++++ b/src/lib/planning-live-state.js
+@@ -0,0 +1,41 @@
++/**
++ * planning-live-state.js – живое состояние шага «Планирование» для панели подсказок.
++ *
++ * ЗАЧЕМ ОТДЕЛЬНЫЙ ФАЙЛ. Подсказки шага обязаны быть условными от НАСТОЯЩИХ чисел
++ * прогноза (ширина правдоподобного диапазона, перекрытие диапазонов вариантов,
++ * разброс бюджетов) – INV-50. Эти числа живут в `PlanningStep.svelte` как локальное
++ * состояние, а читает их `InsightsPanel.svelte`. Приём тот же, что `optimizeLiveState`
++ * для шага «Оптимизация»: шаг пишет снимок, панель читает.
++ *
++ * Снимок – производная от того, что УЖЕ на экране: панель не пересчитывает прогноз
++ * и ничего не досочиняет, она комментирует ровно те числа, которые клиент видит.
++ */
++import { writable } from 'svelte/store';
++
++/**
++ * @typedef {Object} PlanningLiveBaseline
++ * @property {number} totalKpi              центр прогноза базового плана за горизонт
++ * @property {number|null} totalSpend       бюджет плана в деньгах; null – движок НЕ перевёл все каналы в рубли
++ * @property {number|null} ciLowTotal       нижняя граница правдоподобного диапазона
++ * @property {number|null} ciHighTotal      верхняя граница
++ */
++
++/**
++ * @typedef {Object} PlanningLiveVariant
++ * @property {string} name
++ * @property {number} budget                суммарный бюджет варианта за горизонт
++ * @property {number} predictedKpi
++ * @property {number} [ciLow]
++ * @property {number} [ciHigh]
++ */
++
++/**
++ * @type {import('svelte/store').Writable<{
++ *   baseline: PlanningLiveBaseline | null,
++ *   variants: PlanningLiveVariant[],
++ * }>}
++ */
++export const planningLiveState = writable({
++  baseline: null,
++  variants: [],
++});
+diff --git a/src/lib/project-state.js b/src/lib/project-state.js
+index b0977480..d0aa816c 100644
+--- a/src/lib/project-state.js
++++ b/src/lib/project-state.js
+@@ -1201,6 +1201,26 @@ export const modelStaleStatus = derived(
+   }
+ );
+ 
++/**
++ * Снимок параметров каналов, прочитанный с диска при открытии проекта
++ * (`models/latest-params.json` → `channel_params`). Отдельный стор, а НЕ поле
++ * `modelData.channelParams`, сознательно:
++ *
++ * `modelData.channelParams` означает «модель обучена в ЭТОЙ сессии», и на смену
++ * этого признака завязана переоценка разбора (`DecomposeStep`, эффект «прилетела
++ * новая тренировка»). Подстановка снимка прямо в `modelData` выглядит для него
++ * ровно как переобучение: замером 2026-09-13 это давало молчаливый пересчёт
++ * разбора и оптимизации при каждом открытии проекта — с настройками по
++ * умолчанию, поверх сохранённого результата пользователя (прирост менялся с
++ * 11.3% на 9.8%). Снимок живёт отдельно, читает его только шаг Оптимизации.
++ *
++ * `projectId` в снимке — самоочистка: параметры чужого проекта не подхватятся,
++ * даже если стор не успели обнулить при переключении.
++ *
++ * @type {import('svelte/store').Writable<{projectId: string, channelParams: Record<string, any>} | null>}
++ */
++export const modelParamsSnapshot = writable(null);
++
+ /** @type {import('svelte/store').Writable<any|null>} */
+ export const decomposeData = writable(null);
+ 
+@@ -1334,6 +1354,33 @@ async function restoreProjectResults(pid) {
+     else if (mpUnavailable) mediaPlanProbeStatus.set('unavailable');
+     else mediaPlanProbeStatus.set((mp.n_future_periods ?? 0) > 0 ? 'found' : 'absent');
+ 
++    // 🔴 2026-09-13 (живой замер через мост). Параметры каналов
++    // (alpha/gamma/beta/decay/adstock_mean_posterior) не лежат в results/*.json —
++    // тренер пишет их рядом с моделью, в models/latest-params.json. Пока их никто
++    // не читал, у открытого заново проекта на шаге Оптимизации `scaledParams`
++    // оставался пустым — блок «Кривые отдачи» прятался ДАЖЕ после успешного
++    // расчёта и советовал «запустите оптимизацию» ровно тогда, когда она уже
++    // отработала.
++    //
++    // INV-50 (честность метрик): снимок берётся ТОЛЬКО если принадлежит той же
++    // модели, что и восстановленная диагностика. Сверка по опознавателю модели
++    // (`model_fingerprint`), который тренер штампует в ОБА файла одним действием:
++    //   • оба опознавателя есть и совпали → снимок наш, берём;
++    //   • оба отсутствуют → модель обучена до появления опознавателя (проверено
++    //     на проектах клиента 2026-09-13: 3 из 5 обученных — без штампа). Ручаемся
++    //     тем, что тренер пишет latest-params.json тем же вызовом, что и latest.pkl,
++    //     и архивирует их в history/ парой. Берём;
++    //   • опознаватель есть у одной стороны, а у другой нет, либо они разошлись →
++    //     файлы из разных поколений. НЕ берём: лучше честно не нарисовать кривые,
++    //     чем нарисовать чужие.
++    const paramsSnapshot = r.modelParams;
++    const snapshotFingerprint = paramsSnapshot?.diagnostics?.model_fingerprint ?? null;
++    const diagnosticsFingerprint = r.modelDiagnostics?.model_fingerprint ?? null;
++    const sameModel = snapshotFingerprint === diagnosticsFingerprint
++      || (!snapshotFingerprint && !diagnosticsFingerprint);
++    const restoredChannelParams =
++      paramsSnapshot?.channel_params && sameModel ? paramsSnapshot.channel_params : null;
++    modelParamsSnapshot.set(restoredChannelParams ? { projectId: pid, channelParams: restoredChannelParams } : null);
+     if (hasModel) {
+       modelData.update(m => ({
+         ...m,
+diff --git a/src/routes/pipeline/+layout.svelte b/src/routes/pipeline/+layout.svelte
+index 91185230..0e1c7776 100644
+--- a/src/routes/pipeline/+layout.svelte
++++ b/src/routes/pipeline/+layout.svelte
+@@ -153,7 +153,15 @@
+ 
+   // Справка - одна кнопка в header, контент зависит от текущего шага pipeline.
+   // Index в массиве соответствует PIPELINE_STEPS. См. src-tauri/help-econometrica/*.html.
+-  const HELP_PAGES = ['data-preparation', 'data-preparation', 'methodology', 'pipeline', 'pipeline', 'pipeline', 'pipeline'];
++  const HELP_PAGES = [
++    'step-1-import',
++    'step-2-validate',
++    'step-3-model',
++    'step-4-decompose',
++    'step-5-optimize',
++    'step-6-planning',
++    'step-7-report',
++  ];
+   async function openStepHelp() {
+     const page = HELP_PAGES[$pipelineCurrentStep] ?? 'index';
+     try {
+diff --git a/src/tests/EChartOptionProbe.svelte b/src/tests/EChartOptionProbe.svelte
+new file mode 100644
+index 00000000..696d724f
+--- /dev/null
++++ b/src/tests/EChartOptionProbe.svelte
+@@ -0,0 +1,25 @@
++<script>
++  /**
++   * EChartOptionProbe – подмена EChartBase в проверках.
++   *
++   * ECharts в jsdom холст не поднимает, поэтому проверить «что нарисовано» можно
++   * только по переданной настройке. Заглушка выкладывает в разметку список линий
++   * легенды и число слоёв – этого хватает, чтобы стеречь «несколько сценариев в
++   * ОДНИХ осях» и не зависеть от внутренностей ECharts.
++   */
++  const { option = {}, height = '' } = $props();
++
++  const legend = $derived(
++    Array.isArray(option?.legend?.data) ? option.legend.data.join('|') : ''
++  );
++  const seriesCount = $derived(Array.isArray(option?.series) ? option.series.length : 0);
++</script>
++
++<div
++  class="echart-probe"
++  data-echart
++  data-testid="echart-probe"
++  data-legend={legend}
++  data-series-count={seriesCount}
++  data-height={height}
++></div>
+diff --git a/src/tests/insights-panel-planning-step.test.js b/src/tests/insights-panel-planning-step.test.js
+new file mode 100644
+index 00000000..85353e22
+--- /dev/null
++++ b/src/tests/insights-panel-planning-step.test.js
+@@ -0,0 +1,94 @@
++/**
++ * Живой прогон владельца 14.09: на шаге «Планирование» панель подсказок писала
++ * «Для этого шага подсказок нет» – единственный шаг мастера, где она молчала,
++ * при том что на «Оптимизации» подсказки работают.
++ *
++ * Сторож привязан к ПОРЯДКУ шагов (id 'planning'), а не к числу: вставят ещё
++ * один шаг – маршрутизация сдвинется, и это будет видно здесь.
++ */
++import { describe, it, expect, vi, beforeEach } from 'vitest';
++import { render, waitFor } from '@testing-library/svelte';
++import { invoke } from '@tauri-apps/api/core';
++import {
++  PIPELINE_STEPS,
++  pipelineCurrentStep,
++  importData,
++  validateData,
++  modelData,
++  decomposeData,
++  optimizeData,
++  mediaPlanDetected,
++  mediaPlanProbeStatus,
++} from '$lib/project-state.js';
++import { planningLiveState } from '$lib/planning-live-state.js';
++import InsightsPanel from '$lib/components/pipeline/InsightsPanel.svelte';
++
++vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
++vi.mock('@tauri-apps/api/event', () => ({ listen: vi.fn().mockResolvedValue(() => {}) }));
++
++const planningIdx = PIPELINE_STEPS.findIndex((s) => s.id === 'planning');
++
++beforeEach(() => {
++  vi.clearAllMocks();
++  vi.mocked(invoke).mockResolvedValue(null);
++  importData.set({ file: { name: 'demo.xlsx' }, columns: [{ name: 'Выручка', role: 'kpi' }], rows: 60 });
++  validateData.set({
++    result: { status: 'ok', columns: [{ name: 'Выручка', role: 'kpi' }, { name: 'ТВ', role: 'media' }] },
++    correlationMatrix: null,
++    columnHistograms: null,
++  });
++  modelData.set({
++    diagnostics: {
++      mqs: { score: 70, tier_label: 'Хорошее' },
++      metrics: { r_squared: 0.93, mape_pct: 6.4, n_observations: 60, ratio: 3.9 },
++    },
++    channelParams: null, picklePath: 'x', normalization: null,
++  });
++  decomposeData.set({
++    decomposition_series: {
++      dates: Array.from({ length: 36 }, (_, i) => `2022-${String((i % 12) + 1).padStart(2, '0')}`),
++      series: [{ name: 'ТВ', data: Array.from({ length: 36 }, () => 10) }],
++    },
++    channels: [{ name: 'ТВ', spend: 100, contribution: 40, roi: 0.4 }],
++  });
++  optimizeData.set({ expected_lift_pct: 3.4, total_budget_money: 1000 });
++  mediaPlanDetected.set({ n_future_periods: 12, channels: { ТВ: [1, 1] }, warnings: [], confirmed: true });
++  mediaPlanProbeStatus.set('found');
++  planningLiveState.set({ baseline: null, variants: [] });
++});
++
++describe('панель подсказок на шаге «Планирование»', () => {
++  it('не молчит: при широком диапазоне прогноза выдаёт подсказку с числом', async () => {
++    planningLiveState.set({
++      baseline: { totalKpi: 1000, totalSpend: 500_000, ciLowTotal: 600, ciHighTotal: 1400 },
++      variants: [],
++    });
++    pipelineCurrentStep.set(planningIdx);
++
++    const { container, queryByText, findByText } = render(InsightsPanel, {
++      props: { collapsed: false, onToggle: () => {} },
++    });
++
++    await waitFor(() => expect(container.querySelector('.panel-body')).toBeTruthy());
++    expect(await findByText(/ширина 80% от прогноза/)).toBeTruthy();
++    expect(queryByText(/Для этого шага подсказок нет/)).toBeNull();
++    expect(container.querySelector('.insight-count')?.textContent).not.toBe('0');
++  });
++
++  it('молчит там, где сказать нечего: ни один порог не перейдён – ни одной подсказки', async () => {
++    // План найден, горизонт 12 на 36 периодах истории, качество «Хорошее»,
++    // прогноз ещё не посчитан, вариантов нет – все пороги ниже своих границ.
++    planningLiveState.set({ baseline: null, variants: [] });
++    pipelineCurrentStep.set(planningIdx);
++
++    const { container, findByText } = render(InsightsPanel, {
++      props: { collapsed: false, onToggle: () => {} },
++    });
++
++    await waitFor(() => expect(container.querySelector('.panel-body')).toBeTruthy());
++    expect(
++      await findByText(/Для этого шага подсказок нет/),
++      'панель обязана молчать, когда ни один порог не перейдён, а не печатать шаблон',
++    ).toBeTruthy();
++  });
++});
+diff --git a/src/tests/insights-panel-report-step.test.js b/src/tests/insights-panel-report-step.test.js
+index 54301a0b..5ab7ef79 100644
+--- a/src/tests/insights-panel-report-step.test.js
++++ b/src/tests/insights-panel-report-step.test.js
+@@ -78,7 +78,7 @@ describe('панель подсказок на шаге «Отчёт» (ТЕКС
+     ).not.toBe('0');
+   });
+ 
+-  it('на шаге «Планирование» панель молчит нейтрально, а не советует загрузить данные', async () => {
++  it('на шаге «Планирование» панель не советует загрузить уже загруженные данные', async () => {
+     const planningIdx = PIPELINE_STEPS.findIndex((s) => s.id === 'planning');
+     pipelineCurrentStep.set(planningIdx);
+ 
+diff --git a/src/tests/optimize-curves-params-restore.test.js b/src/tests/optimize-curves-params-restore.test.js
+new file mode 100644
+index 00000000..9182f443
+--- /dev/null
++++ b/src/tests/optimize-curves-params-restore.test.js
+@@ -0,0 +1,146 @@
++/**
++ * Кривые отдачи на открытом заново проекте (живой замер 2026-09-13).
++ *
++ * Класс дефекта: данные есть на диске, но читатель про них не знает.
++ * Блок «Кривые отдачи» на шаге Оптимизации показывается при двух условиях:
++ * в ответе оптимизации есть `response_curves` И непуст `scaledParams`, который
++ * строится из `modelData.channelParams`. Восстановление проекта с диска
++ * (`restoreProjectResults`) поднимало диагностику, разбор и оптимизацию, но
++ * `channelParams` не поднимало вовсе – они лежат не в `results/*.json`, а рядом
++ * с моделью, в `models/latest-params.json`. Итог замера: `response_curves` = 4
++ * канала, `channelParams` = null → блок прятался ДАЖЕ после успешного расчёта,
++ * а заглушка советовала «запустите оптимизацию», то есть сделать уже сделанное.
++ *
++ * Контракт фикса: снимок параметров восстанавливается в отдельный стор
++ * `modelParamsSnapshot` (шаг Оптимизации берёт его запасным источником), но
++ * ТОЛЬКО когда он принадлежит той же модели, что и восстановленная диагностика
++ * (INV-50 – лучше не нарисовать кривые, чем нарисовать чужие). Признак «та же
++ * модель»: опознаватели совпали, либо их нет ни у одной стороны (модель обучена
++ * до появления штампа – таких проектов у клиента большинство).
++ *
++ * Почему отдельный стор, а не `modelData.channelParams`: на смену этого поля
++ * завязан пересчёт разбора («прилетела новая тренировка»). Замером 2026-09-13
++ * подстановка снимка прямо в `modelData` давала молчаливый пересчёт разбора и
++ * оптимизации при открытии проекта, поверх сохранённого результата пользователя.
++ */
++import { describe, it, expect, beforeEach, vi } from 'vitest';
++import { get } from 'svelte/store';
++import { invoke } from '@tauri-apps/api/core';
++import {
++  activeProject, activeProjectId, modelData, modelParamsSnapshot, optimizeData, resetPipeline,
++} from '$lib/project-state.js';
++
++vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
++
++/** Параметры каналов в форме models/latest-params.json → channel_params. */
++function channelParamsFixture() {
++  return {
++    'ТВ бюджет': { beta: 0.119, alpha: 1.6313, gamma: 0.5178, decay: 0.4526, adstock_mean_posterior: 22229589.52 },
++    'Онлайн-видео бюджет': { beta: 0.081, alpha: 1.2, gamma: 0.44, decay: 0.31, adstock_mean_posterior: 8123456.7 },
++  };
++}
++
++/**
++ * Мок диска. `paramsFingerprint` – опознаватель модели в снимке параметров,
++ * `diagFingerprint` – в диагностике; null означает «штампа нет».
++ * @param {{ withParams?: boolean, paramsFingerprint?: string|null, diagFingerprint?: string|null }} opts
++ */
++function mockDisk({ withParams = true, paramsFingerprint = 'fp-model-1', diagFingerprint = 'fp-model-1' } = {}) {
++  vi.mocked(invoke).mockImplementation(async (cmd) => {
++    if (cmd === 'project_load_results') {
++      return {
++        modelDiagnostics: diagFingerprint
++          ? { mqs: { score: 70 }, model_fingerprint: diagFingerprint }
++          : { mqs: { score: 70 } },
++        decomposition: { time_series: { dates: ['2025-01', '2025-02'] }, channels: [{ name: 'ТВ бюджет', raw_spend: 100 }] },
++        optimization: {
++          channels: [{ name: 'ТВ бюджет', current_spend: 100, optimal_spend: 120 }],
++          response_curves: { 'ТВ бюджет': { spend: [1, 2], response: [1, 2], current_x: 1, optimal_x: 2 } },
++          status: 'ok',
++        },
++        validation: null,
++        planning: null,
++        mediaPlan: null,
++        modelParams: withParams
++          ? {
++            channel_params: channelParamsFixture(),
++            diagnostics: paramsFingerprint ? { model_fingerprint: paramsFingerprint } : {},
++          }
++          : null,
++      };
++    }
++    if (cmd === 'project_get') return { id: get(activeProjectId) };
++    return null;
++  });
++}
++
++beforeEach(() => {
++  vi.mocked(invoke).mockReset();
++  try { localStorage.clear(); } catch { /* jsdom */ }
++  activeProjectId.set(null);
++  modelData.set({ diagnostics: null, channelParams: null, picklePath: null, normalization: null });
++  modelParamsSnapshot.set(null);
++  optimizeData.set(null);
++});
++
++describe('восстановление проекта: параметры каналов для кривых отдачи', () => {
++  it('снимок той же модели → channelParams подняты, обе половины условия показа истинны', async () => {
++    mockDisk();
++    activeProjectId.set('p-curves-1');
++    activeProject.set(/** @type {any} */ ({ id: 'p-curves-1' }));
++    resetPipeline('p-curves-1');
++    await new Promise((r) => setTimeout(r, 80));
++
++    const snap = get(modelParamsSnapshot);
++    expect(snap).toBeTruthy();
++    expect(snap?.projectId).toBe('p-curves-1');
++    expect(Object.keys(snap?.channelParams ?? {})).toEqual(['ТВ бюджет', 'Онлайн-видео бюджет']);
++    // Вторая половина условия показа блока: непустой набор параметров.
++    expect(Object.keys(snap?.channelParams ?? {}).length).toBeGreaterThan(0);
++    // Первая половина – кривые в ответе оптимизации.
++    expect(get(optimizeData)?.response_curves).toBeTruthy();
++    // Признак «обучено в этой сессии» НЕ трогаем – иначе разбор считает модель
++    // переобученной и молча пересчитывает себя и оптимизацию.
++    expect(get(modelData).channelParams).toBeNull();
++  });
++
++  it('INV-50: опознаватель снимка разошёлся с диагностикой → параметры НЕ подставляются', async () => {
++    mockDisk({ paramsFingerprint: 'fp-другая-модель' });
++    activeProjectId.set('p-curves-2');
++    activeProject.set(/** @type {any} */ ({ id: 'p-curves-2' }));
++    resetPipeline('p-curves-2');
++    await new Promise((r) => setTimeout(r, 80));
++
++    expect(get(modelParamsSnapshot)).toBeNull();
++  });
++
++  it('модель обучена до появления опознавателя (штампа нет ни там, ни там) → параметры подняты', async () => {
++    mockDisk({ paramsFingerprint: null, diagFingerprint: null });
++    activeProjectId.set('p-curves-4');
++    activeProject.set(/** @type {any} */ ({ id: 'p-curves-4' }));
++    resetPipeline('p-curves-4');
++    await new Promise((r) => setTimeout(r, 80));
++
++    expect(Object.keys(get(modelParamsSnapshot)?.channelParams ?? {})).toEqual(['ТВ бюджет', 'Онлайн-видео бюджет']);
++  });
++
++  it('опознаватель есть только у диагностики (снимок из другого поколения) → параметры НЕ подставляются', async () => {
++    mockDisk({ paramsFingerprint: null, diagFingerprint: 'fp-model-1' });
++    activeProjectId.set('p-curves-5');
++    activeProject.set(/** @type {any} */ ({ id: 'p-curves-5' }));
++    resetPipeline('p-curves-5');
++    await new Promise((r) => setTimeout(r, 80));
++
++    expect(get(modelParamsSnapshot)).toBeNull();
++  });
++
++  it('снимка параметров на диске нет → параметры остаются пустыми, без выдумки', async () => {
++    mockDisk({ withParams: false });
++    activeProjectId.set('p-curves-3');
++    activeProject.set(/** @type {any} */ ({ id: 'p-curves-3' }));
++    resetPipeline('p-curves-3');
++    await new Promise((r) => setTimeout(r, 80));
++
++    expect(get(modelParamsSnapshot)).toBeNull();
++  });
++});
+diff --git a/src/tests/planning-forecast-chart.test.js b/src/tests/planning-forecast-chart.test.js
+new file mode 100644
+index 00000000..83a80ab0
+--- /dev/null
++++ b/src/tests/planning-forecast-chart.test.js
+@@ -0,0 +1,98 @@
++/**
++ * Сторож графика «{KPI} – Прогноз по сценариям» на шаге «Планирование»
++ * (живой прогон владельца 14.09, две находки):
++ *
++ *   а) карточка не разворачивалась на весь экран и не меняла размер вручную,
++ *      хотя у соседних графиков это уже работает (запись c8f4a49b: ExpandableCard
++ *      плюс метка data-echart в EChartBase);
++ *   б) сравнивать сценарии было негде: линии базового плана и вариантов должны
++ *      лежать в ОДНИХ осях, иначе выбирать между вариантами, листая графики по
++ *      одному, нельзя – а выбор и есть смысл шага.
++ */
++import { describe, it, expect, vi } from 'vitest';
++import { render } from '@testing-library/svelte';
++
++// ECharts в jsdom холст не поднимает – подменяем EChartBase зондом настройки.
++vi.mock('$lib/components/charts/EChartBase.svelte', async () => {
++  const { default: Probe } = await import('./EChartOptionProbe.svelte');
++  return { default: Probe };
++});
++
++import ContinuationChart from '$lib/components/pipeline/ContinuationChart.svelte';
++
++const historical = {
++  dates: ['2024-01', '2024-02', '2024-03'],
++  actuals: [100, 110, 120],
++};
++
++/** @param {string} name @param {number} shift */
++const line = (name, shift) => ({
++  name,
++  dates: ['2024-03', '2024-04', '2024-05'],
++  predictions: [120 + shift, 130 + shift, 140 + shift],
++  ciLow: [110 + shift, 120 + shift, 130 + shift],
++  ciHigh: [130 + shift, 140 + shift, 150 + shift],
++});
++
++describe('разворот карточки прогноза (задача 5.2а)', () => {
++  it('даёт кнопку «Развернуть» – тем же приёмом, что у соседних графиков', () => {
++    const { getByLabelText } = render(ContinuationChart, {
++      props: { historical, scenarios: [line('Базовый план', 0)], kpiLabel: 'Доход (₽)' },
++    });
++    expect(getByLabelText('Развернуть')).toBeTruthy();
++  });
++
++  it('несёт заголовок карточки с названием метрики', () => {
++    const { getByText } = render(ContinuationChart, {
++      props: { historical, scenarios: [line('Базовый план', 0)], kpiLabel: 'Доход (₽)' },
++    });
++    expect(getByText('Доход (₽) - Прогноз по сценариям')).toBeTruthy();
++  });
++
++  it('отдаёт графику метку data-echart – по ней карточка раздаёт высоту в развороте', () => {
++    const { container } = render(ContinuationChart, {
++      props: { historical, scenarios: [line('Базовый план', 0)], kpiLabel: 'Доход (₽)' },
++    });
++    expect(container.querySelector('[data-echart]')).toBeTruthy();
++  });
++});
++
++describe('несколько сценариев в одних осях (задача 5.2б)', () => {
++  it('рисует базовый план и оба варианта ОДНИМ графиком', () => {
++    const { container } = render(ContinuationChart, {
++      props: {
++        historical,
++        scenarios: [line('Базовый план', 0), line('Вариант 1', 10), line('Вариант 2', -10)],
++        kpiLabel: 'Доход (₽)',
++        maxScenarios: 6,
++      },
++    });
++    const probes = container.querySelectorAll('[data-testid="echart-probe"]');
++    expect(probes, 'поле должно быть одно – сравнивать можно только в общих осях').toHaveLength(1);
++
++    const legend = probes[0].getAttribute('data-legend') ?? '';
++    expect(legend).toContain('Базовый план');
++    expect(legend).toContain('Вариант 1');
++    expect(legend).toContain('Вариант 2');
++    expect(legend).toContain('Факт');
++  });
++
++  it('НЕ теряет варианты сверх показанных: предупреждает, сколько скрыто', () => {
++    const scenarios = Array.from({ length: 4 }, (_, i) => line(`Вариант ${i + 1}`, i));
++    const { container, getByRole } = render(ContinuationChart, {
++      props: { historical, scenarios, kpiLabel: 'Доход (₽)', maxScenarios: 2 },
++    });
++    expect(getByRole('alert').textContent).toMatch(/первые 2 из 4 сценариев/);
++    const legend = container.querySelector('[data-testid="echart-probe"]')?.getAttribute('data-legend') ?? '';
++    expect(legend).toContain('Вариант 2');
++    expect(legend).not.toContain('Вариант 3');
++  });
++
++  it('при пределе выше числа сценариев предупреждения нет', () => {
++    const scenarios = Array.from({ length: 4 }, (_, i) => line(`Вариант ${i + 1}`, i));
++    const { queryByRole } = render(ContinuationChart, {
++      props: { historical, scenarios, kpiLabel: 'Доход (₽)', maxScenarios: 6 },
++    });
++    expect(queryByRole('alert')).toBeNull();
++  });
++});
+diff --git a/src/tests/planning-insights.test.js b/src/tests/planning-insights.test.js
+new file mode 100644
+index 00000000..50badd03
+--- /dev/null
++++ b/src/tests/planning-insights.test.js
+@@ -0,0 +1,287 @@
++/**
++ * Сторож подсказок шага «Планирование» (живой прогон владельца 14.09: панель на
++ * этом шаге писала «Для этого шага подсказок нет» – единственный шаг мастера,
++ * где она молчала).
++ *
++ * 🔴 ГЛАВНОЕ, ЧТО СТЕРЕЖЁТ ЭТОТ ФАЙЛ (INV-50, честность метрик). Каждая подсказка
++ * шага обязана быть УСЛОВНОЙ от проверяемого порога. Поэтому у каждого правила
++ * здесь ДВА случая: данные выше порога – подсказка есть; данные ниже порога –
++ * подсказки НЕТ. Второй случай важнее первого: он не даёт вернуть безусловный
++ * шаблон, который печатается всегда и лишь выглядит выводом из данных.
++ */
++import { describe, it, expect } from 'vitest';
++import { planningInsights } from '$lib/insights-rules.js';
++
++/** Слить тексты подсказок в одну строку для поиска. @param {any[]} ins */
++const asText = (ins) => ins.map((i) => i.text).join('\n');
++
++/** План на будущее, найденный в файле. @param {any} [over] */
++const planFound = (over = {}) => ({
++  n_future_periods: 12,
++  channels: { ТВ: [100, 100], Диджитал: [50, 50] },
++  warnings: [],
++  granularity: 'month',
++  confirmed: true,
++  ...over,
++});
++
++/** Диагностика обученной модели. @param {number} score @param {string} label */
++const diagnostics = (score, label) => ({
++  mqs: { score, tier_label: label },
++  metrics: { ratio: 5.2, n_observations: 60 },
++});
++
++/** Вариант плана. @param {string} name @param {any} over */
++const variant = (name, over = {}) => ({
++  name,
++  budget: 1_000_000,
++  predictedKpi: 100,
++  ...over,
++});
++
++// ─────────────────────────────────────────────────────────────────────────────
++describe('P1 – плана на будущее в данных нет', () => {
++  it('появляется, когда строк на будущее ноль', () => {
++    const t = asText(planningInsights({ mediaPlan: null, probeStatus: 'absent' }));
++    expect(t).toMatch(/нет ни одной строки на будущее/);
++  });
++
++  it('НЕ появляется, как только план в файле найден (12 периодов)', () => {
++    const t = asText(planningInsights({ mediaPlan: planFound(), probeStatus: 'found' }));
++    expect(t).not.toMatch(/нет ни одной строки на будущее/);
++  });
++
++  it('различает «плана нет» и «определить не удалось»', () => {
++    const t = asText(planningInsights({ mediaPlan: null, probeStatus: 'unavailable' }));
++    expect(t).toMatch(/Определить план на будущее в этих данных не удалось/);
++    expect(t).not.toMatch(/нет ни одной строки на будущее/);
++  });
++});
++
++// ─────────────────────────────────────────────────────────────────────────────
++describe('P2 – замечания к плану из файла', () => {
++  it('появляется и называет их число и первое замечание', () => {
++    const t = asText(planningInsights({
++      mediaPlan: planFound({ warnings: ['канал «Радио» не участвовал в обучении', 'пропуск в периоде 4'] }),
++    }));
++    expect(t).toMatch(/К плану из файла 2 замечания/);
++    expect(t).toMatch(/канал «Радио» не участвовал в обучении/);
++    expect(t).toMatch(/И ещё 1\./);
++  });
++
++  it('НЕ появляется при пустом списке замечаний', () => {
++    const t = asText(planningInsights({ mediaPlan: planFound({ warnings: [] }) }));
++    expect(t).not.toMatch(/К плану из файла/);
++  });
++});
++
++// ─────────────────────────────────────────────────────────────────────────────
++describe('P3 – горизонт против длины истории (порог: больше половины)', () => {
++  it('появляется при 24 периодах прогноза на 36 периодах истории (67%)', () => {
++    const t = asText(planningInsights({
++      mediaPlan: planFound({ n_future_periods: 24 }),
++      horizonPeriods: 24,
++      historyPeriods: 36,
++    }));
++    expect(t).toMatch(/Горизонт прогноза 24 периода против 36 периодов истории/);
++    expect(t).toMatch(/67% её длины/);
++    expect(t).toMatch(/Сократите горизонт до 18/);
++  });
++
++  it('НЕ появляется при 12 периодах прогноза на 36 периодах истории (33%)', () => {
++    const t = asText(planningInsights({
++      mediaPlan: planFound({ n_future_periods: 12 }),
++      horizonPeriods: 12,
++      historyPeriods: 36,
++    }));
++    expect(t).not.toMatch(/Горизонт прогноза/);
++  });
++
++  it('НЕ появляется, когда длина истории неизвестна', () => {
++    const t = asText(planningInsights({
++      mediaPlan: planFound({ n_future_periods: 24 }),
++      horizonPeriods: 24,
++      historyPeriods: 0,
++    }));
++    expect(t).not.toMatch(/Горизонт прогноза/);
++  });
++});
++
++// ─────────────────────────────────────────────────────────────────────────────
++describe('P4 – ширина правдоподобного диапазона базового прогноза', () => {
++  const base = (lo, hi, mid = 100) => ({
++    totalKpi: mid, totalSpend: 1_000_000, ciLowTotal: lo, ciHighTotal: hi,
++  });
++
++  it('предупреждает при ширине 80% от центра и велит брать нижнюю границу', () => {
++    const t = asText(planningInsights({ mediaPlan: planFound(), baseline: base(60, 140) }));
++    expect(t).toMatch(/ширина 80% от прогноза/);
++    expect(t).toMatch(/по нижней границе/);
++  });
++
++  it('хвалит узкий диапазон при ширине 10%', () => {
++    const t = asText(planningInsights({ mediaPlan: planFound(), baseline: base(95, 105) }));
++    expect(t).toMatch(/ширина 10% от центра/);
++    expect(t).toMatch(/узкий/);
++  });
++
++  it('МОЛЧИТ в середине (ширина 20%) – ни «широко», ни «узко»', () => {
++    const t = asText(planningInsights({ mediaPlan: planFound(), baseline: base(90, 110) }));
++    expect(t).not.toMatch(/Правдоподобный диапазон базового прогноза/);
++  });
++
++  it('НЕ появляется, когда диапазона у прогноза нет', () => {
++    const t = asText(planningInsights({
++      mediaPlan: planFound(),
++      baseline: { totalKpi: 100, totalSpend: 1_000_000, ciLowTotal: null, ciHighTotal: null },
++    }));
++    expect(t).not.toMatch(/Правдоподобный диапазон базового прогноза/);
++  });
++});
++
++// ─────────────────────────────────────────────────────────────────────────────
++describe('P5 – качество модели, на которой строится прогноз', () => {
++  it('предупреждает при MQS 55 («приемлемое») и называет балл', () => {
++    const t = asText(planningInsights({ mediaPlan: planFound(), diagnostics: diagnostics(55, 'Приемлемое') }));
++    expect(t).toMatch(/Качество модели 55 из 100 \(приемлемое\)/);
++    expect(t).toMatch(/ниже уровня «Хорошее» \(70\)/);
++  });
++
++  it('НЕ появляется при MQS 70 – это уже уровень «Хорошее»', () => {
++    const t = asText(planningInsights({ mediaPlan: planFound(), diagnostics: diagnostics(70, 'Хорошее') }));
++    expect(t).not.toMatch(/Качество модели/);
++  });
++
++  it('НЕ появляется, когда балла нет вовсе – недоказанное не выдаём за низкое', () => {
++    const t = asText(planningInsights({ mediaPlan: planFound(), diagnostics: { metrics: {} } }));
++    expect(t).not.toMatch(/Качество модели/);
++  });
++
++  it('при несошедшемся расчёте говорит об отказе даже при высоком балле', () => {
++    const d = diagnostics(88, 'Отличное');
++    d.model_reliability = { refused: true };
++    const t = asText(planningInsights({ mediaPlan: planFound(), diagnostics: d }));
++    expect(t).toMatch(/Качество модели 88 из 100/);
++    expect(t).toMatch(/опираться на них при распределении бюджета рано/);
++  });
++});
++
++// ─────────────────────────────────────────────────────────────────────────────
++describe('P6 – вариант один, сравнивать не с чем', () => {
++  it('появляется при ровно одном варианте и без базового прогноза', () => {
++    const t = asText(planningInsights({ mediaPlan: planFound(), variants: [variant('Вариант 1')] }));
++    expect(t).toMatch(/Создан один вариант «Вариант 1»/);
++  });
++
++  it('НЕ появляется, когда посчитан базовый план – сравнивать уже есть с чем', () => {
++    const t = asText(planningInsights({
++      mediaPlan: planFound(),
++      variants: [variant('Вариант 1')],
++      baseline: { totalKpi: 100, totalSpend: 1_000_000, ciLowTotal: 90, ciHighTotal: 110 },
++    }));
++    expect(t).not.toMatch(/Создан один вариант/);
++  });
++
++  it('НЕ появляется при двух вариантах', () => {
++    const t = asText(planningInsights({
++      mediaPlan: planFound(),
++      variants: [variant('Вариант 1'), variant('Вариант 2', { budget: 2_000_000 })],
++    }));
++    expect(t).not.toMatch(/Создан один вариант/);
++  });
++});
++
++// ─────────────────────────────────────────────────────────────────────────────
++describe('P7 – бюджеты вариантов почти совпадают (порог: разброс меньше 5%)', () => {
++  it('появляется при разбросе 2,0% и называет его', () => {
++    const t = asText(planningInsights({
++      mediaPlan: planFound(),
++      variants: [variant('A', { budget: 1_000_000 }), variant('Б', { budget: 1_020_000 })],
++    }));
++    expect(t).toMatch(/различаются на 2\.0%/);
++  });
++
++  it('НЕ появляется при разбросе 16,7%', () => {
++    const t = asText(planningInsights({
++      mediaPlan: planFound(),
++      variants: [variant('A', { budget: 1_000_000 }), variant('Б', { budget: 1_200_000 })],
++    }));
++    expect(t).not.toMatch(/Бюджеты вариантов различаются/);
++  });
++
++  it('НЕ появляется, когда бюджет варианта не посчитан (ноль)', () => {
++    const t = asText(planningInsights({
++      mediaPlan: planFound(),
++      variants: [variant('A', { budget: 0 }), variant('Б', { budget: 0 })],
++    }));
++    expect(t).not.toMatch(/Бюджеты вариантов различаются/);
++  });
++});
++
++// ─────────────────────────────────────────────────────────────────────────────
++describe('P8 / P9 – различимы ли варианты между собой', () => {
++  it('при перекрытии диапазонов отказывается называть лидера лучшим', () => {
++    const t = asText(planningInsights({
++      mediaPlan: planFound(),
++      variants: [
++        variant('A', { predictedKpi: 110, ciLow: 90, ciHigh: 130, budget: 1_000_000 }),
++        variant('Б', { predictedKpi: 100, ciLow: 80, ciHigh: 120, budget: 1_500_000 }),
++      ],
++    }));
++    expect(t).toMatch(/преимущество лидера «A».*данными не доказано/s);
++    expect(t).not.toMatch(/устойчиво лучше/);
++  });
++
++  it('при непересекающихся диапазонах называет лидера и обе границы', () => {
++    const t = asText(planningInsights({
++      mediaPlan: planFound(),
++      variants: [
++        variant('A', { predictedKpi: 200, ciLow: 180, ciHigh: 220, budget: 1_000_000 }),
++        variant('Б', { predictedKpi: 100, ciLow: 80, ciHigh: 120, budget: 1_500_000 }),
++      ],
++    }));
++    expect(t).toMatch(/«A» устойчиво лучше «Б»/);
++    expect(t).not.toMatch(/данными не доказано/);
++  });
++
++  it('базовый план участвует в сравнении наравне с вариантами', () => {
++    const t = asText(planningInsights({
++      mediaPlan: planFound(),
++      baseline: { totalKpi: 300, totalSpend: 1_000_000, ciLowTotal: 280, ciHighTotal: 320 },
++      variants: [variant('A', { predictedKpi: 100, ciLow: 80, ciHigh: 120, budget: 1_500_000 })],
++    }));
++    expect(t).toMatch(/«Базовый план» устойчиво лучше «A»/);
++  });
++
++  it('НЕ сравнивает, когда диапазона нет ни у одной линии', () => {
++    const t = asText(planningInsights({
++      mediaPlan: planFound(),
++      variants: [
++        variant('A', { predictedKpi: 200, budget: 1_000_000 }),
++        variant('Б', { predictedKpi: 100, budget: 1_500_000 }),
++      ],
++    }));
++    expect(t).not.toMatch(/устойчиво лучше/);
++    expect(t).not.toMatch(/данными не доказано/);
++  });
++});
++
++// ─────────────────────────────────────────────────────────────────────────────
++describe('общее свойство: пустой ход не печатает ничего лишнего', () => {
++  it('на чистом плане без прогноза и вариантов подсказок про сравнение нет', () => {
++    const ins = planningInsights({
++      mediaPlan: planFound(),
++      horizonPeriods: 12,
++      historyPeriods: 60,
++      diagnostics: diagnostics(80, 'Хорошее'),
++    });
++    expect(asText(ins)).not.toMatch(/устойчиво лучше|не доказано|Создан один вариант|Бюджеты вариантов/);
++    expect(ins).toHaveLength(0);
++  });
++
++  it('ни одна подсказка не печатается при ЛЮБОМ входе – пустой контекст даёт ровно одну, про отсутствие плана', () => {
++    const ins = planningInsights({});
++    expect(ins).toHaveLength(1);
++    expect(ins[0].text).toMatch(/нет ни одной строки на будущее/);
++  });
++});
+diff --git a/src/tests/planning-single-field.test.js b/src/tests/planning-single-field.test.js
+new file mode 100644
+index 00000000..d2c38179
+--- /dev/null
++++ b/src/tests/planning-single-field.test.js
+@@ -0,0 +1,94 @@
++/**
++ * Сторож «поле сравнения одно» (задача 5.2б).
++ *
++ * На шаге «Планирование» одни и те же линии рисовались дважды: веер история →
++ * прогноз в секции базового плана и второе поле внутри таблицы сравнения. Второе
++ * поле шагу не нужно: сравнивать сценарии надо в одних осях, а не в двух похожих.
++ * Поэтому MultiScenarioPage умеет НЕ рисовать своего графика (showChart={false}),
++ * и шаг этим пользуется; отдельная страница сравнения – рисует, там поле своё.
++ */
++import { describe, it, expect, vi } from 'vitest';
++import { render } from '@testing-library/svelte';
++
++vi.mock('$lib/components/pipeline/MultiScenarioChart.svelte', async () => {
++  const { default: ChartStub } = await import('./MultiScenarioChartStub.svelte');
++  return { default: ChartStub };
++});
++
++import MultiScenarioPage from '$lib/components/pipeline/MultiScenarioPage.svelte';
++
++/** @param {string} id @param {number} kpi */
++const scenario = (id, kpi) => ({
++  id,
++  name: `Вариант ${id}`,
++  budget: 1_000_000,
++  predictedKpi: kpi,
++  ciLow: kpi * 0.9,
++  ciHigh: kpi * 1.1,
++  perChannelAllocation: { ТВ: 600_000, Диджитал: 400_000 },
++  dates: ['2024-04', '2024-05'],
++  predictions: [kpi / 2, kpi / 2],
++});
++
++const baseline = {
++  id: 'baseline',
++  name: 'Базовый план',
++  budget: 900_000,
++  predictedKpi: 900,
++  ciLow: 850,
++  ciHigh: 950,
++  perChannelAllocation: { ТВ: 500_000, Диджитал: 400_000 },
++  dates: ['2024-04', '2024-05'],
++  predictions: [450, 450],
++};
++
++describe('MultiScenarioPage – своё поле графика выключается', () => {
++  it('по умолчанию рисует своё поле (страница сравнения на нём и держится)', () => {
++    const { container } = render(MultiScenarioPage, {
++      props: { scenarios: [scenario('a', 1000), scenario('b', 1100)], kpiLabel: 'Доход (₽)' },
++    });
++    expect(container.querySelector('[data-testid="multi-scenario-chart-stub"]')).toBeTruthy();
++  });
++
++  it('при showChart={false} поля не рисует, а таблицу оставляет', () => {
++    const { container } = render(MultiScenarioPage, {
++      props: {
++        scenarios: [scenario('a', 1000), scenario('b', 1100)],
++        showChart: false,
++        kpiLabel: 'Доход (₽)',
++      },
++    });
++    expect(
++      container.querySelector('[data-testid="multi-scenario-chart-stub"]'),
++      'второе поле с теми же линиями шагу «Планирование» не нужно',
++    ).toBeNull();
++    expect(container.querySelector('.comparison-table')).toBeTruthy();
++  });
++});
++
++describe('MultiScenarioPage – базовый план как опорный сценарий', () => {
++  it('с базовым планом сравнивает даже ОДИН вариант и даёт колонку Δ%', () => {
++    const { container, queryByText } = render(MultiScenarioPage, {
++      props: {
++        scenarios: [scenario('a', 1000)],
++        baseline,
++        showChart: false,
++        kpiLabel: 'Доход (₽)',
++      },
++    });
++    expect(
++      queryByText(/Нужно ≥2 сценария для сравнения/),
++      'базовый план – полноценная вторая линия сравнения',
++    ).toBeNull();
++    expect(container.querySelector('.col-uplift'), 'колонка Δ% появляется только при базовом плане').toBeTruthy();
++    expect(container.querySelector('.baseline-row')).toBeTruthy();
++  });
++
++  it('без базового плана один вариант сравнивать не с чем – так и говорит', () => {
++    const { queryByText, container } = render(MultiScenarioPage, {
++      props: { scenarios: [scenario('a', 1000)], baseline: null, showChart: false, kpiLabel: 'Доход (₽)' },
++    });
++    expect(queryByText(/Нужно ≥2 сценария для сравнения/)).toBeTruthy();
++    expect(container.querySelector('.col-uplift')).toBeNull();
++  });
++});
+diff --git a/src/tests/planning-step-chart-placement.test.js b/src/tests/planning-step-chart-placement.test.js
+new file mode 100644
+index 00000000..89b79a95
+--- /dev/null
++++ b/src/tests/planning-step-chart-placement.test.js
+@@ -0,0 +1,117 @@
++/**
++ * Сторож места графика прогноза на шаге «Планирование» (задача 5.2б).
++ *
++ * Веер «история → прогноз» жил ВНУТРИ секции базового плана и показывался только
++ * при подтверждённом медиаплане из файла. Без плана в данных клиент мог создать
++ * варианты – и не увидеть ни одного графика, то есть сравнивать было негде.
++ * Теперь поле вынесено в свою секцию и появляется, как только есть хотя бы одна
++ * линия прогноза: базовый план или вариант.
++ */
++import { describe, it, expect, vi, beforeEach } from 'vitest';
++import { render, waitFor } from '@testing-library/svelte';
++import { invoke } from '@tauri-apps/api/core';
++import {
++  activeProjectId,
++  modelData,
++  decomposeData,
++  optimizeData,
++  mediaPlanDetected,
++} from '$lib/project-state.js';
++
++vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
++vi.mock('@tauri-apps/api/event', () => ({ listen: vi.fn().mockResolvedValue(() => {}) }));
++vi.mock('$lib/components/charts/EChartBase.svelte', async () => {
++  const { default: Probe } = await import('./EChartOptionProbe.svelte');
++  return { default: Probe };
++});
++
++import PlanningStep from '$lib/components/pipeline/PlanningStep.svelte';
++
++const futureDates = ['2025-01', '2025-02', '2025-03'];
++
++beforeEach(() => {
++  vi.clearAllMocks();
++  vi.mocked(invoke).mockImplementation(async (/** @type {string} */ cmd) => {
++    if (cmd === 'project_get_dir') return 'D:/tmp/proj';
++    // Восстановление результатов проекта отклоняем: у него свой перехват, он
++    // молча выходит и НЕ трогает сторы. Иначе оно затирало бы медиаплан-фикстуру
++    // (в живом коде он ставится из results/*.json).
++    if (cmd === 'project_load_results') throw new Error('нет результатов на диске');
++    if (cmd === 'econ_scenario') {
++      return {
++        status: 'ok',
++        predictions: [100, 110, 120],
++        predictions_ci_low: [60, 66, 72],
++        predictions_ci_high: [140, 154, 168],
++        future_dates: futureDates,
++        totals: {
++          predicted_kpi: 330,
++          total_spend_money: 900_000,
++          predicted_kpi_ci_low: 198,
++          predicted_kpi_ci_high: 462,
++        },
++        disclaimers: [],
++      };
++    }
++    return null;
++  });
++
++  activeProjectId.set('project-1');
++  modelData.set({
++    diagnostics: {
++      mqs: { score: 70, tier_label: 'Хорошее' },
++      metrics: { ratio: 4.2 },
++      scaled_params: {},
++      decays: {},
++    },
++    channelParams: null, picklePath: 'x', normalization: null,
++  });
++  decomposeData.set({
++    decomposition_series: {
++      dates: Array.from({ length: 24 }, (_, i) => `2023-${String((i % 12) + 1).padStart(2, '0')}`),
++      series: [{ name: 'ТВ', data: Array.from({ length: 24 }, () => 10) }],
++    },
++    channels: [{ name: 'ТВ', spend: 100, contribution: 40, roi: 0.4 }],
++  });
++  optimizeData.set({
++    channels: [{ name: 'ТВ', optimal_spend_money: 600_000, current_spend_money: 500_000 }],
++    current_kpi: 300,
++  });
++  mediaPlanDetected.set({
++    n_future_periods: 3,
++    channels: { ТВ: [300_000, 300_000, 300_000] },
++    period_labels: futureDates,
++    future_dates: futureDates,
++    warnings: [],
++    granularity: 'month',
++    confirmed: true,
++    source_hash: 'hash-1',
++  });
++});
++
++describe('место графика прогноза', () => {
++  it('поле живёт в своей секции, а не внутри блока базового плана', async () => {
++    const { container } = render(PlanningStep);
++
++    await waitFor(() => {
++      expect(container.querySelector('.forecast-chart-section [data-testid="echart-probe"]')).toBeTruthy();
++    }, { timeout: 4000 });
++
++    expect(
++      container.querySelector('.baseline-section [data-testid="echart-probe"]'),
++      'внутри блока базового плана графика больше нет – иначе он снова окажется заперт за наличием медиаплана в файле',
++    ).toBeNull();
++  });
++
++  it('на поле одна пара осей, и базовый план на ней подписан', async () => {
++    const { container } = render(PlanningStep);
++
++    await waitFor(() => {
++      expect(container.querySelector('[data-testid="echart-probe"]')).toBeTruthy();
++    }, { timeout: 4000 });
++
++    const probes = container.querySelectorAll('[data-testid="echart-probe"]');
++    expect(probes, 'два поля с одними и теми же линиями – это не сравнение, а дубль').toHaveLength(1);
++    expect(probes[0].getAttribute('data-legend') ?? '').toContain('Базовый план');
++  });
++});
+diff --git a/tools/build_glossary.py b/tools/build_glossary.py
+index fd8b4f21..c54a8f76 100644
+--- a/tools/build_glossary.py
++++ b/tools/build_glossary.py
+@@ -436,7 +436,7 @@ a:hover {{ text-decoration: underline; }}
+ 
+ {body_html}
+ 
+-<p style="margin-top:28px"><a href="interpretation.html">Интерпретация результатов →</a> · <a href="methodology.html">Методология MMM →</a> · <a href="features.html">Каталог функций →</a></p>
++<p style="margin-top:28px"><a href="step-4-decompose.html">Как читать декомпозицию →</a> · <a href="step-3-model.html">Шаг «Модель» →</a> · <a href="kpi-passports.html">Паспорта показателей →</a> · <a href="features.html">Каталог функций →</a></p>
+ 
+ </div>
+ 
+diff --git a/tools/build_help_pdf.py b/tools/build_help_pdf.py
+index 405739e2..27445b2c 100644
+--- a/tools/build_help_pdf.py
++++ b/tools/build_help_pdf.py
+@@ -31,8 +31,8 @@ Edge-вызовом и собственным @page { size: A4; margin: 0 }, с
+    Legal Center, НЕ как светлый УДАЛЕНИЕ.html у Oracle) - раздел «Удаление»
+    прогоняется через ТОТ ЖЕ print-конвейер (BASE_PRINT_CSS + strip_dark_theme_
+    leaks), что и обычные страницы, а не через облегчённую обработку Oracle.
+-3. Несколько страниц (features/data-preparation/econometrica/whats-new/
+-   interpretation/methodology) объявляют --purple/--teal в своём :root и
++3. Несколько страниц (features/whats-new, а также новые step-*/kpi-passports)
++   объявляют --purple/--teal в своём :root и
+    используют их в СОХРАНЯЕМЫХ (не голых тег-) селекторах - `.badge-expert`,
+    `.role-date`, `.naming-card .zone`, `.change.sec`, `details.expert` и т.п.
+    :root вырезается per-page, поэтому эти переменные остаются неопределены в
+@@ -98,30 +98,46 @@ DEFAULT_PRODUCT = "Aurora AI Optimizer MMM"
+ NAV_JS = DEFAULT_HELP_DIR / "econ-nav.js"
+ 
+ # Порядок разделов PDF - логика новичка (директива Антона, ретранслирована
+-# через team-lead 2026-07-19), НЕ порядок econ-nav.js (тот группирует под
+-# экранный навбар: Начало/Данные и методология/Интерфейс/Возможности).
+-# index (справочный центр = обзор) и about (о продукте) открывают документ;
+-# user-guide/system-requirements - до install (проверить требования и в целом
+-# ориентироваться в продукте, ДО того как ставить); install - установка
+-# (раздел «Удаление» вырезан в приложение, см. split_install_body);
+-# econometrica (Visual Pipeline UI) - экранный тур сразу после установки,
+-# мост к глубоким методологическим разделам; pipeline/data-preparation/
+-# methodology/interpretation - ядро продукта; features - каталог функций
+-# (включает как подразделы «Режимы анализа и типы KPI» и «Отчёты и экспорт» -
+-# отдельных файлов под них нет); faq/error-codes/glossary - справочные
+-# разделы; whats-new - закрывает документ. Обновлять вручную при появлении/
+-# уходе раздела.
++# через team-lead 2026-07-19), НЕ порядок econ-nav.js.
++#
++# Перестройка справки по шагам мастера (2026-09-13): ядро продукта - это
++# теперь СЕМЬ пошаговых разделов (step-1-import … step-7-report), каждый по
++# одной схеме «что происходит / что нужно от вас / как читать результат /
++# типовые ошибки», плюс сквозной kpi-passports (паспорта показателей -
++# единицы и подписи, затрагивают импорт, декомпозицию и отчёт разом).
++# Прежние тематические разделы (econometrica / pipeline / data-preparation /
++# methodology / interpretation) разобраны в эти семь; файлы остались на диске,
++# но выведены из навигации и из этого порядка - см. UNLINKED_PAGES в
++# tools/check_help_pdf_consistency.py. Решение об их удалении - отдельное.
++#
++# Кластер «о продукте и установка» сохранён отдельной группой в голове
++# документа: index (справочный центр = обзор) и about (о продукте) открывают
++# документ; user-guide/system-requirements - до install (проверить требования
++# и в целом сориентироваться в продукте ДО установки); install - установка
++# (раздел «Удаление» вырезан в приложение, см. split_install_body).
++# Дальше семь шагов по порядку прохождения, затем паспорта показателей;
++# features - каталог функций (включает как подразделы «Режимы анализа и типы
++# KPI» и «Отчёты и экспорт» - отдельных файлов под них нет); faq/error-codes/
++# glossary - справочные разделы; whats-new закрывает документ.
++# Обновлять вручную при появлении/уходе раздела.
+ PAGE_ORDER = [
++    # кластер «о продукте и установка»
+     "index",
+     "about",
+     "user-guide",
+     "system-requirements",
+     "install",
+-    "econometrica",
+-    "pipeline",
+-    "data-preparation",
+-    "methodology",
+-    "interpretation",
++    # семь шагов мастера - ядро продукта
++    "step-1-import",
++    "step-2-validate",
++    "step-3-model",
++    "step-4-decompose",
++    "step-5-optimize",
++    "step-6-planning",
++    "step-7-report",
++    # сквозной раздел: единицы и подписи целевого показателя
++    "kpi-passports",
++    # справочные разделы
+     "features",
+     "faq",
+     "error-codes",
+diff --git a/tools/check_help_pdf_consistency.py b/tools/check_help_pdf_consistency.py
+index e8c460c8..8a6a8ac3 100644
+--- a/tools/check_help_pdf_consistency.py
++++ b/tools/check_help_pdf_consistency.py
+@@ -17,9 +17,12 @@ Dev/Aurora_Oracle/tools/check_help_consistency.py (волна 2 стандарт
+ 
+ Блокирующие проверки (FAIL, exit 1):
+ 1. econ-nav.js: каждый id из PAGES имеет файл <id>.html на диске, и наоборот -
+-   каждый *.html в src-tauri/help-econometrica/ (кроме служебных ассетов)
+-   упомянут в PAGES econ-nav.js - иначе страница физически недостижима из
+-   справочного центра (орфан).
++   каждый *.html в src-tauri/help-econometrica/ (кроме служебных ассетов и
++   явно перечисленных в UNLINKED_PAGES) упомянут в PAGES econ-nav.js - иначе
++   страница физически недостижима из справочного центра (орфан). Страница из
++   UNLINKED_PAGES, наоборот, НЕ должна быть в PAGES - иначе список и навигация
++   разошлись; и каждая запись UNLINKED_PAGES обязана иметь файл на диске -
++   запись, пережившая свой файл, превращает список в глушилку проверки.
+ 2. U+2014 «—» (литерал + HTML-сущности &mdash;/&#8212;/&#x2014;) запрещён во
+    всех src-tauri/help-econometrica/*.html.
+ 3. CPD-09: «Сипович»/«sipovich» запрещены в любом html справки; канон
+@@ -81,6 +84,23 @@ PACKAGE_JSON = REPO_ROOT / "package.json"
+ # econ-nav.js PAGES (шаблоны xlsx, лого, скрипт удаления, сам econ-nav.js).
+ NON_PAGE_ASSETS = {"econ-nav.js"}
+ 
++# Страницы, СОЗНАТЕЛЬНО выведенные из навигации и из порядка PDF, но
++# оставленные на диске (перестройка справки по шагам мастера, 2026-09-13).
++# Их содержимое разобрано по семи файлам step-*.html; физическое удаление -
++# отдельное решение владельца, до него файлы лежат рядом как источник сверки.
++# Проверка орфанов для ОСТАЛЬНЫХ страниц остаётся живой: новая страница,
++# забытая в econ-nav.js, по-прежнему даёт FAIL.
++# Когда владелец решит удалить доноров - убрать и этот список: пустой набор
++# возвращает проверку к прежней строгости. Запись, пережившая свой файл, -
++# FAIL (см. check_unlinked_pages): иначе список молча прикрывал бы пустоту.
++UNLINKED_PAGES = {
++    "pipeline.html",
++    "econometrica.html",
++    "data-preparation.html",
++    "methodology.html",
++    "interpretation.html",
++}
++
+ EM_DASH = "—"
+ EM_DASH_ENTITY_RE = re.compile(r"&mdash;|&#8212;|&#x2014;", re.IGNORECASE)
+ VERSION_RE = re.compile(r"\bv(\d+\.\d+\.\d+)\b")
+@@ -140,6 +160,13 @@ def check_nav_js(all_html_files) -> list:
+     for path in all_html_files:
+         if path.name in NON_PAGE_ASSETS:
+             continue
++        if path.name in UNLINKED_PAGES:
++            if path.stem in id_set:
++                fails.append(
++                    f"{relpath(path)}: страница числится сознательно отвязанной (UNLINKED_PAGES), "
++                    "но при этом есть в PAGES econ-nav.js — согласовать одно из двух"
++                )
++            continue
+         page_id = path.stem
+         if page_id not in id_set:
+             fails.append(f"{relpath(path)}: страница есть на диске, но отсутствует в PAGES econ-nav.js (орфан, недостижима из справочного центра)")
+@@ -147,6 +174,24 @@ def check_nav_js(all_html_files) -> list:
+     return fails
+ 
+ 
++def check_unlinked_pages() -> list:
++    """Требование team-lead (2026-09-13): список сознательно отвязанных страниц
++    обязан сам оставаться честным. Если файл донора однажды удалят, а запись в
++    UNLINKED_PAGES забудут убрать, список превратится в глушилку: он будет
++    гасить проверку орфанов для имени, которого больше нет, и следующая
++    страница, случайно названная так же, проедет мимо сторожа. Поэтому каждая
++    запись обязана иметь файл на диске - иначе FAIL."""
++    fails = []
++    for name in sorted(UNLINKED_PAGES):
++        if not (HELP_DIR / name).exists():
++            fails.append(
++                f"UNLINKED_PAGES содержит «{name}», но файла нет в {relpath(HELP_DIR)} — "
++                "запись пережила свой файл: убрать её из списка "
++                "(иначе список молча прикрывает несуществующую страницу)"
++            )
++    return fails
++
++
+ # ── U+2014 ──────────────────────────────────────────────────────────────
+ 
+ def check_em_dash(all_html_files) -> list:
+@@ -338,6 +383,7 @@ def main() -> int:
+     all_warns = []
+ 
+     all_fails.extend(check_nav_js(all_html_files))
++    all_fails.extend(check_unlinked_pages())
+     all_fails.extend(check_em_dash(all_html_files))
+     all_fails.extend(check_inv50_terms(all_html_files))
+     all_fails.extend(check_copyright(all_html_files))
+diff --git a/tools/help_pdf_manifest.json b/tools/help_pdf_manifest.json
+index c8489058..75f5fe02 100644
+--- a/tools/help_pdf_manifest.json
++++ b/tools/help_pdf_manifest.json
+@@ -1,22 +1,30 @@
+ {
+-  "version": "2.5.0",
+-  "generated": "2026-08-17T07:17:05Z",
++  "version": "2.5.2",
++  "generated": "2026-09-13T12:30:31Z",
+   "sources": {
+-    "about.html": "d341856678790fe296783eb6296b499fde5df8ec32c5cbd5d74caf7c2a1707b0",
++    "about.html": "a353994b95ec58c8c345f8e95c7659036f8c4b86efb31b91fdbed219b733be56",
+     "data-preparation.html": "c094135d2cfa18b3af4f9894478c8c3df363649423eed3fd004151972c259fa4",
+     "econometrica.html": "2fe514bf6926ea8cc50d3a561f01d9e706800bffde7770db1203dab7af30027e",
+     "error-codes.html": "30c1c2a56367e27e7f5af3fc528f5cd37e82a7f442e63d0a462d79d91c9e541d",
+-    "faq.html": "022a50b83149c92b6bab2e79a8b2c791bfba4b0e2fb8cc7a02a80edfa7595e9e",
+-    "features.html": "06a8884f6e159b187e01107dcb0e6834847394ecc01bf5afeec791ee4258b78b",
+-    "glossary.html": "5380cdb0dfbd9434bb9d5406fd835ce3de1cc7d1b098ec151071c939f2452065",
+-    "index.html": "0a0f1e080479e057c339a8b008069ab1e4d98a520747a885bcb4f8584f2c2713",
++    "faq.html": "915a4941504f938063104e917c6be2842917c5220e7ce5d6f3e4e762bfee261b",
++    "features.html": "19da8a7f226b66bf3536d4d50daddb2e1860253bf0f4698b0f848eaa1f012834",
++    "glossary.html": "2ec970b9d85f9b5951185bfce65aa26125b2be42bfa10d652e1fece5a8e5bcfa",
++    "index.html": "a8290b636cf7b1246eb2dae2059acb2c64dfdefec51f33cc0b4ededa7b0ef77d",
+     "install.html": "37cf6b88b0afdc067fe5fcf8d5049a5cdaa84c26f0723c94583737efb41371f7",
+     "interpretation.html": "fbc86093348c511c9e17a3576973023dcb12ee95cb1311491529f779df8b10b5",
++    "kpi-passports.html": "9f5ba22e789c20edbc4cd669f50121182ea99f746bd1425f45e1d827d1a03221",
+     "methodology.html": "1cf743634c196251126b82e065237f97a1ca198bc498772b722f7bf2458988df",
+     "pipeline.html": "e8ba03e772c61a1ca7fbe87662947674895e83df23306f8a13c4923fb25e3faf",
++    "step-1-import.html": "75f850a6f1f7bf2212562ccdf290d3955b64520a590cfaa3343f8e8c515d54fe",
++    "step-2-validate.html": "1c84b9de3ed27cdd77d70b047969b2c16563e32dba7a20209af977d7d6041e9c",
++    "step-3-model.html": "2bb04c16668678b3a7c25b906be07db082e0db3f95655a2615094cceeb4cbf4b",
++    "step-4-decompose.html": "cd98c6fbaa2f6c5120ffaee02c22bd82c0b92fe4b8041da69309d186340470f9",
++    "step-5-optimize.html": "db57d892d86296df43d16c4439768839cc346f906ec74d38743340a965600e0e",
++    "step-6-planning.html": "facd049c8ce85ee643402198c1ed9c874541461b4120ec2d9c652e4dc45479f5",
++    "step-7-report.html": "4bb63ed2b26c2a885001decdaa4b34d3f01ae3b4c29a800f9ff1e3660cdd6cb1",
+     "system-requirements.html": "c3a525b900541739d08d2fd7aad3b711bb694e2db8c15bfb6e772bec7fe0ee9a",
+-    "user-guide.html": "9988c946d062d4a82e3a9c387ff89c552009cd4bf92d1602c86b1a28549ebbc4",
+-    "whats-new.html": "5c8eb343cb112d565a14b67239e330682338c64c9c082472556b44f9f44c8f13",
+-    "econ-nav.js": "7e50aff58f8df0ce9b433ae40111d4e29a430a77708155ccd3e923f8c50a2244"
++    "user-guide.html": "c62f88291f28d691ab0446d5501c8e1b668e4433b25583455e472e267fc96855",
++    "whats-new.html": "7ef990b708aa604720d60ba71aa4dbd7e5b92377f40b25bb7c98b0e36abf3d33",
++    "econ-nav.js": "307b910bc22a167da17f647bff54ebc0f1e5041b3eb41feed7674be34a5d0107"
+   }
+ }
