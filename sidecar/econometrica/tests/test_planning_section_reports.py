@@ -190,6 +190,16 @@ def test_section_title_names_the_screen_step():
     assert "Планирование: прогноз на будущий период" in html
 
 
+def test_width_disclaimer_names_the_accepted_plan():
+    """Аудит s46 (противоречие оговорок, 13.09.2026): экран (insights-rules.js
+    P4) судил базовый план, документ – принятый; на одних данных советы
+    выходили взаимоисключающими. Документ уже судил принятый, но не называл
+    его в самой фразе про ширину – её можно было прочитать про любой план.
+    Имя внутри фразы делает её самодостаточной (правило владельца)."""
+    html = render_forecast_plan(_s({"forecast": FC_TWO}))
+    assert "У принятого плана «Плюс 20%» ширина диапазона" in html
+
+
 def test_html_section_carries_planning_answers():
     """В разделе есть срок, принятый план, диапазон, отличие и вердикт."""
     html = render_forecast_plan(_s({"forecast": FC_TWO}))

@@ -2437,23 +2437,51 @@ export function planningInsights(ctx = {}) {
     });
   }
 
-  // ── P4. Ширина диапазона базового прогноза ────────────────────────────────
+  // ── P4. Ширина диапазона плана, по которому берут обязательства ──────────
   // Порог: (верх – низ) / центр ≥ 0.4 (широко) либо ≤ 0.15 (узко).
-  // НЕ появится: диапазона нет, центр ≤ 0, либо ширина между 15% и 40%.
-  if (baseline && baseline.ciLowTotal != null && baseline.ciHighTotal != null && baseline.totalKpi > 0) {
-    const lo = Number(baseline.ciLowTotal);
-    const hi = Number(baseline.ciHighTotal);
-    const width = (hi - lo) / baseline.totalKpi;
+  // Аудит s46 (противоречие оговорок, 13.09.2026): правило безусловно судило
+  // БАЗОВЫЙ план, а уносимый документ (aurora_html/sections.py) уже тогда
+  // судил ПРИНЯТЫЙ – на одних и тех же данных экран и документ советовали
+  // взаимоисключающее («планировать от центра» против «берите по нижней
+  // границе»). Владелец: оговорка обязана судить ПРИНЯТЫЙ план – тот, по
+  // которому человек берёт обязательства (`saveManifest`/`goToReport` в
+  // PlanningStep.svelte кладут в манифест именно его: лучший по predictedKpi
+  // вариант, а без единого созданного варианта – базовый). Пока ни одного
+  // варианта не создано, принятого плана ещё нет – судим базовый, но
+  // называем это явно словами, а не молчаливой подменой предмета оценки ни
+  // в одну сторону (INV-50).
+  const acceptedVariant = variants.length
+    ? [...variants]
+        .filter((v) => v && v.ciLow != null && v.ciHigh != null && Number(v.predictedKpi) > 0)
+        .sort((a, b) => b.predictedKpi - a.predictedKpi)[0] ?? null
+    : null;
+  const judgedPlan = acceptedVariant
+    ? {
+        lo: Number(acceptedVariant.ciLow),
+        hi: Number(acceptedVariant.ciHigh),
+        kpi: Number(acceptedVariant.predictedKpi),
+        subject: `У принятого плана «${acceptedVariant.name}»`,
+      }
+    : (baseline && baseline.ciLowTotal != null && baseline.ciHighTotal != null && baseline.totalKpi > 0
+        ? {
+            lo: Number(baseline.ciLowTotal),
+            hi: Number(baseline.ciHighTotal),
+            kpi: Number(baseline.totalKpi),
+            subject: 'План ещё не выбран – у базового плана',
+          }
+        : null);
+  if (judgedPlan) {
+    const width = (judgedPlan.hi - judgedPlan.lo) / judgedPlan.kpi;
     if (width >= 0.4) {
       out.push({
         severity: 'warning',
-        text: `Правдоподобный диапазон базового прогноза ${fmt(lo)} – ${fmt(hi)} при центре ${fmt(baseline.totalKpi)}: ширина ${Math.round(width * 100)}% от прогноза. Обязательства берите по нижней границе ${fmt(lo)}, а не по центру.`,
+        text: `${judgedPlan.subject} правдоподобный диапазон ${fmt(judgedPlan.lo)} – ${fmt(judgedPlan.hi)} при центре ${fmt(judgedPlan.kpi)}: ширина ${Math.round(width * 100)}% от прогноза. Обязательства берите по нижней границе ${fmt(judgedPlan.lo)}, а не по центру.`,
         tip: 'Широкий диапазон – это не ошибка расчёта, а честная мера незнания: истории мало либо каналы меняются вместе. Сузить его можно только данными – большей историей или разведением бюджетов каналов во времени.',
       });
     } else if (width <= 0.15) {
       out.push({
         severity: 'success',
-        text: `Правдоподобный диапазон базового прогноза ${fmt(lo)} – ${fmt(hi)}, ширина ${Math.round(width * 100)}% от центра ${fmt(baseline.totalKpi)} – узкий. Можно планировать от центра, оставив нижнюю границу как страховой сценарий.`,
+        text: `${judgedPlan.subject} правдоподобный диапазон ${fmt(judgedPlan.lo)} – ${fmt(judgedPlan.hi)}, ширина ${Math.round(width * 100)}% от центра ${fmt(judgedPlan.kpi)} – узкий. Можно планировать от центра, оставив нижнюю границу как страховой сценарий.`,
         tip: 'Узкий диапазон означает, что модель уверенно отделяет вклад каналов на этой истории. Это свойство данных, а не гарантия – внешние события в диапазон не заложены.',
       });
     }

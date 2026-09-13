@@ -122,26 +122,28 @@ describe('P3 – горизонт против длины истории (пор
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-describe('P4 – ширина правдоподобного диапазона базового прогноза', () => {
+describe('P4 – ширина правдоподобного диапазона плана, по которому берут обязательства', () => {
   const base = (lo, hi, mid = 100) => ({
     totalKpi: mid, totalSpend: 1_000_000, ciLowTotal: lo, ciHighTotal: hi,
   });
 
-  it('предупреждает при ширине 80% от центра и велит брать нижнюю границу', () => {
+  it('без единого созданного варианта судит базовый и называет это явно', () => {
     const t = asText(planningInsights({ mediaPlan: planFound(), baseline: base(60, 140) }));
+    expect(t).toMatch(/План ещё не выбран – у базового плана/);
     expect(t).toMatch(/ширина 80% от прогноза/);
     expect(t).toMatch(/по нижней границе/);
   });
 
-  it('хвалит узкий диапазон при ширине 10%', () => {
+  it('хвалит узкий диапазон при ширине 10% и называет предмет оценки', () => {
     const t = asText(planningInsights({ mediaPlan: planFound(), baseline: base(95, 105) }));
+    expect(t).toMatch(/План ещё не выбран – у базового плана/);
     expect(t).toMatch(/ширина 10% от центра/);
     expect(t).toMatch(/узкий/);
   });
 
   it('МОЛЧИТ в середине (ширина 20%) – ни «широко», ни «узко»', () => {
     const t = asText(planningInsights({ mediaPlan: planFound(), baseline: base(90, 110) }));
-    expect(t).not.toMatch(/Правдоподобный диапазон базового прогноза/);
+    expect(t).not.toMatch(/правдоподобный диапазон/);
   });
 
   it('НЕ появляется, когда диапазона у прогноза нет', () => {
@@ -149,7 +151,34 @@ describe('P4 – ширина правдоподобного диапазона 
       mediaPlan: planFound(),
       baseline: { totalKpi: 100, totalSpend: 1_000_000, ciLowTotal: null, ciHighTotal: null },
     }));
-    expect(t).not.toMatch(/Правдоподобный диапазон базового прогноза/);
+    expect(t).not.toMatch(/правдоподобный диапазон/);
+  });
+
+  // ── Аудит s46 (противоречие оговорок): судим ПРИНЯТЫЙ план, не базовый ──
+  it('при созданном варианте судит его, а не базовый план, и называет по имени', () => {
+    const t = asText(planningInsights({
+      mediaPlan: planFound(),
+      baseline: base(95, 105, 100),       // узкий базовый (10%) – был бы «успех»
+      variants: [variant('Плюс 20%', { predictedKpi: 12_000, ciLow: 9_000, ciHigh: 15_000, budget: 6_000_000 })],
+    }));
+    expect(t).toMatch(/У принятого плана «Плюс 20%» правдоподобный диапазон/);
+    expect(t).toMatch(/ширина 50% от прогноза/);
+    expect(t).not.toMatch(/План ещё не выбран/);
+    // Тот самый прежний спор: базовый (узкий, «можно от центра») больше не
+    // печатается вовсе – его ширина не судится, пока есть принятый вариант.
+    expect(t).not.toMatch(/ширина 10% от центра/);
+  });
+
+  it('из двух вариантов принятым (лучшим по прогнозу) судит вариант с бОльшим KPI', () => {
+    const t = asText(planningInsights({
+      mediaPlan: planFound(),
+      variants: [
+        variant('Меньше', { predictedKpi: 8_000, ciLow: 7_500, ciHigh: 8_500, budget: 4_000_000 }),
+        variant('Больше', { predictedKpi: 12_000, ciLow: 9_000, ciHigh: 15_000, budget: 6_000_000 }),
+      ],
+    }));
+    expect(t).toMatch(/У принятого плана «Больше» правдоподобный диапазон/);
+    expect(t).not.toMatch(/У принятого плана «Меньше»/);
   });
 });
 
