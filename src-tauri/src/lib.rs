@@ -2839,7 +2839,17 @@ fn check_server_update(app_min_version: String, update_url: Option<String>) -> O
 async fn download_update(app: tauri::AppHandle) -> Result<String, String> {
     // SEC-04: url и checksum из серверного манифеста, НЕ с фронта.
     let current = env!("CARGO_PKG_VERSION");
-    let info = updater::check_for_updates(current).await.map_err(|e| e.to_string())?.ok_or_else(|| "Обновление недоступно".to_string())?;
+    // 🔴 Внешний аудит s43 (H-2): `Ok(None)` — это НЕ отказ загрузки. Сервер отвечает,
+    // связь есть, просто он не считает обновление нужным, а окно блокирует работу и
+    // зовёт «Повторить». Повторы тут не помогут ни разу, поэтому текст свой и без кода:
+    // кода для «сведения о требуемом обновлении разошлись с сервером» в линейке нет,
+    // а подставить чужой — увести поддержку по ложному следу.
+    let info = updater::check_for_updates(current)
+        .await
+        .map_err(|e| e.to_string())?
+        .ok_or_else(|| updater::user_text(
+            "Сервер обновлений не предлагает новой версии – похоже, сведения о требуемом обновлении устарели. Перезапустите программу; если окно появится снова, напишите нам на support@auroraai.pro."
+        ))?;
     let path = updater::download_update(&info.download_url, &app).await.map_err(|e| e.to_string())?;
     updater::verify_checksum(&path, &info.checksum).map_err(|e| e.to_string())?;
     Ok(path.to_string_lossy().to_string())

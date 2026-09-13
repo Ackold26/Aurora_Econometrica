@@ -10,6 +10,44 @@ use std::os::windows::process::CommandExt;
 
 use crate::errors::{coded_err, ErrorCode};
 
+/// Метка «эту деталь отказа написали для клиента, показывайте её вместо общего
+/// текста по коду».
+///
+/// 🔴 Зачем метка, а не догадка по языку (внешний аудит s43, находка H-1). Один код
+/// покрывает 4–8 разных причин, и общий текст по коду называет человеку ОДНУ из них —
+/// не ту. Самый дорогой случай: клиент отказал в правах администратора, а на экране
+/// читает про нехватку места на диске и антивирус, и ходит по кругу. Значит деталь
+/// иногда обязана побеждать таблицу — но только когда она написана для человека.
+///
+/// Признак «в детали есть кириллица» для этого не годится, проверено по всем веткам
+/// файла: `Загрузка обновления уже идёт`, `Частичный файл не соответствует
+/// серверному — начинаем заново`, `Ответ на докачку противоречив — начинаем заново` —
+/// русские, но служебные; «Не удалось загрузить обновление за 5 попыток … {last_err}»
+/// и текст про несовпавшую сумму — русские, но с английским хвостом и шестнадцатеричным
+/// мусором внутри. Догадка провела бы всё это на блокирующий экран. Поэтому признак
+/// явный и ставится там же, где пишется текст.
+///
+/// Формат строки отказа: `[UP-004] [клиенту] текст для человека`. Разбирает метку
+/// `describeUpdateError` (`src/lib/updateErrorText.js`), стык держит сторож
+/// `src/lib/updateErrorText.guard.test.js` — он читает ЭТОТ файл и требует, чтобы
+/// каждая помеченная деталь доезжала до экрана дословно и подчинялась правилам
+/// клиентского текста (без длинного тире, без латиницы кроме адреса поддержки).
+pub(crate) const USER_TEXT_MARK: &str = "[клиенту]";
+
+/// Деталь отказа, написанная для клиента: она победит общий текст по коду.
+/// Для служебных деталей (английских, с путями и кодами состояния) остаётся
+/// обычный `coded_err` — их человеку показывать нельзя.
+fn user_err(code: ErrorCode, human: &str) -> anyhow::Error {
+    coded_err(code, &format!("{USER_TEXT_MARK} {human}"))
+}
+
+/// То же, но для отказов, у которых кода нет и не должно быть: человеку текст
+/// нужен, а поддержке код ничего не сказал бы (см. «обновление не требуется»
+/// в обёртке `download_update`).
+pub(crate) fn user_text(human: &str) -> String {
+    format!("{USER_TEXT_MARK} {human}")
+}
+
 fn update_base_url() -> String {
     "https://ackold26.github.io/rosst-updates".to_string()
 }
@@ -70,10 +108,17 @@ pub struct VersionInfo {
 }
 
 /// Check for updates via Supabase Edge Function.
+///
+/// 🔴 Все отказы здесь несут код (внешний аудит s43, находка H-2). Прежде сетевые
+/// шли голым `?`: строка приезжала на фронт без кода, и человек читал запасной текст
+/// «напишите в поддержку» вместо «проверьте подключение к интернету». Отказ этой
+/// ветки обычно съедается запасным каналом GitHub Pages, но код нужен и здесь —
+/// он уходит в журнал, по которому поддержка разбирает обращение.
 async fn check_supabase(product: &str) -> Result<VersionInfo> {
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(10))
-        .build()?;
+        .build()
+        .map_err(|e| coded_err(ErrorCode::UP001, &format!("Failed to build HTTP client: {e}")))?;
 
     let anon_key = supabase_anon_key();
     let resp = client
@@ -82,30 +127,48 @@ async fn check_supabase(product: &str) -> Result<VersionInfo> {
         .header("apikey", &anon_key)
         .json(&serde_json::json!({ "product": product }))
         .send()
-        .await?;
+        .await
+        .map_err(|e| coded_err(ErrorCode::UP001, &format!("Supabase update request failed: {e}")))?;
 
     if !resp.status().is_success() {
-        anyhow::bail!("Supabase /app-update returned {}", resp.status());
+        return Err(coded_err(ErrorCode::UP001, &format!("Supabase /app-update returned {}", resp.status())));
     }
 
-    Ok(resp.json().await?)
+    resp.json()
+        .await
+        .map_err(|e| coded_err(ErrorCode::UP005, &format!("Supabase manifest is not readable: {e}")))
 }
 
 /// Check for updates via GitHub Pages manifest (fallback).
+///
+/// Коды: UP-001 — до сервера не достучались или он ответил не тем (человеку это
+/// читается как «проверьте подключение»); UP-005 — достучались, но манифест не
+/// разбирается (человеку это читается как «поправим на своей стороне»).
 async fn check_github_pages(product: &str) -> Result<VersionInfo> {
     let url = format!("{}/{}/latest.json", update_base_url(), product);
 
     let client = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(10))
-        .build()?;
+        .build()
+        .map_err(|e| coded_err(ErrorCode::UP001, &format!("Failed to build HTTP client: {e}")))?;
 
-    let resp = client.get(&url).send().await?;
+    let resp = client
+        .get(&url)
+        .send()
+        .await
+        .map_err(|e| coded_err(ErrorCode::UP001, &format!("Update request failed: {e}")))?;
 
     if !resp.status().is_success() {
         return Err(coded_err(ErrorCode::UP001, &format!("Update server returned {}", resp.status())));
     }
 
-    Ok(resp.json().await?)
+    // Единственное место, где рождается UP-005: манифест пришёл, но разобрать его
+    // нельзя (внешний аудит s43, находка L-1 — прежде ветка UP-005 была недостижима,
+    // а текст для неё на фронте уже был написан). Разбор номера версии (`is_newer`)
+    // отказать не может: он падает на значения по умолчанию.
+    resp.json()
+        .await
+        .map_err(|e| coded_err(ErrorCode::UP005, &format!("Update manifest is not readable: {e}")))
 }
 
 /// Product-ключ канала обновлений.
@@ -223,7 +286,13 @@ pub async fn download_update(url: &str, app_handle: &tauri::AppHandle) -> Result
     {
         let mut set = in_flight_downloads().lock().unwrap_or_else(|e| e.into_inner());
         if !set.insert(part_path.clone()) {
-            return Err(coded_err(ErrorCode::UP002, "Загрузка обновления уже идёт"));
+            // Текст для человека: общий по коду сказал бы «связь прервалась», хотя
+            // связь цела и файл в этот самый момент качается — человек нажал бы
+            // «Повторить» ещё раз и получил бы то же самое.
+            return Err(user_err(
+                ErrorCode::UP002,
+                "Обновление уже скачивается – подождите, пока полоса дойдёт до конца. Нажимать «Повторить» ещё раз не нужно.",
+            ));
         }
     }
     let _in_flight_guard = InFlightGuard(part_path.clone());
@@ -246,7 +315,8 @@ pub async fn download_update(url: &str, app_handle: &tauri::AppHandle) -> Result
                 attempt.error("update redirect to an untrusted host")
             }
         }))
-        .build()?;
+        .build()
+        .map_err(|e| coded_err(ErrorCode::UP002, &format!("Failed to build HTTP client: {e}")))?;
 
     const MAX_ATTEMPTS: u32 = 5;
     let mut last_err = String::new();
@@ -431,11 +501,21 @@ fn is_verified(path: &std::path::Path) -> bool {
 }
 
 /// Verify SHA256 checksum of a downloaded file.
-/// B2/B3 (2026-07-03): сообщения по-русски — уходят в errorMsg блокирующего
-/// оверлея обновления, клиент должен понимать, что делать.
+///
+/// B2/B3 (2026-07-03): сообщения по-русски — уходят в errorMsg блокирующего оверлея
+/// обновления, клиент должен понимать, что делать.
+/// 🔴 Уточнение после внешнего аудита s43 (H-1): «по-русски» само по себе на экран
+/// больше не проводит — туда доезжает деталь, помеченная `user_err`. Текст про
+/// отсутствующую сумму помечен: общий текст по коду UP-003 зовёт нажать «Повторить»,
+/// а повторы здесь не помогут никогда — суммы в манифесте от них не прибавится.
+/// Текст про несовпавшую сумму намеренно НЕ помечен: он несёт шестнадцатеричные
+/// обрывки хешей, человеку на экран им не место — там лучше общий текст по коду.
 pub fn verify_checksum(file_path: &std::path::Path, expected: &str) -> Result<()> {
     if expected.is_empty() {
-        anyhow::bail!("Контрольная сумма обновления отсутствует в манифесте — установка непроверенного файла отклонена. Повторите позже или обратитесь в поддержку.");
+        return Err(user_err(
+            ErrorCode::UP003,
+            "Обновление опубликовано без контрольной суммы, поэтому проверить его целостность нельзя – непроверенный файл программа не установит. Повторная попытка тут не поможет: напишите нам на support@auroraai.pro, и мы поправим это на своей стороне.",
+        ));
     }
 
     // Strip "sha256:" prefix if present
@@ -464,7 +544,12 @@ pub fn verify_checksum(file_path: &std::path::Path, expected: &str) -> Result<()
 /// юнит-тестом: apply_update завершает процесс (process::exit) и напрямую не тестируем.
 fn ensure_launchable(installer_path: &std::path::Path) -> Result<()> {
     if !installer_path.exists() {
-        return Err(coded_err(ErrorCode::UP004, &format!("Файл установщика не найден: {}. Повторите загрузку обновления.", installer_path.display())));
+        // Текст для человека: общий по коду UP-004 говорит про нехватку места и
+        // защитное средство, а файла просто нет — его нужно скачать заново.
+        return Err(user_err(ErrorCode::UP004, &format!(
+            "Скачанный файл обновления не найден на диске: {}. Возможно, его убрало защитное средство или очистка временных файлов – нажмите «Повторить», файл будет скачан заново.",
+            installer_path.display()
+        )));
     }
 
     // SEC-02 defense-in-depth: refuse paths that could break out of the
@@ -614,12 +699,12 @@ pub fn apply_update(installer_path: &std::path::Path) -> Result<()> {
         // Текст зависит от ветки: в прежнем пути отказ почти всегда означает отказ от
         // повышения прав, в новом — прав никто не спрашивал, и подсказка про них сбила
         // бы человека с толку.
-        return Err(coded_err(
+        return Err(user_err(
             ErrorCode::UP004,
             if elevate {
-                "Установщик не запустился (отказ в правах администратора). Приложение продолжает работать — повторите обновление и подтвердите запрос прав."
+                "Установщик не запустился: запрос прав администратора не подтверждён. Программа продолжает работать – нажмите «Повторить» и в системном окне с вопросом о разрешении выберите «Да»."
             } else {
-                "Установщик не запустился. Приложение продолжает работать — повторите обновление."
+                "Установщик не запустился. Программа продолжает работать – нажмите «Повторить», а если не поможет, закройте лишние программы и попробуйте ещё раз."
             },
         ));
     }
@@ -813,7 +898,61 @@ mod tests {
     fn checksum_empty_refused() {
         let p = tmp_file_with(b"whatever");
         let err = verify_checksum(&p, "").expect_err("пустая сумма обязана отклоняться");
-        assert!(err.to_string().contains("отклонена"), "Русское сообщение: {err}");
+        let msg = err.to_string();
+        assert!(msg.contains("контрольной суммы"), "Русское сообщение: {msg}");
+        // Внешний аудит s43 (H-1): текст обязан доехать до человека ДОСЛОВНО, а не
+        // подмениться общим по коду UP-003 («нажмите Повторить» здесь не помогает
+        // никогда). Метка — договор с `describeUpdateError` на фронте.
+        assert!(msg.contains(USER_TEXT_MARK), "текст написан для клиента и обязан быть помечен: {msg}");
+        assert!(msg.contains("support@auroraai.pro"), "человеку нужен адрес, куда писать: {msg}");
+        let _ = std::fs::remove_file(&p);
+    }
+
+    /// 🔴 Формат строки отказа — договор с фронтом (внешний аудит s43, H-1).
+    ///
+    /// `describeUpdateError` выбирает между деталью и общим текстом по коду ровно по
+    /// этой метке. Смени здесь порядок или пробел — и самый дорогой отказ (отказ в
+    /// правах администратора) снова начнёт показываться как «нехватка места на диске»,
+    /// причём молча: Rust соберётся, фронт соберётся, сломается только экран клиента.
+    #[test]
+    fn user_err_marks_client_facing_detail() {
+        assert_eq!(
+            user_err(ErrorCode::UP004, "Установщик не запустился.").to_string(),
+            "[UP-004] [клиенту] Установщик не запустился.",
+        );
+        assert_eq!(user_text("Обновление не требуется."), "[клиенту] Обновление не требуется.");
+        // Служебная деталь метки НЕ несёт — её человеку показывать нельзя.
+        assert_eq!(
+            coded_err(ErrorCode::UP004, "Installer must be .exe").to_string(),
+            "[UP-004] Installer must be .exe",
+        );
+    }
+
+    /// Манифест без поля контрольной суммы разбирается, а не отваливается.
+    ///
+    /// Это последнее недоказанное звено сценария «обновление опубликовано без
+    /// контрольной суммы»: остальное уже закрыто — текст проверен выше
+    /// (`checksum_empty_refused`), а его дословный приезд на экран держит сторож
+    /// `src/lib/updateErrorText.guard.test.js`. Недоставало ровно одного: что
+    /// манифест БЕЗ поля вообще разбирается. Снимите `#[serde(default)]` с поля —
+    /// и разбор упадёт раньше проверки, человек получит UP-005 про «неожиданный вид
+    /// сведений» вместо внятного «напишите нам, поправим на своей стороне», причём
+    /// починка H-1 в этой ветке умрёт молча.
+    ///
+    /// Тест написан вместо живой пробы (план проб s44, проба 3): подменять боевой
+    /// манифест на сервере обновлений ради одного поля незачем и рискованно.
+    #[test]
+    fn manifest_without_checksum_parses_to_empty() {
+        let info: VersionInfo = serde_json::from_str(
+            r#"{"version":"2.5.3","download_url":"https://example.invalid/setup.exe"}"#,
+        )
+        .expect("манифест без необязательных полей обязан разбираться");
+        assert_eq!(info.checksum, "", "отсутствующее поле даёт пустую строку, а не отказ разбора");
+
+        // И пустая сумма ведёт ровно в помеченную ветку, текст которой проверен выше.
+        let p = tmp_file_with(b"unverified installer");
+        let err = verify_checksum(&p, &info.checksum).expect_err("непроверенный файл ставить нельзя");
+        assert!(err.to_string().contains(USER_TEXT_MARK), "{err}");
         let _ = std::fs::remove_file(&p);
     }
 
