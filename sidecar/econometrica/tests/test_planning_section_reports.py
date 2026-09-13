@@ -39,8 +39,10 @@ def _s(ctx: dict) -> dict:
     return {**ctx, "strings": _STRINGS}
 
 
-def _scenario(name, kpi, lo, hi, spend, roas=1.5, labels=("2026-01", "2026-02", "2026-03")):
+def _scenario(name, kpi, lo, hi, spend, roas=1.5, labels=("2026-01", "2026-02", "2026-03"),
+              per_channel_money=None):
     return {
+        "per_channel_money": dict(per_channel_money or {}),
         "name": name,
         "variant_id": name,
         "predictions": [kpi / 3.0] * 3,
@@ -185,7 +187,7 @@ def test_html_section_carries_planning_answers():
     assert "Срок плана" in html and "3 периода" in html
     assert "2026-01" in html and "2026-03" in html
     assert "Принятый план" in html
-    assert "Правдоподобный диапазон" in html
+    assert "Правдоподобный диапазон 90&#160;%" in html
     assert "11 500 – 12 500" in html
     assert "Чем план отличается" in html
     assert "+1 000 000 ₽" in html and "+20%" in html
@@ -236,12 +238,14 @@ def test_document_numbers_come_from_scenario_files(tmp_path):
         (BASELINE_VARIANT_NAME, 11_000.0, 10_000.0, 13_000.0, 5_000_000.0),
         ("Плюс 20%", 12_000.0, 11_500.0, 12_500.0, 6_000_000.0),
     ):
+        per_channel = {"ТВ": spend * 0.6, "Диджитал": spend * 0.4}
         (sc_dir / f"{name}.json").write_text(
             json.dumps(
                 {
                     "scenario_name": name,
                     "predictions": [kpi / 3.0] * 3,
                     "future_dates": ["2026-01", "2026-02", "2026-03"],
+                    "per_channel_spend": {"native": per_channel, "money": per_channel},
                     "totals": {
                         "predicted_kpi": kpi,
                         "predicted_kpi_ci_low": lo,
@@ -262,9 +266,15 @@ def test_document_numbers_come_from_scenario_files(tmp_path):
     assert s["accepted"]["total_kpi"] == 12_000.0
     assert s["accepted"]["total_spend_money"] == 6_000_000.0
 
+    # Разбивка по каналам доезжает тем же путём и складывается в бюджет плана.
+    chs = s["accepted"]["channels"]
+    assert [c["name"] for c in chs] == ["ТВ", "Диджитал"]
+    assert sum(c["spend_money"] for c in chs) == 6_000_000.0
+
     html = render_forecast_plan(_s({"forecast": loaded}))
     assert "12 000" in html
     assert "6 000 000" in html
+    assert "3 600 000" in html  # ТВ за весь срок плана
 
 
 # ─── (f) колода ───────────────────────────────────────────────────────────────
@@ -304,7 +314,7 @@ def test_deck_planning_slide_carries_answers(base_payload, tmp_path):
     assert "Срок плана: 3 периода" in text
     assert "2026-01 – 2026-03" in text
     assert "Принятый план: «Плюс 20%»" in text
-    assert "правдоподобный диапазон (90%) 11 500 – 12 500" in text
+    assert "правдоподобный диапазон 90 % 11 500 – 12 500" in text
     assert "Против «Базовый план»" in text
     assert "+1 000 000 ₽" in text
     assert "не доказано" in text
@@ -402,3 +412,127 @@ def test_same_budget_is_named_in_words_not_plus_zero():
     html = render_forecast_plan(_s({"forecast": fc}))
     assert "бюджет тот же" in html
     assert "+0 ₽" not in html
+
+
+# ─── (h) куда идёт бюджет: разбивка принятого плана по каналам ────────────────
+
+FC_CHANNELS = _forecast(
+    [
+        _scenario(BASELINE_VARIANT_NAME, 11_000.0, 10_000.0, 13_000.0, 5_000_000.0),
+        _scenario(
+            "Плюс 20%", 12_000.0, 11_500.0, 12_500.0, 6_000_000.0,
+            per_channel_money={"Диджитал": 1_800_000.0, "ТВ": 3_600_000.0, "Радио": 600_000.0},
+        ),
+    ],
+    accepted="Плюс 20%",
+)
+
+
+def test_summary_channel_split_sorted_and_shares_sum_to_hundred():
+    """Каналы – по убыванию бюджета, доли складываются в 100% (та же сумма,
+    что «Бюджет плана»: движок кладёт в per_channel_spend.money только когда
+    перевёл в рубли все каналы, и тогда их сумма равна total_spend_money)."""
+    s = summarize_forecast(FC_CHANNELS)
+    chs = s["accepted"]["channels"]
+    assert [c["name"] for c in chs] == ["ТВ", "Диджитал", "Радио"]
+    assert chs[0]["spend_money"] == 3_600_000.0
+    assert chs[0]["share_pct"] == pytest.approx(60.0)
+    assert sum(c["share_pct"] for c in chs) == pytest.approx(100.0)
+    assert sum(c["spend_money"] for c in chs) == s["accepted"]["total_spend_money"]
+
+
+def test_summary_no_channel_split_without_money():
+    """Движок не перевёл каналы в рубли – разбивки нет вовсе, доли не считаем
+    из натуральных единиц (TRP и показы в рубли не складываются)."""
+    s = summarize_forecast(FC_TWO)
+    assert s["accepted"]["channels"] is None
+
+
+def test_html_channel_split_shown(tmp_path):
+    """Веб-отчёт: таблица «Куда идёт бюджет» с суммой и долей по каналу."""
+    html = render_forecast_plan(_s({"forecast": FC_CHANNELS}))
+    assert "Куда идёт бюджет" in html
+    assert "Бюджет за срок плана, ₽" in html
+    assert "3 600 000" in html and "60%" in html
+    assert "Радио" in html
+
+
+def test_html_no_channel_split_without_money():
+    """Нет денег по каналам – блока «Куда идёт бюджет» нет."""
+    html = render_forecast_plan(_s({"forecast": FC_TWO}))
+    assert "Куда идёт бюджет" not in html
+
+
+def test_deck_channel_split_one_line(base_payload, tmp_path):
+    """Колода: строка «Куда идёт бюджет» с крупнейшими каналами."""
+    payload = copy.deepcopy(base_payload)
+    payload["forecast"] = FC_CHANNELS
+    _, text = _deck_text(payload, str(tmp_path / "deck_channels.pptx"))
+    assert "Куда идёт бюджет: ТВ 3 600 000 ₽ (60%)" in text
+    assert "Диджитал 1 800 000 ₽ (30%)" in text
+
+
+def test_deck_channel_split_collapses_tail(base_payload, tmp_path):
+    """Каналов больше шести – хвост свёрнут в «прочие», сумма не теряется."""
+    many = {f"Канал {i}": float(1_000_000 - i * 10_000) for i in range(9)}
+    fc = _forecast(
+        [
+            _scenario(BASELINE_VARIANT_NAME, 11_000.0, 10_000.0, 13_000.0, sum(many.values())),
+            _scenario("Много каналов", 12_000.0, 11_500.0, 12_500.0, sum(many.values()),
+                      per_channel_money=many),
+        ],
+        accepted="Много каналов",
+    )
+    payload = copy.deepcopy(base_payload)
+    payload["forecast"] = fc
+    _, text = _deck_text(payload, str(tmp_path / "deck_many.pptx"))
+    assert "прочие 3 канала" in text
+
+
+def test_deck_channel_split_no_overflow(base_payload, tmp_path):
+    """Слайд плана с разбивкой по каналам не наезжает сам на себя."""
+    from aurora_pptx.check_overflow import check
+
+    payload = copy.deepcopy(base_payload)
+    payload["forecast"] = FC_CHANNELS
+    payload["waterfall"] = _WATERFALL
+    out = str(tmp_path / "deck_channels_overflow.pptx")
+    _deck_text(payload, out)
+    issues, n_slides = check(out)
+    assert n_slides > 0
+    detail = "\n".join(f"  слайд {s}: [{k}] {d}" for s, k, d in issues)
+    assert issues == [], f"Слайд плана с каналами получил наезд:\n{detail}"
+
+
+def _plan_slide_text(prs):
+    """Текст ИМЕННО слайда плана, не всей колоды.
+
+    Первая редакция этого сторожа искала термин по всей колоде – и прошла на
+    мутации, потому что «Правдоподобный диапазон» стоит и на другом слайде
+    (витрина проверки на истории). Сторож, который не может упасть, хуже
+    отсутствия сторожа: он создаёт видимость проверки. Слайд плана опознаём по
+    двум независимым признакам-ячейкам, как это уже делает test_forecast_report.
+    """
+    for slide in prs.slides:
+        texts = [sh.text_frame.text for sh in slide.shapes if sh.has_text_frame]
+        if "Прогноз на будущий период" in texts and "ВАРИАНТЫ БЮДЖЕТНОГО ПЛАНА" in texts:
+            return "\n".join(texts)
+    return None
+
+
+def test_both_documents_call_the_range_the_same(base_payload, tmp_path):
+    """Одна величина – одно имя в обоих документах: «правдоподобный диапазон».
+    Слова «доверительный интервал» и «CI» в разделе плана запрещены (INV-50)."""
+    payload = copy.deepcopy(base_payload)
+    payload["forecast"] = FC_CHANNELS
+    prs, _ = _deck_text(payload, str(tmp_path / "deck_term.pptx"))
+    slide_text = _plan_slide_text(prs)
+    assert slide_text is not None, "Слайд плана в колоде не найден"
+    html_section = render_forecast_plan(_s({"forecast": FC_CHANNELS}))
+
+    assert "Правдоподобный диапазон" in slide_text
+    assert "Правдоподобный диапазон" in html_section
+    for banned in ("доверительный интервал", "Доверительный интервал",
+                   "доверительный", "Доверительный", "90%-интервал", " CI ", "CI 90"):
+        assert banned not in slide_text, f"На слайде плана запрещённое слово: {banned}"
+        assert banned not in html_section, f"В разделе веб-отчёта запрещённое слово: {banned}"

@@ -3986,6 +3986,7 @@ class AuroraPPTXBuilder:
         # Числа — из engines.planning.summarize_forecast, то есть из тех же
         # results/scenarios/<имя>.json, что показывает экран.
         from engines.planning import summarize_forecast
+        from utils.kpi_display import plural
         summary = summarize_forecast(fc) or {}
 
         def _pi(v):
@@ -4005,7 +4006,6 @@ class AuroraPPTXBuilder:
         y = content_y
         horizon = summary.get("horizon_periods")
         if horizon:
-            from utils.kpi_display import plural
             span = ""
             if summary.get("period_first") and summary.get("period_last"):
                 span = f" ({summary['period_first']} – {summary['period_last']})"
@@ -4021,11 +4021,11 @@ class AuroraPPTXBuilder:
             parts = [f"«{acc['name']}» – {_pi(acc.get('total_kpi'))}"]
             if acc.get("ci_low") is not None and acc.get("ci_high") is not None:
                 w_txt = (
-                    f", ширина {acc['ci_width_pct']:.0f}% от прогноза"
+                    f" (ширина от прогноза {acc['ci_width_pct']:.0f}%)"
                     if acc.get("ci_width_pct") is not None else ""
                 )
                 parts.append(
-                    f"правдоподобный диапазон (90%) {_pi(acc['ci_low'])} – "
+                    f"правдоподобный диапазон 90 % {_pi(acc['ci_low'])} – "
                     f"{_pi(acc['ci_high'])}{w_txt}"
                 )
             if acc.get("total_spend_money") is not None:
@@ -4036,6 +4036,36 @@ class AuroraPPTXBuilder:
                 font=self.sans, size=10, bold=True, color=self.deep_100,
             )
             y += 0.34
+
+            # Куда идёт бюджет — одной строкой (решение владельца 13.09.2026:
+            # каналы да, периоды нет). На слайде места на таблицу каналов нет:
+            # ниже уже таблица вариантов и вердикт. Шесть крупнейших каналов
+            # поимённо, остаток свёрнут в «прочие N» — сумма строки остаётся
+            # равной бюджету плана, ничего не теряется молча.
+            acc_channels = acc.get("channels") or []
+            if acc_channels:
+                shown = acc_channels[:6]
+                rest = acc_channels[6:]
+                ch_parts = [
+                    f"{c['name']} {_pi(c['spend_money'])} ₽"
+                    + (f" ({c['share_pct']:.0f}%)" if c.get("share_pct") is not None else "")
+                    for c in shown
+                ]
+                if rest:
+                    rest_sum = sum(c["spend_money"] for c in rest)
+                    rest_share = sum(
+                        c["share_pct"] for c in rest if c.get("share_pct") is not None
+                    )
+                    ch_parts.append(
+                        f"прочие {len(rest)} {plural(len(rest), ['канал', 'канала', 'каналов'])} "
+                        f"{_pi(rest_sum)} ₽ ({rest_share:.0f}%)"
+                    )
+                self._text(
+                    slide, left_x, y, content_w, 0.26,
+                    "Куда идёт бюджет: " + " · ".join(ch_parts),
+                    font=self.sans, size=8.5, color=self.deep_80,
+                )
+                y += 0.30
 
         diff = summary.get("diff_vs_baseline")
         if diff:
@@ -4084,7 +4114,10 @@ class AuroraPPTXBuilder:
             ("Сценарий", left_x, col_name_w),
             ("Бюджет, ₽", left_x + col_name_w, col_budget_w),
             ("Прогноз KPI", left_x + col_name_w + col_budget_w, col_kpi_w),
-            ("90%-интервал", left_x + col_name_w + col_budget_w + col_kpi_w, col_ci_w),
+            # «Правдоподобный диапазон» — тот же термин, что на экране шага и в
+            # веб-отчёте; величина 90 % названа строкой «Принятый план» выше на
+            # этом же слайде, в узкой колонке она не помещается и переносится.
+            ("Правдоподобный диапазон", left_x + col_name_w + col_budget_w + col_kpi_w, col_ci_w),
             ("ROAS", left_x + col_name_w + col_budget_w + col_kpi_w + col_ci_w, col_roas_w),
         ):
             self._text(

@@ -2555,11 +2555,12 @@ def render_forecast_plan(ctx: dict) -> str:
         if acc.get("ci_low") is not None and acc.get("ci_high") is not None:
             width = acc.get("ci_width_pct")
             width_txt = (
-                f", ширина {_fmt_pct(width)} от прогноза" if width is not None else ""
+                f" Ширина диапазона – {_fmt_pct(width)} от прогноза."
+                if width is not None else ""
             )
             lines += (
-                f'<p class="trust-sub">Правдоподобный диапазон (90%): '
-                f"{_fmt_int(acc['ci_low'])} – {_fmt_int(acc['ci_high'])}{width_txt}.</p>"
+                f'<p class="trust-sub">Правдоподобный диапазон 90&#160;%: '
+                f"{_fmt_int(acc['ci_low'])} – {_fmt_int(acc['ci_high'])}.{width_txt}</p>"
             )
             # Оговорка о ширине — те же два порога, что в панели подсказок шага
             # (`src/lib/insights-rules.js`, правило P4): ≥40% широко, ≤15% узко.
@@ -2585,6 +2586,26 @@ def render_forecast_plan(ctx: dict) -> str:
   <p class="trust-hero">{hero}</p>
   <p class="trust-note">{escape(kpi_label)} за весь срок плана</p>
   {lines}
+</div>"""
+
+    # ── Куда идёт бюджет принятого плана: разбивка по каналам ──────────────
+    # Решение владельца 13.09.2026: каналы – да, периоды – нет. Клиент уносит
+    # документ, чтобы действовать, а действие здесь – «сколько куда положить».
+    acc_channels = acc.get("channels") if acc else None
+    if acc_channels:
+        ch_rows = "".join(
+            f'<tr><td>{escape(c["name"])}</td>'
+            f'<td class="num">{_fmt_int(c["spend_money"])}</td>'
+            f'<td class="num">{_fmt_pct(c["share_pct"])}</td></tr>'
+            for c in acc_channels
+        )
+        blocks += f"""
+<div class="trust-block">
+  <h3 class="trust-h">Куда идёт бюджет</h3>
+  <table class="trust-table">
+    <thead><tr><th>Канал</th><th>Бюджет за срок плана, ₽</th><th>Доля</th></tr></thead>
+    <tbody>{ch_rows}</tbody>
+  </table>
 </div>"""
 
     # ── Чем принятый план отличается от базового плана из файла ─────────────
@@ -2724,7 +2745,7 @@ def render_forecast_plan(ctx: dict) -> str:
   <table class="trust-table">
     <thead><tr>
       <th>Сценарий</th><th>Бюджет, ₽</th>
-      <th>Прогноз KPI</th><th>Правдоподобный диапазон, 90%</th>{delta_header}<th>ROAS</th>
+      <th>Прогноз KPI</th><th>Правдоподобный диапазон 90&#160;%</th>{delta_header}<th>ROAS</th>
     </tr></thead>
     <tbody>{rows}</tbody>
   </table>

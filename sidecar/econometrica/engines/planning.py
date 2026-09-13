@@ -440,6 +440,16 @@ def load_saved_forecast(project_dir: str) -> dict[str, Any] | None:
             'total_kpi_ci_low': _first_float(totals.get('predicted_kpi_ci_low')),
             'total_kpi_ci_high': _first_float(totals.get('predicted_kpi_ci_high')),
             'period_labels': list(sc.get('period_labels') or sc.get('future_dates') or []),
+            # Бюджет по каналам за весь горизонт — ТОЛЬКО в деньгах
+            # (`per_channel_spend.money`). Движок кладёт туда суммы лишь когда
+            # перевёл в рубли ВСЕ активные каналы (scenario.py:1203,
+            # units_fully_covered), и тогда же их сумма равна total_spend_money —
+            # то есть доли в отчёте складываются ровно в 100%. Ряд в натуральных
+            # единицах (TRP, показы) сюда НЕ подставляем: сложить рубли с
+            # пунктами рейтинга нельзя, а подписать сумму рублём — неправда.
+            'per_channel_money': dict(
+                (sc.get('per_channel_spend') or {}).get('money') or {}
+            ),
             'disclaimers': sc_disclaimers,
         })
 
@@ -507,6 +517,34 @@ def summarize_forecast(forecast: dict[str, Any] | None) -> dict[str, Any] | None
             return None
         return None if f != f else f  # NaN — то же отсутствие
 
+    def _channels(sc: dict) -> list[dict[str, Any]] | None:
+        """Бюджет по каналам за весь горизонт: сумма в рублях и доля.
+
+        Отвечает на вопрос «сколько куда положить» — то, ради чего документ
+        уносят со встречи. Разбивки по периодам внутри горизонта здесь нет
+        намеренно (решение владельца 13.09.2026): она нужна единицам и стоит
+        полстраницы.
+
+        None, если движок не перевёл каналы в деньги — тогда строк бюджета в
+        отчёте нет вовсе, а доли не считаются из натуральных единиц.
+        """
+        money = (sc.get('per_channel_money') or {})
+        pairs = [(str(k), _num(v)) for k, v in money.items()]
+        pairs = [(k, v) for k, v in pairs if v is not None]
+        if not pairs:
+            return None
+        total = sum(v for _, v in pairs)
+        out = [
+            {
+                'name': k,
+                'spend_money': v,
+                'share_pct': (v / total * 100.0) if total else None,
+            }
+            for k, v in pairs
+        ]
+        out.sort(key=lambda c: c['spend_money'], reverse=True)
+        return out
+
     def _view(sc: dict) -> dict[str, Any]:
         kpi = _num(sc.get('total_kpi'))
         lo = _num(sc.get('total_kpi_ci_low'))
@@ -523,6 +561,7 @@ def summarize_forecast(forecast: dict[str, Any] | None) -> dict[str, Any] | None
             'ci_width_pct': width_pct,
             'total_spend_money': _num(sc.get('total_spend_money')),
             'roas_money': _num(sc.get('roas_money')),
+            'channels': _channels(sc),
         }
 
     views = [_view(sc) for sc in scenarios]
