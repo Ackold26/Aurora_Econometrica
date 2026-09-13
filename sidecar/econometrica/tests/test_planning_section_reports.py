@@ -536,3 +536,81 @@ def test_both_documents_call_the_range_the_same(base_payload, tmp_path):
                    "доверительный", "Доверительный", "90%-интервал", " CI ", "CI 90"):
         assert banned not in slide_text, f"На слайде плана запрещённое слово: {banned}"
         assert banned not in html_section, f"В разделе веб-отчёта запрещённое слово: {banned}"
+
+
+# ─── (i) аудит s46, находка 5: колода не округляет процент до лживых «+0%» ────
+
+FC_SMALL_PCT = _forecast(
+    [
+        _scenario(BASELINE_VARIANT_NAME, 1_000_000.0, 900_000.0, 1_100_000.0, 100_000_000.0),
+        _scenario("Чуть больше", 1_000_400.0, 900_400.0, 1_100_400.0, 100_400_000.0),
+    ],
+    accepted="Чуть больше",
+)
+
+
+def test_deck_pct_precision_matches_html_not_rounded_to_zero(base_payload, tmp_path):
+    """Аудит s46 (находка 5): было `{:.0f}%` в builder.py – 0.4% бюджета печаталось
+    как «+0%», хотя веб-отчёт на тех же числах писал «+0.4%» (два уносимых
+    документа по одному расчёту с разными процентами читаются как сбой счёта).
+    Общий `fmt_pct` из utils/kpi_display – оба документа обязаны совпасть."""
+    payload = copy.deepcopy(base_payload)
+    payload["forecast"] = FC_SMALL_PCT
+    prs, _ = _deck_text(payload, str(tmp_path / "deck_pct.pptx"))
+    slide_text = _plan_slide_text(prs)
+    assert slide_text is not None, "Слайд плана в колоде не найден"
+    html = render_forecast_plan(_s({"forecast": FC_SMALL_PCT}))
+
+    assert "+0.4%" in slide_text, slide_text
+    assert "+0.4%" in html, html
+    assert "(+0%)" not in slide_text, "Колода снова округлила реальную разницу до лживых +0%"
+
+
+# ─── (j) аудит s46, находка 6: принятый план и участники вердикта — в таблице ──
+
+FC_FIVE = _forecast(
+    [
+        _scenario(BASELINE_VARIANT_NAME, 10_000.0, 9_500.0, 10_500.0, 5_000_000.0),
+        _scenario("Вариант А", 10_200.0, 9_700.0, 10_700.0, 5_100_000.0),
+        _scenario("Вариант Б", 10_400.0, 9_900.0, 10_900.0, 5_200_000.0),
+        _scenario("Вариант В", 10_600.0, 10_100.0, 11_100.0, 5_300_000.0),
+        _scenario("Вариант Д", 13_000.0, 12_500.0, 13_500.0, 6_000_000.0),
+    ],
+    accepted="Вариант Д",
+)
+
+
+def test_html_table_shows_accepted_variant_beyond_first_four():
+    """Аудит s46 (находка 6): таблица резалась `[:4]` – при пяти вариантах, где
+    принят пятый («Вариант Д»), в таблице стояли только Базовый план/А/Б/В, а
+    текст раздела крупно называл «Вариант Д» принятым и сравнивал его с «Вариант
+    В» в вердикте. ★ пропадал из таблицы, названный вариант в ней не находился."""
+    html = render_forecast_plan(_s({"forecast": FC_FIVE}))
+    summary = summarize_forecast(FC_FIVE)
+    assert summary["verdict"]["kind"] == "distinct"
+    assert summary["verdict"]["leader"] == "Вариант Д"
+    assert summary["verdict"]["runner_up"] == "Вариант В"
+    assert "★ Вариант Д" in html, "Принятый план должен появиться в таблице со звёздочкой"
+
+
+def test_deck_table_shows_accepted_variant_beyond_first_four(base_payload, tmp_path):
+    """То же самое, что выше, но для колоды: `builder.py` резал ту же таблицу
+    `[:4]` независимо от `sections.py`."""
+    payload = copy.deepcopy(base_payload)
+    payload["forecast"] = FC_FIVE
+    prs, text = _deck_text(payload, str(tmp_path / "deck_five.pptx"))
+    assert "★ Вариант Д" in text, "Принятый план должен появиться в таблице колоды со звёздочкой"
+
+
+# ─── (k) аудит s46, находка 7: подпись слайда декомпозиции не врёт о форме ─────
+
+def test_deck_decomposition_caption_does_not_claim_columns(base_payload, tmp_path):
+    """Аудит s46 (находка 7): диаграмма декомпозиции – BAR_STACKED (PowerPoint
+    Bar = горизонтальные полосы, ряд один), а старая подпись обещала «столбцы
+    складываются в итог» – буквально неверно (складывать нечего, стека нет)."""
+    payload = copy.deepcopy(base_payload)
+    payload["waterfall"] = _WATERFALL
+    _, text = _deck_text(payload, str(tmp_path / "deck_decomp_caption.pptx"))
+    assert "Столбцы складываются в итог" not in text
+    assert "самостоятельное значение" in text
+    assert "полос" in text

@@ -1752,7 +1752,7 @@ class AuroraPPTXBuilder:
     # ----------------------------------------------------------------
 
     def s06b_decomposition_chart(self):
-        """Слайд «Декомпозиция продаж» — столбцы «База + каждый канал = Итого».
+        """Слайд «Декомпозиция продаж» — полосы «База + каждый канал = Итого».
 
         Дыра, найденная разбором графиков 14.09.2026: функция графика
         (charts.make_decomposition_stacked) была написана, но не вызывалась
@@ -1830,10 +1830,20 @@ class AuroraPPTXBuilder:
         except Exception:
             pass  # Оформление опционально — график остаётся на слайде
 
+        # Аудит s46 (находка 7): подпись обещала «столбцы складываются в итог» при
+        # диаграмме XL_CHART_TYPE.BAR_STACKED (PowerPoint Bar = ГОРИЗОНТАЛЬНЫЕ
+        # полосы, ряд один – стека нет, складывать нечего) – расхождение с типом
+        # диаграммы CLIENT_READY_ANATOMY.md §6 не трогаем (родной график waterfall
+        # для этого слайда закреплён спецификацией и одинаков во всей колоде),
+        # правим подпись под факт: полосы самостоятельны, «Итого» – отдельная
+        # полоса с суммой, а не верхушка стека – проговариваем явно, чтобы клиент
+        # не сложил все полосы вручную и не получил двойной счёт.
         self._text(
             slide, content_x, content_y + content_h + 0.15, content_w, 0.5,
-            ("Столбцы складываются в итог: базовый спрос – продажи, которые были бы "
-             "без рекламы, остальные столбцы – вклад каждого канала сверх него."),
+            ("Каждая полоса – самостоятельное значение, не часть общего столбца: "
+             "базовый спрос – продажи, которые были бы без рекламы, следующие "
+             "полосы – вклад каждого канала сверх него, «Итого» – их сумма "
+             "отдельной полосой (не складывайте полосы между собой вручную)."),
             font=self.sans, size=9, italic=True, color=self.deep_60, line_spacing=1.25,
         )
 
@@ -3986,7 +3996,7 @@ class AuroraPPTXBuilder:
         # Числа — из engines.planning.summarize_forecast, то есть из тех же
         # results/scenarios/<имя>.json, что показывает экран.
         from engines.planning import summarize_forecast
-        from utils.kpi_display import plural
+        from utils.kpi_display import fmt_pct, plural
         summary = summarize_forecast(fc) or {}
 
         def _pi(v):
@@ -3999,9 +4009,12 @@ class AuroraPPTXBuilder:
             return ("+" if v >= 0 else "−") + f"{abs(float(v)):,.0f}".replace(",", " ")
 
         def _ppct(v):
+            # Аудит s46 (находка 5): было `{:.0f}%` — округляло 0.4% до «+0%», веб-отчёт
+            # на тех же числах писал «+0.4%». Общая условная точность из utils/kpi_display
+            # (та же, что и веб-отчёт) — колода больше не врёт округлением.
             if v is None:
                 return "н/д"
-            return ("+" if v >= 0 else "−") + f"{abs(float(v)):.0f}%"
+            return ("+" if v >= 0 else "−") + fmt_pct(abs(float(v)))
 
         y = content_y
         horizon = summary.get("horizon_periods")
@@ -4021,7 +4034,7 @@ class AuroraPPTXBuilder:
             parts = [f"«{acc['name']}» – {_pi(acc.get('total_kpi'))}"]
             if acc.get("ci_low") is not None and acc.get("ci_high") is not None:
                 w_txt = (
-                    f" (ширина от прогноза {acc['ci_width_pct']:.0f}%)"
+                    f" (ширина от прогноза {fmt_pct(acc['ci_width_pct'])})"
                     if acc.get("ci_width_pct") is not None else ""
                 )
                 parts.append(
@@ -4048,7 +4061,7 @@ class AuroraPPTXBuilder:
                 rest = acc_channels[6:]
                 ch_parts = [
                     f"{c['name']} {_pi(c['spend_money'])} ₽"
-                    + (f" ({c['share_pct']:.0f}%)" if c.get("share_pct") is not None else "")
+                    + (f" ({fmt_pct(c['share_pct'])})" if c.get("share_pct") is not None else "")
                     for c in shown
                 ]
                 if rest:
@@ -4058,7 +4071,7 @@ class AuroraPPTXBuilder:
                     )
                     ch_parts.append(
                         f"прочие {len(rest)} {plural(len(rest), ['канал', 'канала', 'каналов'])} "
-                        f"{_pi(rest_sum)} ₽ ({rest_share:.0f}%)"
+                        f"{_pi(rest_sum)} ₽ ({fmt_pct(rest_share)})"
                     )
                 self._text(
                     slide, left_x, y, content_w, 0.26,
@@ -4100,7 +4113,24 @@ class AuroraPPTXBuilder:
         self._hairline(slide, left_x, y + 0.28, content_w, weight=0.75, color=self.gold)
 
         ry = y + 0.55
-        scenarios = (fc.get("scenarios") or [])[:4]
+        # Аудит s46 (находка 6): было `[:4]` вслепую — при ≥5 вариантах принятый
+        # план или участник вердикта различимости (названы выше на этом же слайде)
+        # мог оказаться за пределами таблицы. Первые 4 (порядок как на экране)
+        # плюс принятый и оба участника вердикта — без дублей, тот же приём, что и
+        # в веб-отчёте (aurora_html/sections.py render_forecast_plan).
+        full_scenarios = fc.get("scenarios") or []
+        must_show = set()
+        if summary.get("accepted"):
+            must_show.add(str(summary["accepted"].get("name")))
+        if summary.get("verdict"):
+            must_show.add(str(summary["verdict"].get("leader")))
+            must_show.add(str(summary["verdict"].get("runner_up")))
+        scenarios = full_scenarios[:4]
+        shown = {id(sc) for sc in scenarios}
+        for sc in full_scenarios[4:]:
+            if str(sc.get("name")) in must_show and id(sc) not in shown:
+                scenarios.append(sc)
+                shown.add(id(sc))
 
         # Ширины колонок
         col_name_w = content_w * 0.28

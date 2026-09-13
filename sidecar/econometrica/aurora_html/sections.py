@@ -141,32 +141,10 @@ def _fmt_x_with_ci(mean: Any, ci_low: Any, ci_high: Any) -> str:
     )
 
 
-def _fmt_pct(v: Any, fallback: str = "-") -> str:
-    """N1 (Phase 0.1 fix-session 2026-04-25): conditional precision - never lies via rounding to 0%.
-
-    Pre-fix: `{:.0f}%` rounded 0.4% to 0%, producing absurd narrative claims like
-    "канал даёт 26% продаж при 0% бюджета" (Performance had 0.4% spend share).
-
-    Behavior:
-      0          → "0%"
-      |v| < 0.1  → "<0.1%" (with sign)
-      |v| < 1    → "0.4%"  (one decimal)
-      else       → "26%"   (rounded int)
-    """
-    if v is None:
-        return fallback
-    try:
-        f = float(v)
-    except (TypeError, ValueError):
-        return fallback
-    if f == 0:
-        return "0%"
-    av = abs(f)
-    if av < 0.1:
-        return "<0.1%" if f > 0 else ">-0.1%"
-    if av < 1.0:
-        return f"{f:.1f}%"
-    return f"{round(f)}%"
+# Аудит s46 (находка 5, 13.09.2026): условная точность вынесена в utils/kpi_display.py -
+# один счётчик на веб-отчёт и колоду, чтобы урок N1 (не округлять до лживых 0%) не
+# терялся заново при каждом новом документе. Алиас сохраняет имя для ~20 вызывающих ниже.
+from utils.kpi_display import fmt_pct as _fmt_pct
 
 
 def _fmt_ru_decimal(v: Any, decimals: int, suffix: str = "", fallback: str = "-") -> str:
@@ -2510,13 +2488,31 @@ def render_forecast_plan(ctx: dict) -> str:
     if not fc or fc.get("status") != "ok" or not fc.get("scenarios"):
         return ""
 
-    scenarios = (fc.get("scenarios") or [])[:4]
+    full_scenarios = fc.get("scenarios") or []
     accepted = fc.get("accepted_variant")
 
     from engines.planning import summarize_forecast
     from utils.kpi_display import plural
 
     summary = summarize_forecast(fc) or {}
+
+    # Аудит s46 (находка 6): таблица резалась `[:4]` вслепую — при ≥5 вариантах
+    # принятый план (звёздочка) или участник вердикта различимости мог оказаться
+    # ЗА пределами таблицы, а текст выше называл вариант, которого в ней нет.
+    # Первые 4 (порядок как на экране) плюс принятый и оба участника вердикта —
+    # без дублей, порядок исходный. Клиент видит все имена, о которых говорит текст.
+    must_show = set()
+    if summary.get("accepted"):
+        must_show.add(str(summary["accepted"].get("name")))
+    if summary.get("verdict"):
+        must_show.add(str(summary["verdict"].get("leader")))
+        must_show.add(str(summary["verdict"].get("runner_up")))
+    scenarios = full_scenarios[:4]
+    shown = {id(sc) for sc in scenarios}
+    for sc in full_scenarios[4:]:
+        if str(sc.get("name")) in must_show and id(sc) not in shown:
+            scenarios.append(sc)
+            shown.add(id(sc))
     kpi_meta = _kpi_view(ctx)
     kpi_label = kpi_meta.get("target_axis") or "Прогноз KPI"
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import logging
 from pathlib import Path
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -73,3 +74,35 @@ def currency_symbol() -> str:
 def all_display_types() -> tuple[str, ...]:
     """Возвращает кортеж всех доступных типов KPI."""
     return tuple(_load()["kpi"].keys())
+
+
+def fmt_pct(v: Any, fallback: str = "-") -> str:
+    """N1 (Phase 0.1 fix-session 2026-04-25): conditional precision - never lies via rounding to 0%.
+
+    Общий счётчик на веб-отчёт и колоду (аудит s46, находка 5: колода округляла
+    `{:.0f}%` и печатала «+0%» там, где веб-отчёт на тех же числах писал «+0.4%» -
+    прямое повторение уже записанной ошибки, урок не был унаследован колодой).
+
+    Pre-fix: `{:.0f}%` rounded 0.4% to 0%, producing absurd narrative claims like
+    "канал даёт 26% продаж при 0% бюджета" (Performance had 0.4% spend share).
+
+    Behavior:
+      0          → "0%"
+      |v| < 0.1  → "<0.1%" (with sign)
+      |v| < 1    → "0.4%"  (one decimal)
+      else       → "26%"   (rounded int)
+    """
+    if v is None:
+        return fallback
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return fallback
+    if f == 0:
+        return "0%"
+    av = abs(f)
+    if av < 0.1:
+        return "<0.1%" if f > 0 else ">-0.1%"
+    if av < 1.0:
+        return f"{f:.1f}%"
+    return f"{round(f)}%"
