@@ -371,6 +371,43 @@ def train_ols(config: dict, project_dir: str, progress_callback=None) -> dict[st
             ch_dict['roi_bootstrap_mean'] = round(boot['ci_mean'], 4)
         channel_params[col] = ch_dict
 
+    # 🔴 s47 (14.09.2026): у ряда «факт против прогноза» здесь не было дат, а
+    # остатки назывались `residual`. Перенос ряда в отчёт
+    # (engines/narrative_adapter.py) требует списки actual/predicted/dates
+    # РАВНОЙ длины — без `dates` условие не проходит и ключ молча не кладётся.
+    # Следствие у клиента: в OLS-режиме раздел «Качество модели» рисовал
+    # заголовок и три пустых места вместо трёх графиков (все три читают один
+    # CHART_DATA.quality — общая точка отказа, потому и пропадали разом), без
+    # единого объяснения, почему их нет. Байесовский движок даты кладёт
+    # (engines/modeler.py) — приводим форму к той же.
+    # Даты берутся из ТОГО ЖЕ df, что и y: он уже отфильтрован по непустому KPI
+    # выше, поэтому длины совпадают по построению. Разбор дат свой, а не `.dt`
+    # как у соседа: там столбец приходит уже приведённым к дате, здесь df читается
+    # напрямую из файла и колонка остаётся строковой.
+    date_col = config.get('date_column', 'date')
+    avp_dates = None
+    if date_col and date_col in df.columns:
+        try:
+            avp_dates = pd.to_datetime(df[date_col]).dt.strftime('%Y-%m-%d').tolist()
+        except Exception:
+            # Непарсибельные метки (порядковые '1','2',...) — не выдумываем даты.
+            # Ряд уедет без них, как и раньше; лучше без графиков, чем с чужой осью.
+            logger.warning('OLS: столбец дат %r не разобран — ряд качества уйдёт без дат', date_col)
+            avp_dates = None
+    if avp_dates is not None and len(avp_dates) != n_obs:
+        logger.warning('OLS: дат %d против %d наблюдений — ряд качества уйдёт без дат',
+                       len(avp_dates), n_obs)
+        avp_dates = None
+
+    actual_vs_predicted = {
+        'actual': [round(float(v), 4) for v in y.tolist()],
+        'predicted': [round(float(v), 4) for v in y_pred.tolist()],
+        # Имя ключа — как у байесовского движка и как ждут потребители ряда.
+        'residuals': [round(float(v), 4) for v in (y - y_pred).tolist()],
+    }
+    if avp_dates is not None:
+        actual_vs_predicted['dates'] = avp_dates
+
     diagnostics = {
         'engine': 'ols',
         # Аудит 2026-07-04 (F-2): честный статус сезонности для UI-строки
@@ -396,11 +433,7 @@ def train_ols(config: dict, project_dir: str, progress_callback=None) -> dict[st
         # S-OLS-1: conformal prediction PI (distribution-free coverage guarantee).
         # Available for downstream display alongside frequentist β CI + bootstrap ROI.
         'conformal_pi': conformal_pi,
-        'actual_vs_predicted': {
-            'actual': [round(float(v), 4) for v in y.tolist()],
-            'predicted': [round(float(v), 4) for v in y_pred.tolist()],
-            'residual': [round(float(v), 4) for v in (y - y_pred).tolist()],
-        },
+        'actual_vs_predicted': actual_vs_predicted,
         # Honest small-N disclosure
         'honest_disclosure': (
             f'OLS-режим (small data fallback): n={n_obs} наблюдений, p={p} параметров, '
