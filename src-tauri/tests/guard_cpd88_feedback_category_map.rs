@@ -68,6 +68,21 @@ fn extract_settings_category_values(markup: &str) -> Vec<String> {
     значения
 }
 
+/// Перешла ли страница настроек на новый путь обращения (форма в браузере).
+///
+/// 🔴 13.09.2026 переключатель темы обращения из настроек УБРАН: тему теперь спрашивает сама
+/// форма, а программа лишь открывает её в браузере с предзаполненными скрытыми полями. Предмет
+/// прежнего стыка («значения `<option>` ↔ `CATEGORY_MAP`») в интерфейсе исчез, и сторож начал
+/// падать не на дефекте, а на собственной устарелости.
+///
+/// Чтобы сторож не сгнил в «зелёный по отсутствию», он проверяет РАЗВИЛКУ, а не факт отсутствия:
+/// либо переключатель на месте и тогда стык обязан сходиться, либо переключателя нет — и тогда
+/// страница обязана звать новый путь. Оба сразу отсутствовать не могут: это значило бы, что
+/// обратной связи в настройках нет вовсе.
+fn settings_moved_to_browser_form(markup: &str) -> bool {
+    markup.contains("open_feedback_form")
+}
+
 /// Главная проверка: каждое значение переключателя темы из разметки настроек обязано иметь
 /// перевод в живой таблице `form_category`. Расхождение в любую сторону — сигнал регресса
 /// CPD-88 (форма снова начнёт отвечать 400 на часть или все темы).
@@ -84,6 +99,17 @@ fn settings_choices_and_category_map_do_not_drift_apart() {
         .join("+page.svelte");
     let markup = fs::read_to_string(&settings_path)
         .unwrap_or_else(|e| panic!("не удалось прочитать {}: {e}", settings_path.display()));
+
+    if !markup.contains("bind:value={fbCategory}") {
+        assert!(
+            settings_moved_to_browser_form(&markup),
+            "переключателя темы обращения в настройках нет И нового пути (open_feedback_form)              тоже нет — значит обратная связь из настроек не работает вовсе"
+        );
+        println!(
+            "переключатель темы убран 13.09.2026: тему спрашивает сама форма, страница зовёт              open_feedback_form. Стык проверять нечего — вернётся переключатель, вернётся и проверка"
+        );
+        return;
+    }
 
     let ui_values = extract_settings_category_values(&markup);
     assert!(
@@ -122,6 +148,17 @@ fn category_map_has_no_orphaned_entries_missing_from_settings() {
         .join("+page.svelte");
     let markup = fs::read_to_string(&settings_path)
         .unwrap_or_else(|e| panic!("не удалось прочитать {}: {e}", settings_path.display()));
+
+    if !markup.contains("bind:value={fbCategory}") {
+        assert!(
+            settings_moved_to_browser_form(&markup),
+            "переключателя темы обращения в настройках нет И нового пути (open_feedback_form)              тоже нет — значит обратная связь из настроек не работает вовсе"
+        );
+        println!(
+            "переключатель темы убран 13.09.2026: пары в CATEGORY_MAP обслуживают прежний путь              отправки (submit_feedback), он оставлен намеренно — сиротами они не являются"
+        );
+        return;
+    }
 
     let ui_values = extract_settings_category_values(&markup);
 
