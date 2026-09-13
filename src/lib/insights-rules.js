@@ -2318,6 +2318,246 @@ export function optimizeInsights(data, ctx = {}) {
   return out;
 }
 
+// ── Planning Step ───────────────────────────────────────
+
+/**
+ * Вариант плана в том виде, в каком его видит панель подсказок.
+ * @typedef {Object} PlanningVariantView
+ * @property {string} name
+ * @property {number} budget        суммарный бюджет варианта за горизонт
+ * @property {number} predictedKpi  центр прогноза за горизонт
+ * @property {number} [ciLow]       нижняя граница правдоподобного диапазона
+ * @property {number} [ciHigh]      верхняя граница
+ */
+
+/**
+ * @typedef {Object} PlanningBaselineView
+ * @property {number} totalKpi
+ * @property {number|null} totalSpend     бюджет плана в деньгах; null – движок НЕ перевёл все каналы в рубли
+ * @property {number|null} ciLowTotal
+ * @property {number|null} ciHighTotal
+ */
+
+/**
+ * @typedef {Object} PlanningContext
+ * @property {any} [mediaPlan]            mediaPlanDetected: план на будущее, найденный в файле
+ * @property {'found'|'absent'|'unavailable'|null} [probeStatus] исход поиска плана в данных
+ * @property {number} [horizonPeriods]    сколько периодов вперёд считаем
+ * @property {number} [historyPeriods]    сколько периодов истории у модели
+ * @property {PlanningBaselineView|null} [baseline] прогноз базового плана
+ * @property {PlanningVariantView[]} [variants]     созданные варианты
+ * @property {any} [diagnostics]          modelData.diagnostics – качество модели
+ * @property {number|null} [ssotRatio]    pre-train ratio, только как fallback
+ */
+
+/**
+ * Подсказки шага «Планирование».
+ *
+ * 🔴 ПРАВИЛО ЭТОГО БЛОКА (INV-50, честность метрик). Каждая подсказка здесь –
+ * УСЛОВНАЯ от проверяемого порога и называет число, которое этот порог перешло.
+ * Безусловных фраз вида «с медиапланом прогноз будет точнее» тут нет и быть не
+ * может: такая фраза печатается всегда, звучит как вывод из данных, а выводом
+ * не является. Проверка при добавлении нового правила одна – назвать данные,
+ * при которых подсказка НЕ появится. Нет таких данных – правило негодное.
+ *
+ * @param {PlanningContext} [ctx]
+ * @returns {Insight[]}
+ */
+export function planningInsights(ctx = {}) {
+  /** @type {Insight[]} */
+  const out = [];
+  const {
+    mediaPlan = null,
+    probeStatus = null,
+    horizonPeriods = 0,
+    historyPeriods = 0,
+    baseline = null,
+    variants = [],
+    diagnostics = null,
+    ssotRatio = null,
+  } = ctx;
+
+  /** @param {number} v */
+  const fmt = (v) => Math.round(v).toLocaleString('ru-RU');
+
+  const nFuture = Number(mediaPlan?.n_future_periods ?? 0);
+  const horizon = Number(horizonPeriods) > 0 ? Number(horizonPeriods) : nFuture;
+  // Валюту показываем только когда движок сам перевёл ВСЕ каналы в деньги
+  // (totals.total_spend_money != null). Для TRP/показов без цены сумма каналов –
+  // не рубли, и подписывать её знаком рубля нельзя.
+  const moneyConfirmed = baseline?.totalSpend != null;
+
+  // ── P1. Плана на будущее в данных нет ─────────────────────────────────────
+  // Порог: n_future_periods в файле = 0 (или поиск не состоялся).
+  // НЕ появится: как только в файле найдена хотя бы одна строка за горизонтом истории.
+  if (!(nFuture > 0)) {
+    const unavailable = probeStatus === 'unavailable';
+    out.push({
+      severity: unavailable ? 'info' : 'warning',
+      text: unavailable
+        ? 'Определить план на будущее в этих данных не удалось – строки за горизонтом истории программа не прочитала, поэтому базового прогноза нет.'
+        : 'В загруженных данных нет ни одной строки на будущее – базовому плану взяться неоткуда, прогноза по вашему медиаплану не будет.',
+      tip: 'Скачайте шаблон медиаплана кнопкой на этом шаге, впишите бюджеты по периодам и загрузите файл заново – прогноз по плану посчитается сам. Либо соберите вариант вручную от оптимального распределения и сравните варианты между собой.',
+    });
+  }
+
+  // ── P2. Замечания к плану из файла ────────────────────────────────────────
+  // Порог: warnings.length ≥ 1 у найденного плана.
+  // НЕ появится: плана нет вовсе, либо движок вернул пустой список замечаний.
+  const planWarnings = Array.isArray(mediaPlan?.warnings) ? mediaPlan.warnings : [];
+  if (nFuture > 0 && planWarnings.length > 0) {
+    const more = planWarnings.length > 1 ? ` И ещё ${planWarnings.length - 1}.` : '';
+    out.push({
+      severity: 'warning',
+      text: `К плану из файла ${planWarnings.length} ${pluralizeRu(planWarnings.length, ['замечание', 'замечания', 'замечаний'])}: «${planWarnings[0]}».${more} Поправьте файл и загрузите заново – иначе прогноз считается по данным, которые программа сама считает сомнительными.`,
+      tip: 'Замечания перечислены над таблицей плана. Чаще всего это пропуски в периодах, нулевые бюджеты у активного канала или канал, которого не было в обучении.',
+    });
+  }
+
+  // ── P3. Горизонт длиннее половины истории ─────────────────────────────────
+  // Порог: horizon / history > 0.5.
+  // НЕ появится: истории вдвое и более больше горизонта (36 периодов истории и
+  // прогноз на 12 – доля 33%, подсказки не будет).
+  if (horizon > 0 && historyPeriods > 0 && horizon / historyPeriods > 0.5) {
+    const sharePct = Math.round((horizon / historyPeriods) * 100);
+    const safe = Math.max(1, Math.floor(historyPeriods / 2));
+    out.push({
+      severity: 'warning',
+      text: `Горизонт прогноза ${horizon} ${pluralizeRu(horizon, ['период', 'периода', 'периодов'])} против ${historyPeriods} ${pluralizeRu(historyPeriods, ['периода', 'периодов', 'периодов'])} истории – это ${sharePct}% её длины. Сократите горизонт до ${safe} ${pluralizeRu(safe, ['периода', 'периодов', 'периодов'])} или разбейте план на два этапа с пересчётом посередине.`,
+      tip: 'За половиной длины истории модель перестаёт опираться на наблюдённое и продолжает подобранные тренды. Числа она выдаст на любой горизонт – но доверие к ним падает быстрее, чем растут интервалы.',
+    });
+  }
+
+  // ── P4. Ширина диапазона базового прогноза ────────────────────────────────
+  // Порог: (верх – низ) / центр ≥ 0.4 (широко) либо ≤ 0.15 (узко).
+  // НЕ появится: диапазона нет, центр ≤ 0, либо ширина между 15% и 40%.
+  if (baseline && baseline.ciLowTotal != null && baseline.ciHighTotal != null && baseline.totalKpi > 0) {
+    const lo = Number(baseline.ciLowTotal);
+    const hi = Number(baseline.ciHighTotal);
+    const width = (hi - lo) / baseline.totalKpi;
+    if (width >= 0.4) {
+      out.push({
+        severity: 'warning',
+        text: `Правдоподобный диапазон базового прогноза ${fmt(lo)} – ${fmt(hi)} при центре ${fmt(baseline.totalKpi)}: ширина ${Math.round(width * 100)}% от прогноза. Обязательства берите по нижней границе ${fmt(lo)}, а не по центру.`,
+        tip: 'Широкий диапазон – это не ошибка расчёта, а честная мера незнания: истории мало либо каналы меняются вместе. Сузить его можно только данными – большей историей или разведением бюджетов каналов во времени.',
+      });
+    } else if (width <= 0.15) {
+      out.push({
+        severity: 'success',
+        text: `Правдоподобный диапазон базового прогноза ${fmt(lo)} – ${fmt(hi)}, ширина ${Math.round(width * 100)}% от центра ${fmt(baseline.totalKpi)} – узкий. Можно планировать от центра, оставив нижнюю границу как страховой сценарий.`,
+        tip: 'Узкий диапазон означает, что модель уверенно отделяет вклад каналов на этой истории. Это свойство данных, а не гарантия – внешние события в диапазон не заложены.',
+      });
+    }
+  }
+
+  // ── P5. Качество модели, на которой строится прогноз ───────────────────────
+  // Порог: расчёт не сошёлся (штамп надёжности) либо MQS ниже уровня «Хорошее» (70).
+  // НЕ появится: балла нет вовсе, либо MQS ≥ 70 и расчёт сошёлся.
+  const mqs = mqsView(diagnostics);
+  const rv = ratioView(diagnostics, ssotRatio);
+  const refused = verdictRefuses(diagnostics?.honesty_verdict)
+    || diagnostics?.model_reliability?.refused === true;
+  if (mqs && refused) {
+    out.push({
+      severity: 'warning',
+      text: `Качество модели ${mqs.score.toFixed(0)} из 100${mqs.tierLabel ? ` (${mqs.tierLabel.toLowerCase()})` : ''}. ${RELIABILITY_STATEMENT_REFUSED} Прогноз на будущее строится на той же модели – пока она не переобучена, показывайте эти числа как прикидку.`,
+      tip: 'Показатель качества считается и при несошедшемся расчёте, поэтому высокий балл здесь не противоречит отказу. Вернитесь на шаг «Модель», увеличьте число итераций или упростите набор переменных.',
+    });
+  } else if (mqs && !mqsIsDependable(mqs.score)) {
+    const thin = rv?.isThin
+      ? ` Наблюдений на параметр ${rv.ratio.toFixed(1)} – меньше четырёх, отсюда и широкие диапазоны.`
+      : '';
+    out.push({
+      severity: 'warning',
+      text: `Качество модели ${mqs.score.toFixed(0)} из 100${mqs.tierLabel ? ` (${mqs.tierLabel.toLowerCase()})` : ''} – ниже уровня «Хорошее» (70).${thin} Прогноз наследует ту же неопределённость: закладывайте нижнюю границу диапазона и не обещайте центр.`,
+      tip: 'Поднять качество можно на шаге «Модель»: добавить истории, убрать переменные, которые движутся вместе, или задать цену контакта физическим каналам.',
+    });
+  }
+
+  // ── P6. Вариант всего один, сравнивать не с чем ───────────────────────────
+  // Порог: ровно 1 вариант И базового прогноза нет.
+  // НЕ появится: вариантов ноль, вариантов два и больше, либо посчитан базовый план.
+  if (variants.length === 1 && !baseline) {
+    out.push({
+      severity: 'info',
+      text: `Создан один вариант «${variants[0].name}» – сравнивать не с чем, а смысл этого шага именно в сравнении. Создайте второй вариант с другим распределением бюджета.`,
+      tip: 'Разумная пара для сравнения: текущее распределение как есть и оптимальное со шага «Оптимизация». Разница между ними и есть цена решения.',
+    });
+  }
+
+  // ── P7. Бюджеты вариантов почти совпадают ─────────────────────────────────
+  // Порог: (макс – мин) / макс < 5% при двух и более вариантах с ненулевым бюджетом.
+  // НЕ появится: вариантов меньше двух, у кого-то бюджет не посчитан,
+  // либо разброс 5% и выше.
+  if (variants.length >= 2) {
+    const budgets = variants.map((v) => Number(v.budget) || 0);
+    if (budgets.every((b) => b > 0)) {
+      const minB = Math.min(...budgets);
+      const maxB = Math.max(...budgets);
+      const spread = (maxB - minB) / maxB;
+      if (spread < 0.05) {
+        const money = moneyConfirmed ? ` (${fmt(minB)} ₽ против ${fmt(maxB)} ₽)` : '';
+        out.push({
+          severity: 'warning',
+          text: `Бюджеты вариантов различаются на ${(spread * 100).toFixed(1)}%${money} – меньше 5%. На такой разнице исходы почти наверняка окажутся неразличимы. Разведите планы: либо меняйте сумму на 10% и больше, либо оставьте сумму и перекладывайте доли между каналами.`,
+          tip: 'Сравнивать имеет смысл решения, а не округления. Если сумма зафиксирована договором – стройте варианты на перекладке долей: их различие модель видит лучше, чем разницу в пару процентов общей суммы.',
+        });
+      }
+    }
+  }
+
+  // ── P8 / P9. Различимы ли варианты между собой ────────────────────────────
+  // Сравниваем базовый план и варианты как равноправные линии.
+  /** @type {{ name: string, kpi: number, lo: number, hi: number }[]} */
+  const comparable = [];
+  if (baseline && baseline.ciLowTotal != null && baseline.ciHighTotal != null) {
+    comparable.push({
+      name: 'Базовый план',
+      kpi: Number(baseline.totalKpi),
+      lo: Number(baseline.ciLowTotal),
+      hi: Number(baseline.ciHighTotal),
+    });
+  }
+  for (const v of variants) {
+    if (v.ciLow != null && v.ciHigh != null) {
+      comparable.push({ name: v.name, kpi: Number(v.predictedKpi), lo: Number(v.ciLow), hi: Number(v.ciHigh) });
+    }
+  }
+  if (comparable.length >= 2) {
+    const sorted = [...comparable].sort((a, b) => b.kpi - a.kpi);
+    let pairCount = 0;
+    let overlapCount = 0;
+    for (let i = 0; i < sorted.length - 1; i++) {
+      for (let j = i + 1; j < sorted.length; j++) {
+        pairCount += 1;
+        if (sorted[i].lo < sorted[j].hi && sorted[j].lo < sorted[i].hi) overlapCount += 1;
+      }
+    }
+    // P8. Порог: перекрывается половина пар и больше.
+    // НЕ появится: сравнимых линий меньше двух либо перекрывается меньше половины пар.
+    if (pairCount > 0 && overlapCount / pairCount >= 0.5) {
+      out.push({
+        severity: 'warning',
+        text: `Из ${pairCount} ${pluralizeRu(pairCount, ['пары', 'пар', 'пар'])} сравнения ${overlapCount} ${pluralizeRu(overlapCount, ['перекрывается', 'перекрываются', 'перекрываются'])} диапазонами – преимущество лидера «${sorted[0].name}» (${fmt(sorted[0].kpi)}) данными не доказано. Выбирайте по цене исполнения и рискам, а не по разнице прогнозов; либо разведите планы сильнее.`,
+        tip: 'Перекрытие диапазонов означает, что при тех же данных оба исхода одинаково правдоподобны. Это не запрет выбирать – это запрет обещать разницу как факт.',
+      });
+    }
+    // P9. Порог: нижняя граница лидера строго выше верхней границы второго.
+    // НЕ появится: диапазоны лидера и второго пересекаются хотя бы краем.
+    const first = sorted[0];
+    const second = sorted[1];
+    if (first.lo > second.hi) {
+      out.push({
+        severity: 'success',
+        text: `«${first.name}» устойчиво лучше «${second.name}»: нижняя граница лидера ${fmt(first.lo)} выше верхней границы второго ${fmt(second.hi)} – диапазоны не пересекаются. Это тот случай, когда разницу можно называть вслух; принимайте «${first.name}».`,
+        tip: 'Непересечение диапазонов – самый сильный вывод, который даёт этот шаг. Зафиксируйте прогноз кнопкой ниже: программа сверит его с фактом, когда придут новые данные.',
+      });
+    }
+  }
+
+  return out;
+}
+
 /**
  * Report step insights - structured per-stage summary + recommendations.
  * Каждый этап пайплайна получает свой key insight с recко, чтобы пользователь

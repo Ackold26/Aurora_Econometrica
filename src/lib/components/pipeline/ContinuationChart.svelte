@@ -14,6 +14,7 @@
    * @component ContinuationChart
    */
   import EChartBase from '$lib/components/charts/EChartBase.svelte';
+  import ExpandableCard from '$lib/components/ExpandableCard.svelte';
   import { chartTooltipDark } from '$lib/echarts-setup.js';
   import { Info } from 'lucide-svelte';
 
@@ -289,55 +290,43 @@
     };
   });
 
+  /** Заголовок карточки (текст важен для сторожа: «{kpiLabel} - Прогноз по сценариям»). */
+  const chartTitle = $derived(`${kpiLabel} - Прогноз по сценариям`);
+
   /** Chart height based on data size */
   const chartHeight = $derived(allDates.length > 40 ? '340px' : '280px');
 </script>
 
-<div class="continuation-chart">
-  <div class="chart-header">
-    <h3 class="chart-title">{kpiLabel} - Прогноз по сценариям</h3>
-    {#if hiddenCount > 0}
-      <div class="overflow-warn" role="alert">
-        <Info size={12} />
-        <span>Показаны первые {maxScenarios} из {scenarios.length} сценариев - toggle через legend</span>
-      </div>
-    {/if}
-  </div>
-
-  {#if allDates.length === 0}
-    <div class="empty-state">
-      <p>Нет данных для отображения</p>
+<div class="cc-root">
+  {#if hiddenCount > 0}
+    <div class="overflow-warn" role="alert">
+      <Info size={12} />
+      <span>Показаны первые {maxScenarios} из {scenarios.length} сценариев – остальные есть в таблице сравнения ниже</span>
     </div>
-  {:else}
-    <EChartBase option={option} height={chartHeight} />
   {/if}
+
+  <!-- Разворот на весь экран и ручное изменение размера – готовым приёмом карточки
+       (ExpandableCard + метка data-echart в EChartBase, запись c8f4a49b). Своей
+       вёрстки под разворот компонент не держит: высоту раздаёт карточка. -->
+  <ExpandableCard title={chartTitle}>
+    {#if allDates.length === 0}
+      <div class="empty-state">
+        <p>Нет данных для отображения</p>
+      </div>
+    {:else}
+      <EChartBase option={option} height={chartHeight} />
+    {/if}
+  </ExpandableCard>
 </div>
 
 <style>
-  .continuation-chart {
-    background: var(--bg-card, #181824);
-    border: 1px solid var(--border, rgba(255,255,255,0.08));
-    border-radius: var(--radius-card, 12px);
-    padding: 16px 18px 12px;
+  /* Рамку, заголовок и кнопку разворота даёт ExpandableCard – здесь только
+     колонка «предупреждение над карточкой + сама карточка». */
+  .cc-root {
     display: flex;
     flex-direction: column;
     gap: 10px;
-  }
-
-  .chart-header {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    flex-wrap: wrap;
-  }
-
-  .chart-title {
-    font-size: 13px;
-    font-weight: 600;
-    color: var(--text-primary);
-    margin: 0;
-    flex: 1;
-    letter-spacing: 0.01em;
+    min-width: 0;
   }
 
   .overflow-warn {

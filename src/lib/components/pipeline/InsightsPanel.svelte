@@ -32,12 +32,17 @@
     invoke('project_update', { projectId, updates }).catch(() => { /* best-effort */ });
   }
   import {
-    importInsights, validateInsights, modelInsights, modelPreTrainingInsights, decomposeInsights, optimizeInsights, reportInsights,
+    importInsights, validateInsights, modelInsights, modelPreTrainingInsights, decomposeInsights, optimizeInsights, planningInsights, reportInsights,
     // v2.1.0 (rc2 U-05): функции по под-шагам Валидации.
     validateKpiInsights, validateRolesInsights, validateMetricsInsights, validateConfirmInsights,
   } from '$lib/insights-rules.js';
   // v2.1.0 (rc2 U-05): subStep store для контекстной маршрутизации.
   import { validateSubStep, analysisMode, perChannelInput, unitCosts, unitCostInputMode, budgetInputs, modelEnabledMediaNames, validationHeaderMetrics, modelEngine, useHolidays, disabledHolidays } from '$lib/project-state.js';
+  // Шаг «Планирование»: план на будущее из файла + исход его поиска + горизонт.
+  import { mediaPlanDetected, mediaPlanProbeStatus, forecastConfig } from '$lib/project-state.js';
+  // Живое состояние шага «Планирование» (прогноз базового плана и варианты) –
+  // подсказки шага условны от НАСТОЯЩИХ чисел, а они живут в PlanningStep.
+  import { planningLiveState } from '$lib/planning-live-state.js';
   // Гейт шага считается тем же знаменателем, что и гейт кнопки, — знаменателем движка.
   import { gateRatio } from '$lib/ratio-classifier.js';
   // Tier 2 (Claude-усилитель инсайтов, «Phase 10»). Видим только в облачной
@@ -334,6 +339,26 @@
         globalMaxPct: live.globalMaxPct,
         kpi,
       });
+      case STEP.PLANNING: {
+        // Подсказки шага строятся ТОЛЬКО из посчитанных чисел: план из файла,
+        // длина истории, горизонт, прогноз базового плана и варианты с их
+        // правдоподобными диапазонами. Ни одна из них не печатается безусловно –
+        // у каждой свой порог (INV-50), см. planningInsights в insights-rules.js.
+        const live = $planningLiveState;
+        const ds = dec?.decomposition_series;
+        const historyPeriods = (ds?.dates ?? dec?.time_series?.dates ?? []).length;
+        const mp = $mediaPlanDetected;
+        return planningInsights({
+          mediaPlan: mp,
+          probeStatus: $mediaPlanProbeStatus,
+          horizonPeriods: mp?.n_future_periods ?? $forecastConfig?.periods ?? 0,
+          historyPeriods,
+          baseline: live?.baseline ?? null,
+          variants: live?.variants ?? [],
+          diagnostics: mod?.diagnostics ?? null,
+          ssotRatio: $validationHeaderMetrics?.ratio ?? null,
+        });
+      }
       // 🔴 Живой прогон 08.09 (ТЕКСТ-1). Сводка отчёта висела на числе 5, а с тех пор
       // как между «Оптимизацией» и «Отчётом» встал шаг «Планирование» (миграция мастера
       // 6→7, `loadPipelineMeta`), 5 — это Планирование, а Отчёт — 6. Из-за сдвига панель
@@ -348,8 +373,6 @@
         const ssotRatio = $validationHeaderMetrics?.ratio;
         return reportInsights({ mod, dec, opt, kpi, ssotRatio });
       }
-      // Шаг «Планирование» (5) своих правил пока не имеет — панель молчит нейтрально
-      // (см. пустое состояние ниже), а не выдаёт сводку соседнего шага.
       default: return [];
     }
   });

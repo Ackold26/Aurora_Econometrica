@@ -59,6 +59,7 @@
    * @type {{
    *   scenarios: Scenario[],
    *   baseline?: Scenario | null,
+   *   showChart?: boolean,
    *   kpiLabel?: string,
    *   onAccept?: ((scenario: Scenario) => void) | null,
    *   onDuplicate?: ((scenario: Scenario) => void) | null,
@@ -68,6 +69,10 @@
   const {
     scenarios = [],
     baseline = null,
+    // Своё поле графика. Шаг «Планирование» держит единое поле сравнения выше
+    // (история + базовый план + варианты), и второе, повторяющее те же линии без
+    // истории, ему не нужно; отдельная страница сравнения рисует своё.
+    showChart = true,
     kpiLabel = 'KPI',
     onAccept = null,
     onDuplicate = null,
@@ -337,14 +342,16 @@
 
   {:else}
     <!-- ── Chart ──────────────────────────────────────────────────────────────── -->
-    <div class="chart-block">
-      <MultiScenarioChart
-        scenarios={scenarios}
-        baseline={baseline}
-        maxVisible={5}
-        kpiLabel={kpiLabel}
-      />
-    </div>
+    {#if showChart}
+      <div class="chart-block">
+        <MultiScenarioChart
+          scenarios={scenarios}
+          baseline={baseline}
+          maxVisible={5}
+          kpiLabel={kpiLabel}
+        />
+      </div>
+    {/if}
 
     <!-- ── Comparison Table ───────────────────────────────────────────────────── -->
     <div class="table-block" aria-label="Таблица сравнения сценариев">

@@ -78,7 +78,7 @@ describe('панель подсказок на шаге «Отчёт» (ТЕКС
     ).not.toBe('0');
   });
 
-  it('на шаге «Планирование» панель молчит нейтрально, а не советует загрузить данные', async () => {
+  it('на шаге «Планирование» панель не советует загрузить уже загруженные данные', async () => {
     const planningIdx = PIPELINE_STEPS.findIndex((s) => s.id === 'planning');
     pipelineCurrentStep.set(planningIdx);
 

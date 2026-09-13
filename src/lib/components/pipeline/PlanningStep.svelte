@@ -54,6 +54,7 @@
   import MultiScenarioPage from './MultiScenarioPage.svelte';
   import PromisesCard from './PromisesCard.svelte';
   import BacktestCard from './BacktestCard.svelte';
+  import { planningLiveState } from '$lib/planning-live-state.js';
   import { Info, AlertTriangle, ChevronDown } from 'lucide-svelte';
 
   // ── Helpers ───────────────────────────────────────────────────────────────
@@ -554,6 +555,93 @@
 
   const verdict = $derived(computeVerdict(variants));
 
+  // ── Единое поле сравнения ─────────────────────────────────────────────────
+
+  /**
+   * Линии прогноза для ОДНОГО графика: базовый план первым, следом все варианты.
+   * Смысл шага – выбор между вариантами, а выбирать, листая графики по одному,
+   * нельзя: сравнивать можно только то, что нарисовано в одних осях.
+   * @type {Array<{ name: string, dates: string[], predictions: number[], ciLow?: number[], ciHigh?: number[] }>}
+   */
+  const forecastScenarios = $derived.by(() => {
+    /** @type {Array<{ name: string, dates: string[], predictions: number[], ciLow?: number[], ciHigh?: number[] }>} */
+    const lines = [];
+    if (baselineForecast) {
+      lines.push({
+        name: BASELINE_NAME,
+        dates: baselineForecast.dates,
+        predictions: baselineForecast.predictions,
+        ciLow: baselineForecast.ciLow,
+        ciHigh: baselineForecast.ciHigh,
+      });
+    }
+    for (const v of variants) {
+      lines.push({
+        name: v.name,
+        dates: v.dates ?? [],
+        predictions: v.predictions ?? [],
+        ciLow: v.ciLowSeries,
+        ciHigh: v.ciHighSeries,
+      });
+    }
+    return lines;
+  });
+
+  /**
+   * Базовый план как равноправный сценарий для таблицы сравнения.
+   * Раньше сюда шёл `null`, и таблица требовала «≥2 сценария» даже когда рядом
+   * был посчитанный базовый прогноз – сравнить первый вариант было не с чем,
+   * колонка Δ% не появлялась никогда.
+   * Бюджет берём только в деньгах: `total_spend_money` = null означает, что
+   * движок НЕ перевёл все каналы в рубли (TRP/показы без цены), и подписывать
+   * такую сумму валютой нельзя – NaN печатается как «-» (INV-50).
+   */
+  const baselineScenario = $derived.by(() => {
+    if (!baselineForecast) return null;
+    /** @type {Record<string, number>} */
+    const alloc = {};
+    for (const [ch, vals] of Object.entries(mpData?.channels ?? {})) {
+      const arr = /** @type {number[]} */ (vals) ?? [];
+      alloc[ch] = arr.reduce((a, b) => a + (Number(b) || 0), 0);
+    }
+    return {
+      id: 'baseline',
+      name: BASELINE_NAME,
+      budget: baselineForecast.totalSpend ?? Number.NaN,
+      predictedKpi: baselineForecast.totalKpi,
+      ciLow: baselineForecast.ciLowTotal ?? undefined,
+      ciHigh: baselineForecast.ciHighTotal ?? undefined,
+      perChannelAllocation: Object.keys(alloc).length ? alloc : undefined,
+      dates: baselineForecast.dates,
+      predictions: baselineForecast.predictions,
+      ciLowSeries: baselineForecast.ciLow,
+      ciHighSeries: baselineForecast.ciHigh,
+      mediaPlan: mpData?.channels ?? {},
+    };
+  });
+
+  // Снимок живого состояния шага для панели подсказок. Панель обязана быть
+  // условной от НАСТОЯЩИХ чисел прогноза (INV-50), а они живут здесь.
+  $effect(() => {
+    planningLiveState.set({
+      baseline: baselineForecast
+        ? {
+            totalKpi: baselineForecast.totalKpi,
+            totalSpend: baselineForecast.totalSpend,
+            ciLowTotal: baselineForecast.ciLowTotal,
+            ciHighTotal: baselineForecast.ciHighTotal,
+          }
+        : null,
+      variants: variants.map((v) => ({
+        name: v.name,
+        budget: v.budget,
+        predictedKpi: v.predictedKpi,
+        ciLow: v.ciLow,
+        ciHigh: v.ciHigh,
+      })),
+    });
+  });
+
   // ── Завершение шага ───────────────────────────────────────────────────────
 
   async function goToReport() {
@@ -697,34 +785,27 @@
           {/if}
         </div>
 
-        {#if historicalSeries}
-          <div class="chart-wrap">
-            <ContinuationChart
-              historical={historicalSeries}
-              modelFit={null}
-              scenarios={[
-                {
-                  name: BASELINE_NAME,
-                  dates: baselineForecast.dates,
-                  predictions: baselineForecast.predictions,
-                  ciLow: baselineForecast.ciLow,
-                  ciHigh: baselineForecast.ciHigh,
-                },
-                ...variants.map((v) => ({
-                  name: v.name,
-                  dates: v.dates ?? [],
-                  predictions: v.predictions ?? [],
-                  ciLow: v.ciLowSeries,
-                  ciHigh: v.ciHighSeries,
-                })),
-              ]}
-              cutoffIndex={historicalSeries.dates.length - 1}
-              kpiLabel={kpiLabelText}
-              maxScenarios={6}
-            />
-          </div>
-        {/if}
       {/if}
+    </section>
+  {/if}
+
+  <!-- ── Единое поле сравнения: история + базовый план + все варианты ─────────
+       Раньше график жил ВНУТРИ секции базового плана и показывался только при
+       подтверждённом медиаплане из файла: без файла сравнивать варианты было
+       негде вовсе. Теперь поле одно и появляется, как только есть хотя бы одна
+       линия прогноза – базовый план или вариант. -->
+  {#if historicalSeries && forecastScenarios.length > 0}
+    <section class="forecast-chart-section">
+      <div class="chart-wrap">
+        <ContinuationChart
+          historical={historicalSeries}
+          modelFit={null}
+          scenarios={forecastScenarios}
+          cutoffIndex={historicalSeries.dates.length - 1}
+          kpiLabel={kpiLabelText}
+          maxScenarios={6}
+        />
+      </div>
     </section>
   {/if}
 
@@ -825,13 +906,15 @@
     <section class="comparison-section">
       <h3 class="section-title">Сравнение вариантов</h3>
 
-      <!-- График истории+прогноза — единый, в секции «Прогноз базового плана»
-           выше (baseline + варианты поверх). Здесь — табличное сравнение. -->
+      <!-- График истории и прогноза – единый, своей секцией выше (базовый план
+           и все варианты в одних осях). Здесь – табличное сравнение, поэтому
+           MultiScenarioPage получает showChart={false} и своего поля не рисует. -->
       {#if variants.length >= 1}
         <div class="scenario-page-wrap">
           <MultiScenarioPage
             scenarios={variants}
-            baseline={null}
+            baseline={baselineScenario}
+            showChart={false}
             kpiLabel={kpiLabelText}
             onDelete={deleteVariant}
           />
@@ -1258,11 +1341,15 @@
     flex-direction: column;
     gap: 20px;
   }
+  /* Рамку, фон и заголовок графика даёт карточка ExpandableCard внутри
+     ContinuationChart – своя рамка здесь давала бы вторую, вложенную. */
+  .forecast-chart-section {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+  }
   .chart-wrap {
-    border-radius: 12px;
-    overflow: hidden;
-    border: 1px solid var(--border-subtle, rgba(255,255,255,0.08));
-    background: var(--bg-surface-quiet, rgba(30,33,44,0.92));
+    min-width: 0;
   }
   .scenario-page-wrap { /* MultiScenarioPage управляет высотой */ }
 
