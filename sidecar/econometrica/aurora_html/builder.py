@@ -487,7 +487,7 @@ class AuroraHTMLBuilder:
             labels = wf.get("labels") or []
             values = wf.get("values") or []
             for lbl, v in zip(labels, values):
-                if str(lbl).lower() in ("base", "baseline", "base sales", "base_sales"):
+                if str(lbl).lower() in ("base", "baseline", "base sales", "base_sales", "база"):
                     try:
                         baseline_sum = float(v)
                         break
@@ -555,7 +555,17 @@ class AuroraHTMLBuilder:
                 or (self.diagnostics.get("calibration") or {}).get("applied")
             ):
                 continue
-            label = self.strings["sections"].get(sid, {}).get("label", sid)
+            # F-lang-1 (2026-09-13): раньше отсутствующий label тихо подменялся
+            # внутренним ключом sid (напр. "forecast"/"retro" утекали в оглавление
+            # латиницей) - падаем громко на этапе сборки, чтобы утечка ключа была
+            # в принципе невозможна, а не полагаться на полноту strings_ru.json.
+            section_strings = self.strings["sections"].get(sid)
+            if not section_strings or not section_strings.get("label"):
+                raise KeyError(
+                    f'В strings_ru.json отсутствует sections.{sid}.label - '
+                    'оглавление не может отобразить внутренний ключ раздела вместо перевода.'
+                )
+            label = section_strings["label"]
             items.append(f'      <li><a href="#{sid}" data-toc-target="{sid}">{security.escape(label)}</a></li>')
         return "\n".join(items)
 
@@ -607,6 +617,14 @@ class AuroraHTMLBuilder:
             # приезжает вместе с ней. Пусто (старый расчёт без сертификата) →
             # блок не рендерится вовсе, а не печатает прочерки.
             "certificate": self.raw_decompose.get("methodology_certificate"),
+            # 🔴 13.09.2026: ключа «forecast» здесь НЕ БЫЛО, хотя адаптер кладёт
+            # его в data (engines/narrative_adapter.py: data['forecast'] = forecast).
+            # Словарь ctx собирается ЯВНО, поэтому секция «Прогноз» получала None
+            # и выходила пустой в КАЖДОМ боевом отчёте, а пункт оглавления на неё
+            # ссылался безусловно — читатель кликал и попадал в пустоту. Найдено
+            # при разборе латиницы в оглавлении: соседний пункт «trust» уже был
+            # обвязан проверкой живых данных, а этот — нет.
+            "forecast": self.data.get("forecast"),
         }
         sections_html = "\n".join(render(ctx) for _, render in SECTION_RENDERERS)
 

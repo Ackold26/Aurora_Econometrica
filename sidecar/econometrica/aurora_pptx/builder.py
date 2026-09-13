@@ -2443,7 +2443,7 @@ class AuroraPPTXBuilder:
             chart_inner_h = 2.8
 
             factor_series = None
-            baseline_label = "Baseline"
+            baseline_label = "База"
             if _collapsed:
                 # Т3-плюс (двухуровневость): обзорный timeline свёрнут в 4 верхние
                 # группы (БАЗА·МЕДИА·ВНЕШНИЕ·КОНКУРЕНТЫ) — паритет с новым дефолтом

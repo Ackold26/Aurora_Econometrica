@@ -169,6 +169,32 @@ def _fmt_pct(v: Any, fallback: str = "-") -> str:
     return f"{round(f)}%"
 
 
+def _fmt_ru_decimal(v: Any, decimals: int, suffix: str = "", fallback: str = "-") -> str:
+    """Дефект 4 (аудит s43, 12.09.2026): R² и MAPE — соседние ячейки одной карточки
+    диагностики («Источники · MQS» и «Методология») — форматировались двумя
+    независимыми f-строками, и десятичный разделитель мог разъехаться между ними
+    (запятая у одной, точка у другой). Единая точка форматирования для группы
+    R² / MAPE / R-hat: русский канон — запятая, дублирования быть не может, потому
+    что оба вызывающих места используют эту функцию, а не свою арифметику.
+    """
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return fallback
+    return f"{f:.{decimals}f}".replace(".", ",") + suffix
+
+
+def _n_channels(n: int) -> str:
+    """Дефект 5 (аудит s43, 12.09.2026): «1 канал(ов)» — нечеловеческая форма числа.
+
+    Единая точка склонения «канал» для всего движка отчётов (переиспользует
+    utils.kpi_display.plural — тот же приём, что уже применяет aurora_pptx.builder
+    для «Портфель: N каналов к росту» вместо локальной заглушки «канал(ов)»).
+    """
+    from utils.kpi_display import plural
+    return f"{n} {plural(n, ['канал', 'канала', 'каналов'])}"
+
+
 # ─── KPI/mode-aware helpers (v1.3.2) ────────────────────────────────────────
 #
 # ctx['kpi'] populated narrative_adapter (см. ADR-016). Когда блок отсутствует
@@ -745,7 +771,7 @@ def render_executive_summary(ctx: dict) -> str:
             # незначимом lift (<0.5) — честная формулировка без нулевого числа.
             if lift is None or float(lift) < 0.5:
                 recommendation = (
-                    "Прирост от перераспределения незначим (<0.5 пп) - "
+                    "Прирост от перераспределения незначим (<0.5 пп) – "
                     "портфель близок к оптимуму в заданных границах."
                 )
             elif kpi["is_legacy"]:
@@ -897,7 +923,7 @@ def render_at_a_glance(ctx: dict) -> str:
         # explicitly - otherwise narrative says "сохранить аллокацию" while
         # the real story is "оптимизатор не получил места для манёвра".
         if honest and all_below_breakeven:
-            f3 = "Все медиа-каналы под breakeven - рассмотреть сокращение медиа или диагностику данных"
+            f3 = "Все медиа-каналы под breakeven – рассмотреть сокращение медиа или диагностику данных"
             if kpi["is_legacy"]:
                 f3_sup = "При weighted ROI < 1× оптимизация перераспределением не вернёт прибыльность"
             else:
@@ -906,8 +932,8 @@ def render_at_a_glance(ctx: dict) -> str:
                     "оптимизация перераспределением не вернёт прибыльность"
                 )
         elif binding:
-            f3 = "Оптимизатор упёрся в заданные границы - расширьте Мин./Макс. % и перезапустите"
-            f3_sup = "Текущие границы зажимают пространство решений - реальное перераспределение скрыто"
+            f3 = "Оптимизатор упёрся в заданные границы – расширьте Мин./Макс. % и перезапустите"
+            f3_sup = "Текущие границы зажимают пространство решений – реальное перераспределение скрыто"
         elif realloc >= 0.5 and hero != leader:
             f3 = strings["findings_templates"]["f3_realloc"].format(
                 realloc=realloc, leader=leader, hero=hero)
@@ -923,7 +949,8 @@ def render_at_a_glance(ctx: dict) -> str:
 
         scale_n = sum(1 for c in channels if c.get("verdict") == "Scale")
         cut_n = sum(1 for c in channels if c.get("verdict") in ("Cut", "Reduce"))
-        f4 = strings["findings_templates"]["f4_verdicts"].format(scale_n=scale_n, cut_n=cut_n)
+        f4 = strings["findings_templates"]["f4_verdicts"].format(
+            scale_phrase=_n_channels(scale_n), cut_phrase=_n_channels(cut_n))
         f4_sup = strings["findings_templates"]["f4_verdicts_support"].format(n_channels=len(channels))
         findings.append((f4, f4_sup))
 
@@ -1008,8 +1035,8 @@ def render_at_a_glance(ctx: dict) -> str:
         findings = [
             ("Модель будет обучена после загрузки данных", "Findings появятся по результатам декомпозиции"),
             ("Leader канал определится из посчитанного contribution", "По вкладу в инкрементальные продажи"),
-            ("Hero канал - по mROAS (наибольшая отдача последнего рубля)", "Может отличаться от leader по вкладу"),
-            ("Reallocation-рекомендация - из оптимизатора", "Цель: максимизация KPI при текущем бюджете"),
+            ("Hero канал – по mROAS (наибольшая отдача последнего рубля)", "Может отличаться от leader по вкладу"),
+            ("Reallocation-рекомендация – из оптимизатора", "Цель: максимизация KPI при текущем бюджете"),
             ("Качество модели измеряется MQS 0-100", "Комбинация R², MAPE, R-hat, ESS"),
         ]
 
@@ -1244,7 +1271,7 @@ def render_share(ctx: dict) -> str:
     strings = ctx["strings"]
     kicker = strings["sections"]["share"]["kicker"]
     body = f"""
-{_action_title("Доля бюджета vs доля эффекта - выявление дисбаланса")}
+{_action_title("Доля бюджета vs доля эффекта – выявление дисбаланса")}
 <div class="chart-container">
   <div class="chart-title-bar">
     <div>
@@ -1495,7 +1522,7 @@ def render_timeline(ctx: dict) -> str:
   <div class="chart-title-bar">
     <div>
       <div class="chart-title">Продажи {period_unit}</div>
-      <div class="chart-subtitle">Декомпозиция по группам (обзор) или по каналам и факторам (детально). Ползунок - зум периода.</div>
+      <div class="chart-subtitle">Декомпозиция по группам (обзор) или по каналам и факторам (детально). Ползунок – зум периода.</div>
     </div>
     <button class="btn-inline" id="tl-view-toggle" title="Показать каналы и факторы по отдельности. Итоговая сумма продаж одинакова в обоих режимах">Детально</button>
     <button class="btn-inline" data-copy-chart="chart-timeline">Сохранить PNG</button>
@@ -1543,7 +1570,7 @@ def render_recommendation(ctx: dict) -> str:
         # math-fix v1.0.14.1: + converged_at_current branch (false convergence).
         if not converged:
             action_01_text = (
-                "Оптимизация не сошлась - попробуйте ослабить ограничения по каналам "
+                "Оптимизация не сошлась – попробуйте ослабить ограничения по каналам "
                 "или сократить число каналов в модели и перезапустите Оптимизацию."
             )
         elif binding:
@@ -1556,7 +1583,7 @@ def render_recommendation(ctx: dict) -> str:
             )
             action_01_text = (
                 f"Все каналы упёрлись в заданные границы {bounds_txt}. "
-                "Расширьте до 10-20% / 200-300% и перезапустите Оптимизацию - "
+                "Расширьте до 10-20% / 200-300% и перезапустите Оптимизацию – "
                 "она найдёт реальное перераспределение."
             )
         elif converged_at_current:
@@ -1604,13 +1631,13 @@ def render_recommendation(ctx: dict) -> str:
         metric_short = kpi["metric_short"]
         if n_saturated > 0:
             if kpi["is_legacy"]:
-                problem_clause = f"{n_saturated} канал(ов) под breakeven (mROAS < 1×)"
+                problem_clause = f"{_n_channels(n_saturated)} под breakeven (mROAS < 1×)"
             elif kpi["mode"] == "effectiveness":
-                problem_clause = f"{n_saturated} канал(ов) с низкой долей в портфеле"
+                problem_clause = f"{_n_channels(n_saturated)} с низкой долей в портфеле"
             elif kpi["kpi_kind"] == "count":
-                problem_clause = f"{n_saturated} канал(ов) под breakeven ({_under_breakeven_phrase(kpi)})"
+                problem_clause = f"{_n_channels(n_saturated)} под breakeven ({_under_breakeven_phrase(kpi)})"
             else:
-                problem_clause = f"{n_saturated} канал(ов) под breakeven"
+                problem_clause = f"{_n_channels(n_saturated)} под breakeven"
             action_02_text = (
                 f"{problem_clause} - проверить качество данных, параметры затухания и сравнить "
                 "с отраслевыми ориентирами перед следующей итерацией."
@@ -1618,12 +1645,12 @@ def render_recommendation(ctx: dict) -> str:
         else:
             if kpi["mode"] == "effectiveness":
                 action_02_text = (
-                    "Все каналы дают сравнимый вклад в долю эффекта - "
-                    f"следить за {metric_short.lower()} канала в следующих периодах - не появится ли насыщение."
+                    "Все каналы дают сравнимый вклад в долю эффекта – "
+                    f"следить за {metric_short.lower()} канала в следующих периодах – не появится ли насыщение."
                 )
             else:
                 action_02_text = (
-                    f"Все каналы выше breakeven - мониторить {metric_short} в следующих периодах "
+                    f"Все каналы выше breakeven – мониторить {metric_short} в следующих периодах "
                     "на признаки насыщения."
                 )
 
@@ -1748,11 +1775,11 @@ def _render_brand_perf_split_block(ctx: dict) -> str:
     perf_mu = priors.get('performance_mu_logit_mean') or priors.get('perf_mu_logit_mean')
     rows = []
     if n_brand:
-        rows.append(f'<li><strong>Brand:</strong> {n_brand} канал(ов), период полураспада ≈ {_half_life(brand_mu)} (долгосрочный отклик)</li>')
+        rows.append(f'<li><strong>Brand:</strong> {_n_channels(n_brand)}, период полураспада ≈ {_half_life(brand_mu)} (долгосрочный отклик)</li>')
     if n_perf:
-        rows.append(f'<li><strong>Performance:</strong> {n_perf} канал(ов), период полураспада ≈ {_half_life(perf_mu)} (краткосрочный отклик)</li>')
+        rows.append(f'<li><strong>Performance:</strong> {_n_channels(n_perf)}, период полураспада ≈ {_half_life(perf_mu)} (краткосрочный отклик)</li>')
     if n_mixed:
-        rows.append(f'<li><strong>Смешанные:</strong> {n_mixed} канал(ов), единый априорный параметр</li>')
+        rows.append(f'<li><strong>Смешанные:</strong> {_n_channels(n_mixed)}, единый априорный параметр</li>')
 
     warning_html = ""
     rwarn = hier.get('rhat_warning')
@@ -2032,16 +2059,16 @@ def render_methodology(ctx: dict) -> str:
         formulas_text = "\n".join(meth["spec_formulas"])
     diag_items = []
     if diag.get("r_squared") is not None:
-        diag_items.append(("R²", f"{float(diag['r_squared']):.3f}"))
+        diag_items.append(("R²", _fmt_ru_decimal(diag['r_squared'], 3)))
     if diag.get("mape_pct") is not None:
-        diag_items.append(("MAPE", f"{float(diag['mape_pct']):.1f}%"))
+        diag_items.append(("MAPE", _fmt_ru_decimal(diag['mape_pct'], 1, "%")))
     # OLS guard: hide MCMC diagnostics; show method/CI labels вместо.
     if is_ols:
         diag_items.append(("Метод", "closed-form OLS"))
         diag_items.append(("Диапазон", "bootstrap n=200"))  # факт ols_bootstrap.py n_boot=200 (был n=1000, враньё R-07)
     else:
         if diag.get("r_hat_max") is not None:
-            diag_items.append(("R-hat (max)", f"{float(diag['r_hat_max']):.3f}"))
+            diag_items.append(("R-hat (max)", _fmt_ru_decimal(diag['r_hat_max'], 3)))
         if diag.get("ess_min") is not None:
             diag_items.append(("ESS (min)", _fmt_int(diag['ess_min'])))
     diag_html = "\n".join(
@@ -2166,14 +2193,14 @@ def render_sources(ctx: dict) -> str:
     if is_ols:
         # OLS: показываем только R²/MAPE + frequentist метод (без MCMC).
         _diag_rows = [
-            ("R²", "r_squared", lambda v: f"{float(v):.3f}"),
-            ("MAPE", "mape_pct", lambda v: f"{float(v):.1f}%"),
+            ("R²", "r_squared", lambda v: _fmt_ru_decimal(v, 3)),
+            ("MAPE", "mape_pct", lambda v: _fmt_ru_decimal(v, 1, "%")),
         ]
     else:
         _diag_rows = [
-            ("R²", "r_squared", lambda v: f"{float(v):.3f}"),
-            ("MAPE", "mape_pct", lambda v: f"{float(v):.1f}%"),
-            ("R-hat", "r_hat_max", lambda v: f"{float(v):.3f}"),
+            ("R²", "r_squared", lambda v: _fmt_ru_decimal(v, 3)),
+            ("MAPE", "mape_pct", lambda v: _fmt_ru_decimal(v, 1, "%")),
+            ("R-hat", "r_hat_max", lambda v: _fmt_ru_decimal(v, 3)),
             ("ESS", "ess_min", lambda v: _fmt_int(v)),
         ]
     for lbl, key, fmt in _diag_rows:
@@ -2470,6 +2497,7 @@ def render_forecast_plan(ctx: dict) -> str:
     если forecast отсутствует — INV-50, wireframe-суррогатов нет.
     При ≥2 вариантах добавляет сравнительный bar-chart scenarios_comparison_chart.
     """
+    kicker = ctx["strings"]["sections"]["forecast"]["kicker"]
     fc = ctx.get("forecast") or {}
     if not fc or fc.get("status") != "ok" or not fc.get("scenarios"):
         return ""
@@ -2551,7 +2579,7 @@ def render_forecast_plan(ctx: dict) -> str:
 </div>
 {chart_html}"""
     )
-    return _section("forecast", "ПРОГНОЗ", body)
+    return _section("forecast", kicker, body)
 
 
 def render_retro_insights(ctx: dict) -> str:
@@ -2562,6 +2590,7 @@ def render_retro_insights(ctx: dict) -> str:
     Возвращает пустую строку при сильной модели (honesty_verdict == "reliable")
     или при полном отсутствии данных — INV-50, wireframe-суррогатов нет.
     """
+    kicker = ctx["strings"]["sections"]["retro"]["kicker"]
     diag = ctx.get("diagnostics") or {}
     verdict = diag.get("honesty_verdict")
     # При reliable-модели блок не нужен
@@ -2612,7 +2641,7 @@ def render_retro_insights(ctx: dict) -> str:
         try:
             if float(r_squared) < 0.6:
                 items.append(
-                    f"R² = {float(r_squared):.2f} – модель объясняет менее 60% вариации продаж; "
+                    f"R² = {_fmt_ru_decimal(r_squared, 2)} – модель объясняет менее 60% вариации продаж; "
                     "рассмотрите добавление сезонных регрессоров или макропеременных."
                 )
         except (TypeError, ValueError):
@@ -2621,7 +2650,7 @@ def render_retro_insights(ctx: dict) -> str:
         try:
             if float(mape_pct) > 20.0:
                 items.append(
-                    f"MAPE = {float(mape_pct):.1f}% – ошибка прогноза высокая; "
+                    f"MAPE = {_fmt_ru_decimal(mape_pct, 1)}% – ошибка прогноза высокая; "
                     "проверьте выбросы и качество входных данных."
                 )
         except (TypeError, ValueError):
@@ -2641,7 +2670,7 @@ def render_retro_insights(ctx: dict) -> str:
         + items_html
         + '\n  </ul>\n</div>'
     )
-    return _section("retro", "РЕКОМЕНДАЦИИ ПО ДАННЫМ", body)
+    return _section("retro", kicker, body)
 
 
 SECTION_RENDERERS: tuple = (

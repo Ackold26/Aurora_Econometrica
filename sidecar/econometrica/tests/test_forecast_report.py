@@ -22,6 +22,22 @@ from aurora_html.sections import render_forecast_plan
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _FIXTURE = os.path.join(_HERE, "fixtures", "kagocel_builder_payload.json")
 
+# ─── strings_ru.json — как и другие тесты sections.py (test_report_text_hygiene.py
+# и т.д.), render_forecast_plan/render_retro_insights читают ctx["strings"] ────
+
+with open(
+    os.path.join(os.path.dirname(_HERE), "aurora_html", "strings_ru.json"),
+    encoding="utf-8",
+) as _f:
+    _STRINGS = json.load(_f)
+
+
+def _s(ctx: dict) -> dict:
+    """Добавляет ctx["strings"] к минимальному контексту теста (боевой builder.py
+    всегда кладёт strings — sections.py на это полагается без .get())."""
+    return {**ctx, "strings": _STRINGS}
+
+
 # ─── Минимальный валидный forecast ────────────────────────────────────────────
 
 FORECAST_DATA = {
@@ -365,18 +381,18 @@ def test_page_shift_all_three(base_payload):
 
 def test_html_render_forecast_empty_without_data():
     """render_forecast_plan возвращает '' при отсутствии forecast (INV-50)."""
-    assert render_forecast_plan({}) == ""
-    assert render_forecast_plan({"forecast": None}) == ""
-    assert render_forecast_plan({"forecast": {}}) == ""
-    assert render_forecast_plan({"forecast": {"status": "error"}}) == ""
-    assert render_forecast_plan({"forecast": {"status": "ok", "scenarios": []}}) == ""
+    assert render_forecast_plan(_s({})) == ""
+    assert render_forecast_plan(_s({"forecast": None})) == ""
+    assert render_forecast_plan(_s({"forecast": {}})) == ""
+    assert render_forecast_plan(_s({"forecast": {"status": "error"}})) == ""
+    assert render_forecast_plan(_s({"forecast": {"status": "ok", "scenarios": []}})) == ""
 
 
 # ─── (f) HTML: есть forecast → render_forecast_plan возвращает таблицу ───────
 
 def test_html_render_forecast_with_data():
     """render_forecast_plan возвращает HTML-таблицу при наличии forecast."""
-    ctx = {"forecast": FORECAST_DATA}
+    ctx = _s({"forecast": FORECAST_DATA})
     html = render_forecast_plan(ctx)
     assert html != "", "render_forecast_plan вернул '' при валидных данных"
     assert "Прогноз" in html, "Заголовок «Прогноз» не найден в HTML"
@@ -394,7 +410,7 @@ def test_html_render_forecast_multiple_scenarios():
         for i in range(6)
     ]
     fc["accepted_variant"] = "v2"
-    html = render_forecast_plan({"forecast": fc})
+    html = render_forecast_plan(_s({"forecast": fc}))
     # Первые 4 сценария должны быть, 5-й и 6-й — нет
     assert "Сценарий 0" in html
     assert "Сценарий 3" in html
@@ -505,7 +521,7 @@ def test_html_forecast_chart_present_for_two_or_more_scenarios():
         {**fc["scenarios"][0], "name": "Агрессивный", "variant_id": "v2", "total_kpi": 520.0},
     ]
     fc["accepted_variant"] = "v1"
-    html = render_forecast_plan({"forecast": fc})
+    html = render_forecast_plan(_s({"forecast": fc}))
     assert '<img' in html, "При ≥2 сценариях ожидаем <img> в HTML"
     assert 'data:image/png;base64,' in html, "Ожидаем base64 PNG data-URI в <img>"
 
@@ -514,7 +530,7 @@ def test_html_forecast_chart_absent_for_one_scenario():
     """При одном сценарии <img> не добавляется."""
     fc = copy.deepcopy(FORECAST_DATA)
     assert len(fc["scenarios"]) == 1
-    html = render_forecast_plan({"forecast": fc})
+    html = render_forecast_plan(_s({"forecast": fc}))
     assert html != "", "Секция должна рендериться даже при 1 сценарии"
     assert '<img' not in html, "При 1 сценарии <img> не должен присутствовать"
 
@@ -525,7 +541,7 @@ def test_retro_insights_empty_for_reliable_model():
     """Блок «Что улучшить» пустой при reliable-модели."""
     from aurora_html.sections import render_retro_insights
 
-    ctx = {"diagnostics": {"honesty_verdict": "reliable", "honesty_reasons": ["Всё хорошо"]}}
+    ctx = _s({"diagnostics": {"honesty_verdict": "reliable", "honesty_reasons": ["Всё хорошо"]}})
     assert render_retro_insights(ctx) == "", "При reliable-модели блок должен быть пустым"
 
 
@@ -533,22 +549,22 @@ def test_retro_insights_empty_without_diagnostics():
     """Блок «Что улучшить» пустой при отсутствии диагностики."""
     from aurora_html.sections import render_retro_insights
 
-    assert render_retro_insights({}) == ""
-    assert render_retro_insights({"diagnostics": {}}) == ""
+    assert render_retro_insights(_s({})) == ""
+    assert render_retro_insights(_s({"diagnostics": {}})) == ""
 
 
 def test_retro_insights_present_for_uncertain_model():
     """Блок «Что улучшить» появляется при uncertain-модели с reasons."""
     from aurora_html.sections import render_retro_insights
 
-    ctx = {
+    ctx = _s({
         "diagnostics": {
             "honesty_verdict": "uncertain",
             "honesty_reasons": ["Мало наблюдений", "Широкие интервалы"],
             "thinness_cap": 50,
             "ratio": 1.8,
         }
-    }
+    })
     html = render_retro_insights(ctx)
     assert html != "", "При uncertain-модели блок должен присутствовать"
     assert "Мало наблюдений" in html, "Причины honesty_reasons должны быть в тексте"
@@ -559,14 +575,14 @@ def test_retro_insights_present_for_unreliable_model():
     """Блок «Что улучшить» появляется при unreliable-модели."""
     from aurora_html.sections import render_retro_insights
 
-    ctx = {
+    ctx = _s({
         "diagnostics": {
             "honesty_verdict": "unreliable",
             "honesty_reasons": ["R-hat > 1.05", "ESS < 100"],
             "r_squared": 0.45,
             "mape_pct": 28.0,
         }
-    }
+    })
     html = render_retro_insights(ctx)
     assert html != "", "При unreliable-модели блок должен присутствовать"
     assert "R-hat" in html
@@ -578,7 +594,7 @@ def test_retro_insights_preflight_fail():
     """Блок включает пункт про provail приоров при prior_predictive_status=fail."""
     from aurora_html.sections import render_retro_insights
 
-    ctx = {
+    ctx = _s({
         "diagnostics": {
             "honesty_verdict": "uncertain",
             "preflight": {
@@ -586,7 +602,7 @@ def test_retro_insights_preflight_fail():
                 "prior_predictive_coverage": 0.42,
             },
         }
-    }
+    })
     html = render_retro_insights(ctx)
     assert html != ""
     assert "Априорные предположения расходятся" in html

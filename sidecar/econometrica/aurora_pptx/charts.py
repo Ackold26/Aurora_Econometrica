@@ -125,15 +125,16 @@ _FACTOR_RGB = {
 
 
 def make_timeline_area(slide, x_in, y_in, w_in, h_in, *, dates, baseline,
-                       channel_series, factor_series=None, baseline_label="Baseline"):
+                       channel_series, factor_series=None, baseline_label="База"):
     """Stacked area: KPI over time with baseline + channel contributions.
     channel_series: dict {channel_name: [values]}.
     factor_series: optional list [{name, type, side, data}] — вынесенные
         signed/holiday факторы (аудит #12); рендерятся теми же полосами, что в
         программе, чтобы отчёт показывал ТОТ ЖЕ набор факторов.
     baseline_label: подпись нижней полосы в легенде (Б-2: свёрнутый обзор 4 групп
-        передаёт «База» — русская легенда в паритете с программой; default
-        'Baseline' сохраняет legacy-поведение).
+        передаёт «База» — русская легенда в паритете с программой; F-lang-1
+        (2026-09-13): default тоже «База» — прежний 'Baseline' был латиницей
+        на клиентском экране в некалиброванном/non-collapsed режиме).
 
     Chart formatting:
       - Date labels compact "MM.YY" (e.g. "10.21" instead of "2021-10-01")

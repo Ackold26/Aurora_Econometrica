@@ -347,7 +347,7 @@ def bootstrap_js(
     var series = [];
     if (v.baseline && v.baseline.length) {{
       series.push({{
-        name: v.baseline_label || 'Baseline', type: 'line', stack: 'total', smooth: 0.3, showSymbol: false,
+        name: v.baseline_label || 'База', type: 'line', stack: 'total', smooth: 0.3, showSymbol: false,
         data: v.baseline, lineStyle: {{ width: 0 }},
         itemStyle: {{ color: pal.baselineColor }},
         areaStyle: {{ color: pal.baselineColor, opacity: 0.85 }},
@@ -421,7 +421,7 @@ def bootstrap_js(
       series: [{{
         type: 'bar',
         data: data.values.map(function(v, i) {{
-          var isBase = /base/i.test(data.labels[i] || '');
+          var isBase = /base/i.test(data.labels[i] || '') || /база/i.test(data.labels[i] || '');
           return {{
             value: v,
             itemStyle: {{
@@ -963,7 +963,7 @@ def bootstrap_js(
       '</summary>' +
       '<div style="padding-top:12px;">' +
         '<div style="font-size:12px;color:var(--text-muted);margin-bottom:8px;">' +
-          'Перетаскивайте ползунки для моделирования реаллокации. KPI пересчитывается по Hill-формуле (приближение без adstock; полная модель - в PPTX-отчёте и оптимизаторе).' +
+          'Перетаскивайте ползунки для моделирования реаллокации. KPI пересчитывается по Hill-формуле (приближение без adstock; полная модель – в PPTX-отчёте и оптимизаторе).' +
         '</div>' +
         channelRows +
         '<div style="margin-top:12px;padding-top:12px;border-top:1px solid var(--rule-subtle);display:flex;justify-content:space-between;align-items:center;gap:16px;">' +

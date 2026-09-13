@@ -293,7 +293,7 @@ def compute_channel_action(
             key='Watch',
             label_ru=ACTION_LABEL_RU['Watch'],
             tone='neutral',
-            reasoning='Недостаточно данных для оценки - канал требует проверки',
+            reasoning='Недостаточно данных для оценки – канал требует проверки',
             priority=ACTION_PRIORITY['Watch'],
             confidence='low',
         )
@@ -304,7 +304,7 @@ def compute_channel_action(
             key='Uncertain',
             label_ru=ACTION_LABEL_RU['Uncertain'],
             tone=ACTION_TONE['Uncertain'],
-            reasoning='Канал не обучен - нулевая вариативность в тренировочных данных',
+            reasoning='Канал не обучен – нулевая вариативность в тренировочных данных',
             priority=ACTION_PRIORITY['Uncertain'],
             confidence='low',
         )
@@ -315,7 +315,7 @@ def compute_channel_action(
             key='Uncertain',
             label_ru=ACTION_LABEL_RU['Uncertain'],
             tone='neutral',
-            reasoning='Канал не получает бюджет в текущем портфеле - оценка невозможна',
+            reasoning='Канал не получает бюджет в текущем портфеле – оценка невозможна',
             priority=ACTION_PRIORITY['Uncertain'],
             confidence='low',
         )
@@ -334,7 +334,7 @@ def compute_channel_action(
             label_ru=ACTION_LABEL_RU['Cut'],
             tone=ACTION_TONE['Cut'],
             reasoning=(
-                f'Оптимизатор рекомендует -{(1 - ratio) * 100:.0f}% - '
+                f'Оптимизатор рекомендует -{(1 - ratio) * 100:.0f}% – '
                 f'бюджет лучше использовать на других каналах'
             ),
             priority=ACTION_PRIORITY['Cut'],
@@ -352,7 +352,7 @@ def compute_channel_action(
                 label_ru=ACTION_LABEL_RU['Reduce'],
                 tone=ACTION_TONE['Reduce'],
                 reasoning=(
-                    f'{_metric_str}; Оптимизатор рекомендует {(ratio - 1) * 100:+.0f}% - '
+                    f'{_metric_str}; Оптимизатор рекомендует {(ratio - 1) * 100:+.0f}% – '
                     f'задайте ценность единицы для оценки окупаемости'
                 ),
                 priority=ACTION_PRIORITY['Reduce'],
@@ -364,7 +364,7 @@ def compute_channel_action(
                 label_ru=ACTION_LABEL_RU['Scale'],
                 tone=ACTION_TONE['Scale'],
                 reasoning=(
-                    f'{_metric_str}; Оптимизатор рекомендует +{(ratio - 1) * 100:.0f}% - '
+                    f'{_metric_str}; Оптимизатор рекомендует +{(ratio - 1) * 100:.0f}% – '
                     f'задайте ценность единицы для оценки окупаемости'
                 ),
                 priority=ACTION_PRIORITY['Scale'],
@@ -414,7 +414,7 @@ def compute_channel_action(
         # Отрицательная/нулевая отдача - канал не «ниже безубыточности», а вычитает
         # эффект: честное пояснение называет это прямо, не маскируя под «убыточен».
         _below_breakeven_str = (
-            f'{_metric_str} отрицательный - канал уменьшает продажи, а не приносит их'
+            f'{_metric_str} отрицательный – канал уменьшает продажи, а не приносит их'
             if eff_mroas <= 0 else
             f'{_metric_str} ниже точки безубыточности – канал убыточен'
         )
@@ -439,7 +439,7 @@ def compute_channel_action(
             reasoning=(
                 f'{_metric_str} - канал уменьшает продажи, а не приносит их'
                 if eff_mroas <= 0 else
-                f'{_metric_str} глубоко ниже точки безубыточности - каждый рубль приносит убыток'
+                f'{_metric_str} глубоко ниже точки безубыточности – каждый рубль приносит убыток'
             ),
             priority=ACTION_PRIORITY['Cut'],
             confidence=confidence,
@@ -452,7 +452,7 @@ def compute_channel_action(
             label_ru=ACTION_LABEL_RU['Reduce'],
             tone=ACTION_TONE['Reduce'],
             reasoning=(
-                f'Оптимизатор рекомендует {(ratio - 1) * 100:+.0f}% - насыщение, '
+                f'Оптимизатор рекомендует {(ratio - 1) * 100:+.0f}% – насыщение, '
                 f'{_metric_str} падает с ростом вложения'
             ),
             priority=ACTION_PRIORITY['Reduce'],
@@ -465,7 +465,7 @@ def compute_channel_action(
             key='Reduce',
             label_ru=ACTION_LABEL_RU['Reduce'],
             tone=ACTION_TONE['Reduce'],
-            reasoning=f'{_metric_str} близко к точке безубыточности - снизить риск',
+            reasoning=f'{_metric_str} близко к точке безубыточности – снизить риск',
             priority=ACTION_PRIORITY['Reduce'],
             confidence=confidence,
         )
@@ -491,7 +491,7 @@ def compute_channel_action(
             label_ru=ACTION_LABEL_RU['Scale'],
             tone=ACTION_TONE['Scale'],
             reasoning=(
-                f'{_metric_str}, разрыв +{eff_gap:.1f} пп - канал даёт больше эффекта '
+                f'{_metric_str}, разрыв +{eff_gap:.1f} пп – канал даёт больше эффекта '
                 f'чем доли бюджета'
             ),
             priority=ACTION_PRIORITY['Scale'],
@@ -514,7 +514,7 @@ def compute_channel_action(
             tone=ACTION_TONE['Uncertain'],
             reasoning=(
                 f'Диапазон [{_ci_lo_eff:.2f}-{_ci_hi_eff:.2f}] шире чем {_metric_str}, '
-                f'оптимизатор не предложил перераспределения - '
+                f'оптимизатор не предложил перераспределения – '
                 f'нужно больше данных для уверенной рекомендации'
             ),
             priority=ACTION_PRIORITY['Uncertain'],
@@ -528,7 +528,7 @@ def compute_channel_action(
             key='Hold',
             label_ru=ACTION_LABEL_RU['Hold'],
             tone=ACTION_TONE['Hold'],
-            reasoning=f'{_metric_str} стабилен, разрыв {eff_gap:+.1f} пп - баланс',
+            reasoning=f'{_metric_str} стабилен, разрыв {eff_gap:+.1f} пп – баланс',
             priority=ACTION_PRIORITY['Hold'],
             confidence=confidence,
         )
@@ -538,7 +538,7 @@ def compute_channel_action(
         key='Watch',
         label_ru=ACTION_LABEL_RU['Watch'],
         tone=ACTION_TONE['Watch'],
-        reasoning=f'{_metric_str}, разрыв {eff_gap:+.1f} пп - нужен мониторинг',
+        reasoning=f'{_metric_str}, разрыв {eff_gap:+.1f} пп – нужен мониторинг',
         priority=ACTION_PRIORITY['Watch'],
         confidence=confidence,
     )

@@ -1480,7 +1480,7 @@ def decompose(
         'channels': channels,
         'insight': insight,
         'waterfall': {
-            'labels': ['Baseline'] + [c['name'] for c in channels] + ['Итого'],
+            'labels': ['База'] + [c['name'] for c in channels] + ['Итого'],
             'values': [round(baseline_total, 0)] + [round(c['contribution'], 0) for c in channels] + [round(total_sales, 0)],
             'types': ['baseline'] + ['channel'] * len(channels) + ['total'],
         },
