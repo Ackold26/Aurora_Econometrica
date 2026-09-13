@@ -1002,6 +1002,10 @@ class AuroraPPTXBuilder:
                 return "0"
             return f"{v:.1f}" if v < 10 else f"{v:.0f}"
 
+        # s47: стороны переброски — общее правило, одно на HTML и на колоду.
+        from utils.optimizer_honesty import reallocation_subjects
+        _f3_subjects = reallocation_subjects(f)
+
         # v1.3.2 audit fix (M1): для effectiveness mode skip - shares always
         # sum to 100%, «under breakeven» semantically meaningless.
         all_below_breakeven = (
@@ -1018,17 +1022,24 @@ class AuroraPPTXBuilder:
                     f"Когда у всех каналов {_under_breakeven_phrase_pptx(self.kpi)} - "
                     "оптимизация перераспределением не вернёт прибыльность"
                 )
-        elif reallocation_mln and reallocation_mln >= 0.5 and (
-            f.get("cut_source_channel") and f.get("scale_destination_channel")
-        ):
+        elif _f3_subjects["kind"] == "rebalance":
             # L15 (math-fix v1.4 Section C): action-driven reallocation subjects
-            cut_source = f.get("cut_source_channel")
-            scale_dest = f.get("scale_destination_channel")
-            f3 = f"Рекомендация: перераспределить {_fmt_mln(reallocation_mln)} млн из {cut_source} в {scale_dest}"
+            f3 = (f"Рекомендация: перераспределить {_fmt_mln(_f3_subjects['amount_mln'])} млн "
+                  f"из {_f3_subjects['cut_source']} в {_f3_subjects['scale_destination']}")
             s3 = _lift_phrase_pptx(expected_lift_pct, self.kpi) if expected_lift_pct is not None else "Ожидаемый эффект - положительный"
-        elif reallocation_mln and reallocation_mln >= 0.5 and hero != leader:
-            # Legacy fallback when cut_source/scale_destination not yet populated
-            f3 = f"Рекомендация: перераспределить {_fmt_mln(reallocation_mln)} млн из {leader} в {hero}"
+        elif _f3_subjects["kind"] == "scale_only":
+            # 🔴 s47 (14.09.2026): здесь стояла запасная ветка «из {leader} в {hero}»
+            # (помечена «Legacy fallback when cut_source/scale_destination not yet
+            # populated») — она называла источником переброски лидера по вкладу и
+            # спорила со слайдом рекомендаций той же колоды. Источник теперь один
+            # на всю программу (utils.optimizer_honesty.reallocation_subjects);
+            # когда оптимизатор не назвал, кого режет, — про «из» молчим.
+            f3 = (f"Рекомендация: нарастить {_f3_subjects['scale_destination']} "
+                  f"на ~{_fmt_mln(_f3_subjects['amount_mln'])} млн")
+            s3 = _lift_phrase_pptx(expected_lift_pct, self.kpi) if expected_lift_pct is not None else "Ожидаемый эффект - положительный"
+        elif _f3_subjects["kind"] == "cut_only":
+            f3 = (f"Рекомендация: сократить {_f3_subjects['cut_source']} "
+                  f"({_fmt_mln(_f3_subjects['amount_mln'])} млн) - аллокация неэффективна")
             s3 = _lift_phrase_pptx(expected_lift_pct, self.kpi) if expected_lift_pct is not None else "Ожидаемый эффект - положительный"
         else:
             f3 = "Рекомендация: сохранить текущую аллокацию по лидеру портфеля"
@@ -2877,8 +2888,12 @@ class AuroraPPTXBuilder:
 
             # L15 (math-fix v1.4 Section C, 2026-04-29): use cut_source /
             # scale_destination from action_summary вместо leader/hero.
-            cut_source = f.get("cut_source_channel")
-            scale_dest = f.get("scale_destination_channel")
+            # s47: через общее правило — тот же источник, что у сводки и слайда
+            # рекомендаций. Порог здесь свой (1 млн), поэтому он передан явно.
+            from utils.optimizer_honesty import reallocation_subjects
+            _scqar_subjects = reallocation_subjects(f, min_mln=1.0)
+            cut_source = _scqar_subjects["cut_source"]
+            scale_dest = _scqar_subjects["scale_destination"]
             # Честность отчётов (09.08): та же причина, что гейтит action_title
             # выше через derive_action_headline (model_refused) - здесь узел
             # свой, отдельный от derive_action_headline, гейт дублируется
@@ -2973,29 +2988,30 @@ class AuroraPPTXBuilder:
                     realloc = f.get("reallocation_mln") or 0
                     lift = f.get("expected_lift_pct")
                     underperf = [c.get("name") for c in self.channels if c.get("verdict") in ("Cut",)]
-                    cut_source = f.get("cut_source_channel")
-                    scale_dest = f.get("scale_destination_channel")
+                    # s47: тот же узел выбора сторон, что у сводки и SCQAR.
+                    from utils.optimizer_honesty import reallocation_subjects
+                    _rec_subjects = reallocation_subjects(f, min_mln=1.0)
+                    cut_source = _rec_subjects["cut_source"]
+                    scale_dest = _rec_subjects["scale_destination"]
 
-                    if cut_source and scale_dest and realloc >= 1:
+                    if _rec_subjects["kind"] == "rebalance":
                         action_01_body = (
                             f" {realloc:.0f} млн ₽ из {cut_source} в {scale_dest}. "
                             "Отложенный эффект (adstock) компенсирует краткосрочный спад охвата."
                         )
-                    elif scale_dest and realloc >= 1:
+                    elif _rec_subjects["kind"] == "scale_only":
                         action_01_body = (
                             f" Нарастить {scale_dest} на ~{realloc:.0f} млн ₽ – "  # П8-1
                             "за счёт roll-over бюджета или дополнительных средств."
                         )
-                    elif cut_source and realloc >= 1:
+                    elif _rec_subjects["kind"] == "cut_only":
+                        # 🔴 s47: следом стояла запасная ветка «{realloc} млн ₽ из
+                        # {leader} в {hero}» — источником назывался лидер по вкладу,
+                        # которого оптимизатор не режет. Убрана: когда сторон нет,
+                        # колода молчит про переброску, а не выдумывает источник.
                         action_01_body = (
                             f" Сократить {cut_source} ({realloc:.0f} млн ₽) – "  # П8-1
                             "текущая аллокация неэффективна."
-                        )
-                    elif hero != leader and realloc >= 1:
-                        # Legacy fallback (cut_source/scale_dest unavailable)
-                        action_01_body = (
-                            f" {realloc:.0f} млн ₽ из {leader} в {hero}. "
-                            "Отложенный эффект (adstock) компенсирует краткосрочный спад охвата."
                         )
                     else:
                         action_01_body = f" Сохранить аллокацию по {leader} с контролем индикаторов насыщения."

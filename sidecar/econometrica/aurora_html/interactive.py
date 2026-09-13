@@ -601,6 +601,187 @@ def bootstrap_js(
     return ch;
   }}
 
+  // ── Сравнение вариантов плана (блок «Планирование») ───────────────
+  // 14.09.2026: блок был единственным в отчёте с растровой картинкой
+  // matplotlib и зрительно выпадал. Тот же движок, что у остальных восьми
+  // графиков, те же токены темы, сетка и подписи.
+  //
+  // Данные приходят не из CHART_DATA, а из атрибута data-payload своего
+  // контейнера: сводку вариантов считает сама секция отчёта
+  // (engines.planning.summarize_forecast), и тащить её через общий payload
+  // значило бы считать одно и то же дважды в двух местах.
+  //
+  // 🔴 Ось значений начинается НЕ с нуля (границы приходят готовыми из
+  // Python, _forecast_axis_range): от нуля разница между вариантами не
+  // видна. Усечённая ось зрительно преувеличивает разницу, поэтому при
+  // zeroExcluded внутри графика печатается пометка об этом – она попадает
+  // и в сохранённый PNG, где подписей из HTML уже нет (INV-50).
+  //
+  // 🔴 Правдоподобный диапазон рисуем ПОЛОСОЙ из двух столбцов в одной
+  // стопке (прозрачная подставка до нижней границы + видимая полоса до
+  // верхней), а не усами через серию custom: в сборку
+  // echarts.common.5.5.1 серия custom не входит, и ECharts выбрасывает её
+  // МОЛЧА – проверено в браузере, серия просто исчезала из getOption().
+  // Полоса и столбец одной ширины и в разных группах с barGap '-100%',
+  // поэтому лежат ровно друг на друге.
+  function buildForecastCompareOption(data) {{
+    if (!data || !data.names || data.names.length < 2) return null;
+    if (!data.values || data.values.length !== data.names.length) return null;
+    var pal = currentPalette();
+    var kpiLabel = data.kpiLabel || 'Прогноз KPI';
+    var accIdx = data.accepted ? data.names.indexOf(data.accepted) : -1;
+
+    function fmtVal(v) {{
+      if (v === null || v === undefined || isNaN(v)) return '-';
+      return Math.round(v).toLocaleString('ru-RU');
+    }}
+
+    var ciList = data.ci || [];
+    var ciBase = [], ciSpan = [], hasCi = false;
+    for (var i = 0; i < data.names.length; i++) {{
+      var pair = ciList[i];
+      if (pair && pair.length === 2 && pair[0] !== null && pair[1] !== null) {{
+        ciBase.push(pair[0]);
+        ciSpan.push(pair[1] - pair[0]);
+        hasCi = true;
+      }} else {{
+        ciBase.push('-');
+        ciSpan.push('-');
+      }}
+    }}
+
+    var series = [{{
+      name: kpiLabel,
+      type: 'bar',
+      z: 2,
+      barMaxWidth: 48,
+      data: data.values.map(function(v, idx) {{
+        return {{
+          value: v,
+          itemStyle: {{
+            color: (idx === accIdx) ? pal.heroColor : pal.mutedColor,
+            borderRadius: [3, 3, 0, 0]
+          }}
+        }};
+      }}),
+      // С полосой диапазона подпись уходит к основанию столбца: верх столбца
+      // и его окрестность заняты полосой, подпись там читалась бы сквозь неё.
+      label: {{
+        show: true,
+        position: hasCi ? 'insideBottom' : 'top',
+        distance: hasCi ? 10 : 4,
+        color: hasCi ? '#ffffff' : pal.textColor,
+        fontSize: 11, fontWeight: 600,
+        formatter: function(p) {{ return fmtVal(p.value); }}
+      }}
+    }}];
+
+    if (hasCi) {{
+      series.push({{
+        name: 'ci-base',
+        type: 'bar',
+        stack: 'ci',
+        z: 3,
+        silent: true,
+        barGap: '-100%',
+        barMaxWidth: 48,
+        data: ciBase,
+        itemStyle: {{ color: 'transparent' }}
+      }});
+      series.push({{
+        name: 'Правдоподобный диапазон 90 %',
+        type: 'bar',
+        stack: 'ci',
+        z: 3,
+        silent: true,
+        barMaxWidth: 48,
+        data: ciSpan,
+        itemStyle: {{
+          color: 'rgba(120,132,150,0.34)',
+          borderColor: pal.textMutedColor,
+          borderWidth: 1
+        }}
+      }});
+    }}
+
+    var yAxis = Object.assign({{ type: 'value' }}, baseAxisStyle(pal), {{
+      axisLabel: Object.assign({{}}, baseAxisStyle(pal).axisLabel, {{
+        formatter: function(v) {{ return fmtVal(v); }}
+      }})
+    }});
+    // Границы ставим только когда Python их посчитал; иначе ECharts сам.
+    if (typeof data.yMin === 'number' && typeof data.yMax === 'number' &&
+        data.yMax > data.yMin) {{
+      yAxis.min = data.yMin;
+      yAxis.max = data.yMax;
+      yAxis.scale = true;
+    }}
+
+    return {{
+      animation: !PREFERS_REDUCED_MOTION,
+      animationDuration: 600,
+      textStyle: {{ color: pal.textColor, fontFamily: 'Inter, sans-serif' }},
+      grid: {{ left: 8, right: 8, bottom: data.zeroExcluded ? 26 : 8, top: 16, containLabel: true }},
+      tooltip: Object.assign(baseTooltip(pal), {{
+        formatter: function(ps) {{
+          if (!Array.isArray(ps)) ps = [ps];
+          if (!ps.length) return '';
+          // Все серии выровнены по категориям, поэтому индекс у них общий.
+          var idx = ps[0].dataIndex;
+          if (idx == null || idx < 0 || idx >= data.names.length) return '';
+          var out = '<b>' + escapeHtml(data.names[idx]) + '</b><br/>' +
+                    escapeHtml(kpiLabel) + ': ' + fmtVal(data.values[idx]);
+          var pair = ciList[idx];
+          if (pair && pair.length === 2) {{
+            out += '<br/>Правдоподобный диапазон 90 %: ' +
+                   fmtVal(pair[0]) + ' – ' + fmtVal(pair[1]);
+          }}
+          return out;
+        }}
+      }}),
+      xAxis: Object.assign({{ type: 'category', data: data.names }}, baseAxisStyle(pal), {{
+        axisLabel: Object.assign({{}}, baseAxisStyle(pal).axisLabel, {{
+          rotate: data.names.length > 4 ? 20 : 0,
+          interval: 0
+        }})
+      }}),
+      yAxis: yAxis,
+      graphic: data.zeroExcluded ? [{{
+        type: 'text', left: 4, bottom: 2, silent: true,
+        style: {{
+          text: 'Шкала начинается не с нуля',
+          fill: pal.textMutedColor, fontSize: 10, fontFamily: 'Inter, sans-serif'
+        }}
+      }}] : [],
+      series: series
+    }};
+  }}
+
+  // Данные из атрибута контейнера (см. buildForecastCompareOption). Разбор
+  // обёрнут в try: битый payload не должен ронять остальную страницу –
+  // тогда на месте графика останется честное «нет данных».
+  function initChartFromHost(id, builder) {{
+    var host = document.getElementById(id);
+    if (!host || !window.echarts) return null;
+    var raw = host.getAttribute('data-payload');
+    var data = null;
+    if (raw) {{
+      try {{ data = JSON.parse(raw); }} catch (e) {{ data = null; }}
+    }}
+    var opt = data ? builder(data) : null;
+    if (!opt) {{
+      host.innerHTML = '<div style="padding:40px;text-align:center;color:var(--text-muted);font-size:13px;">' +
+                       (STRINGS.empty.no_data || 'Нет данных') + '</div>';
+      return null;
+    }}
+    var ch = echarts.init(host, null, {{ renderer: 'svg' }});
+    ch.setOption(opt);
+    AURORA_CHARTS[id] = ch;
+    var sk = host.querySelector('.chart-skeleton');
+    if (sk) sk.remove();
+    return ch;
+  }}
+
   function initAllCharts() {{
     initChart('chart-mroas',    buildMroasOption,    'mroas');
     initChart('chart-share',    buildShareOption,    'share');
@@ -616,6 +797,11 @@ def bootstrap_js(
     initChart('chart-quality-avp',       buildQualityAvpOption,      'quality');
     initChart('chart-quality-residuals', buildQualityResidualsOption, 'quality');
     initChart('chart-quality-scatter',   buildQualityScatterOption,  'quality');
+
+    // Сравнение вариантов плана: данные в атрибуте своего контейнера, а не в
+    // CHART_DATA (блок «Планирование» считает сводку сам). Контейнер верстается
+    // только при ≥2 вариантах – без него функция тихо выходит.
+    initChartFromHost('chart-forecast-compare', buildForecastCompareOption);
 
     // Resize handler (debounced)
     var resizeTimer;

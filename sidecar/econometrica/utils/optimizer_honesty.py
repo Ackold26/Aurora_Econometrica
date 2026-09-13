@@ -410,3 +410,62 @@ def stamp_reliability(diagnostics: dict[str, Any]) -> dict[str, Any]:
     # рассказывали бы клиенту о проблеме, которой уже нет.
     diagnostics['honesty_reasons'] = [str(r) for r in (verdict.get('reasons') or [])][:3]
     return diagnostics
+
+
+# ─── Стороны переброски бюджета: единственное правило на всю программу ────────
+# Дефект s47 (14.09.2026): одна и та же сумма 878 млн ₽ уезжала клиенту трижды с
+# РАЗНЫМИ источниками — сводка первой страницы говорила «из Онлайн-видео» (лидер
+# по вкладу), а «РЕКОМЕНДАЦИЯ» и резюме — «из Наружной рекламы» (кого режет
+# оптимизатор). Читатель начинает с первой страницы, то есть первым он читал
+# неверный канал, да ещё и противоречащий выводу строкой ниже: Онлайн-видео даёт
+# 45 % вклада при 34 % бюджета, забирать из него — совет наоборот.
+# Корень: два места судили по разным правилам. Лечится не подгонкой одного места,
+# а одним правилом выбора для ВСЕХ документов — эта функция и есть правило.
+def reallocation_subjects(facts: dict | None, min_mln: float = 0.5) -> dict:
+    """Кто отдаёт бюджет и кто получает — единый ответ для HTML, презентации и экрана.
+
+    Правило:
+      - источник = `cut_source_channel` (канал, который оптимизатор РЕЖЕТ);
+      - получатель = `scale_destination_channel` (канал, который он НАРАЩИВАЕТ);
+      - `leader_channel` (лидер по вкладу) источником не является НИКОГДА — это
+        ответ на другой вопрос («кто больше всех дал»), и он свободно попадает в
+        число получателей;
+      - если источник не назван — про переброску «из» не говорим вовсе, называем
+        только получателя («нарастить N»). Промолчать честнее, чем назвать канал,
+        который оптимизатор не трогал.
+
+    Args:
+        facts: `narrative_facts` из narrative_adapter (может быть None/пустым).
+        min_mln: порог значимости суммы, млн ₽. Ниже порога сторон нет — у разных
+            документов порог исторически свой (0.5 в отчёте, 1 на части слайдов),
+            поэтому он параметр, а не константа.
+
+    Returns:
+        dict:
+          kind — 'rebalance' (есть обе стороны) | 'scale_only' | 'cut_only' | 'none';
+          cut_source — имя канала-источника или None;
+          scale_destination — имя канала-получателя или None;
+          amount_mln — сумма переброски, млн ₽ (0.0 если её нет).
+    """
+    f = facts or {}
+    try:
+        amount = float(f.get('reallocation_mln') or 0)
+    except (TypeError, ValueError):
+        amount = 0.0
+    if not (amount >= min_mln):  # NaN тоже сюда — сторон нет
+        return {'kind': 'none', 'cut_source': None,
+                'scale_destination': None, 'amount_mln': 0.0}
+
+    cut_source = f.get('cut_source_channel') or None
+    scale_destination = f.get('scale_destination_channel') or None
+    if cut_source and scale_destination:
+        kind = 'rebalance'
+    elif scale_destination:
+        kind = 'scale_only'
+    elif cut_source:
+        kind = 'cut_only'
+    else:
+        kind = 'none'
+        amount = 0.0
+    return {'kind': kind, 'cut_source': cut_source,
+            'scale_destination': scale_destination, 'amount_mln': amount}

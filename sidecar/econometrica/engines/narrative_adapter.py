@@ -521,11 +521,31 @@ def derive_action_headline(
     total_ch = len(channels) or 1
     all_underperf = len(underperf) >= max(2, (total_ch + 1) // 2)
 
+    # 🔴 s47 (14.09.2026): стороны переброски здесь брались из leader/hero — той
+    # же пары, что подвела сводку веб-отчёта. Заголовки слайдов спорили с текстом
+    # тех же слайдов: s06 обещал «сократить Онлайн-видео» (лидер по вкладу), пока
+    # s09 говорил «878 млн ₽ из Наружной рекламы» (кого режет оптимизатор).
+    # Теперь стороны — из общего правила, одного на весь продукт. Порог 1 млн ₽:
+    # единственный потребитель этой функции — колода (aurora_pptx), а её слайды
+    # считают переброску значимой именно с этой величины.
+    from utils.optimizer_honesty import reallocation_subjects
+    subjects = reallocation_subjects(facts, min_mln=1.0)
+    cut_source = subjects["cut_source"]
+    scale_dest = subjects["scale_destination"]
+
     if slide_hint == "mroas":
         # s06: action = grow hero / rebalance against leader
         if hero and leader and hero != leader and hero_m >= 1.2:
             if has_lift:
-                return f"Нарастить {hero} и сократить {leader} - {lift_txt}"
+                # 🔴 s47: было «Нарастить {hero} и сократить {leader}». Лидер по
+                # вкладу каналом к сокращению не является — у него как раз самый
+                # большой вклад; режет оптимизатор другой канал. Когда источник не
+                # определён (переброска незначима либо ни один канал не помечен к
+                # сокращению) — про сокращение молчим, говорим только про рост.
+                if cut_source and cut_source != hero:
+                    return f"Нарастить {hero} и сократить {cut_source} - {lift_txt}"
+                return f"Нарастить {hero} - {lift_txt}"
+            # Сравнение эффективности с лидером — не директива сокращать его.
             return f"Нарастить {hero} - mROAS {hero_m:.1f}x против {leader}"
         if hero and hero_m >= 1.2:
             # B1-fix R-14-семейство: «устойчив» — только когда нижняя граница
@@ -582,15 +602,34 @@ def derive_action_headline(
     if slide_hint == "scqar":
         # s09 - 3 scenarios: Rebalance / Hold+control / Risk
         if all_underperf and hero:
-            # Risk scenario - net portfolio underperformance
-            names = ", ".join(underperf[:2])
-            return f"Сократить {names} и сфокусировать бюджет на {hero}"
-        if has_lift and hero and leader and hero != leader and realloc >= 1:
-            # Rebalance scenario - quantified reallocation
-            return f"Перераспределить {realloc:.0f} млн руб в {hero} - {lift_txt}"
-        if hero and leader and hero != leader and realloc >= 1:
-            # Rebalance без верного lift - action без числа
-            return f"Перераспределить {realloc:.0f} млн руб из {leader} в {hero}"
+            # Risk scenario - net portfolio underperformance.
+            # 🔴 s47: список отстающих собирается БЕЗ cut_source — его вычёркивает
+            # _derive_narrative_facts (dedup, чтобы канал не назывался дважды).
+            # Поэтому заголовок перечислял кого угодно, кроме реального канала к
+            # сокращению, и мог поставить туда лидера по вкладу. Ставим настоящий
+            # источник первым, отстающих — следом.
+            _cut_names = [n for n in ([cut_source] + list(underperf)) if n]
+            names = ", ".join(_cut_names[:2])
+            _grow = scale_dest or hero
+            return f"Сократить {names} и сфокусировать бюджет на {_grow}"
+        if subjects["kind"] != "none":
+            # 🔴 s47: ветки гейтились условием `hero != leader` — соотношением,
+            # которое к наличию переброски отношения не имеет. При совпадении
+            # лидера и героя заголовок говорил «Портфель сбалансирован», пока
+            # ответ того же слайда печатал «Перераспределить 878 млн ₽ из ...»
+            # (доказано сборкой колоды). Теперь ветвление — по фактам оптимизатора.
+            if subjects["kind"] == "rebalance":
+                if has_lift:
+                    # Rebalance scenario - quantified reallocation
+                    return f"Перераспределить {realloc:.0f} млн руб в {scale_dest} - {lift_txt}"
+                # Rebalance без верного lift - action без числа прироста
+                return f"Перераспределить {realloc:.0f} млн руб из {cut_source} в {scale_dest}"
+            if subjects["kind"] == "scale_only":
+                # Источник не определён — про «из» молчим, обещаем только рост.
+                _tail = f" - {lift_txt}" if has_lift else ""
+                return f"Перераспределить {realloc:.0f} млн руб в {scale_dest}{_tail}"
+            _tail = f" - {lift_txt}" if has_lift else ""
+            return f"Сократить {cut_source} ({realloc:.0f} млн руб){_tail}"
         # B1-fix R-14: «сбалансирован» при неопределённых вердиктах — не то же
         # самое; сначала снять неопределённость, потом перераспределять.
         _uncertain_n = sum(1 for c in channels if c.get("verdict") == "Uncertain")

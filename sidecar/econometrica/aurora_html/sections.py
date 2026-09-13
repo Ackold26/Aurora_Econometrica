@@ -447,9 +447,9 @@ def _reliability_disclaimer_html(ctx: dict) -> str:
             '<div class="provenance-mismatch" role="alert" style="'
             "margin:16px 0;padding:14px 18px;background:rgba(201,164,73,0.12);"
             "border:1px solid rgba(201,164,73,0.4);border-radius:8px;"
-            "font-size:13px;line-height:1.5;color:#e2e8f0;"
+            "font-size:13px;line-height:1.5;color:var(--text);"
             '">'
-            '<strong style="color:#c9a449;">⚠ Разное происхождение данных.</strong> '
+            '<strong style="color:var(--text-secondary);">⚠ Разное происхождение данных.</strong> '
             f'{escape(str(diag["provenance_note"]))}'
             "</div>"
         )
@@ -481,9 +481,9 @@ def _reliability_disclaimer_html(ctx: dict) -> str:
             '<div class="reliability-disclaimer" role="alert" style="'
             "margin:16px 0;padding:14px 18px;background:rgba(201,164,73,0.12);"
             "border:1px solid rgba(201,164,73,0.4);border-radius:8px;"
-            "font-size:13px;line-height:1.5;color:#e2e8f0;"
+            "font-size:13px;line-height:1.5;color:var(--text);"
             '">'
-            '<strong style="color:#c9a449;">⚠ Надёжность модели не подтверждена.</strong> '
+            '<strong style="color:var(--text-secondary);">⚠ Надёжность модели не подтверждена.</strong> '
             f'{escape(RELIABILITY_UNKNOWN_NOTE)}'
             "</div>"
         )
@@ -506,9 +506,9 @@ def _reliability_disclaimer_html(ctx: dict) -> str:
         '<div class="reliability-disclaimer" role="alert" style="'
         "margin:16px 0;padding:14px 18px;background:rgba(201,164,73,0.12);"
         "border:1px solid rgba(201,164,73,0.4);border-radius:8px;"
-        "font-size:13px;line-height:1.5;color:#e2e8f0;"
+        "font-size:13px;line-height:1.5;color:var(--text);"
         '">'
-        f'<strong style="color:#c9a449;">⚠ Ориентировочная модель.</strong> '
+        f'<strong style="color:var(--text-secondary);">⚠ Ориентировочная модель.</strong> '
         f'{escape(note)}'
         '</div>'
     )
@@ -636,8 +636,12 @@ def render_executive_summary(ctx: dict) -> str:
         budget_dom = facts.get("budget_dominator_channel") or leader
         bd_spend_pct = facts.get("budget_dominator_spend_pct") or leader_pct
         bd_contrib_pct = facts.get("budget_dominator_contrib_pct") or 0.0
-        cut_source = facts.get("cut_source_channel")
-        scale_dest = facts.get("scale_destination_channel")
+        # s47: стороны переброски — только через общее правило (см. сводку и
+        # рекомендацию: три места одного отчёта обязаны называть один источник).
+        from utils.optimizer_honesty import reallocation_subjects
+        subjects = reallocation_subjects(facts)
+        cut_source = subjects["cut_source"]
+        scale_dest = subjects["scale_destination"]
 
         if kpi["is_legacy"]:
             situation = scqar["situation"]["template"].format(
@@ -714,7 +718,7 @@ def render_executive_summary(ctx: dict) -> str:
                     "данных нет: добавьте их с планируемыми бюджетами (целевую "
                     "величину в них оставьте пустой)."
                 )
-        elif realloc >= 0.5 and (cut_source or scale_dest):
+        elif subjects["kind"] != "none":
             # L15 (math-fix v1.4 Section C): use cut_source / scale_destination
             # from action_summary instead of leader/hero. Fallback templates
             # для edge cases (only-Cut, only-Scale, all-Hold, all-Uncertain).
@@ -890,6 +894,9 @@ def render_at_a_glance(ctx: dict) -> str:
         realloc = facts.get("reallocation_mln") or 0
         lift = facts.get("expected_lift_pct") or 0
         binding = bool(facts.get("binding_constraints"))
+        # s47: стороны переброски — из общего правила, не из локальной эвристики.
+        from utils.optimizer_honesty import reallocation_subjects
+        subjects = reallocation_subjects(facts)
         # v1.3.2 audit fix (M1): для effectiveness mode «all below breakeven»
         # семантически unapplicable (shares always sum to 100%, threshold
         # arbitrary). Skip branch и treat as standard portfolio.
@@ -913,12 +920,32 @@ def render_at_a_glance(ctx: dict) -> str:
         elif binding:
             f3 = "Оптимизатор упёрся в заданные границы – расширьте Мин./Макс. % и перезапустите"
             f3_sup = "Текущие границы зажимают пространство решений – реальное перераспределение скрыто"
-        elif realloc >= 0.5 and hero != leader:
-            f3 = strings["findings_templates"]["f3_realloc"].format(
-                realloc=realloc, leader=leader, hero=hero)
+        elif subjects["kind"] != "none":
+            # 🔴 s47 (14.09.2026): здесь стоял `elif realloc >= 0.5 and hero != leader`
+            # с шаблоном «из {leader} в {hero}» — сводка первой страницы называла
+            # источником переброски ЛИДЕРА ПО ВКЛАДУ, тогда как «РЕКОМЕНДАЦИЯ» и
+            # резюме ниже по документу называли канал, который режет оптимизатор.
+            # Один отчёт, одна сумма, два разных источника — и клиент читает
+            # неверный первым. Теперь стороны берутся из общего правила
+            # utils.optimizer_honesty.reallocation_subjects, того же самого, что
+            # у резюме и рекомендации.
+            tpl = strings["findings_templates"]
+            if subjects["kind"] == "rebalance":
+                f3 = tpl["f3_realloc"].format(
+                    realloc=subjects["amount_mln"],
+                    cut_source=subjects["cut_source"],
+                    scale_destination=subjects["scale_destination"])
+            elif subjects["kind"] == "scale_only":
+                f3 = tpl["f3_realloc_no_cut"].format(
+                    realloc=subjects["amount_mln"],
+                    scale_destination=subjects["scale_destination"])
+            else:  # cut_only
+                f3 = tpl["f3_realloc_no_scale"].format(
+                    realloc=subjects["amount_mln"],
+                    cut_source=subjects["cut_source"])
             # Пласт 2 (2026-07-11): KPI-aware — для count/effectiveness «ROAS» не применим.
             if kpi["is_legacy"]:
-                f3_sup = strings["findings_templates"]["f3_realloc_support"].format(lift=lift)
+                f3_sup = tpl["f3_realloc_support"].format(lift=lift)
             else:
                 f3_sup = _lift_phrase(float(lift), kpi)
         else:
@@ -1541,6 +1568,9 @@ def render_recommendation(ctx: dict) -> str:
         realloc = facts.get("reallocation_mln") or 0
         lift = facts.get("expected_lift_pct")
         underperf = [c.get("name") for c in channels if c.get("verdict") == "Cut"]
+        # s47: те же стороны переброски, что у сводки и резюме — одно правило.
+        from utils.optimizer_honesty import reallocation_subjects
+        subjects = reallocation_subjects(facts)
         binding = bool(facts.get("binding_constraints"))
         converged = facts.get("optimization_converged", True)
         converged_at_current = bool(facts.get("converged_at_current"))
@@ -1579,20 +1609,31 @@ def render_recommendation(ctx: dict) -> str:
                     "данных нет: добавьте их с планируемыми бюджетами (целевую "
                     "величину оставьте пустой)."
                 )
-        elif facts.get("cut_source_channel") and facts.get("scale_destination_channel") and realloc >= 0.5:
+        elif subjects["kind"] == "rebalance":
             # L15 (math-fix v1.4 Section C): action-driven reallocation subjects
             # вместо leader/hero. cut_source = optimizer's biggest cut, scale_dest
             # = biggest grow recommendation. Avoids «из Performance в Social»
             # когда Performance - small-budget сhannel.
             action_01_text = (
-                f"{realloc:.0f} млн ₽ из {facts['cut_source_channel']} в {facts['scale_destination_channel']}. "
+                f"{subjects['amount_mln']:.0f} млн ₽ из {subjects['cut_source']} "
+                f"в {subjects['scale_destination']}. "
                 "Остаточный эффект компенсирует краткосрочный спад охвата."
             )
-        elif hero != leader and realloc >= 0.5:
-            # Legacy fallback (cut_source/scale_dest unavailable)
+        elif subjects["kind"] == "scale_only":
+            # 🔴 s47: здесь стояла запасная ветка «{realloc} млн ₽ из {leader} в
+            # {hero}» на случай, когда стороны от оптимизатора не заполнены. Она
+            # называла источником лидера по вкладу — канал, который оптимизатор не
+            # трогал, — и спорила с резюме того же отчёта. Промолчать про «из»
+            # честнее, чем назвать неверный канал: говорим только про получателя.
             action_01_text = (
-                f"{realloc:.0f} млн ₽ из {leader} в {hero}. "
-                "Остаточный эффект компенсирует краткосрочный спад охвата."
+                f"Нарастить {subjects['scale_destination']} на ~{subjects['amount_mln']:.0f} млн ₽ – "
+                "за счёт переноса бюджета или дополнительных средств."
+            )
+        elif subjects["kind"] == "cut_only":
+            action_01_text = (
+                f"Сократить {subjects['cut_source']} ({subjects['amount_mln']:.0f} млн ₽) – "
+                "текущая аллокация неэффективна. Явного канала для роста нет – "
+                "рассмотрите расширение медиа-микса."
             )
         else:
             action_01_text = (
@@ -2469,6 +2510,82 @@ def render_trust_loop(ctx: dict) -> str:
     return _section("trust", "ДОВЕРИЕ К МОДЕЛИ", body)
 
 
+def _forecast_axis_range(
+    values: list, ci_pairs: list | None = None
+) -> tuple[float, float, bool]:
+    """Границы вертикальной оси сравнения вариантов плана – отсчёт НЕ от нуля.
+
+    Решение владельца 14.09.2026: при отсчёте от нуля столбцы вариантов
+    выглядят одинаковыми и разница плана не читается. Границы берём по самим
+    числам – прогнозам и краям правдоподобных диапазонов, чтобы усы интервалов
+    гарантированно помещались, – с запасом 15 % ширины разброса и округлением
+    до опрятного деления.
+
+    Усечённая шкала зрительно преувеличивает разницу, поэтому третий элемент
+    ответа говорит, исключён ли из оси ноль: когда исключён, секция обязана
+    напечатать рядом с графиком пометку об этом (INV-50 – честность чисел).
+    Ноль исключается только если он и так за пределами данных с запасом; когда
+    среди значений есть и плюс, и минус, ось показывает ноль.
+
+    Вырожденные случаи (все значения совпали, единственное значение, нули)
+    дают симметричную окрестность от самого значения – деления на ширину
+    разброса здесь нет, поэтому на ноль не делим.
+
+    Возвращает (низ, верх, ноль_исключён).
+    """
+    pts: list[float] = []
+    for v in values or []:
+        if v is not None:
+            try:
+                pts.append(float(v))
+            except (TypeError, ValueError):
+                continue
+    for pair in ci_pairs or []:
+        if not pair:
+            continue
+        for bound in pair:
+            if bound is None:
+                continue
+            try:
+                pts.append(float(bound))
+            except (TypeError, ValueError):
+                continue
+    pts = [p for p in pts if math.isfinite(p)]
+    if not pts:
+        return (0.0, 1.0, False)
+
+    lo, hi = min(pts), max(pts)
+    span = hi - lo
+    if span <= 0:
+        pad = abs(hi) * 0.10 or 1.0
+    else:
+        pad = span * 0.15
+    lo_out, hi_out = lo - pad, hi + pad
+
+    # Запас не должен перетаскивать ось через ноль: если все числа
+    # положительные, а запас увёл низ в минус, упираемся ровно в ноль –
+    # тогда ось честно начинается с нуля и пометка не печатается.
+    if lo >= 0 and lo_out < 0:
+        lo_out = 0.0
+    if hi <= 0 and hi_out > 0:
+        hi_out = 0.0
+
+    # Опрятные деления. Округление не имеет права само перетащить границу
+    # через ноль – иначе усечение появилось бы там, где его не задумывали,
+    # или наоборот пропало бы вместе с пометкой.
+    width = hi_out - lo_out
+    if width > 0:
+        step = (10 ** math.floor(math.log10(width))) / 2.0
+        if step > 0:
+            nice_lo = math.floor(lo_out / step) * step
+            nice_hi = math.ceil(hi_out / step) * step
+            if not (lo_out > 0 and nice_lo <= 0) and not (hi_out < 0 and nice_hi >= 0):
+                lo_out, hi_out = nice_lo, nice_hi
+
+    zero_excluded = lo_out > 0 or hi_out < 0
+    return (round(lo_out, 6), round(hi_out, 6), bool(zero_excluded))
+
+
 def render_forecast_plan(ctx: dict) -> str:
     """E5 (2026-07-10): секция «Прогноз на будущий период».
 
@@ -2720,24 +2837,93 @@ def render_forecast_plan(ctx: dict) -> str:
         disc_items = "".join(f"<li>{escape(str(d))}</li>" for d in disclaimers[:5])
         disc_html = f'<ul class="trust-list">{disc_items}</ul>'
 
-    # Сравнительный график вариантов (только при ≥2 сценариях)
+    # ── Сравнительный график вариантов (только при ≥2 сценариях) ───────────
+    # 14.09.2026 (жалоба владельца): здесь стояла растровая картинка
+    # matplotlib – единственная среди девяти графиков отчёта, и блок зрительно
+    # выпадал. Переведён на тот же движок ECharts, что и остальные восемь: те
+    # же токены темы, та же сетка и подписи, живая подсказка, кнопка «Сохранить
+    # PNG», работа в трёх темах. Растровый scenarios_comparison_chart остался
+    # за колодой PPTX – там картинка уместна и не трогается.
     chart_html = ""
     if len(scenarios) >= 2:
-        try:
-            from charts.generators import scenarios_comparison_chart
-            data_uri = scenarios_comparison_chart(scenarios, kpi_label=kpi_label)
-            if data_uri:
-                chart_html = (
-                    '<div class="chart-container" style="margin-top:20px;">'
-                    '<div class="chart-title" style="margin-bottom:8px;">'
-                    'Сравнение вариантов – прогноз KPI</div>'
-                    f'<img src="data:image/png;base64,{data_uri}" '
-                    'alt="Сравнение вариантов" '
-                    'style="max-width:100%;height:auto;border-radius:6px;" />'
-                    '</div>'
+        cmp_names: list[str] = []
+        cmp_values: list[float] = []
+        cmp_ci: list[list[float] | None] = []
+        accepted_name = ""
+        for sc in scenarios:
+            kpi_v = sc.get("total_kpi")
+            if kpi_v is None:
+                continue  # INV-50: вариант без прогноза столбцом не рисуем
+            try:
+                kpi_f = float(kpi_v)
+            except (TypeError, ValueError):
+                continue
+            if not math.isfinite(kpi_f):
+                continue
+            name_v = str(sc.get("name") or sc.get("variant_id") or "Вариант")
+            cmp_names.append(name_v)
+            cmp_values.append(kpi_f)
+            lo_v = sc.get("total_kpi_ci_low")
+            hi_v = sc.get("total_kpi_ci_high")
+            try:
+                pair = (
+                    [float(lo_v), float(hi_v)]
+                    if lo_v is not None and hi_v is not None
+                    else None
                 )
-        except Exception:
-            pass  # График опционален – ошибка не ломает секцию
+            except (TypeError, ValueError):
+                pair = None
+            if pair and not (math.isfinite(pair[0]) and math.isfinite(pair[1])):
+                pair = None
+            # Перевёрнутый интервал (нижняя граница выше верхней) – признак
+            # битых данных; рисовать такой ус значит врать, поэтому опускаем.
+            if pair and pair[0] > pair[1]:
+                pair = None
+            cmp_ci.append(pair)
+            if sc.get("variant_id") == accepted:
+                accepted_name = name_v
+        # Сравнивать есть с чем только при двух и более столбцах: один вариант
+        # – это не сравнение, и усечённая ось на нём бессмысленна.
+        if len(cmp_names) >= 2:
+            y_min, y_max, zero_excluded = _forecast_axis_range(cmp_values, cmp_ci)
+            from .security import escape_js_embed
+            payload = escape(escape_js_embed({
+                "names":    cmp_names,
+                "values":   cmp_values,
+                "ci":       cmp_ci,
+                "accepted": accepted_name,
+                "yMin":     y_min,
+                "yMax":     y_max,
+                "zeroExcluded": zero_excluded,
+                "kpiLabel": kpi_label,
+            }))
+            # Пометка про усечённую ось. Без неё усечение – приём, которым
+            # «продают» разницу: столбцы расходятся сильнее, чем числа.
+            note_html = (
+                '<p class="trust-note">Шкала начинается не с нуля – '
+                'так видна разница между вариантами.</p>'
+                if zero_excluded else ""
+            )
+            ci_note = (
+                '<p class="trust-note">Серая полоса на столбце – правдоподобный диапазон 90&#160;%.</p>'
+                if any(cmp_ci) else ""
+            )
+            chart_html = f"""
+<div class="chart-container" style="margin-top:20px;">
+  <div class="chart-title-bar">
+    <div>
+      <div class="chart-title">Сравнение вариантов – прогноз KPI</div>
+      <div class="chart-subtitle">{escape(kpi_label)} за весь срок плана</div>
+    </div>
+    <button class="btn-inline" data-copy-chart="chart-forecast-compare">Сохранить PNG</button>
+  </div>
+  <div class="chart-host" id="chart-forecast-compare" data-chart="forecast-compare"
+       data-payload="{payload}" style="height:320px;">
+    <div class="chart-skeleton" aria-hidden="true"></div>
+  </div>
+  {note_html}
+  {ci_note}
+</div>"""
 
     body = (
         # Команда владельца (13.09.2026): экранный шаг называется «Планирование»,

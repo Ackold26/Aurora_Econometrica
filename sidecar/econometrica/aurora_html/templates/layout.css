@@ -953,7 +953,7 @@ sup.fn-marker {
   margin-top: 12px;
   font-size: 12px;
   line-height: 1.45;
-  color: var(--gold, #c9a449);
+  color: var(--text-secondary);
   font-style: italic;
   text-align: left;
 }

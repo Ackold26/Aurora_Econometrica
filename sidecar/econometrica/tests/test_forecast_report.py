@@ -512,28 +512,241 @@ def test_scenarios_comparison_chart_skips_none_kpi():
     )
 
 
-# ─── HTML: scenarios_comparison_chart встраивается при ≥2 вариантах ──────────
+# ─── HTML: блок планирования рисует ЖИВОЙ график, а не картинку ─────────────
+# 14.09.2026 (жалоба владельца): здесь стояла растровая картинка matplotlib –
+# единственная среди девяти графиков отчёта. Сторожа ниже держат два условия:
+# (1) в блоке живой контейнер ECharts, а не <img>; (2) ось значений не
+# начинается с нуля на близких значениях – иначе разница вариантов не видна, –
+# и усечение честно подписано (INV-50).
 
-def test_html_forecast_chart_present_for_two_or_more_scenarios():
-    """При ≥2 сценариях render_forecast_plan должен содержать <img> с base64 PNG."""
+
+def _forecast_chart_payload(html_str: str) -> dict:
+    """Данные живого графика из атрибута контейнера (сущности → JSON)."""
+    import re
+    from html import unescape
+
+    m = re.search(r'data-payload="([^"]*)"', html_str)
+    assert m, "В блоке планирования нет контейнера с данными живого графика"
+    return json.loads(unescape(m.group(1)))
+
+
+def _fc_two(kpi_a=460.0, kpi_b=520.0, ci_a=(414.0, 506.0), ci_b=(468.0, 572.0)):
+    """Прогноз с двумя вариантами; ci_* = None → вариант без диапазона."""
     fc = copy.deepcopy(FORECAST_DATA)
-    fc["scenarios"] = [
-        {**fc["scenarios"][0], "name": "Базовый",  "variant_id": "v1", "total_kpi": 460.0},
-        {**fc["scenarios"][0], "name": "Агрессивный", "variant_id": "v2", "total_kpi": 520.0},
-    ]
+    base = fc["scenarios"][0]
+    def _mk(name, vid, kpi, ci):
+        sc = {**base, "name": name, "variant_id": vid, "total_kpi": kpi}
+        if ci is None:
+            sc.pop("total_kpi_ci_low", None)
+            sc.pop("total_kpi_ci_high", None)
+        else:
+            sc["total_kpi_ci_low"], sc["total_kpi_ci_high"] = ci
+        return sc
+    fc["scenarios"] = [_mk("Базовый", "v1", kpi_a, ci_a),
+                       _mk("Агрессивный", "v2", kpi_b, ci_b)]
     fc["accepted_variant"] = "v1"
-    html = render_forecast_plan(_s({"forecast": fc}))
-    assert '<img' in html, "При ≥2 сценариях ожидаем <img> в HTML"
-    assert 'data:image/png;base64,' in html, "Ожидаем base64 PNG data-URI в <img>"
+    return fc
+
+
+def test_html_forecast_chart_is_live_not_raster():
+    """При ≥2 сценариях в блоке планирования живой контейнер ECharts, не <img>.
+
+    Сторож на возврат к картинке: растровая вставка ломает единство отчёта –
+    остальные восемь графиков интерактивные и следуют теме.
+    """
+    html = render_forecast_plan(_s({"forecast": _fc_two()}))
+    assert 'id="chart-forecast-compare"' in html, (
+        "Ожидаем живой контейнер графика сравнения вариантов"
+    )
+    assert 'class="chart-host"' in html, "Контейнер должен быть тем же chart-host, что у остальных"
+    assert "data-payload=" in html, "Данные графика должны ехать в атрибуте контейнера"
+    assert "<img" not in html, "Растровая картинка в блоке планирования запрещена"
+    assert "data:image/png;base64," not in html, (
+        "base64-PNG в блоке планирования запрещён – график обязан быть живым"
+    )
+
+
+def test_html_forecast_chart_payload_matches_scenarios():
+    """Имена, значения и диапазоны в данных графика совпадают со сценариями."""
+    html = render_forecast_plan(_s({"forecast": _fc_two()}))
+    p = _forecast_chart_payload(html)
+    assert p["names"] == ["Базовый", "Агрессивный"]
+    assert p["values"] == [460.0, 520.0]
+    assert p["ci"] == [[414.0, 506.0], [468.0, 572.0]]
+    assert p["accepted"] == "Базовый", "Принятый вариант должен называться для выделения цветом"
+
+
+def test_html_forecast_chart_axis_does_not_start_at_zero():
+    """Близкие значения → ось начинается не с нуля и это подписано.
+
+    Сторож на возврат к отсчёту от нуля: при 1000.0 против 1000.5 столбцы от
+    нуля неразличимы. Усечение обязано быть названо вслух – неподписанная
+    усечённая ось преувеличивает разницу (INV-50).
+    """
+    html = render_forecast_plan(_s({"forecast": _fc_two(
+        kpi_a=1000.0, kpi_b=1000.5, ci_a=None, ci_b=None)}))
+    p = _forecast_chart_payload(html)
+    assert p["yMin"] > 0, "На близких значениях ось обязана начинаться выше нуля"
+    assert p["yMin"] < 1000.0 < p["yMax"], "Границы обязаны накрывать сами значения"
+    assert p["zeroExcluded"] is True, "Признак усечения обязан быть выставлен"
+    assert "Шкала начинается не с нуля" in html, (
+        "Усечённая ось обязана быть подписана рядом с графиком"
+    )
+
+
+def test_html_forecast_chart_axis_covers_ci_bounds():
+    """Границы оси накрывают края правдоподобных диапазонов – усы помещаются."""
+    html = render_forecast_plan(_s({"forecast": _fc_two()}))
+    p = _forecast_chart_payload(html)
+    lows = [c[0] for c in p["ci"] if c]
+    highs = [c[1] for c in p["ci"] if c]
+    assert p["yMin"] <= min(lows), "Нижняя граница оси обязана накрывать низ диапазона"
+    assert p["yMax"] >= max(highs), "Верхняя граница оси обязана накрывать верх диапазона"
+
+
+def test_html_forecast_chart_identical_values_do_not_break():
+    """Два одинаковых значения: диапазон не вырождается в точку, деления на ноль нет."""
+    html = render_forecast_plan(_s({"forecast": _fc_two(
+        kpi_a=500.0, kpi_b=500.0, ci_a=None, ci_b=None)}))
+    p = _forecast_chart_payload(html)
+    assert p["yMax"] > p["yMin"], "Вырожденный диапазон обязан быть расширен"
+    assert p["yMin"] < 500.0 < p["yMax"]
+
+
+def test_html_forecast_chart_negative_values():
+    """Отрицательные прогнозы: ось уходит в минус, ноль сверху не приписывается."""
+    html = render_forecast_plan(_s({"forecast": _fc_two(
+        kpi_a=-100.0, kpi_b=-50.0, ci_a=None, ci_b=None)}))
+    p = _forecast_chart_payload(html)
+    assert p["yMin"] < -100.0 and p["yMax"] < 0, "Ось обязана лежать в минусе"
+    assert p["zeroExcluded"] is True
+
+
+def test_html_forecast_chart_mixed_signs_keep_zero():
+    """Плюс и минус вместе: ось обязана показать ноль, пометки об усечении нет."""
+    html = render_forecast_plan(_s({"forecast": _fc_two(
+        kpi_a=-20.0, kpi_b=80.0, ci_a=None, ci_b=None)}))
+    p = _forecast_chart_payload(html)
+    assert p["yMin"] < 0 < p["yMax"], "При разных знаках ноль обязан остаться на оси"
+    assert p["zeroExcluded"] is False
+    assert "Шкала начинается не с нуля" not in html, (
+        "Пометка об усечении не должна печататься, когда ноль на оси есть"
+    )
+
+
+def test_html_forecast_chart_without_ci():
+    """Вариант без правдоподобного диапазона: график строится, усов нет."""
+    html = render_forecast_plan(_s({"forecast": _fc_two(ci_a=None, ci_b=None)}))
+    p = _forecast_chart_payload(html)
+    assert p["ci"] == [None, None]
+    assert "Серая полоса" not in html, "Без диапазонов подпись про полосу не нужна"
 
 
 def test_html_forecast_chart_absent_for_one_scenario():
-    """При одном сценарии <img> не добавляется."""
+    """При одном сценарии сравнивать не с чем – графика нет."""
     fc = copy.deepcopy(FORECAST_DATA)
     assert len(fc["scenarios"]) == 1
     html = render_forecast_plan(_s({"forecast": fc}))
     assert html != "", "Секция должна рендериться даже при 1 сценарии"
-    assert '<img' not in html, "При 1 сценарии <img> не должен присутствовать"
+    assert "chart-forecast-compare" not in html, "При 1 сценарии график не строится"
+    assert "<img" not in html, "Картинки в блоке планирования нет ни при каком числе вариантов"
+
+
+def test_html_forecast_chart_skips_scenario_without_kpi():
+    """Вариант без прогноза столбцом не рисуется (INV-50), остальные – да."""
+    fc = _fc_two()
+    fc["scenarios"].append({**fc["scenarios"][0], "name": "Пустой",
+                            "variant_id": "v3", "total_kpi": None})
+    html = render_forecast_plan(_s({"forecast": fc}))
+    p = _forecast_chart_payload(html)
+    assert "Пустой" not in p["names"], "Вариант без прогноза не должен попадать в график"
+    assert len(p["names"]) == 2
+
+
+# ─── Движок отчёта: построитель живого графика на месте ─────────────────────
+
+def test_report_engine_initializes_all_nine_charts():
+    """Движок запускает все девять графиков отчёта, а не часть.
+
+    14.09.2026: добавляя девятый график (сравнение вариантов плана), легко
+    отхватить чужой запуск – своя точка входа `initChartFromHost` живёт рядом
+    с общим `initChart`, и достаточно промахнуться скобкой, чтобы часть
+    вызовов ушла из `initAllCharts`. Сторож перечисляет идентификаторы
+    поимённо: пропажа любого видна сразу, а не по жалобе «половины графиков
+    нет».
+    """
+    from aurora_html.interactive import bootstrap_js
+
+    js = bootstrap_js("light", "{}", "{}", {})
+    boot = js.split("function initAllCharts", 1)[1].split("// ─── Drill-down", 1)[0]
+    for chart_id in (
+        "chart-mroas", "chart-share", "chart-timeline", "chart-optimize",
+        "chart-waterfall", "chart-quality-avp", "chart-quality-residuals",
+        "chart-quality-scatter", "chart-forecast-compare",
+    ):
+        assert "'%s'" % chart_id in boot, (
+            "График '%s' не запускается в initAllCharts – в отчёте он останется "
+            "пустым контейнером" % chart_id
+        )
+
+
+def test_report_engine_avoids_series_absent_from_bundled_echarts():
+    """Движок не просит серий, которых нет в поставляемой сборке ECharts.
+
+    Боем 14.09.2026: правдоподобный диапазон был нарисован серией `custom`,
+    и ECharts выбросил её МОЛЧА – ни исключения, ни записи в консоли, серия
+    просто исчезала из getOption(), а клиент получил бы график без
+    диапазонов. Проверено в браузере на `echarts.common.5.5.1.min.js`:
+    custom, candlestick и boxplot дают 0 серий, bar/line/scatter/pie – по
+    одной. Дешёвый сторож на весь движок, не только на блок планирования.
+    """
+    from aurora_html.interactive import bootstrap_js
+
+    js = bootstrap_js("light", "{}", "{}", {})
+    for kind in ("custom", "candlestick", "boxplot"):
+        assert "type: '%s'" % kind not in js, (
+            "Серия '%s' отсутствует в поставляемой сборке ECharts и будет "
+            "выброшена молча – график уедет к клиенту неполным" % kind
+        )
+
+
+def test_report_engine_has_forecast_compare_builder():
+    """JS-движок отчёта содержит построитель и запуск графика планирования."""
+    from aurora_html.interactive import bootstrap_js
+
+    js = bootstrap_js("light", "{}", "{}", {})
+    assert "buildForecastCompareOption" in js, "Построитель графика планирования отсутствует"
+    assert "initChartFromHost('chart-forecast-compare'" in js, (
+        "График планирования не запускается при загрузке отчёта"
+    )
+
+
+# ─── Границы оси: вырожденные случаи считаются без падения ──────────────────
+
+def test_forecast_axis_range_degenerate_cases():
+    """Пустой ввод, единственное значение, нули – ответ корректный, деления на ноль нет."""
+    from aurora_html.sections import _forecast_axis_range
+
+    lo, hi, zero_excluded = _forecast_axis_range([], [])
+    assert hi > lo and zero_excluded is False
+
+    lo, hi, zero_excluded = _forecast_axis_range([460.0], [[414.0, 506.0]])
+    assert lo < 414.0 and hi > 506.0 and zero_excluded is True
+
+    lo, hi, zero_excluded = _forecast_axis_range([0.0, 0.0], [None, None])
+    assert hi >= lo and zero_excluded is False, "На нулях усечения быть не может"
+
+    lo, hi, zero_excluded = _forecast_axis_range([None, None], [None, None])
+    assert hi > lo and zero_excluded is False
+
+
+def test_forecast_axis_range_wide_spread_keeps_zero():
+    """Широкий разброс: запас дотягивает до нуля – ось честно начинается с нуля."""
+    from aurora_html.sections import _forecast_axis_range
+
+    lo, hi, zero_excluded = _forecast_axis_range([5.0, 100.0], [None, None])
+    assert lo == 0.0, "Запас не должен уводить положительные значения в минус"
+    assert zero_excluded is False, "Ноль на оси есть – пометка об усечении не нужна"
 
 
 # ─── HTML: render_retro_insights ──────────────────────────────────────────────
