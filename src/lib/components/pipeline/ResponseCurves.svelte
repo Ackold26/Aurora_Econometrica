@@ -294,4 +294,6 @@
   });
 </script>
 
-<div bind:this={container} style="width:100%;height:320px"></div>
+<!-- data-echart - метка для ExpandableCard (см. EChartBase.svelte): свой инстанс
+     echarts, но в развороте должен растягиваться по тому же общему правилу. -->
+<div bind:this={container} data-echart style="width:100%;height:320px"></div>

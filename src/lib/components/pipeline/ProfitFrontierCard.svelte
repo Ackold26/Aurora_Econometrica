@@ -35,6 +35,7 @@
   } from '$lib/project-state.js';
   import { formatMoney } from '$lib/format-numbers.js';
   import EChartBase from '$lib/components/charts/EChartBase.svelte';
+  import ExpandableCard from '$lib/components/ExpandableCard.svelte';
   import { chartTooltipDark } from '$lib/echarts-setup.js';
   import { TrendingUp, TriangleAlert, Info } from 'lucide-svelte';
 
@@ -125,6 +126,13 @@
     }
   }
 
+  /** Подписи серий. Вынесены в константы: имя серии и строка легенды обязаны
+   *  совпадать буква в букву, иначе легенда молча перестаёт управлять серией.
+   *  Вторая подпись укорочена (была «Прибыль - за границей наблюдений (не
+   *  подтверждено данными)») - длинная строка наезжала на поле графика. */
+  const SERIES_WITHIN = 'Прибыль – в пределах данных';
+  const SERIES_BEYOND = 'Прибыль – за границей данных (не подтверждено)';
+
   // ── Кривая для графика (тот же способ, что ContinuationChart: EChartBase + markLine/markArea) ──
   const chartOption = $derived.by(() => {
     if (!result?.curve?.length) return {};
@@ -142,10 +150,24 @@
 
     const lastBudget = curve[curve.length - 1].budget;
 
+    // ── Оси (F-A3-01 того же класса, что ConvergenceDashboard/PPCScatter) ──
+    // Бюджет НИКОГДА не начинается с нуля: сетка идёт от 0.2× текущего бюджета.
+    // Нулевой бюджет - не точка решения и на кривой его нет, поэтому ось по X
+    // всегда подбирается по данным.
+    // По Y так нельзя: у прибыли ноль - смысловая граница («здесь реклама
+    // перестаёт окупаться»). Правило по данным: кривая пересекает ноль или лежит
+    // ниже - ноль обязан быть на экране (scale:true его и так включит, когда
+    // данные по обе стороны, а для целиком убыточной кривой держим ось от нуля);
+    // вся кривая выше нуля - ноль ничего не решает и только сплющивает кривую
+    // в плоскую линию у потолка, тогда подбираем диапазон по данным.
+    const profits = curve.map((p) => p.profit).filter((v) => Number.isFinite(v));
+    const minProfit = profits.length ? Math.min(...profits) : 0;
+    const yScaleByData = minProfit > 0;
+
     /** @type {any[]} */
     const series = [
       {
-        name: 'Прибыль - в пределах данных',
+        name: SERIES_WITHIN,
         type: 'line',
         data: solidData,
         lineStyle: { color: '#4ade80', width: 2.5 },
@@ -163,7 +185,7 @@
         } : undefined,
       },
       {
-        name: 'Прибыль - за границей наблюдений (не подтверждено данными)',
+        name: SERIES_BEYOND,
         type: 'line',
         data: dashedData,
         lineStyle: { color: '#4ade80', width: 2, type: 'dashed', opacity: 0.55 },
@@ -209,7 +231,9 @@
           symbol: 'pin',
           symbolSize: 34,
           itemStyle: { color: '#c9a449' },
-          label: { color: '#0f172a', fontWeight: 700, fontSize: 10, formatter: 'Max' },
+          // Клиентский экран - без латиницы (было 'Max'). Метка стоит внутри
+          // булавки 34px, длиннее «Макс.» туда не помещается.
+          label: { color: '#0f172a', fontWeight: 700, fontSize: 10, formatter: 'Макс.' },
           data: [{ coord: [result.maximum.budget, result.maximum.profit] }],
         },
       }));
@@ -244,10 +268,11 @@
         itemWidth: 14,
         itemHeight: 4,
         textStyle: { color: '#94a3b8', fontSize: 10 },
-        data: ['Прибыль - в пределах данных', 'Прибыль - за границей наблюдений (не подтверждено данными)'],
+        data: [SERIES_WITHIN, SERIES_BEYOND],
       },
       xAxis: {
         type: 'value',
+        scale: true,
         name: 'Бюджет, ₽',
         nameTextStyle: { color: '#94a3b8', fontSize: 10 },
         axisLabel: { color: '#94a3b8', fontSize: 10, formatter: (/** @type {number} */ v) => formatMoney(v) },
@@ -256,6 +281,7 @@
       },
       yAxis: {
         type: 'value',
+        scale: yScaleByData,
         name: 'Прибыль, ₽',
         nameTextStyle: { color: '#94a3b8', fontSize: 10, align: 'right' },
         axisLabel: { color: '#94a3b8', fontSize: 10, formatter: (/** @type {number} */ v) => formatMoney(v) },
@@ -274,21 +300,21 @@
     <h3>Сколько вообще тратить</h3>
   </header>
   <p class="lead">
-    Прямой расчёт и Goal-Seek отвечают «куда вложить» и «сколько нужно под цель». Этот
-    расчёт отвечает на третий вопрос - есть ли вообще смысл наращивать бюджет дальше, и
-    если да, то где потолок отдачи.
+    Режим «От бюджета» отвечает, куда вложить деньги, режим «От цели» – сколько нужно
+    потратить под цель. Этот расчёт отвечает на третий вопрос – есть ли вообще смысл
+    наращивать бюджет дальше, и если да, то где потолок отдачи.
   </p>
 
   {#if cardState === 'loading'}
-    <div class="state-loading">Считаем кривую прибыли...</div>
+    <div class="state-loading">Считаем кривую прибыли…</div>
   {:else if cardState === 'empty'}
     <div class="state-loading">Откройте проект, чтобы увидеть профит-фронтир.</div>
   {:else if cardState === 'need_margin'}
     <section class="margin-input" data-testid="margin-input">
       <p class="margin-lead">
-        Метрика проекта денежная (выручка/продажи в рублях) - чтобы посчитать прибыль, а
+        Метрика проекта денежная (выручка/продажи в рублях) – чтобы посчитать прибыль, а
         не оборот, нужна валовая маржа: доля прибыли в рубле продаж. Без неё «оптимум по
-        обороту» был бы неправдой - оборот растёт с бюджетом всегда.
+        обороту» был бы неправдой – оборот растёт с бюджетом всегда.
       </p>
       <div class="margin-row">
         <label for="gross-margin-field" class="field-label">Валовая маржа, %</label>
@@ -307,10 +333,10 @@
           disabled={marginBusy || !marginPct}
           onclick={confirmMargin}
         >
-          {marginBusy ? 'Считаем...' : 'Подтвердить →'}
+          {marginBusy ? 'Считаем…' : 'Подтвердить →'}
         </button>
       </div>
-      <p class="hint">Например, 30 - если из каждого рубля продаж 30 копеек остаётся прибылью после себестоимости.</p>
+      <p class="hint">Например, 30 – если из каждого рубля продаж 30 копеек остаётся прибылью после себестоимости.</p>
     </section>
   {:else if cardState === 'economics_blocked'}
     <div class="state-blocked">
@@ -323,7 +349,19 @@
       <p>{message}</p>
     </div>
   {:else if cardState === 'done' && result}
-    <EChartBase option={chartOption} height="280px" />
+    <!-- Разворот (2026-09-13). Карточка была единственным графиком шага без него.
+         Довод «одна кривая - обойдётся» не выдержал проверки смыслом: вся задача
+         экрана - прочитать ФОРМУ (где вершина и насколько она плоская), а при 280px
+         на поле графика остаётся ~208px, и плоская вершина кривой прибыли
+         неотличима от прямой. Плюс сюда же ложатся полоса правдоподобного диапазона
+         и граница наблюдений. Встроенная высота остаётся 280px - карточка и без
+         графика длинная; в развороте высоту раздаёт сама ExpandableCard (её
+         параметр height роли не играет, см. комментарий в ExpandableCard). -->
+    <ExpandableCard title="Кривая прибыли">
+      {#snippet children()}
+        <EChartBase option={chartOption} height="280px" />
+      {/snippet}
+    </ExpandableCard>
 
     <section class="outcome" class:outcome-ok={result.maximum.outcome === 'interior_observed'}
       class:outcome-info={result.maximum.outcome === 'beyond_observed' || result.maximum.outcome === 'at_grid_ceiling'}

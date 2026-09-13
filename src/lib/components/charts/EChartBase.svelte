@@ -19,6 +19,11 @@
   let container;
   /** @type {any} */
   let chart;
+  /** @type {ResizeObserver | null} следит за размером контейнера: когда владелец
+   *  тянет угол развёрнутой карточки (ExpandableCard, CSS resize), контейнер меняет
+   *  высоту, и холст echarts пересчитывается сам. Отписываемся в disposeChart -
+   *  иначе при уходе с шага наблюдатель оставался висеть на мёртвом узле. */
+  let ro = null;
   let initialized = $state(false);
 
   /** @type {boolean} P4: only init when this step is active (or step not specified) */
@@ -49,12 +54,16 @@
       console.warn('[EChartBase] initial applied without universalTransition (morph degraded)');
     }
     onInit?.(chart);
-    const ro = new ResizeObserver(() => chart?.resize());
+    ro = new ResizeObserver(() => chart?.resize());
     ro.observe(container);
     initialized = true;
   }
 
   function disposeChart() {
+    if (ro) {
+      ro.disconnect();
+      ro = null;
+    }
     if (chart) {
       chart.dispose();
       chart = null;
@@ -118,4 +127,7 @@
   });
 </script>
 
-<div bind:this={container} style="width:100%;height:{height}"></div>
+<!-- data-echart - метка для ExpandableCard: по ней оверлей разворота находит
+     контейнер графика на ЛЮБОЙ глубине вложенности и растягивает всю цепочку
+     родителей, не требуя от каждого компонента своей flex-вёрстки. -->
+<div bind:this={container} data-echart style="width:100%;height:{height}"></div>

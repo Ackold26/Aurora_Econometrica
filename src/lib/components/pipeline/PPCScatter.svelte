@@ -29,9 +29,13 @@
    */
   const { ppcData = null, expanded = false } = $props();
 
-  /** Разворот на весь экран (ExpandableCard) - график занимает доступную высоту
-   *  вместо фиксированных 240px. */
-  const chartHeight = $derived(expanded ? '70vh' : '240px');
+  /** Разворот (ExpandableCard) - график занимает доступную высоту вместо
+   *  фиксированных 240px. Конкретное значение в развороте роли не играет:
+   *  ExpandableCard снимает высоту с контейнера echarts (метка data-echart) и
+   *  растягивает всю цепочку родителей одним общим правилом - см. там же.
+   *  Живое измерение 13.09 (окно 1369px): холст 1027px = 75.0% высоты окна;
+   *  прежняя вёрстка на том же окне давала 808px = 59.0%. */
+  const chartHeight = $derived(expanded ? '100%' : '240px');
 
   const r2Label = $derived(
     ppcData?.r2 != null ? `R² = ${Number(ppcData.r2).toFixed(3)}` : ''
@@ -68,17 +72,34 @@
       itemStyle: { color: recencyColor(i, n), opacity: 0.8 },
     }));
 
-    // 45° reference line + общие пределы осей: диагональ читается как 45° ТОЛЬКО
-    // если у обеих осей одинаковый диапазон - иначе прямоугольная (не квадратная)
-    // область построения искажает угол. Запас 5% с обеих сторон, чтобы крайние
-    // точки не липли к рамке графика.
+    // Линия идеального совпадения + общие пределы осей. Одинаковый диапазон у
+    // обеих осей НЕОБХОДИМ, но одного его мало: область построения остаётся
+    // широким прямоугольником, поэтому на экране линия идёт не под 45°, а под
+    // углом прямоугольника. Что этот приём реально даёт - одинаковый масштаб по
+    // осям: точка выше линии значит недопрогноз на ту же величину, на сколько бы
+    // она ни отклонилась по любой из осей, и глаз сравнивает отклонения честно.
+    // Запас 5% с обеих сторон, чтобы крайние точки не липли к рамке графика.
     const allVals = [...actual, ...predicted].filter(Number.isFinite);
     const minV = Math.min(...allVals);
     const maxV = Math.max(...allVals);
     const span = maxV - minV;
     const pad = span > 0 ? span * 0.05 : (Math.abs(maxV) || 1) * 0.05;
-    const axisMin = minV - pad;
-    const axisMax = maxV + pad;
+
+    // Пределы округляем НАРУЖУ до круглого шага. Без этого ECharts ставит на концах
+    // осей подписи прямо из данных: живое измерение 13.09 (getViewLabels обеих осей)
+    // дало «91 442 088 · 100 000 000 · 110 000 000 · 120 000 000 · 130 000 000 ·
+    // 137 501 951» - середина круглая, а два края мусорные, и покупатель видит их
+    // на экране качества модели. После округления пределы 90-140 млн, все подписи
+    // круглые. Шаг - привычный 1/2/5 x 10^k.
+    const niceStep = (/** @type {number} */ rough) => {
+      if (!(rough > 0)) return 1;
+      const mag = Math.pow(10, Math.floor(Math.log10(rough)));
+      const norm = rough / mag;
+      return (norm <= 1 ? 1 : norm <= 2 ? 2 : norm <= 5 ? 5 : 10) * mag;
+    };
+    const step = niceStep((maxV + pad - (minV - pad)) / 5);
+    const axisMin = Math.floor((minV - pad) / step) * step;
+    const axisMax = Math.ceil((maxV + pad) / step) * step;
 
     return {
       backgroundColor: 'transparent',
@@ -95,7 +116,8 @@
         type: 'value',
         name: 'Прогноз',
         nameTextStyle: { color: textSecondary, fontSize: 10 },
-        scale: true,
+        // scale здесь НЕ ставим: при явных min/max ECharts его игнорирует
+        // (убрано 13.09 как вводящая в заблуждение мёртвая настройка).
         min: axisMin,
         max: axisMax,
         axisLabel: { color: textSecondary, fontSize: 9, formatter: (/** @type {number} */ v) => Math.round(v).toLocaleString('ru-RU') },
@@ -106,7 +128,8 @@
         type: 'value',
         name: 'Факт',
         nameTextStyle: { color: textSecondary, fontSize: 10 },
-        scale: true,
+        // scale здесь НЕ ставим: при явных min/max ECharts его игнорирует
+        // (убрано 13.09 как вводящая в заблуждение мёртвая настройка).
         min: axisMin,
         max: axisMax,
         axisLabel: { color: textSecondary, fontSize: 9, formatter: (/** @type {number} */ v) => Math.round(v).toLocaleString('ru-RU') },

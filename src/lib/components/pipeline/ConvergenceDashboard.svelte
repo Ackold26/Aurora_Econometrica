@@ -333,7 +333,7 @@
       {#snippet children(expanded)}
         <div class="chart-panel-body">
           <span class="chart-title-help" title={HELP.rhatChart}>?</span>
-          <EChartBase option={rhatOption} height={expanded ? '70vh' : rhatHeight} />
+          <EChartBase option={rhatOption} height={expanded ? '100%' : rhatHeight} />
           <p class="chart-hint">
             {rhatCount - rhatFailed} из {rhatCount} параметров сошлись (R-hat &lt; 1.05)
           </p>
@@ -370,7 +370,7 @@
               {/if}
             </div>
           {/if}
-          <EChartBase option={avpOption} height={expanded ? '70vh' : '260px'} />
+          <EChartBase option={avpOption} height={expanded ? '100%' : '260px'} />
         </div>
       {/snippet}
     </ExpandableCard>
