@@ -21,7 +21,8 @@ Dev/Aurora_Oracle/tools/check_help_consistency.py (волна 2 стандарт
    явно перечисленных в UNLINKED_PAGES) упомянут в PAGES econ-nav.js - иначе
    страница физически недостижима из справочного центра (орфан). Страница из
    UNLINKED_PAGES, наоборот, НЕ должна быть в PAGES - иначе список и навигация
-   разошлись.
+   разошлись; и каждая запись UNLINKED_PAGES обязана иметь файл на диске -
+   запись, пережившая свой файл, превращает список в глушилку проверки.
 2. U+2014 «—» (литерал + HTML-сущности &mdash;/&#8212;/&#x2014;) запрещён во
    всех src-tauri/help-econometrica/*.html.
 3. CPD-09: «Сипович»/«sipovich» запрещены в любом html справки; канон
@@ -90,7 +91,8 @@ NON_PAGE_ASSETS = {"econ-nav.js"}
 # Проверка орфанов для ОСТАЛЬНЫХ страниц остаётся живой: новая страница,
 # забытая в econ-nav.js, по-прежнему даёт FAIL.
 # Когда владелец решит удалить доноров - убрать и этот список: пустой набор
-# возвращает проверку к прежней строгости.
+# возвращает проверку к прежней строгости. Запись, пережившая свой файл, -
+# FAIL (см. check_unlinked_pages): иначе список молча прикрывал бы пустоту.
 UNLINKED_PAGES = {
     "pipeline.html",
     "econometrica.html",
@@ -169,6 +171,24 @@ def check_nav_js(all_html_files) -> list:
         if page_id not in id_set:
             fails.append(f"{relpath(path)}: страница есть на диске, но отсутствует в PAGES econ-nav.js (орфан, недостижима из справочного центра)")
 
+    return fails
+
+
+def check_unlinked_pages() -> list:
+    """Требование team-lead (2026-09-13): список сознательно отвязанных страниц
+    обязан сам оставаться честным. Если файл донора однажды удалят, а запись в
+    UNLINKED_PAGES забудут убрать, список превратится в глушилку: он будет
+    гасить проверку орфанов для имени, которого больше нет, и следующая
+    страница, случайно названная так же, проедет мимо сторожа. Поэтому каждая
+    запись обязана иметь файл на диске - иначе FAIL."""
+    fails = []
+    for name in sorted(UNLINKED_PAGES):
+        if not (HELP_DIR / name).exists():
+            fails.append(
+                f"UNLINKED_PAGES содержит «{name}», но файла нет в {relpath(HELP_DIR)} — "
+                "запись пережила свой файл: убрать её из списка "
+                "(иначе список молча прикрывает несуществующую страницу)"
+            )
     return fails
 
 
@@ -363,6 +383,7 @@ def main() -> int:
     all_warns = []
 
     all_fails.extend(check_nav_js(all_html_files))
+    all_fails.extend(check_unlinked_pages())
     all_fails.extend(check_em_dash(all_html_files))
     all_fails.extend(check_inv50_terms(all_html_files))
     all_fails.extend(check_copyright(all_html_files))
