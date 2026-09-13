@@ -33,6 +33,7 @@
     valuePerCountUnit,
     kpiKind,
     mediaPlanDetected,
+    modelParamsSnapshot,
     pipelineCurrentStep,
     lockStep,
     unlockStep,
@@ -660,15 +661,32 @@
     return {};
   });
 
+  /**
+   * Параметры каналов для Hill-кривых. Основной источник — обучение в этой сессии
+   * (`modelData.channelParams`). Запасной — снимок с диска, поднятый при открытии
+   * проекта (`models/latest-params.json`), с проверкой принадлежности проекту.
+   *
+   * 🔴 2026-09-13. Без запасного источника открытый заново проект давал пустой
+   * `scaledParams`, и блок «Кривые отдачи» прятался даже после успешной
+   * оптимизации: условие показа требует непустой набор параметров.
+   * @type {Record<string, any> | null}
+   */
+  const channelParamsSource = $derived(
+    mData?.channelParams
+    ?? (($modelParamsSnapshot && $modelParamsSnapshot.projectId === $activeProjectId)
+      ? $modelParamsSnapshot.channelParams
+      : null)
+  );
+
   /** @type {Record<string, {alpha: number, gammaScaled: number, beta: number}>} */
   const scaledParams = $derived.by(() => {
-    if (!mData?.channelParams || !Object.keys(currentSpend).length) return {};
+    if (!channelParamsSource || !Object.keys(currentSpend).length) return {};
     // v2.1.0 (pilot D4 round 4 EDGE-D4-02 2026-05-17): pass meanForScale для legacy
     // pickle fallback. Без этого v1.0/v1.1 pickle (без adstock_mean_posterior) дает
     // gammaScaled = γ × currentSpend (native TRP sum 22100) → Hill saturate=1 →
     // slider plateau. media_means в normalization для всех pickle versions.
     const meanForScale = /** @type {any} */ (mData?.normalization)?.media_means || undefined;
-    return buildScaledParams(mData.channelParams, currentSpend, meanForScale);
+    return buildScaledParams(channelParamsSource, currentSpend, meanForScale);
   });
 
   /** Normalization из тренировки модели (y_mean, y_std) - для денормализации в реальные единицы. */
@@ -682,10 +700,10 @@
    * @type {Record<string, number> | null}
    */
   const channelDecays = $derived.by(() => {
-    if (!mData?.channelParams) return null;
+    if (!channelParamsSource) return null;
     /** @type {Record<string, number>} */
     const out = {};
-    for (const [ch, p] of Object.entries(mData.channelParams)) {
+    for (const [ch, p] of Object.entries(channelParamsSource)) {
       const d = /** @type {any} */ (p)?.decay;
       if (typeof d === 'number' && d > 0 && d < 1) out[ch] = d;
     }
@@ -2509,6 +2527,15 @@
               onBudgetChange={handleBudgetChange}
               unitCosts={effectiveUnitCosts}
             />
+          {:else if optData?.response_curves}
+            <!-- 🔴 2026-09-13. Оптимизация отработала (кривые в ответе есть), но
+                 параметры каналов не восстановились — рисовать нечем. Прежний текст
+                 советовал запустить оптимизацию, то есть сделать уже сделанное:
+                 заглушка лгала о причине. INV-50 — говорим правду и даём действие. -->
+            <div class="no-curves">
+              Кривые отдачи не построены: параметры каналов этой модели недоступны.
+              Переобучите модель на шаге «Модель» – после обучения кривые появятся.
+            </div>
           {:else}
             <div class="no-curves">Запустите оптимизацию для отображения кривых</div>
           {/if}

@@ -666,6 +666,34 @@ pub async fn project_load_results(project_id: String) -> Result<Value, String> {
         }
     };
 
+    // Параметры каналов (alpha/gamma/beta/decay/adstock_mean_posterior) лежат НЕ в
+    // results/, а рядом с моделью: тренер пишет models/latest-params.json тем же
+    // действием, что и latest.pkl. Без них фронт не может построить кривые отдачи
+    // на открытом заново проекте (находка 2026-09-13 — блок «Кривые отдачи» прятался
+    // после успешной оптимизации). Файл несёт КОПИЮ диагностики со своим
+    // model_fingerprint — по нему читатель сверяет, что снимок принадлежит той же
+    // модели, что и results/model-diagnostics.json (SSOT диагностики).
+    let model_params = {
+        let path = dir.join("models").join("latest-params.json");
+        if !path.exists() {
+            Value::Null
+        } else {
+            match std::fs::read_to_string(&path) {
+                Ok(s) => match serde_json::from_str::<Value>(&s) {
+                    Ok(v) => v,
+                    Err(e) => {
+                        warn!("project_load_results: 'latest-params.json' parse failed → null ({e}).");
+                        Value::Null
+                    }
+                },
+                Err(e) => {
+                    warn!("project_load_results: 'latest-params.json' read failed → null ({e}).");
+                    Value::Null
+                }
+            }
+        }
+    };
+
     Ok(serde_json::json!({
         "validation":       read_json("validation.json"),
         "modelDiagnostics": read_json("model-diagnostics.json"),
@@ -675,6 +703,7 @@ pub async fn project_load_results(project_id: String) -> Result<Value, String> {
         // завершённое Планирование деградировало в ready при каждом открытии проекта.
         "planning":         read_json("planning.json"),
         "mediaPlan":        read_json("media_plan.json"),
+        "modelParams":      model_params,
     }))
 }
 

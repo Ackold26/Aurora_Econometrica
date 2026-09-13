@@ -1201,6 +1201,26 @@ export const modelStaleStatus = derived(
   }
 );
 
+/**
+ * Снимок параметров каналов, прочитанный с диска при открытии проекта
+ * (`models/latest-params.json` → `channel_params`). Отдельный стор, а НЕ поле
+ * `modelData.channelParams`, сознательно:
+ *
+ * `modelData.channelParams` означает «модель обучена в ЭТОЙ сессии», и на смену
+ * этого признака завязана переоценка разбора (`DecomposeStep`, эффект «прилетела
+ * новая тренировка»). Подстановка снимка прямо в `modelData` выглядит для него
+ * ровно как переобучение: замером 2026-09-13 это давало молчаливый пересчёт
+ * разбора и оптимизации при каждом открытии проекта — с настройками по
+ * умолчанию, поверх сохранённого результата пользователя (прирост менялся с
+ * 11.3% на 9.8%). Снимок живёт отдельно, читает его только шаг Оптимизации.
+ *
+ * `projectId` в снимке — самоочистка: параметры чужого проекта не подхватятся,
+ * даже если стор не успели обнулить при переключении.
+ *
+ * @type {import('svelte/store').Writable<{projectId: string, channelParams: Record<string, any>} | null>}
+ */
+export const modelParamsSnapshot = writable(null);
+
 /** @type {import('svelte/store').Writable<any|null>} */
 export const decomposeData = writable(null);
 
@@ -1334,6 +1354,33 @@ async function restoreProjectResults(pid) {
     else if (mpUnavailable) mediaPlanProbeStatus.set('unavailable');
     else mediaPlanProbeStatus.set((mp.n_future_periods ?? 0) > 0 ? 'found' : 'absent');
 
+    // 🔴 2026-09-13 (живой замер через мост). Параметры каналов
+    // (alpha/gamma/beta/decay/adstock_mean_posterior) не лежат в results/*.json —
+    // тренер пишет их рядом с моделью, в models/latest-params.json. Пока их никто
+    // не читал, у открытого заново проекта на шаге Оптимизации `scaledParams`
+    // оставался пустым — блок «Кривые отдачи» прятался ДАЖЕ после успешного
+    // расчёта и советовал «запустите оптимизацию» ровно тогда, когда она уже
+    // отработала.
+    //
+    // INV-50 (честность метрик): снимок берётся ТОЛЬКО если принадлежит той же
+    // модели, что и восстановленная диагностика. Сверка по опознавателю модели
+    // (`model_fingerprint`), который тренер штампует в ОБА файла одним действием:
+    //   • оба опознавателя есть и совпали → снимок наш, берём;
+    //   • оба отсутствуют → модель обучена до появления опознавателя (проверено
+    //     на проектах клиента 2026-09-13: 3 из 5 обученных — без штампа). Ручаемся
+    //     тем, что тренер пишет latest-params.json тем же вызовом, что и latest.pkl,
+    //     и архивирует их в history/ парой. Берём;
+    //   • опознаватель есть у одной стороны, а у другой нет, либо они разошлись →
+    //     файлы из разных поколений. НЕ берём: лучше честно не нарисовать кривые,
+    //     чем нарисовать чужие.
+    const paramsSnapshot = r.modelParams;
+    const snapshotFingerprint = paramsSnapshot?.diagnostics?.model_fingerprint ?? null;
+    const diagnosticsFingerprint = r.modelDiagnostics?.model_fingerprint ?? null;
+    const sameModel = snapshotFingerprint === diagnosticsFingerprint
+      || (!snapshotFingerprint && !diagnosticsFingerprint);
+    const restoredChannelParams =
+      paramsSnapshot?.channel_params && sameModel ? paramsSnapshot.channel_params : null;
+    modelParamsSnapshot.set(restoredChannelParams ? { projectId: pid, channelParams: restoredChannelParams } : null);
     if (hasModel) {
       modelData.update(m => ({
         ...m,
