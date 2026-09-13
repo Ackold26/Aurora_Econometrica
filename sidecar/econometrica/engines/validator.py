@@ -952,16 +952,35 @@ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, A
     # Источник истины ОДИН — сам календарь: len(list_holiday_names()).
     # Добавление 14-го события впредь не разойдётся само по себе.
     N_INTERCEPT = 1
+    # 🔴 Запасная ветка ОБЯЗАНА быть слышной (находка внешнего аудита 13.09.2026).
+    # Прежняя редакция ловила всё одним `except` и молча ставила 12 — то есть при
+    # любом сбое возвращался ровно тот дефект, от которого правка уходила, и узнать
+    # об этом было неоткуда. Теперь: два отдельных отказа, оба с записью в журнал,
+    # и сбой подсчёта покрытых НЕ обнуляет само число событий календаря.
     try:
         from utils.holiday_calendar_ru import (
             list_holiday_names,
             user_covered_auto_holidays,
         )
-        _total_holidays = len(list_holiday_names())
-        _covered = len(user_covered_auto_holidays([c['name'] for c in columns]))
     except Exception:  # noqa: BLE001 — оценка не имеет права ронять валидацию
+        logger.warning(
+            'календарь праздников недоступен — запас данных считается по запасному '
+            'числу событий (12); оценка может оказаться мягче настоящей',
+            exc_info=True,
+        )
         _total_holidays = 12  # запасной минимум при недоступном календаре
         _covered = 0
+    else:
+        _total_holidays = len(list_holiday_names())
+        try:
+            _covered = len(user_covered_auto_holidays([c['name'] for c in columns]))
+        except Exception:  # noqa: BLE001 — то же правило: не ронять валидацию
+            logger.warning(
+                'не удалось определить праздники, покрытые колонками пользователя — '
+                'считаем, что покрытых нет',
+                exc_info=True,
+            )
+            _covered = 0
     n_holidays_auto = max(_total_holidays - _covered, 0)
     n_params_effective_bayesian = n_predictors + n_holidays_auto + N_INTERCEPT
     n_params_effective_ols = n_predictors + N_INTERCEPT

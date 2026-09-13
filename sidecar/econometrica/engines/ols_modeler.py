@@ -501,14 +501,20 @@ def train_ols(config: dict, project_dir: str, progress_callback=None) -> dict[st
     diagnostics['model_fingerprint'] = model_fingerprint
     stamp_reliability(diagnostics)
 
+    # 🔴 NaN-safe, как у соседнего model-diagnostics.json и как в байесовском тренере
+    # (находка внешнего аудита 13.09.2026). Без этого голый NaN в diagnostics или в
+    # параметрах каналов уезжает в файл, Rust его не разбирает, `modelParams` приходит
+    # пустым — и «Кривые отдачи» остаются спрятанными ровно у тех проектов, где NaN и
+    # водится, то есть правка не работает там, где она нужнее всего.
+    from utils.safe_io import sanitize_nonfinite as _sanitize_params
     params_path = models_dir / 'latest-params.json'
     with open(params_path, 'w', encoding='utf-8') as f:
-        json.dump({
+        json.dump(_sanitize_params({
             'channel_params': channel_params,
             'diagnostics': diagnostics,
             'config': {k: v for k, v in config.items() if k != 'data_file'},
             'engine': 'ols',
-        }, f, ensure_ascii=False, indent=2)
+        }), f, ensure_ascii=False, indent=2)
 
     # NaN-safe (2026-06-04 аудит): NaN→null, иначе Rust serde_json не парсит файл.
     from utils.safe_io import sanitize_nonfinite
