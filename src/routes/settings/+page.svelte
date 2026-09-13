@@ -794,6 +794,15 @@
           </div>
         {/if}
       </div>
+      <!-- Запасной путь активации: без сети форма онлайн-входа недоступна, а файл лицензии
+           работает офлайн (тот же формат, что и в 2_Выдача_лицензий/CLAUDE.md). -->
+      <p class="section-desc" style="margin-top: 12px;">
+        Нет соединения с сервером? Загрузите файл лицензии, полученный в поддержке.
+      </p>
+      <button class="btn-logs" onclick={importLicense}>Загрузить файл лицензии</button>
+      {#if importStatus}
+        <p class="section-desc" style="margin-top: 8px;">{importStatus}</p>
+      {/if}
     </section>
 
     <!-- L18-L20: «Статистика использования» block removed entirely (irrelevant

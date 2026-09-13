@@ -550,3 +550,21 @@ pub fn import_license(source_path: &str, app_config_dir: &Path) -> Result<()> {
     std::fs::copy(&source, &dest)?;
     Ok(())
 }
+
+#[cfg(test)]
+mod import_license_ui_guard {
+    /// 🔴 Сторож на мёртвый путь (находка 13.09.2026): `importLicense()` в настройках была
+    /// объявлена, но ни одна кнопка её не звала — человек без сети не мог активировать
+    /// лицензию файлом. Проверяет, что кнопка есть и зовёт именно её.
+    ///
+    /// Ось мутации: убрать `onclick={importLicense}` у кнопки (саму кнопку или её обработчик)
+    /// — краснеет.
+    #[test]
+    fn settings_page_has_a_button_that_calls_import_license() {
+        const SETTINGS: &str = include_str!("../../../src/routes/settings/+page.svelte");
+        assert!(
+            SETTINGS.contains("onclick={importLicense}"),
+            "в настройках нет кнопки, зовущей importLicense() — файл лицензии загрузить нечем"
+        );
+    }
+}
