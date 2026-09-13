@@ -10,6 +10,7 @@
   compute_source_hash(data_file) -> str
   load_frames(data_file, date_col, kpi_col, media_cols) -> dict
   load_saved_forecast(project_dir) -> dict | None
+  summarize_forecast(forecast) -> dict | None
 """
 from __future__ import annotations
 
@@ -454,6 +455,155 @@ def load_saved_forecast(project_dir: str) -> dict[str, Any] | None:
         'cutoff_index': 0,
         'accepted_variant': accepted_variant,
         'disclaimers': all_disclaimers,
+    }
+
+
+# ─── Сводка плана для уносимых документов ───────────────────────────────────
+
+# Имя базового сценария пишет шаг «Планирование» во фронтенде
+# (`src/lib/components/pipeline/PlanningStep.svelte`, константа BASELINE_NAME) —
+# это и имя файла results/scenarios/<имя>.json, и ключ манифеста. Здесь оно нужно
+# только чтобы отличить план из файла клиента от вариантов «что если»; совпадения
+# нет — блока сравнения просто не будет, суррогата вместо него не появится.
+BASELINE_VARIANT_NAME = 'Базовый план'
+
+
+def summarize_forecast(forecast: dict[str, Any] | None) -> dict[str, Any] | None:
+    """Сводка шага «Планирование» для колоды и веб-отчёта — общий счётчик на оба.
+
+    Вход — ровно то, что вернул `load_saved_forecast` (сценарии с диска). Своих
+    чисел функция не заводит: всё считается из `total_kpi`, `total_kpi_ci_*`,
+    `total_spend_money` тех же файлов `results/scenarios/<имя>.json`, которые
+    показывает экран шага. Это и есть общий источник экрана и документа.
+
+    Возвращает None, когда сводке неоткуда взяться (плана нет, сценариев нет).
+    Отсутствующая величина остаётся None и печатается прочерком — подстановки
+    правдоподобного нуля здесь нет по построению (INV-50).
+
+    Состав:
+        horizon_periods            число периодов плана (по длине меток/прогноза)
+        period_first / period_last метки краёв горизонта
+        accepted                   принятый вариант (★) — имя, центр, диапазон,
+                                   ширина диапазона в % от центра, бюджет, ROAS
+        baseline                   то же для «Базовый план», если он в сценариях
+        diff_vs_baseline           отличие принятого от базового: KPI и бюджет,
+                                   абсолютом и процентом
+        verdict                    различимы ли лидер и ближайший преследователь
+                                   по перекрытию правдоподобных диапазонов
+    """
+    if not forecast or forecast.get('status') != 'ok':
+        return None
+    scenarios: list[dict] = list(forecast.get('scenarios') or [])
+    if not scenarios:
+        return None
+
+    def _num(v: Any) -> float | None:
+        """float или None; ноль вместо отсутствия не подставляем (INV-50)."""
+        if v is None:
+            return None
+        try:
+            f = float(v)
+        except (TypeError, ValueError):
+            return None
+        return None if f != f else f  # NaN — то же отсутствие
+
+    def _view(sc: dict) -> dict[str, Any]:
+        kpi = _num(sc.get('total_kpi'))
+        lo = _num(sc.get('total_kpi_ci_low'))
+        hi = _num(sc.get('total_kpi_ci_high'))
+        width_pct = None
+        if lo is not None and hi is not None and kpi is not None and kpi > 0:
+            width_pct = (hi - lo) / kpi * 100.0
+        return {
+            'name': str(sc.get('name') or sc.get('variant_id') or ''),
+            'variant_id': sc.get('variant_id'),
+            'total_kpi': kpi,
+            'ci_low': lo,
+            'ci_high': hi,
+            'ci_width_pct': width_pct,
+            'total_spend_money': _num(sc.get('total_spend_money')),
+            'roas_money': _num(sc.get('roas_money')),
+        }
+
+    views = [_view(sc) for sc in scenarios]
+
+    # Горизонт — из принятого сценария, а при его отсутствии из первого: метки
+    # периодов у всех вариантов одни и те же (общий медиаплан на тот же срок).
+    accepted_id = forecast.get('accepted_variant')
+    accepted_idx = next(
+        (i for i, sc in enumerate(scenarios) if sc.get('variant_id') == accepted_id),
+        None,
+    )
+    horizon_src = scenarios[accepted_idx] if accepted_idx is not None else scenarios[0]
+    labels = [str(x) for x in (horizon_src.get('period_labels') or [])]
+    preds = list(horizon_src.get('predictions') or [])
+    horizon = len(labels) or len(preds) or None
+
+    accepted = views[accepted_idx] if accepted_idx is not None else None
+    baseline = next(
+        (v for v in views if v['name'] == BASELINE_VARIANT_NAME
+         or v['variant_id'] == BASELINE_VARIANT_NAME),
+        None,
+    )
+
+    # Отличие принятого плана от базового. Формула та же, что в таблице сравнения
+    # на экране (`MultiScenarioPage.svelte`, upliftPct): (вариант − база) / |база|.
+    diff = None
+    if accepted is not None and baseline is not None and accepted is not baseline:
+        kpi_abs = kpi_pct = spend_abs = spend_pct = None
+        if accepted['total_kpi'] is not None and baseline['total_kpi'] is not None:
+            kpi_abs = accepted['total_kpi'] - baseline['total_kpi']
+            if baseline['total_kpi'] != 0:
+                kpi_pct = kpi_abs / abs(baseline['total_kpi']) * 100.0
+        if accepted['total_spend_money'] is not None and baseline['total_spend_money'] is not None:
+            spend_abs = accepted['total_spend_money'] - baseline['total_spend_money']
+            if baseline['total_spend_money'] != 0:
+                spend_pct = spend_abs / abs(baseline['total_spend_money']) * 100.0
+        if kpi_abs is not None or spend_abs is not None:
+            diff = {
+                'baseline_name': baseline['name'],
+                'kpi_abs': kpi_abs,
+                'kpi_pct': kpi_pct,
+                'spend_abs': spend_abs,
+                'spend_pct': spend_pct,
+            }
+
+    # Различимость. Выборка и неравенства — дословно как в панели подсказок шага
+    # (`src/lib/insights-rules.js`, правила P8/P9): сравнивается ОДНА пара —
+    # лидер по центральной оценке и ближайший преследователь, а не все пары.
+    # Ровное касание границ намеренно молчит, как и на экране.
+    verdict = None
+    comparable = [v for v in views
+                  if v['total_kpi'] is not None and v['ci_low'] is not None and v['ci_high'] is not None]
+    if len(comparable) >= 2:
+        ordered = sorted(comparable, key=lambda v: v['total_kpi'], reverse=True)
+        first, second = ordered[0], ordered[1]
+        if first['ci_low'] < second['ci_high'] and second['ci_low'] < first['ci_high']:
+            kind = 'overlap'
+        elif first['ci_low'] > second['ci_high']:
+            kind = 'distinct'
+        else:
+            kind = None
+        if kind:
+            verdict = {
+                'kind': kind,
+                'leader': first['name'],
+                'leader_kpi': first['total_kpi'],
+                'leader_ci_low': first['ci_low'],
+                'runner_up': second['name'],
+                'runner_up_kpi': second['total_kpi'],
+                'runner_up_ci_high': second['ci_high'],
+            }
+
+    return {
+        'horizon_periods': horizon,
+        'period_first': labels[0] if labels else None,
+        'period_last': labels[-1] if labels else None,
+        'accepted': accepted,
+        'baseline': baseline,
+        'diff_vs_baseline': diff,
+        'verdict': verdict,
+        'scenario_count': len(views),
     }
 
 

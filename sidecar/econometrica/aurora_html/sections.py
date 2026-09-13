@@ -2493,9 +2493,17 @@ def render_trust_loop(ctx: dict) -> str:
 def render_forecast_plan(ctx: dict) -> str:
     """E5 (2026-07-10): секция «Прогноз на будущий период».
 
-    Рендерит сравнительную таблицу сценариев бюджетного плана. Возвращает ""
-    если forecast отсутствует — INV-50, wireframe-суррогатов нет.
-    При ≥2 вариантах добавляет сравнительный bar-chart scenarios_comparison_chart.
+    Состав (расширен 13.09.2026 — на экране шаг «Планирование» показывал срок,
+    принятый план, его запас неопределённости и вердикт различимости, а в
+    уносимом документе стояла одна таблица сценариев без единого из этих
+    ответов): горизонт плана → принятый вариант с правдоподобным диапазоном →
+    чем он отличается от базового плана из файла → различимы ли варианты между
+    собой → сравнительная таблица → оговорки. При ≥2 вариантах добавляет
+    сравнительный bar-chart scenarios_comparison_chart.
+
+    Все числа — из `engines.planning.summarize_forecast`, то есть из тех же
+    results/scenarios/<имя>.json, что читает экран шага. Возвращает "" если
+    forecast отсутствует — INV-50, wireframe-суррогатов нет.
     """
     kicker = ctx["strings"]["sections"]["forecast"]["kicker"]
     fc = ctx.get("forecast") or {}
@@ -2504,6 +2512,136 @@ def render_forecast_plan(ctx: dict) -> str:
 
     scenarios = (fc.get("scenarios") or [])[:4]
     accepted = fc.get("accepted_variant")
+
+    from engines.planning import summarize_forecast
+    from utils.kpi_display import plural
+
+    summary = summarize_forecast(fc) or {}
+    kpi_meta = _kpi_view(ctx)
+    kpi_label = kpi_meta.get("target_axis") or "Прогноз KPI"
+
+    def _signed_int(v: Any) -> str:
+        """Абсолютная разница со знаком; None → прочерк (INV-50)."""
+        if v is None:
+            return "-"
+        s = _fmt_int(abs(v))
+        return f"+{s}" if v >= 0 else f"−{s}"
+
+    def _signed_pct(v: Any) -> str:
+        if v is None:
+            return "-"
+        s = _fmt_pct(abs(v))
+        return f"+{s}" if v >= 0 else f"−{s}"
+
+    blocks = ""
+
+    # ── Горизонт: за какой срок этот прогноз ────────────────────────────────
+    horizon = summary.get("horizon_periods")
+    if horizon:
+        span = ""
+        if summary.get("period_first") and summary.get("period_last"):
+            span = (
+                f" ({escape(str(summary['period_first']))} – "
+                f"{escape(str(summary['period_last']))})"
+            )
+        blocks += f"""
+<p class="trust-sub"><strong>Срок плана:</strong> {horizon} {plural(int(horizon), ['период', 'периода', 'периодов'])}{span}.</p>"""
+
+    # ── Принятый план: что именно обещаем и с каким запасом ─────────────────
+    acc = summary.get("accepted")
+    if acc:
+        hero = f"{escape(acc['name'])}: {_fmt_int(acc['total_kpi'])}"
+        lines = ""
+        if acc.get("ci_low") is not None and acc.get("ci_high") is not None:
+            width = acc.get("ci_width_pct")
+            width_txt = (
+                f", ширина {_fmt_pct(width)} от прогноза" if width is not None else ""
+            )
+            lines += (
+                f'<p class="trust-sub">Правдоподобный диапазон (90%): '
+                f"{_fmt_int(acc['ci_low'])} – {_fmt_int(acc['ci_high'])}{width_txt}.</p>"
+            )
+            # Оговорка о ширине — те же два порога, что в панели подсказок шага
+            # (`src/lib/insights-rules.js`, правило P4): ≥40% широко, ≤15% узко.
+            # Между порогами комментария нет ни на экране, ни здесь.
+            if width is not None and width >= 40:
+                lines += (
+                    '<p class="trust-warn">Диапазон широкий: обязательства берите '
+                    f"по нижней границе {_fmt_int(acc['ci_low'])}, а не по центру.</p>"
+                )
+            elif width is not None and width <= 15:
+                lines += (
+                    '<p class="trust-note">Диапазон узкий – планировать можно от '
+                    "центра, оставив нижнюю границу как страховой сценарий.</p>"
+                )
+        if acc.get("total_spend_money") is not None:
+            lines += (
+                f'<p class="trust-sub">Бюджет плана: '
+                f"{_fmt_int(acc['total_spend_money'])} ₽.</p>"
+            )
+        blocks += f"""
+<div class="trust-block">
+  <h3 class="trust-h">Принятый план</h3>
+  <p class="trust-hero">{hero}</p>
+  <p class="trust-note">{escape(kpi_label)} за весь срок плана</p>
+  {lines}
+</div>"""
+
+    # ── Чем принятый план отличается от базового плана из файла ─────────────
+    diff = summary.get("diff_vs_baseline")
+    if diff:
+        parts = []
+        # Ровный ноль называем словом: «+0 ₽ (+0%)» читается как сбой счёта, а
+        # перекладка долей при той же сумме — обычный и важный случай.
+        if diff.get("spend_abs") is not None:
+            if diff["spend_abs"] == 0:
+                parts.append("бюджет тот же")
+            else:
+                pct = f" ({_signed_pct(diff.get('spend_pct'))})" if diff.get("spend_pct") is not None else ""
+                parts.append(f"бюджет {_signed_int(diff['spend_abs'])} ₽{pct}")
+        if diff.get("kpi_abs") is not None:
+            if diff["kpi_abs"] == 0:
+                parts.append("прогноз тот же")
+            else:
+                pct = f" ({_signed_pct(diff.get('kpi_pct'))})" if diff.get("kpi_pct") is not None else ""
+                parts.append(f"прогноз {_signed_int(diff['kpi_abs'])}{pct}")
+        if parts:
+            blocks += f"""
+<div class="trust-block">
+  <h3 class="trust-h">Чем план отличается от «{escape(str(diff['baseline_name']))}»</h3>
+  <p class="trust-sub">{escape(", ".join(parts))}.</p>
+</div>"""
+
+    # ── Различимы ли варианты между собой ───────────────────────────────────
+    verdict = summary.get("verdict")
+    if verdict:
+        if verdict["kind"] == "overlap":
+            v_html = (
+                f'<p class="trust-warn">Диапазон лидера «{escape(str(verdict["leader"]))}» '
+                f'({_fmt_int(verdict["leader_kpi"])}) пересекается с диапазоном ближайшего '
+                f'преследователя «{escape(str(verdict["runner_up"]))}» '
+                f'({_fmt_int(verdict["runner_up_kpi"])}) – преимущество лидера данными '
+                "не доказано. Выбирайте по цене исполнения и рискам, а не по разнице "
+                "прогнозов.</p>"
+            )
+        else:
+            v_html = (
+                f'<p class="trust-sub">«{escape(str(verdict["leader"]))}» устойчиво лучше '
+                f'«{escape(str(verdict["runner_up"]))}»: нижняя граница лидера '
+                f'{_fmt_int(verdict["leader_ci_low"])} выше верхней границы второго '
+                f'{_fmt_int(verdict["runner_up_ci_high"])} – диапазоны не пересекаются. '
+                "Разницу можно называть вслух.</p>"
+            )
+        blocks += f"""
+<div class="trust-block">
+  <h3 class="trust-h">Различимы ли варианты</h3>
+  {v_html}
+</div>"""
+
+    # ── Сравнительная таблица вариантов ─────────────────────────────────────
+    base_view = summary.get("baseline")
+    base_kpi = base_view.get("total_kpi") if base_view else None
+    show_delta = base_kpi is not None and base_kpi != 0
 
     rows = ""
     for sc in scenarios:
@@ -2514,28 +2652,43 @@ def render_forecast_plan(ctx: dict) -> str:
         ci_low_val = sc.get("total_kpi_ci_low")
         ci_high_val = sc.get("total_kpi_ci_high")
         ci_str = (
-            f"{int(ci_low_val):,} – {int(ci_high_val):,}".replace(",", " ")
+            f"{int(ci_low_val):,} – {int(ci_high_val):,}".replace(",", " ")
             if ci_low_val is not None and ci_high_val is not None else "н/д"
         )
         budget = sc.get("total_spend_money")
         kpi = sc.get("total_kpi")
         roas = sc.get("roas_money")
-        budget_str = f"{int(budget):,}".replace(",", " ") if budget is not None else "н/д"
-        kpi_str = f"{int(kpi):,}".replace(",", " ") if kpi is not None else "н/д"
+        budget_str = f"{int(budget):,}".replace(",", " ") if budget is not None else "н/д"
+        kpi_str = f"{int(kpi):,}".replace(",", " ") if kpi is not None else "н/д"
         roas_str = f"{float(roas):.2f}" if roas is not None else "н/д"
         name_str = escape(str(sc.get("name") or sc.get("variant_id") or "н/д"))
         star = "★ " if is_accepted else ""
         bold_open = "<strong>" if is_accepted else ""
         bold_close = "</strong>" if is_accepted else ""
+        delta_cell = ""
+        if show_delta:
+            # Δ к базовому плану — та же формула, что в таблице сравнения на
+            # экране (`MultiScenarioPage.svelte`, upliftPct). У самой базовой
+            # строки разницы с собой нет — прочерк, а не «0%».
+            if kpi is None or sc is base_view or str(sc.get("name")) == str(base_view.get("name")):
+                d_str = "-"
+            else:
+                d_str = _signed_pct((float(kpi) - base_kpi) / abs(base_kpi) * 100.0)
+            delta_cell = f'<td class="num">{bold_open}{d_str}{bold_close}</td>'
         rows += (
             f'<tr>'
             f'<td>{bold_open}{star}{name_str}{bold_close}</td>'
             f'<td class="num">{bold_open}{budget_str}{bold_close}</td>'
             f'<td class="num">{bold_open}{kpi_str}{bold_close}</td>'
             f'<td class="num">{bold_open}{ci_str}{bold_close}</td>'
+            f'{delta_cell}'
             f'<td class="num">{bold_open}{roas_str}{bold_close}</td>'
             f'</tr>'
         )
+
+    delta_header = (
+        f'<th>Δ к «{escape(str(base_view["name"]))}»</th>' if show_delta else ""
+    )
 
     disclaimers = fc.get("disclaimers") or []
     disc_html = ""
@@ -2548,8 +2701,6 @@ def render_forecast_plan(ctx: dict) -> str:
     if len(scenarios) >= 2:
         try:
             from charts.generators import scenarios_comparison_chart
-            kpi_meta = _kpi_view(ctx)
-            kpi_label = kpi_meta.get("target_axis") or "Прогноз KPI"
             data_uri = scenarios_comparison_chart(scenarios, kpi_label=kpi_label)
             if data_uri:
                 chart_html = (
@@ -2566,12 +2717,14 @@ def render_forecast_plan(ctx: dict) -> str:
 
     body = (
         _action_title("Прогноз на будущий период")
+        + blocks
         + f"""
 <div class="trust-block">
+  <h3 class="trust-h">Варианты бюджетного плана</h3>
   <table class="trust-table">
     <thead><tr>
       <th>Сценарий</th><th>Бюджет, ₽</th>
-      <th>Прогноз KPI</th><th>90%-интервал</th><th>ROAS</th>
+      <th>Прогноз KPI</th><th>Правдоподобный диапазон, 90%</th>{delta_header}<th>ROAS</th>
     </tr></thead>
     <tbody>{rows}</tbody>
   </table>

@@ -387,20 +387,36 @@ class AuroraPPTXBuilder:
                      and _avp.get("predicted"))
             else None
         )
-        self._page_shift = (
+        # 13.09.2026: столбцы декомпозиции («База + каждый канал = Итого»).
+        # Функция графика (charts.make_decomposition_stacked) была написана и
+        # не вызывалась ни разу — в колоде на месте заявленного третьего графика
+        # стоял горизонтальный mROAS, отвечающий на ДРУГОЙ вопрос. Числа — из
+        # того же decompose['waterfall'], что рисует веб-отчёт.
+        _wf = self.data.get("waterfall") or {}
+        self.waterfall = (
+            _wf if (self.is_live and _wf.get("labels") and _wf.get("values")
+                    and len(_wf["labels"]) == len(_wf["values"]))
+            else None
+        )
+        # Вставные слайды честности живут в секции «Главное» (идут сразу за
+        # SCQAR), а слайд декомпозиции открывает секцию «Декомпозиция вкладов» —
+        # поэтому сдвиг раздельный: границу секции двигает только первый.
+        self._honesty_shift = (
             int(bool(self.backtest)) + int(bool(self.gen_compare))
             + int(bool(self.promises_summary)) + int(bool(self.forecast))
             + int(bool(self.quality_avp))
         )
+        self._page_shift = self._honesty_shift + int(bool(self.waterfall))
         if self._page_shift:
             _s = self._page_shift
+            _h = self._honesty_shift
             if "total_slides" not in meta:
                 self.total_slides = 12 + _s
             if "toc_page_refs" not in meta:
-                self.toc_page_refs = [3, 6 + _s, 9 + _s, 10 + _s, 11 + _s]
+                self.toc_page_refs = [3, 6 + _h, 9 + _s, 10 + _s, 11 + _s]
             if not meta.get("slide_to_section"):
-                _map = {n: (1, "Главное") for n in range(2, 6 + _s)}
-                for n in range(6 + _s, 9 + _s):
+                _map = {n: (1, "Главное") for n in range(2, 6 + _h)}
+                for n in range(6 + _h, 9 + _s):
                     _map[n] = (2, "Декомпозиция вкладов")
                 _map[9 + _s] = (3, "Методология")
                 _map[10 + _s] = (4, "Данные и качество")
@@ -1734,6 +1750,94 @@ class AuroraPPTXBuilder:
     # ----------------------------------------------------------------
     # SLIDE 06 - ACTION + CHART + COMMENTARY (with annotation)
     # ----------------------------------------------------------------
+
+    def s06b_decomposition_chart(self):
+        """Слайд «Декомпозиция продаж» — столбцы «База + каждый канал = Итого».
+
+        Дыра, найденная разбором графиков 14.09.2026: функция графика
+        (charts.make_decomposition_stacked) была написана, но не вызывалась
+        нигде — в колоде на месте заявленного третьего графика стоял
+        горизонтальный mROAS со слайда «Действие», отвечающий на другой вопрос
+        («какой канал выгоднее пополнить», а не «сколько канал дал продаж»).
+
+        Числа — из decompose['waterfall'] через адаптер: тот же ряд, которым
+        рисует этот график веб-отчёт, поэтому два документа показывают одни и
+        те же значения по построению. Живые данные обязательны — wireframe-
+        режима нет (INV-50).
+
+        График — родная диаграмма PowerPoint, не картинка: клиент открывает
+        «Изменить данные» и видит числа, по которым он построен.
+        """
+        wf = self.waterfall
+        slide = self._blank()
+        slide_num = 6 + self._honesty_shift
+        self._header(slide, slide_num=slide_num)
+
+        self._action_title(
+            slide, "Декомпозиция продаж",
+            show_lime=True, y=0.80, height=0.80,
+        )
+
+        content_x = self.safe
+        content_y = 1.85
+        content_w = self.w - 2 * self.safe
+        content_h = 4.15
+
+        self._text(
+            slide, content_x, content_y - 0.35, content_w, 0.25,
+            "БАЗОВЫЙ СПРОС И ВКЛАД КАЖДОГО КАНАЛА",
+            font=self.sans, size=9, bold=True, color=self.gold,
+        )
+
+        labels = list(wf["labels"])
+        values = [float(v) for v in wf["values"]]
+        types = list(wf.get("types") or [])
+
+        from .charts import make_decomposition_stacked
+        from .tokens import COLOR
+        frame = make_decomposition_stacked(
+            slide, content_x, content_y, content_w, content_h,
+            categories=labels,
+            series_data={self.kpi.get("target_axis") or "Вклад в продажи": values},
+        )
+
+        # Ряд один — легенда повторяла бы подпись оси и только отнимала место;
+        # столбцы красим по роли (база / канал / итог) тем же приёмом, что
+        # make_roi_bar подсвечивает лидера.
+        try:
+            chart = frame.chart
+            chart.has_legend = False
+            points = list(chart.plots[0].series[0].points)
+            ch_i = 0
+            for i, point in enumerate(points):
+                kind = types[i] if i < len(types) else "channel"
+                point.format.fill.solid()
+                if kind == "baseline":
+                    point.format.fill.fore_color.rgb = self.deep_40
+                elif kind == "total":
+                    point.format.fill.fore_color.rgb = self.gold
+                else:
+                    palette = COLOR.data.channel_colors
+                    point.format.fill.fore_color.rgb = palette[ch_i % len(palette)]
+                    ch_i += 1
+            # Числа прямо на столбцах: без них точное значение по столбцу в
+            # распечатанной колоде не прочитать вовсе (у графика нет наведения).
+            plot = chart.plots[0]
+            plot.has_data_labels = True
+            plot.data_labels.number_format = '#,##0'
+            plot.data_labels.number_format_is_linked = False
+            plot.data_labels.font.size = Pt(8)
+        except Exception:
+            pass  # Оформление опционально — график остаётся на слайде
+
+        self._text(
+            slide, content_x, content_y + content_h + 0.15, content_w, 0.5,
+            ("Столбцы складываются в итог: базовый спрос – продажи, которые были бы "
+             "без рекламы, остальные столбцы – вклад каждого канала сверх него."),
+            font=self.sans, size=9, italic=True, color=self.deep_60, line_spacing=1.25,
+        )
+
+        self._footer(slide, slide_num)
 
     def s06_action_chart(self):
         slide = self._blank()
@@ -3876,14 +3980,96 @@ class AuroraPPTXBuilder:
         content_y = 1.85
         content_w = self.w - 2 * self.safe
 
+        # 13.09.2026: до этой правки слайд начинался прямо с таблицы вариантов —
+        # читатель не узнавал ни срока плана, ни какой вариант принят, ни чем он
+        # отличается от плана из файла, хотя на экране шага всё это стоит первым.
+        # Числа — из engines.planning.summarize_forecast, то есть из тех же
+        # results/scenarios/<имя>.json, что показывает экран.
+        from engines.planning import summarize_forecast
+        summary = summarize_forecast(fc) or {}
+
+        def _pi(v):
+            """Целое с пробелами; None — прочерк, а не ноль (INV-50)."""
+            return f"{float(v):,.0f}".replace(",", " ") if v is not None else "н/д"
+
+        def _psigned(v):
+            if v is None:
+                return "н/д"
+            return ("+" if v >= 0 else "−") + f"{abs(float(v)):,.0f}".replace(",", " ")
+
+        def _ppct(v):
+            if v is None:
+                return "н/д"
+            return ("+" if v >= 0 else "−") + f"{abs(float(v)):.0f}%"
+
+        y = content_y
+        horizon = summary.get("horizon_periods")
+        if horizon:
+            from utils.kpi_display import plural
+            span = ""
+            if summary.get("period_first") and summary.get("period_last"):
+                span = f" ({summary['period_first']} – {summary['period_last']})"
+            self._text(
+                slide, left_x, y, content_w, 0.22,
+                f"Срок плана: {horizon} {plural(int(horizon), ['период', 'периода', 'периодов'])}{span}",
+                font=self.sans, size=9, color=self.deep_60,
+            )
+            y += 0.26
+
+        acc = summary.get("accepted")
+        if acc:
+            parts = [f"«{acc['name']}» – {_pi(acc.get('total_kpi'))}"]
+            if acc.get("ci_low") is not None and acc.get("ci_high") is not None:
+                w_txt = (
+                    f", ширина {acc['ci_width_pct']:.0f}% от прогноза"
+                    if acc.get("ci_width_pct") is not None else ""
+                )
+                parts.append(
+                    f"правдоподобный диапазон (90%) {_pi(acc['ci_low'])} – "
+                    f"{_pi(acc['ci_high'])}{w_txt}"
+                )
+            if acc.get("total_spend_money") is not None:
+                parts.append(f"бюджет {_pi(acc['total_spend_money'])} ₽")
+            self._text(
+                slide, left_x, y, content_w, 0.30,
+                "Принятый план: " + " · ".join(parts),
+                font=self.sans, size=10, bold=True, color=self.deep_100,
+            )
+            y += 0.34
+
+        diff = summary.get("diff_vs_baseline")
+        if diff:
+            d_parts = []
+            # Ровный ноль — словом: «+0 ₽ (+0%)» читается как сбой счёта, а
+            # перекладка долей при той же сумме — обычный случай планирования.
+            if diff.get("spend_abs") is not None:
+                if diff["spend_abs"] == 0:
+                    d_parts.append("бюджет тот же")
+                else:
+                    pct = f" ({_ppct(diff.get('spend_pct'))})" if diff.get("spend_pct") is not None else ""
+                    d_parts.append(f"бюджет {_psigned(diff['spend_abs'])} ₽{pct}")
+            if diff.get("kpi_abs") is not None:
+                if diff["kpi_abs"] == 0:
+                    d_parts.append("прогноз тот же")
+                else:
+                    pct = f" ({_ppct(diff.get('kpi_pct'))})" if diff.get("kpi_pct") is not None else ""
+                    d_parts.append(f"прогноз {_psigned(diff['kpi_abs'])}{pct}")
+            if d_parts:
+                self._text(
+                    slide, left_x, y, content_w, 0.26,
+                    f"Против «{diff['baseline_name']}»: " + ", ".join(d_parts),
+                    font=self.sans, size=9, color=self.deep_80,
+                )
+                y += 0.30
+
         # Заголовок таблицы сценариев
         self._text(
-            slide, left_x, content_y, content_w, 0.25, "ВАРИАНТЫ БЮДЖЕТНОГО ПЛАНА",
+            slide, left_x, y, content_w, 0.25, "ВАРИАНТЫ БЮДЖЕТНОГО ПЛАНА",
             font=self.sans, size=9, bold=True, color=self.gold,
         )
-        self._hairline(slide, left_x, content_y + 0.28, content_w, weight=0.75, color=self.gold)
+        self._hairline(slide, left_x, y + 0.28, content_w, weight=0.75, color=self.gold)
 
-        ry = content_y + 0.55
+        ry = y + 0.55
         scenarios = (fc.get("scenarios") or [])[:4]
 
         # Ширины колонок
@@ -3954,6 +4140,31 @@ class AuroraPPTXBuilder:
                 )
             self._hairline(slide, left_x, ry + 0.27, content_w, weight=0.25)
             ry += 0.34
+
+        # Различимы ли варианты между собой. Выборка и неравенства — те же, что
+        # в панели подсказок шага на экране (правила P8/P9): пара «лидер –
+        # ближайший преследователь», ровное касание границ молчит.
+        verdict = summary.get("verdict")
+        if verdict:
+            if verdict["kind"] == "overlap":
+                v_text = (
+                    f"Диапазон лидера «{verdict['leader']}» ({_pi(verdict['leader_kpi'])}) "
+                    f"пересекается с диапазоном «{verdict['runner_up']}» "
+                    f"({_pi(verdict['runner_up_kpi'])}) – преимущество лидера данными "
+                    "не доказано: выбирайте по цене исполнения и рискам."
+                )
+            else:
+                v_text = (
+                    f"«{verdict['leader']}» устойчиво лучше «{verdict['runner_up']}»: "
+                    f"нижняя граница лидера {_pi(verdict['leader_ci_low'])} выше верхней "
+                    f"границы второго {_pi(verdict['runner_up_ci_high'])} – диапазоны "
+                    "не пересекаются."
+                )
+            self._text(
+                slide, left_x, ry + 0.10, content_w, 0.42, v_text,
+                font=self.sans, size=9, italic=True, color=self.deep_80, line_spacing=1.2,
+            )
+            ry += 0.52
 
         # Оговорки
         disclaimers = fc.get("disclaimers") or []
@@ -4407,6 +4618,10 @@ class AuroraPPTXBuilder:
             self.s_forecast_plan()
         if self.quality_avp:
             self.s10e_quality_chart()
+        # Секцию «Декомпозиция вкладов» открывает её главный график — сколько
+        # дал базовый спрос и сколько каждый канал (13.09.2026).
+        if self.waterfall:
+            self.s06b_decomposition_chart()
         self.s06_action_chart()
         self.s07_action_table()
         self.s08_action_timeline()

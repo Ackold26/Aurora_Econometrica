@@ -1292,6 +1292,19 @@ def _map_pipeline_to_builder_data(
     if isinstance(ds, dict) and ds.get("series"):
         data["decomposition_series"] = ds
 
+    # 13.09.2026: столбцы декомпозиции («База + каждый канал = Итого») колода
+    # не получала вовсе — билдер вызывать их не мог, потому что этих чисел не
+    # было в его данных. Веб-отчёт рисует тот же график из того же
+    # decompose['waterfall'] (aurora_html/builder.py), поэтому числа в колоде и
+    # в веб-отчёте по построению одни и те же, а не сошлись случайно.
+    wf = decompose_data.get("waterfall")
+    if isinstance(wf, dict) and wf.get("labels") and wf.get("values"):
+        data["waterfall"] = {
+            "labels": [str(x) for x in wf["labels"]],
+            "values": [float(v) for v in wf["values"]],
+            "types": [str(t) for t in (wf.get("types") or [])],
+        }
+
     # v1.3.0: KPI metadata for downstream report builders (per ADR-016).
     # Reads from decompose_data (which loads project settings/v13_kpi.json).
     # Defaults preserve v1.2 behavior (monetary ROI).
