@@ -33,7 +33,7 @@ code { background: var(--bg3); padding: 1px 6px; border-radius: 4px; font-size: 
 
 /* TOC */
 .toc { background: var(--bg2); border: 1px solid var(--border); border-radius: 10px; padding: 18px 22px; margin: 24px 0 8px; }
-.toc h4 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text3); margin-bottom: 10px; }
+.toc .toc-title { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text3); margin: 0 0 10px; padding-bottom: 0; border-bottom: none; }
 .toc ol { columns: 2; column-gap: 28px; padding-left: 18px; margin: 0; }
 .toc li { font-size: 13px; margin-bottom: 5px; }
 @media (max-width: 720px) { .toc ol { columns: 1; } }
@@ -45,7 +45,7 @@ code { background: var(--bg3); padding: 1px 6px; border-radius: 4px; font-size: 
 .feat-item p { font-size: 13px; margin: 0; }
 .feat-item .where { font-size: 12px; color: var(--text3); margin-top: 6px; }
 .feat-item .where b { color: var(--text2); font-weight: 600; }
-.badge { display: inline-block; font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 10px; text-transform: uppercase; letter-spacing: 0.03em; }
+.badge { display: inline-block; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 10px; text-transform: uppercase; letter-spacing: 0.03em; }
 .badge-new { background: rgba(63,185,80,0.15); color: var(--green); border: 1px solid rgba(63,185,80,0.3); }
 .badge-expert { background: rgba(188,140,255,0.15); color: var(--purple); border: 1px solid rgba(188,140,255,0.3); }
 
@@ -77,11 +77,11 @@ code { background: var(--bg3); padding: 1px 6px; border-radius: 4px; font-size: 
 
 <div class="callout c-info">
   <div class="c-title">Как устроена работа</div>
-  <p>Aurora – это <strong>пайплайн из 7 шагов</strong>: от загрузки таблицы до готового отчёта с оптимальным бюджетом. Каждый шаг разблокируется по мере готовности предыдущего. Ниже – возможности по разделам. Подробности процесса – в <a href="step-1-import.html">Pipeline: 7 шагов</a>.</p>
+  <p>Aurora – это <strong>пайплайн из 7 шагов</strong>: от загрузки таблицы до готового отчёта с оптимальным бюджетом. Каждый шаг разблокируется по мере готовности предыдущего. Ниже – возможности по разделам. Подробности процесса – в <a href="step-1-import.html">Пайплайн: 7 шагов</a>.</p>
 </div>
 
 <div class="toc">
-  <h4>Содержание</h4>
+  <h2 class="toc-title">Содержание</h2>
   <ol>
     <li><a href="#pipeline">Пайплайн моделирования (7 шагов)</a></li>
     <li><a href="#modes">Режимы анализа и типы KPI</a></li>
@@ -136,7 +136,7 @@ code { background: var(--bg3); padding: 1px 6px; border-radius: 4px; font-size: 
 <div class="feat">
   <div class="feat-item"><h3>Каскад (waterfall) вкладов</h3><p>Разбивка KPI на базу и вклад каждого канала. Как читать – в <a href="step-4-decompose.html#read">Интерпретации</a>.</p><div class="where"><b>Где:</b> шаг «Декомпозиция»</div></div>
   <div class="feat-item"><h3>Знаковые факторы <span class="badge badge-new">2.x</span></h3><p>Неуправляемые факторы (конкуренты, праздники, цена) показываются отдельными полосами над/под линией – видно, что тянуло продажи вверх, а что вниз.</p><div class="where"><b>Где:</b> шаг «Декомпозиция» → таймлайн</div></div>
-  <div class="feat-item"><h3>Карточка рекомендации</h3><p>Главный actionable вывод: какой канал недогружен, какой переинвестирован, куда переложить бюджет.</p><div class="where"><b>Где:</b> шаг «Декомпозиция»</div></div>
+  <div class="feat-item"><h3>Карточка рекомендации</h3><p>Главный практический вывод: какой канал недогружен, какой переинвестирован, куда переложить бюджет.</p><div class="where"><b>Где:</b> шаг «Декомпозиция»</div></div>
 </div>
 
 <h3>Шаг 5 – Оптимизация</h3>
@@ -155,7 +155,7 @@ code { background: var(--bg3); padding: 1px 6px; border-radius: 4px; font-size: 
   <div class="feat-item"><h3>Режим Эффективность (физика)</h3><p>Каналы в медиа-метриках (TRP, показы, клики) – сравнение по доле вклада, без денег.</p><div class="where"><b>Где:</b> шаг «Валидация» → выбор режима</div></div>
   <div class="feat-item"><h3>Смешанный режим <span class="badge badge-expert">Эксперт</span></h3><p>Поканальный выбор единиц с требованием задать стоимость – для нестандартных датасетов.</p><div class="where"><b>Где:</b> шаг «Валидация» → Эксперт</div></div>
   <div class="feat-item"><h3>Денежные и количественные KPI</h3><p>KPI может быть денежным (выручка, прибыль) или количественным (упаковки, лиды). Для количественного можно задать ценность единицы и получить денежный взгляд.</p><div class="where"><b>Где:</b> шаг «Валидация» → выбор KPI</div></div>
-  <div class="feat-item"><h3>Ценность единицы count-KPI <span class="badge badge-new">2.x</span></h3><p>₽/упаковку или ₽/лид переводят количественную модель в деньги – становятся доступны ROI-оценки и денежная оптимизация.</p><div class="where"><b>Где:</b> шаг «Валидация» / «Оптимизация»</div></div>
+  <div class="feat-item"><h3>Ценность единицы для количественного KPI <span class="badge badge-new">2.x</span></h3><p>₽/упаковку или ₽/лид переводят количественную модель в деньги – становятся доступны ROI-оценки и денежная оптимизация.</p><div class="where"><b>Где:</b> шаг «Валидация» / «Оптимизация»</div></div>
 </div>
 
 <!-- ============ OPTIMIZE ============ -->
@@ -217,7 +217,7 @@ code { background: var(--bg3); padding: 1px 6px; border-radius: 4px; font-size: 
   <div class="feat-item"><h3>Справочный центр с поиском</h3><p>Эта справка: навигация по группам и поиск по всем страницам в шапке.</p><div class="where"><b>Где:</b> справочный центр</div></div>
 </div>
 
-<p>Что изменилось в текущей версии – см. <a href="whats-new.html">Что нового в 2.4 →</a> · Как читать результаты – <a href="step-4-decompose.html">Интерпретация результатов →</a></p>
+<p>Что изменилось – см. <a href="whats-new.html">Что нового →</a> · Как читать результаты – <a href="step-4-decompose.html">Интерпретация результатов →</a></p>
 
 </div>
 

@@ -145,6 +145,7 @@ def _fmt_x_with_ci(mean: Any, ci_low: Any, ci_high: Any) -> str:
 # один счётчик на веб-отчёт и колоду, чтобы урок N1 (не округлять до лживых 0%) не
 # терялся заново при каждом новом документе. Алиас сохраняет имя для ~20 вызывающих ниже.
 from utils.kpi_display import fmt_pct as _fmt_pct
+from utils.kpi_display import fmt_share_pct as _fmt_share_pct
 
 
 def _fmt_ru_decimal(v: Any, decimals: int, suffix: str = "", fallback: str = "-") -> str:
@@ -2598,7 +2599,7 @@ def render_forecast_plan(ctx: dict) -> str:
         ch_rows = "".join(
             f'<tr><td>{escape(c["name"])}</td>'
             f'<td class="num">{_fmt_int(c["spend_money"])}</td>'
-            f'<td class="num">{_fmt_pct(c["share_pct"])}</td></tr>'
+            f'<td class="num">{_fmt_share_pct(c["share_pct"])}</td></tr>'
             for c in acc_channels
         )
         blocks += f"""

@@ -30,12 +30,21 @@ import { writable } from 'svelte/store';
  */
 
 /**
+ * `acceptedName` – имя ПРИНЯТОГО плана, вычисленное единственным правилом
+ * выбора (`acceptedPlanName` в PlanningStep.svelte). Тем же именем шаг пишет
+ * манифест `results/planning.json`, по которому документ судит принятый план.
+ * Панель подсказок обязана называть ровно его, а не выбирать заново: иначе
+ * экран и унесённый документ называют принятыми РАЗНЫЕ планы (находка 2
+ * внешнего аудита s47, INV-50).
+ *
  * @type {import('svelte/store').Writable<{
+ *   acceptedName: string | null,
  *   baseline: PlanningLiveBaseline | null,
  *   variants: PlanningLiveVariant[],
  * }>}
  */
 export const planningLiveState = writable({
+  acceptedName: null,
   baseline: null,
   variants: [],
 });

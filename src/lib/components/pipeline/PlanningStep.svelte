@@ -309,19 +309,51 @@
     } finally {
       savingVariant = false;
     }
-    // Обновляем манифест: baseline + все варианты, accepted — последний созданный.
+    // Манифест согласуем на КАЖДУЮ запись варианта – тогда уход со шага любым
+    // путём («Далее ▶» в подвале мастера, боковая навигация, закрытие окна)
+    // ничего не ломает: в манифесте уже лежит тот же принятый план, который
+    // назван на экране.
     if (!saveError) {
-      const lastName = variants.length ? variants[variants.length - 1].name : BASELINE_NAME;
-      await saveManifest(lastName);
+      await saveManifest();
     }
+  }
+
+  /**
+   * ЕДИНСТВЕННОЕ правило выбора принятого плана на всю программу.
+   *
+   * Внешний аудит s47 (находка 2, High): принятый план выбирался тремя разными
+   * правилами – при создании варианта в манифест шёл ПОСЛЕДНИЙ созданный,
+   * `goToReport` писал ЛУЧШИЙ по прогнозу, а правило P4 панели подсказок
+   * считало лучшего только среди вариантов с правдоподобным диапазоном.
+   * Документ (`engines/planning.py`, `summarize_forecast`) судит
+   * `accepted_variant` из манифеста – и экран с документом называли принятыми
+   * РАЗНЫЕ планы, давая взаимоисключающий совет по деньгам (INV-50).
+   *
+   * Теперь выбор один: лучший по `predictedKpi` среди созданных вариантов,
+   * а без единого варианта принятого плана ещё нет – тогда базовый план.
+   * Отсутствие правдоподобного диапазона НЕ исключает вариант из выбора:
+   * это причина промолчать про ширину, а не назвать принятым другой план.
+   *
+   * @param {PlanVariant[]} vs
+   * @returns {PlanVariant | null}
+   */
+  function pickAcceptedVariant(vs) {
+    if (!vs?.length) return null;
+    return [...vs].sort((a, b) => Number(b.predictedKpi ?? 0) - Number(a.predictedKpi ?? 0))[0] ?? null;
+  }
+
+  /** Имя принятого плана для манифеста и для панели подсказок. */
+  function acceptedPlanName() {
+    return pickAcceptedVariant(variants)?.name ?? BASELINE_NAME;
   }
 
   /**
    * Записать results/planning.json: baseline + пользовательские варианты.
    * Без манифеста раздел прогноза в PPTX/HTML/XLSX «не найден».
-   * @param {string} acceptedName
+   * Принятый план НЕ передаётся снаружи: его называет `acceptedPlanName()` –
+   * единственный источник выбора, общий с экраном (см. находку 2 аудита s47).
    */
-  async function saveManifest(acceptedName) {
+  async function saveManifest() {
     const projectDir = await getProjectDir();
     if (!projectDir) return;
     const ids = [
@@ -333,7 +365,7 @@
       await invoke('econ_save_planning', {
         projectDir,
         variantIds: ids,
-        acceptedVariant: acceptedName,
+        acceptedVariant: acceptedPlanName(),
         disclaimers: baselineForecast?.disclaimers ?? [],
       });
     } catch (/** @type {any} */ e) {
@@ -396,7 +428,7 @@
       };
 
       // Автозапись манифеста — раздел прогноза в отчёте оживает без ручного варианта.
-      await saveManifest(BASELINE_NAME);
+      await saveManifest();
     } catch (/** @type {any} */ e) {
       baselineError = String(e?.message || e);
     } finally {
@@ -462,9 +494,15 @@
 
   // ── Удаление варианта ─────────────────────────────────────────────────────
 
-  /** @param {{ id: string }} scenario */
-  function deleteVariant(scenario) {
+  /**
+   * Удаление варианта тоже переписывает манифест: иначе принятым в документе
+   * остаётся вариант, которого на экране уже нет (тот же канал расхождения,
+   * находка 2 аудита s47).
+   * @param {{ id: string }} scenario
+   */
+  async function deleteVariant(scenario) {
     variants = variants.filter((v) => v.id !== scenario.id);
+    await saveManifest();
   }
 
   // ── Фиксация прогноза ─────────────────────────────────────────────────────
@@ -563,8 +601,9 @@
    */
   function computeVerdict(vs) {
     if (!vs.length) return { best: null, ambiguous: false };
-    const sorted = [...vs].sort((a, b) => b.predictedKpi - a.predictedKpi);
-    const best = sorted[0];
+    const sorted = [...vs].sort((a, b) => Number(b.predictedKpi ?? 0) - Number(a.predictedKpi ?? 0));
+    // Лидер вердикта = принятый план: правило выбора одно на всю программу.
+    const best = pickAcceptedVariant(vs);
     if (vs.length < 2) return { best, ambiguous: false };
 
     let overlapCount = 0;
@@ -657,6 +696,9 @@
   // условной от НАСТОЯЩИХ чисел прогноза (INV-50), а они живут здесь.
   $effect(() => {
     planningLiveState.set({
+      // Имя принятого плана вычисляет тот же `acceptedPlanName`, что пишет
+      // манифест: правило P4 больше не выбирает принятый план заново.
+      acceptedName: acceptedPlanName(),
       baseline: baselineForecast
         ? {
             totalKpi: baselineForecast.totalKpi,
@@ -678,9 +720,10 @@
   // ── Завершение шага ───────────────────────────────────────────────────────
 
   async function goToReport() {
-    // Финальный манифест: accepted — лучший вариант (или базовый план, если
-    // вариантов не создавали). Гарантирует, что раздел прогноза в отчёте — живой.
-    await saveManifest(verdict.best?.name ?? BASELINE_NAME);
+    // Финальный манифест – тем же единственным правилом выбора, что и все
+    // остальные записи (`acceptedPlanName`). Гарантирует, что раздел прогноза
+    // в отчёте живой и называет тот же план, что панель подсказок на экране.
+    await saveManifest();
     planningManifest.set({
       variants: variants.map((v) => ({
         id: v.id,

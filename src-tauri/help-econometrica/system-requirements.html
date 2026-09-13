@@ -35,7 +35,7 @@ td:first-child { color: var(--text); font-weight: 500; white-space: nowrap; }
 .tier-card.rec { border-top-color: var(--accent); }
 .tier-card.best { border-top-color: var(--green); }
 .tier-card .label { font-size: 11px; color: var(--text3); text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; }
-.tier-card h4 { font-size: 16px; margin: 4px 0 10px; color: var(--text); }
+.tier-card h3 { font-size: 16px; margin: 4px 0 10px; color: var(--text); }
 .tier-card .spec { font-size: 13px; color: var(--text2); line-height: 1.65; }
 .tier-card .spec strong { color: var(--text); }
 
@@ -74,7 +74,7 @@ td:first-child { color: var(--text); font-weight: 500; white-space: nowrap; }
 <div class="tier-grid">
   <div class="tier-card min">
     <div class="label">Минимум</div>
-    <h4>Работает, но медленно</h4>
+    <h3>Работает, но медленно</h3>
     <div class="spec">
       <strong>CPU:</strong> 4 ядра, 2.0 ГГц<br>
       <strong>RAM:</strong> 8 ГБ<br>
@@ -84,7 +84,7 @@ td:first-child { color: var(--text); font-weight: 500; white-space: nowrap; }
   </div>
   <div class="tier-card rec">
     <div class="label">Рекомендация</div>
-    <h4>Комфортная работа</h4>
+    <h3>Комфортная работа</h3>
     <div class="spec">
       <strong>CPU:</strong> 6+ ядер, 3.0+ ГГц<br>
       <strong>RAM:</strong> 16 ГБ<br>
@@ -94,7 +94,7 @@ td:first-child { color: var(--text); font-weight: 500; white-space: nowrap; }
   </div>
   <div class="tier-card best">
     <div class="label">Для больших моделей</div>
-    <h4>Быстрые MCMC-прогоны</h4>
+    <h3>Быстрые MCMC-прогоны</h3>
     <div class="spec">
       <strong>CPU:</strong> 8+ ядер с AVX2 (Intel i7 / AMD Ryzen 7+)<br>
       <strong>RAM:</strong> 32 ГБ<br>
@@ -178,7 +178,7 @@ td:first-child { color: var(--text); font-weight: 500; white-space: nowrap; }
   <div class="c-title">Что проверить перед установкой</div>
   <p>
     ✓ Антивирус / EDR – добавьте папку приложения в исключения, иначе проверка поведения может замедлять MCMC.<br>
-    ✓ Корпоративный прокси / SSL-inspection – онлайн-авторизация и обновления могут требовать whitelisting домена обновлений.<br>
+    ✓ Корпоративный прокси / проверка SSL – онлайн-авторизация и обновления могут требовать добавления домена обновлений в список разрешённых.<br>
     ✓ Политика групп (GPO) – WebView2 должен быть разрешён. Обычно это дефолт для Windows 10/11.
   </p>
 </div>

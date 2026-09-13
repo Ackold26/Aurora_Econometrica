@@ -9,10 +9,10 @@
     { id: 'index',             title: 'Быстрый старт',          group: 'start',    keywords: 'начало старт обзор лицензия запуск' },
     { id: 'about',             title: 'О продукте',              group: 'start',    keywords: 'продукт автор эконометрика MMM' },
     { id: 'features',          title: 'Каталог функций',         group: 'start',    keywords: 'функции возможности каталог фичи список что умеет пайплайн режимы оптимизация экспорт' },
-    { id: 'whats-new',         title: 'Что нового в 2.4',        group: 'start',    keywords: 'новое изменения changelog версия 2.4 что нового релиз обновление' },
+    { id: 'whats-new',         title: 'Что нового',        group: 'start',    keywords: 'новое изменения changelog версия что нового релиз обновление' },
     { id: 'user-guide',        title: 'Руководство пользователя', group: 'start',   keywords: 'руководство гайд инструкция шаги' },
     { id: 'system-requirements', title: 'Системные требования',  group: 'start',    keywords: 'требования компьютер оборудование ОС windows RAM CPU диск python jax numpyro зависимости' },
-    { id: 'faq',               title: 'FAQ и troubleshooting',   group: 'start',    keywords: 'вопросы проблемы troubleshooting python mcmc' },
+    { id: 'faq',               title: 'FAQ и решение проблем',   group: 'start',    keywords: 'вопросы проблемы troubleshooting python mcmc' },
     { id: 'error-codes',       title: 'Коды ошибок',             group: 'start',    keywords: 'ошибка код диагностика проблема' },
     { id: 'install',           title: 'Установка и удаление',    group: 'start',    keywords: 'установка удаление деинсталляция инструкция WebView2 брандмауэр firewall loopback без прав администратора активация лицензия uninstall-cleanup' },
 

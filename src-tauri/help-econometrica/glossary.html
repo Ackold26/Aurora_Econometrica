@@ -26,7 +26,7 @@ a:hover { text-decoration: underline; }
 .search-box { width: 100%; background: var(--bg2); border: 1px solid var(--border); color: var(--text); font-size: 14px; padding: 11px 16px; border-radius: 9px; outline: none; margin: 8px 0 4px; font-family: inherit; }
 .search-box:focus { border-color: rgba(88,166,255,0.4); }
 .idx { background: var(--bg2); border: 1px solid var(--border); border-radius: 10px; padding: 18px 22px; margin: 16px 0 8px; }
-.idx h4 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text3); margin-bottom: 10px; }
+.idx .idx-title { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; color: var(--text3); margin: 0 0 10px; padding-bottom: 0; border-bottom: none; }
 .idx ul { columns: 3; column-gap: 24px; list-style: none; padding: 0; margin: 0; }
 .idx li { font-size: 12.5px; margin-bottom: 5px; break-inside: avoid; }
 @media (max-width: 720px) { .idx ul { columns: 1; } }
@@ -34,7 +34,7 @@ a:hover { text-decoration: underline; }
 .term .ex, .term .where { font-size: 13px; border-radius: 7px; padding: 10px 14px; margin-top: 8px; }
 .term .ex { background: rgba(63,185,80,0.06); border: 1px solid rgba(63,185,80,0.22); color: var(--text2); }
 .term .where { background: rgba(88,166,255,0.06); border: 1px solid rgba(88,166,255,0.22); color: var(--text2); }
-.term .lbl { display: block; font-size: 10.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 4px; }
+.term .lbl { display: block; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; margin-bottom: 4px; }
 .term .ex .lbl { color: var(--green); }
 .term .where .lbl { color: var(--accent); }
 .term .rel { font-size: 12.5px; color: var(--text3); margin-top: 10px; }
@@ -53,7 +53,7 @@ a:hover { text-decoration: underline; }
 <input type="text" class="search-box" id="gsearch" placeholder="Поиск термина…" oninput="filterTerms(this.value)" />
 
 <div class="idx">
-  <h4>Алфавитный указатель</h4>
+  <h2 class="idx-title">Алфавитный указатель</h2>
   <ul>
     <li><a href="#cpp">CPP (Стоимость пункта рейтинга)</a></li>
     <li><a href="#cpu">CPU (Стоимость единицы)</a></li>

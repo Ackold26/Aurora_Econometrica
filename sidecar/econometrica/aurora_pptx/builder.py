@@ -3998,7 +3998,7 @@ class AuroraPPTXBuilder:
         # Числа — из engines.planning.summarize_forecast, то есть из тех же
         # results/scenarios/<имя>.json, что показывает экран.
         from engines.planning import summarize_forecast
-        from utils.kpi_display import fmt_pct, plural
+        from utils.kpi_display import fmt_pct, fmt_share_pct, plural
         summary = summarize_forecast(fc) or {}
 
         def _pi(v):
@@ -4063,7 +4063,7 @@ class AuroraPPTXBuilder:
                 rest = acc_channels[6:]
                 ch_parts = [
                     f"{c['name']} {_pi(c['spend_money'])} ₽"
-                    + (f" ({fmt_pct(c['share_pct'])})" if c.get("share_pct") is not None else "")
+                    + (f" ({fmt_share_pct(c['share_pct'])})" if c.get("share_pct") is not None else "")
                     for c in shown
                 ]
                 if rest:
@@ -4073,7 +4073,7 @@ class AuroraPPTXBuilder:
                     )
                     ch_parts.append(
                         f"прочие {len(rest)} {plural(len(rest), ['канал', 'канала', 'каналов'])} "
-                        f"{_pi(rest_sum)} ₽ ({fmt_pct(rest_share)})"
+                        f"{_pi(rest_sum)} ₽ ({fmt_share_pct(rest_share)})"
                     )
                 self._text(
                     slide, left_x, y, content_w, 0.26,

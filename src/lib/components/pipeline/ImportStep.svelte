@@ -566,7 +566,7 @@
   {#if errorMsg}
     <div class="error-banner">
       <span class="error-icon"><TriangleAlert size={14} strokeWidth={1.5} style="vertical-align: -0.15em" /></span>
-      {errorMsg}
+      <span class="error-text">{errorMsg}</span>
       <FeedbackReportButton ekran="Импорт" oshibka={errorMsg} />
     </div>
   {/if}
@@ -873,6 +873,13 @@
 
   .error-icon {
     flex-shrink: 0;
+  }
+
+  /* Текст ошибки — отдельный растущий элемент, как на пяти соседних шагах.
+     Голым текстовым узлом он растягивался и давил кнопку обращения. */
+  .error-text {
+    flex: 1;
+    min-width: 0;
   }
 
   /* ── Preview section ── */

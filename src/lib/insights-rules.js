@@ -2346,6 +2346,9 @@ export function optimizeInsights(data, ctx = {}) {
  * @property {number} [historyPeriods]    сколько периодов истории у модели
  * @property {PlanningBaselineView|null} [baseline] прогноз базового плана
  * @property {PlanningVariantView[]} [variants]     созданные варианты
+ * @property {string|null} [acceptedName] имя ПРИНЯТОГО плана – то же, что шаг записал
+ *                                        в манифест results/planning.json (единственное
+ *                                        правило выбора: `acceptedPlanName` в PlanningStep)
  * @property {any} [diagnostics]          modelData.diagnostics – качество модели
  * @property {number|null} [ssotRatio]    pre-train ratio, только как fallback
  */
@@ -2373,6 +2376,7 @@ export function planningInsights(ctx = {}) {
     historyPeriods = 0,
     baseline = null,
     variants = [],
+    acceptedName = null,
     diagnostics = null,
     ssotRatio = null,
   } = ctx;
@@ -2450,26 +2454,43 @@ export function planningInsights(ctx = {}) {
   // варианта не создано, принятого плана ещё нет – судим базовый, но
   // называем это явно словами, а не молчаливой подменой предмета оценки ни
   // в одну сторону (INV-50).
+  // Имя принятого плана приходит из шага (`acceptedName`) – ровно то, которое
+  // шаг записал в манифест `results/planning.json`. Своего выбора у правила
+  // больше нет: прежний отбор «лучший среди вариантов С правдоподобным
+  // диапазоном» отличался и от манифеста, и от вердикта шага, и на одних и тех
+  // же данных экран с документом называли принятыми разные планы.
+  // `acceptedName` может не прийти (прямой вызов правила без живого состояния
+  // шага) – тогда повторяем то же единственное правило: лучший по predictedKpi.
+  // Фильтра по наличию диапазона в ВЫБОРЕ нет: отсутствие диапазона – причина
+  // промолчать про ширину, а не назвать принятым другой план.
   const acceptedVariant = variants.length
-    ? [...variants]
-        .filter((v) => v && v.ciLow != null && v.ciHigh != null && Number(v.predictedKpi) > 0)
-        .sort((a, b) => b.predictedKpi - a.predictedKpi)[0] ?? null
+    ? ((acceptedName ? variants.find((v) => v && v.name === acceptedName) : null)
+        ?? [...variants].sort((a, b) => Number(b.predictedKpi ?? 0) - Number(a.predictedKpi ?? 0))[0]
+        ?? null)
     : null;
-  const judgedPlan = acceptedVariant
-    ? {
+  /** @type {{ lo: number, hi: number, kpi: number, subject: string } | null} */
+  let judgedPlan = null;
+  if (acceptedVariant) {
+    // Про принятый план говорим только когда у него есть чем мерить ширину.
+    // Нет диапазона – правило молчит; подменять предмет оценки нельзя (INV-50).
+    if (acceptedVariant.ciLow != null && acceptedVariant.ciHigh != null && Number(acceptedVariant.predictedKpi) > 0) {
+      judgedPlan = {
         lo: Number(acceptedVariant.ciLow),
         hi: Number(acceptedVariant.ciHigh),
         kpi: Number(acceptedVariant.predictedKpi),
         subject: `У принятого плана «${acceptedVariant.name}»`,
-      }
-    : (baseline && baseline.ciLowTotal != null && baseline.ciHighTotal != null && baseline.totalKpi > 0
-        ? {
-            lo: Number(baseline.ciLowTotal),
-            hi: Number(baseline.ciHighTotal),
-            kpi: Number(baseline.totalKpi),
-            subject: 'План ещё не выбран – у базового плана',
-          }
-        : null);
+      };
+    }
+  } else if (baseline && baseline.ciLowTotal != null && baseline.ciHighTotal != null && baseline.totalKpi > 0) {
+    // Ни одного варианта не создано – принятого плана ещё нет, судим базовый и
+    // называем это словами, а не молчаливой подменой предмета оценки.
+    judgedPlan = {
+      lo: Number(baseline.ciLowTotal),
+      hi: Number(baseline.ciHighTotal),
+      kpi: Number(baseline.totalKpi),
+      subject: 'План ещё не выбран – у базового плана',
+    };
+  }
   if (judgedPlan) {
     const width = (judgedPlan.hi - judgedPlan.lo) / judgedPlan.kpi;
     if (width >= 0.4) {

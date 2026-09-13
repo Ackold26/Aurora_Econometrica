@@ -498,7 +498,9 @@ def test_html_channel_split_shown(tmp_path):
     html = render_forecast_plan(_s({"forecast": FC_CHANNELS}))
     assert "Куда идёт бюджет" in html
     assert "Бюджет за срок плана, ₽" in html
-    assert "3 600 000" in html and "60%" in html
+    # аудит s47 (находка 5): доля каналов – с одной десятой (не «60%», а «60.0%»),
+    # иначе округление вверх по каждой строке сложилось бы в сумму 101%.
+    assert "3 600 000" in html and "60.0%" in html
     assert "Радио" in html
 
 
@@ -513,8 +515,9 @@ def test_deck_channel_split_one_line(base_payload, tmp_path):
     payload = copy.deepcopy(base_payload)
     payload["forecast"] = FC_CHANNELS
     _, text = _deck_text(payload, str(tmp_path / "deck_channels.pptx"))
-    assert "Куда идёт бюджет: ТВ 3 600 000 ₽ (60%)" in text
-    assert "Диджитал 1 800 000 ₽ (30%)" in text
+    # аудит s47 (находка 5): доля каналов – с одной десятой, см. test_html_channel_split_shown.
+    assert "Куда идёт бюджет: ТВ 3 600 000 ₽ (60.0%)" in text
+    assert "Диджитал 1 800 000 ₽ (30.0%)" in text
 
 
 def test_deck_channel_split_collapses_tail(base_payload, tmp_path):

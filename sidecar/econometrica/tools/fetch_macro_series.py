@@ -651,8 +651,19 @@ def fetch_cpi_result(name: str, date_from: dt.date, date_to: dt.date) -> FetchRe
         res.monthly_level_eom = dict(res.monthly_level)
         # изменение помесячно – берём официальный MoM% напрямую (не
         # пересчитываем через уровень второй раз, избегаем накопления
-        # ошибок округления).
-        res.monthly_change = {ym: mom_by_ym[ym] for ym in months if ym in mom_by_ym}
+        # ошибок округления). Первый месяц ОКНА пропускаем нарочно (аудит
+        # s47, находка 8): у Росстата MoM для него посчитан к предыдущему
+        # месяцу, а этого месяца в окне нет – README обещает, что изменение
+        # везде «к непосредственно предыдущему периоду ТОЙ ЖЕ частоты,
+        # посчитано по основной колонке уровня той же таблицы», а уровень
+        # первой строки всегда 100.0 (см. build_cpi_monthly_levels) и к
+        # значению Росстата отношения не имеет. У прочих четырёх рядов
+        # первая строка пуста по той же причине (pct_change_over_sequence:
+        # нет предыдущего ключа в последовательности) – ИПЦ теперь ведёт
+        # себя так же, вместо особого случая.
+        res.monthly_change = {
+            ym: mom_by_ym[ym] for ym in months[1:] if ym in mom_by_ym
+        }
         last_ym = max(res.monthly_level) if res.monthly_level else None
         res.last_date = dt.date(last_ym[0], last_ym[1], 1) if last_ym else None
 

@@ -28,6 +28,7 @@ if hasattr(sys.stdout, 'reconfigure'):
     except Exception:
         pass
 
+import re
 import subprocess
 import shutil
 from pathlib import Path
@@ -410,10 +411,53 @@ def smoke_test_bundle(exe_path):
     print('  [OK] Bundle smoke test passed')
 
 
+def sync_version_info():
+    """Свести метаданные версии движка с версией продукта.
+
+    🔴 Класс ошибки, ради которого это заведено: `version_info.txt` держал версию
+    статической строкой с припиской «при каждом бампе обновлять вручную». Приписку
+    не исполнили — движок 2.5.0 уехал внутри продукта 2.5.2, и ИТ-специалист
+    клиента видел в свойствах файла одну версию, а в программе другую ровно там,
+    где мы просим его доверять контрольным суммам. Ручная синхронизация — не
+    механизм, а надежда; версия берётся из единственного источника (package.json).
+    """
+    import json
+    manifest = ROOT.parent.parent / 'package.json'
+    version = json.loads(manifest.read_text(encoding='utf-8'))['version']
+    parts = version.split('.')
+    if len(parts) != 3 or not all(x.isdigit() for x in parts):
+        print(f'Build FAILED: версия продукта «{version}» не вида X.Y.Z', file=sys.stderr)
+        sys.exit(1)
+    major, minor, patch = parts
+    vi = ROOT / 'version_info.txt'
+    text = vi.read_text(encoding='utf-8')
+    before = text
+    text = re.sub(r'filevers=\(\d+, \d+, \d+, 0\)', f'filevers=({major}, {minor}, {patch}, 0)', text)
+    text = re.sub(r'prodvers=\(\d+, \d+, \d+, 0\)', f'prodvers=({major}, {minor}, {patch}, 0)', text)
+    text = re.sub(r"StringStruct\('FileVersion', '\d+\.\d+\.\d+\.0'\)",
+                  f"StringStruct('FileVersion', '{major}.{minor}.{patch}.0')", text)
+    text = re.sub(r"StringStruct\('ProductVersion', '\d+\.\d+\.\d+\.0'\)",
+                  f"StringStruct('ProductVersion', '{major}.{minor}.{patch}.0')", text)
+    if text != before:
+        vi.write_text(text, encoding='utf-8')
+        print(f'  [версия] метаданные движка сведены с версией продукта {version}')
+    else:
+        print(f'  [версия] метаданные движка уже на версии продукта {version}')
+    # Сторож: после правки в файле не должно остаться иной версии.
+    stale = set(re.findall(r"StringStruct\('(?:File|Product)Version', '(\d+\.\d+\.\d+)\.0'\)", text))
+    if stale != {f'{major}.{minor}.{patch}'}:
+        print(f'Build FAILED: в version_info.txt остались версии {sorted(stale)} '
+              f'при версии продукта {version}', file=sys.stderr)
+        sys.exit(1)
+
+
 def main():
     # ── Prerequisite: regenerate aurora_tokens.py from Standards/tokens/ ──
     # Without this, sidecar import econometrica.aurora_tokens fails at runtime.
     regenerate_tokens()
+
+    # Версия движка — из версии продукта, а не из памяти человека.
+    sync_version_info()
 
     print(f'\nBuilding {OUTPUT_NAME} with PyInstaller (--onedir)...')
     print(f'Output: {DIST / OUTPUT_NAME}/\n')

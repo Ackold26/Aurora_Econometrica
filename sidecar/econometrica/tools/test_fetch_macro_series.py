@@ -396,3 +396,46 @@ def test_week_to_month_uses_monday():
     # Неделя 2026-W37 начинается в понедельник 07.09.2026 — тот же месяц.
     monday = dt.date.fromisocalendar(2026, 37, 1)
     assert fms.week_to_month(monday) == (2026, 9)
+
+
+# ---------------------------------------------------------------------------
+# fetch_cpi_result — первая строка окна (аудит s47, находка 8)
+# ---------------------------------------------------------------------------
+
+
+def test_fetch_cpi_result_first_row_of_window_has_no_change(monkeypatch):
+    """У ИПЦ, как у прочих четырёх рядов, изменение первой строки окна –
+    пусто (предыдущего периода В ОКНЕ нет). Росстат публикует MoM% первого
+    месяца (он посчитан к месяцу ДО окна), но README обещает изменение «по
+    основной колонке уровня той же таблицы» – а уровень первой строки
+    всегда 100.0 (см. build_cpi_monthly_levels), к значению Росстата
+    отношения не имеет. Второй и третий месяц окна – официальный MoM% как
+    есть, без потерь."""
+    monkeypatch.setattr(
+        fms, "fetch_rosstat_cpi_monthly",
+        lambda: [(2016, 8, -0.25), (2016, 9, 0.17), (2016, 10, 0.43)],
+    )
+    res = fms.fetch_cpi_result(
+        "ИПЦ", dt.date(2016, 9, 1), dt.date(2016, 10, 31),
+    )
+    assert res.ok
+    assert (2016, 9) not in res.monthly_change
+    assert res.monthly_change[(2016, 10)] == pytest.approx(0.43)
+    # Уровень первой строки окна остаётся нормированной базой 100.0 – не
+    # трогаем расчёт уровня, меняем только показ изменения (INV-50).
+    assert res.monthly_level[(2016, 9)] == pytest.approx(100.0)
+
+
+def test_fetch_cpi_result_rosstat_mom_for_month_before_window_is_dropped(monkeypatch):
+    """Значение MoM% месяца ДО начала окна попадает в mom_by_ym (оно нужно
+    для будущей цепочки), но в monthly_change окна его быть не должно вовсе
+    – этот месяц в таблицу окна не входит."""
+    monkeypatch.setattr(
+        fms, "fetch_rosstat_cpi_monthly",
+        lambda: [(2016, 8, -0.25), (2016, 9, 0.17)],
+    )
+    res = fms.fetch_cpi_result("ИПЦ", dt.date(2016, 9, 1), dt.date(2016, 9, 30))
+    assert res.ok
+    assert (2016, 8) not in res.monthly_change
+    assert (2016, 9) not in res.monthly_change
+    assert list(res.monthly_change.keys()) == []

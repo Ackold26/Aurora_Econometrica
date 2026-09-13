@@ -353,6 +353,9 @@
           probeStatus: $mediaPlanProbeStatus,
           horizonPeriods: mp?.n_future_periods ?? $forecastConfig?.periods ?? 0,
           historyPeriods,
+          // Принятый план не выбирается здесь заново: имя приходит из шага –
+          // то же, что ушло в манифест (находка 2 внешнего аудита s47).
+          acceptedName: live?.acceptedName ?? null,
           baseline: live?.baseline ?? null,
           variants: live?.variants ?? [],
           diagnostics: mod?.diagnostics ?? null,

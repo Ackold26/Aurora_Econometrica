@@ -4,7 +4,14 @@
  * компонент, доводится до РЕАЛЬНОГО состояния ошибки через мок invoke (не через
  * текстовое чтение исходника), и проверяется присутствие кнопки в отрисованном
  * баннере ошибки — оракул поведения, не разметки: без живого errorMsg баннер вообще
- * не появляется.
+ * не появляется. *
+ * Находка 3 внешнего аудита s47 (Medium, 2026-09-14): проверки утверждали
+ * только ПРИСУТСТВИЕ кнопки. Аудитор подменил `ekran="Оптимизация"` на
+ * `"Импорт"` – проверка осталась зелёной, то есть была слепа к тому, что
+ * обещает её имя: обращение из «Оптимизации» ушло бы в поддержку с пометкой
+ * «Импорт», и разбор пошёл бы не туда. Теперь каждая проверка нажимает кнопку
+ * и судит ОБА поля обращения: имя экрана и то, что в причину отказа уходит
+ * текст ошибки ЭТОГО шага.
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/svelte';
@@ -43,6 +50,17 @@ describe('ImportStep — окно ошибки после отказа пред�
       expect(screen.getByText('Файл повреждён')).toBeInTheDocument();
     });
     expect(screen.getByRole('button', { name: /Сообщить о проблеме/ })).toBeInTheDocument();
+
+    // Обращение уходит с экраном и текстом ошибки ЭТОГО шага, а не просто
+    // «кнопка нарисована» (находка 3 аудита s47).
+    await fireEvent.click(screen.getByRole('button', { name: /Сообщить о проблеме/ }));
+    await waitFor(() => {
+      expect(invoke).toHaveBeenCalledWith('open_feedback_form', {
+        ekran: 'Импорт',
+        oshibka: expect.stringContaining('Файл повреждён'),
+      });
+    });
+
   });
 });
 
@@ -73,5 +91,16 @@ describe('ValidateStep — окно ошибки после отказа вал�
       expect(screen.getByText('Не удалось разобрать столбцы')).toBeInTheDocument();
     });
     expect(screen.getByRole('button', { name: /Сообщить о проблеме/ })).toBeInTheDocument();
+
+    // Обращение уходит с экраном и текстом ошибки ЭТОГО шага, а не просто
+    // «кнопка нарисована» (находка 3 аудита s47).
+    await fireEvent.click(screen.getByRole('button', { name: /Сообщить о проблеме/ }));
+    await waitFor(() => {
+      expect(invoke).toHaveBeenCalledWith('open_feedback_form', {
+        ekran: 'Валидация',
+        oshibka: expect.stringContaining('Не удалось разобрать столбцы'),
+      });
+    });
+
   });
 });
