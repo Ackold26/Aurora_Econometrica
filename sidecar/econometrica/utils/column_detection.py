@@ -287,14 +287,26 @@ SIGNED_MACRO_PATTERNS = [
     _sep_pattern(r'inflation'),
     _sep_pattern(r'gdp'),
     _sep_pattern(r'gdp_(?:nominal|real|growth)'),
-    _sep_pattern(r'fx_(?:rate|usd|eur)'),
+    _sep_pattern(r'fx_(?:rate|usd|eur|cny)'),
     _sep_pattern(r'exchange_rate'),
     _sep_pattern(r'usd_rub'),
     _sep_pattern(r'eur_rub'),
+    # 14.09.2026 (владелец): юань и ключевая ставка — два макропоказателя,
+    # которых не хватало. Голые 'cny'/'ставка' НЕ добавляем: 'cny' идёт суффиксом
+    # валюты у медийных бюджетов («Digital CNY»), а «ставка» живёт в «ставка НДС»
+    # и «ставка за показ». Только компаунды — тот же принцип, что у 'курс'
+    # (см. предупреждение про «дискурс»/«экскурсия» в validator.py).
+    _sep_pattern(r'cny_rub'),
+    _sep_pattern(r'ключевая_ставка'),
+    _sep_pattern(r'ставка_цб'),
+    _sep_pattern(r'key_rate'),
     _sep_pattern(r'ввп'),
     _sep_pattern(r'ипц'),
+    # 14.09.2026: полное русское название ИПЦ («Индекс потребительских цен»)
+    # не матчилось ни коротким 'ипц', ни 'consumer_price'.
+    _sep_pattern(r'потребительских_цен'),
     _sep_pattern(r'инфляция'),
-    _sep_pattern(r'курс_(?:рубля|доллара|евро)'),
+    _sep_pattern(r'курс_(?:рубля|доллара|евро|юаня)'),
 ]
 
 # Holiday markers - бинарные dummies для известных событий. Recognition если
