@@ -436,7 +436,7 @@ a:hover {{ text-decoration: underline; }}
 
 {body_html}
 
-<p style="margin-top:28px"><a href="interpretation.html">Интерпретация результатов →</a> · <a href="methodology.html">Методология MMM →</a> · <a href="features.html">Каталог функций →</a></p>
+<p style="margin-top:28px"><a href="step-4-decompose.html">Как читать декомпозицию →</a> · <a href="step-3-model.html">Шаг «Модель» →</a> · <a href="kpi-passports.html">Паспорта показателей →</a> · <a href="features.html">Каталог функций →</a></p>
 
 </div>
 

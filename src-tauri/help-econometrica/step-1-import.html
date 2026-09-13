@@ -1,0 +1,240 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Шаг 1. Импорт – Aurora AI Econometrica</title>
+<script src="econ-nav.js" defer></script>
+<style>
+:root { --bg: #0d1117; --bg2: #161b22; --bg3: #1c2128; --text: #e6edf3; --text2: #8b949e; --text3: #6e7681; --accent: #58a6ff; --border: #30363d; --green: #3fb950; --amber: #d29922; --red: #f85149; --purple: #bc8cff; --teal: #39d0d8; }
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--text); line-height: 1.65; }
+h1 { font-size: 30px; font-weight: 700; margin-bottom: 6px; }
+h2 { font-size: 20px; font-weight: 700; margin: 44px 0 14px; padding-bottom: 10px; border-bottom: 1px solid var(--border); }
+h3 { font-size: 15px; font-weight: 600; margin: 24px 0 8px; }
+p { font-size: 14px; margin-bottom: 10px; color: var(--text2); }
+p strong { color: var(--text); }
+ul, ol { padding-left: 22px; margin-bottom: 14px; }
+li { font-size: 14px; color: var(--text2); margin-bottom: 5px; }
+li strong { color: var(--text); }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+code { background: var(--bg3); padding: 1px 6px; border-radius: 4px; font-size: 12.5px; color: var(--teal); font-family: 'Consolas', monospace; border: 1px solid var(--border); }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th { background: var(--bg3); color: var(--text2); padding: 10px 12px; text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; }
+td { padding: 8px 12px; border-top: 1px solid var(--border); color: var(--text2); }
+
+.container { max-width: 880px; margin: 0 auto; padding: 40px 32px 80px; }
+.sub { font-size: 15.5px; color: var(--text2); margin-bottom: 22px; }
+.strip { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 24px; padding-bottom: 20px; border-bottom: 1px solid var(--border); }
+.strip a, .strip .cur { font-size: 12px; padding: 5px 10px; border-radius: 6px; border: 1px solid var(--border); color: var(--text2); background: var(--bg2); white-space: nowrap; display: inline-block; }
+.strip .cur { color: var(--text); border-color: var(--accent); background: var(--bg3); font-weight: 700; }
+.table-wrap { overflow-x: auto; margin: 14px 0; border-radius: 8px; border: 1px solid var(--border); }
+.table-wrap td.k { color: var(--text); }
+.callout { padding: 14px 18px; border-radius: 8px; margin: 18px 0; border: 1px solid var(--border); background: var(--bg2); }
+.callout p, .callout li { font-size: 13.5px; }
+.callout p:last-child { margin-bottom: 0; }
+.callout .c-title { font-size: 12.5px; font-weight: 700; text-transform: uppercase; margin-bottom: 6px; letter-spacing: 0.04em; color: var(--accent); }
+.c-warn { border-color: rgba(210,153,34,0.35); background: rgba(210,153,34,0.07); }
+.c-warn .c-title { color: var(--amber); }
+.c-danger { border-color: rgba(248,81,73,0.35); background: rgba(248,81,73,0.07); }
+.c-danger .c-title { color: var(--red); }
+.c-ok { border-color: rgba(63,185,80,0.35); background: rgba(63,185,80,0.07); }
+.c-ok .c-title { color: var(--green); }
+.lead { font-size: 14.5px; color: var(--text); margin-bottom: 14px; }
+.do-list { list-style: none; padding-left: 0; }
+.do-list li { padding-left: 22px; position: relative; margin-bottom: 8px; }
+.do-list li::before { content: ''; position: absolute; left: 4px; top: 8px; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
+.example { background: var(--bg2); border: 1px solid var(--border); border-left: 3px solid var(--purple); border-radius: 8px; padding: 14px 18px; margin: 14px 0; }
+.example .e-title { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--purple); margin-bottom: 6px; }
+.example p { font-size: 13.5px; margin-bottom: 8px; }
+.example p:last-child { margin-bottom: 0; }
+.stepnav { display: flex; justify-content: space-between; gap: 16px; margin-top: 48px; padding-top: 20px; border-top: 1px solid var(--border); font-size: 13px; flex-wrap: wrap; }
+.footer { text-align: center; padding: 24px; border-top: 1px solid var(--border); margin-top: 40px; }
+.footer p { font-size: 11px; color: var(--text3); margin: 0; }
+</style>
+</head>
+<body>
+
+<div class="container">
+<h1>Шаг 1. Импорт</h1>
+<p class="sub">Загрузка файла с данными и автоматическое определение ролей столбцов.</p>
+
+<div class="strip"><span class="cur">1. Импорт</span>
+  <a href="step-2-validate.html">2. Валидация</a>
+  <a href="step-3-model.html">3. Модель</a>
+  <a href="step-4-decompose.html">4. Декомпозиция</a>
+  <a href="step-5-optimize.html">5. Оптимизация</a>
+  <a href="step-6-planning.html">6. Планирование</a>
+  <a href="step-7-report.html">7. Отчёт</a>
+  <a href="kpi-passports.html">Паспорта показателей</a></div>
+
+<h2 id="what">Что здесь происходит</h2>
+
+<p class="lead">Программа читает ваш файл и сама расставляет роли столбцов. Ничего считать на этом шаге не нужно.</p>
+
+<ul class="do-list">
+  <li>Принимает файл <code>.xlsx</code>, <code>.xls</code> или <code>.csv</code>. Читается первый лист.</li>
+  <li>Показывает предпросмотр первых <strong>20 строк</strong>, чтобы вы убедились, что файл прочитан правильно.</li>
+  <li>Определяет роль каждого столбца по его названию: дата, целевой показатель, медиаканалы, внешние факторы.</li>
+  <li>Исходный файл не меняется – программа работает с копией внутри проекта.</li>
+</ul>
+
+<p>Здесь же открывают ранее сохранённый проект: все шаги, пройденные в прошлый раз, восстановятся.</p>
+
+<div class="callout">
+  <div class="c-title">Можно посмотреть, как всё работает, до своих данных</div>
+  <p>Кнопка <strong>«Попробовать на примере»</strong> грузит готовый файл одной из четырёх отраслей: товары повседневного спроса, безрецептурная фарма, розница и интернет-торговля, недвижимость. В каждом – 48 помесячных периодов, каждый канал дан парой столбцов (бюджет в рублях и натуральная метрика). Пример проходит все семь шагов без единой правки.</p>
+</div>
+
+<h2 id="need">Что нужно от вас</h2>
+
+<h3>Сначала решите, на какой вопрос отвечаем</h3>
+
+<p>От этого зависит, какие столбцы вообще собирать.</p>
+
+<div class="table-wrap"><table>
+<tr><th>Вопрос</th><th>Что нужно в файле</th><th>Что получите на выходе</th></tr>
+<tr><td class="k">«Сколько рублей продаж принёс каждый вложенный рубль?»</td><td>Расходы по каждому каналу в рублях – либо объём плюс стоимость одной единицы, чтобы перевести в рубли</td><td>Окупаемость каналов, план бюджета в рублях</td></tr>
+<tr><td class="k">«Какой канал сильнее двигает результат на единицу давления?»</td><td>Медийные метрики: TRP, показы, клики, просмотры, контакты</td><td>Вклад каждого канала в процентах, кривые отдачи в медиаединицах</td></tr>
+</table></div>
+
+<p>Если знаете и то и другое – положите канал <strong>парой столбцов</strong>: бюджет в рублях рядом с натуральной метрикой (например <code>tv_spend</code> и <code>tv_trp</code>). Это открывает обе задачи сразу, и переключаться можно без переделки файла. Пара – не дубль: в модель уходит только один столбец из пары.</p>
+
+<h3>Как должен быть устроен файл</h3>
+
+<ol>
+  <li><strong>Первая строка – заголовки</strong> столбцов, дальше данные, по одной строке на период.</li>
+  <li><strong>Один столбец – дата</strong> начала периода в формате <code>ГГГГ-ММ-ДД</code> (например <code>2024-03-01</code>) или обычная дата Excel. Не текст вида «Март 2024».</li>
+  <li><strong>Один столбец – целевой показатель</strong>: продажи, выручка, упаковки, обращения, регистрации. Один, не несколько.</li>
+  <li><strong>Минимум два столбца – медиаканалы</strong>, каждый своей метрикой. Нули допустимы: значит, канал в этот период не работал.</li>
+  <li><strong>Столбцы внешних факторов</strong>: цена, промо, сезонность, конкуренты, погода, макроэкономика. Чем полнее – тем правдивее модель.</li>
+  <li><strong>Одна строка – один период.</strong> Без пропусков посередине, без повторов дат, один шаг времени на весь файл (либо всё недельное, либо всё помесячное).</li>
+  <li><strong>Без строк и столбцов «Итого»</strong>: сумма идеально совпадает со слагаемыми и ломает расчёт.</li>
+</ol>
+
+<h3>Сколько данных нужно</h3>
+
+<div class="table-wrap"><table>
+<tr><th>Параметр</th><th>Минимум</th><th>Рекомендация</th></tr>
+<tr><td class="k">Число периодов</td><td>52 точки</td><td>104 и больше (два года) для надёжной модели</td></tr>
+<tr><td class="k">Шаг времени</td><td>неделя или месяц</td><td>по умолчанию помесячно; недельные точнее ловят короткие кампании</td></tr>
+<tr><td class="k">Медиаканалы</td><td>2</td><td>от четырёх до восьми</td></tr>
+<tr><td class="k">Целевой показатель</td><td>числовой, без пропусков</td><td>продажи в рублях или в штуках</td></tr>
+<tr><td class="k">Нули в канале</td><td>не больше 20–30%</td><td>периоды без активности заполнить нулями, а не оставить пустыми</td></tr>
+</table></div>
+
+<h3>Как назвать столбцы, чтобы роли определились сами</h3>
+
+<div class="table-wrap"><table>
+<tr><th>Роль</th><th>Узнаваемые названия</th></tr>
+<tr><td class="k">Дата</td><td><code>date</code>, <code>week</code>, <code>month</code>, <code>period</code>, <code>quarter</code>, <code>дата</code></td></tr>
+<tr><td class="k">Целевой показатель</td><td><code>sales</code>, <code>revenue</code>, <code>units</code>, <code>продажи</code>, <code>выручка</code>, <code>упаковки</code>, <code>лиды</code></td></tr>
+<tr><td class="k">Медиаканалы</td><td><code>tv_spend</code>, <code>tv_trp</code>, <code>digital_budget</code>, <code>olv_views</code>, <code>ooh_contacts</code>, <code>search_clicks</code></td></tr>
+<tr><td class="k">Внешние факторы</td><td><code>price</code>, <code>promo</code>, <code>seasonality</code>, <code>competitor_sov</code>, <code>weather</code>, <code>инфляция</code></td></tr>
+</table></div>
+
+<p>Регистр не важен. Разделителем внутри названия может быть подчёркивание, пробел, дефис, запятая, точка, двоеточие или скобка – «Инфляция, %» и <code>inflation</code> распознаются одинаково.</p>
+
+<h3>Готовые шаблоны</h3>
+
+<p>Чтобы не собирать структуру с нуля, скачайте пустой шаблон своей отрасли: правильные заголовки, подсказка в каждом столбце (наведите курсор – роль и единица измерения), цветная разметка ролей, закреплённая шапка. Останется вписать свои периоды по строкам.</p>
+
+<ul>
+  <li><a href="template_fmcg.xlsx" download>Товары повседневного спроса – бренд, продажи в рублях</a></li>
+  <li><a href="template_pharma_otc.xlsx" download>Безрецептурная фарма – упаковки</a></li>
+  <li><a href="template_pharma_rx.xlsx" download>Рецептурная фарма – визиты представителей</a></li>
+  <li><a href="template_retail_ecom.xlsx" download>Розница и интернет-торговля – продажи в рублях</a></li>
+  <li><a href="template_realestate_b2b.xlsx" download>Недвижимость и B2B – обращения</a></li>
+</ul>
+
+<p>Цвет заголовка: жёлтый – целевой показатель, синий – медиа, зелёный – управляемый фактор, серый – внешний фактор.</p>
+
+<h3>Макроэкономика: что программа узнаёт по названию</h3>
+
+<p>Курс валют, ключевая ставка, инфляция, индекс потребительских цен и валовой внутренний продукт входят в модель как <strong>контрольные факторы</strong> – в интерфейсе они называются «Макро-факторы» и показываются отдельным цветом в каскаде вкладов. Программа распознаёт их сама по таким названиям:</p>
+
+<div class="table-wrap"><table>
+<tr><th>Показатель</th><th>Что распознаётся в названии столбца</th></tr>
+<tr><td class="k">Инфляция</td><td><code>inflation</code>, <code>инфляция</code></td></tr>
+<tr><td class="k">Индекс потребительских цен</td><td><code>cpi</code>, <code>ипц</code>, <code>consumer_price</code>, <code>потребительских цен</code></td></tr>
+<tr><td class="k">Курс валюты</td><td><code>fx_rate</code>, <code>fx_usd</code>, <code>fx_eur</code>, <code>fx_cny</code>, <code>exchange_rate</code>, <code>usd_rub</code>, <code>eur_rub</code>, <code>cny_rub</code>, <code>курс рубля</code>, <code>курс доллара</code>, <code>курс евро</code>, <code>курс юаня</code></td></tr>
+<tr><td class="k">Ключевая ставка</td><td><code>key_rate</code>, <code>ключевая ставка</code>, <code>ставка ЦБ</code></td></tr>
+<tr><td class="k">Валовой внутренний продукт</td><td><code>gdp</code>, <code>gdp_nominal</code>, <code>gdp_real</code>, <code>gdp_growth</code>, <code>ввп</code></td></tr>
+</table></div>
+
+<p>Отдельно стоящие слова <strong>«ставка»</strong> и <strong>cny</strong> намеренно не распознаются: «ставка» живёт и в «ставке НДС», и в «ставке за показ», а <code>cny</code> часто оказывается пометкой валюты у медийного бюджета. Пишите составное название – «ключевая ставка», <code>cny_rub</code>.</p>
+
+<div class="callout c-danger">
+  <div class="c-title">Подавайте изменение показателя, а не его уровень</div>
+  <p>Это то место, где без подсказки ошибаются почти все, и ошибка не видна ни в файле, ни на экране – она проявляется только выводом «реклама не работает».</p>
+  <p><strong>Уровень</strong> – это «курс доллара в марте 92 рубля», «ключевая ставка 16%», «индекс потребительских цен 118». <strong>Изменение</strong> – это «курс вырос на 3% к февралю», «ставка выросла на 1 процентный пункт», «цены прибавили 0,6% за месяц». В файл кладите второе.</p>
+  <p><strong>Почему.</strong> Уровень макропоказателя почти всегда медленно ползёт в одну сторону. Ваши продажи за те же годы тоже растут – от инфляции, роста рынка, расширения дистрибуции. Для модели это два столбца, которые движутся вместе, и различить их нечем. Гладкий монотонный уровень забирает себе весь общий рост, а медиа остаются только мелкие колебания вокруг него. На выходе получается «реклама почти не влияет», хотя она влияла.</p>
+  <p><strong>Пример.</strong> Два года вы наращивали телевидение, и те же два года росли цены. Вы положили уровень индекса потребительских цен – модель отдаёт ему весь рост продаж, окупаемость телевидения падает почти до нуля, канал попадает в рекомендацию «сократить». Вы положили изменение того же индекса, месяц к месяцу в процентах – оно скачет вверх-вниз, тренд не имитирует, и вклад телевидения возвращается на место.</p>
+  <p><strong>Как пересчитать в Excel.</strong> Рядом со столбцом уровня заведите столбец изменения: <code>=(B3-B2)/B2</code> для процентного роста (курс, цены, доходы) или <code>=B3-B2</code> для показателей, которые сами измеряются в процентах (ключевая ставка – разница в процентных пунктах). Первую строку оставьте пустой или нулём, формулу протяните вниз. Название столбца можно оставить прежним – «инфляция», «курс доллара»: распознавание от этого не пострадает.</p>
+  <p>То же правило – для любого медленного внешнего ряда: доходы населения, численность аудитории, средняя цена категории.</p>
+</div>
+
+<div class="callout c-warn">
+  <div class="c-title">Когда уровень всё-таки допустим</div>
+  <p>Если показатель не ползёт, а колеблется вокруг одного значения на всём вашем периоде – уровень безопасен. Проверить просто: на шаге <a href="step-2-validate.html">«Валидация»</a> посмотрите тепловую карту связей. Если внешний фактор связан с целевым показателем сильнее чем на 0,8 – это красная ячейка, и подавать надо изменение.</p>
+</div>
+
+<h3>Праздники считать не нужно</h3>
+
+<p>Тринадцать российских праздничных периодов программа подставляет сама – отдельные столбцы под них заводить не надо. Полный список и то, как ими управлять, – на шаге <a href="step-3-model.html">«Модель»</a>. Если праздничные столбцы уже есть в вашем файле, программа их узнает и не будет дублировать.</p>
+
+<h2 id="read">Как читать результат</h2>
+
+<h3>Предпросмотр</h3>
+
+<p>После загрузки проверьте таблицу первых 20 строк по трём пунктам:</p>
+<ul>
+  <li><strong>Заголовки на месте</strong> – в шапке названия столбцов, а не первая строка данных.</li>
+  <li><strong>Числа остались числами</strong> – не выровнены по левому краю, без пробелов внутри и без значка валюты.</li>
+  <li><strong>Даты остались датами</strong> – столбец даты читается как дата, а не как текст.</li>
+</ul>
+
+<h3>Автоопределение ролей</h3>
+
+<p>Рядом с каждым распознанным столбцом стоит значок уверенности: <strong>зелёный</strong> – роль определена уверенно, <strong>жёлтый</strong> – стоит проверить, <strong>красный</strong> – скорее всего, ошиблись, назначьте роль вручную.</p>
+
+<p>Исправлять роли на этом шаге не нужно и файл переименовывать не надо: всё правится перетаскиванием на следующем шаге.</p>
+
+<div class="callout c-warn">
+  <div class="c-title">Замена файла обнуляет проделанное</div>
+  <p>Если загрузить другой файл поверх, результаты проверки и обучения сбрасываются автоматически – это защита от того, чтобы модель осталась от старых данных. Загружайте окончательную версию файла.</p>
+</div>
+
+<h2 id="errors">Типовые ошибки и что делать</h2>
+
+<div class="table-wrap"><table>
+<tr><th>Что говорит программа</th><th>Причина</th><th>Что делать</th></tr>
+<tr><td class="k">Не найден столбец с датами</td><td>Столбец назван неожиданно или даты хранятся как текст</td><td>Переименуйте в <code>date</code> / <code>week</code> / <code>month</code> или назначьте роль вручную; формат <code>ГГГГ-ММ-ДД</code></td></tr>
+<tr><td class="k">Не найдены медиа-столбцы</td><td>Каналы названы без узнаваемых слов: <code>ch1</code>, <code>A</code>, <code>канал 2</code></td><td>Переименуйте по образцу <code>TV_TRP</code>, <code>OLV_views</code>, <code>Perf_clicks</code> или назначьте роли вручную на шаге «Валидация»</td></tr>
+<tr><td class="k">Файл не читается</td><td>Несколько листов, объединённые ячейки, шапка не в первой строке</td><td>Оставьте один лист, снимите объединение, поднимите заголовки в первую строку</td></tr>
+</table></div>
+
+<h3>Что нельзя класть в файл</h3>
+
+<ul>
+  <li><strong>Строки и столбцы «Итого»</strong> – идеальное совпадение суммы со слагаемыми ломает расчёт.</li>
+  <li><strong>Показатели, порождённые самими продажами</strong>: бюджет, выставленный как процент от факта продаж; поисковый спрос, который растёт вслед за продажами; складские остатки по факту отгрузок. Модель не отличает причину от следствия – она увидит ложно сильную связь и испортит все оценки.</li>
+  <li><strong>Две разные метрики давления одного канала</strong> – показы и клики одного инструмента вместе. Пара «бюджет плюс натуральная метрика» – исключение, её класть можно.</li>
+  <li><strong>Служебные поля</strong> – номера строк, коды кампаний, текстовые примечания внутри данных.</li>
+  <li><strong>Значения, которых в тот период ещё не знали</strong> – например годовой итог, проставленный задним числом во все строки.</li>
+  <li><strong>Смесь шагов времени</strong> – часть строк недельные, часть помесячные.</li>
+</ul>
+
+<div class="callout c-ok">
+  <div class="c-title">Готовы идти дальше, если</div>
+  <p>Файл прочитан, предпросмотр выглядит правильно, столбец даты найден, целевой показатель найден, найдено хотя бы два медиаканала. Роли можно уточнить на следующем шаге.</p>
+</div>
+
+<div class="stepnav"><span><a href="index.html">← Справочный центр</a></span><span><a href="step-2-validate.html">Шаг 2. Валидация →</a></span></div>
+
+</div>
+
+<div class="footer"><p>Aurora AI Econometrica · © 2026 ООО «Платформа Аврора» · auroraai.pro</p></div>
+</body>
+</html>

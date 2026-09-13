@@ -153,7 +153,15 @@
 
   // Справка - одна кнопка в header, контент зависит от текущего шага pipeline.
   // Index в массиве соответствует PIPELINE_STEPS. См. src-tauri/help-econometrica/*.html.
-  const HELP_PAGES = ['data-preparation', 'data-preparation', 'methodology', 'pipeline', 'pipeline', 'pipeline', 'pipeline'];
+  const HELP_PAGES = [
+    'step-1-import',
+    'step-2-validate',
+    'step-3-model',
+    'step-4-decompose',
+    'step-5-optimize',
+    'step-6-planning',
+    'step-7-report',
+  ];
   async function openStepHelp() {
     const page = HELP_PAGES[$pipelineCurrentStep] ?? 'index';
     try {

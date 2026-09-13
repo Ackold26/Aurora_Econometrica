@@ -17,9 +17,11 @@ Dev/Aurora_Oracle/tools/check_help_consistency.py (волна 2 стандарт
 
 Блокирующие проверки (FAIL, exit 1):
 1. econ-nav.js: каждый id из PAGES имеет файл <id>.html на диске, и наоборот -
-   каждый *.html в src-tauri/help-econometrica/ (кроме служебных ассетов)
-   упомянут в PAGES econ-nav.js - иначе страница физически недостижима из
-   справочного центра (орфан).
+   каждый *.html в src-tauri/help-econometrica/ (кроме служебных ассетов и
+   явно перечисленных в UNLINKED_PAGES) упомянут в PAGES econ-nav.js - иначе
+   страница физически недостижима из справочного центра (орфан). Страница из
+   UNLINKED_PAGES, наоборот, НЕ должна быть в PAGES - иначе список и навигация
+   разошлись.
 2. U+2014 «—» (литерал + HTML-сущности &mdash;/&#8212;/&#x2014;) запрещён во
    всех src-tauri/help-econometrica/*.html.
 3. CPD-09: «Сипович»/«sipovich» запрещены в любом html справки; канон
@@ -81,6 +83,22 @@ PACKAGE_JSON = REPO_ROOT / "package.json"
 # econ-nav.js PAGES (шаблоны xlsx, лого, скрипт удаления, сам econ-nav.js).
 NON_PAGE_ASSETS = {"econ-nav.js"}
 
+# Страницы, СОЗНАТЕЛЬНО выведенные из навигации и из порядка PDF, но
+# оставленные на диске (перестройка справки по шагам мастера, 2026-09-13).
+# Их содержимое разобрано по семи файлам step-*.html; физическое удаление -
+# отдельное решение владельца, до него файлы лежат рядом как источник сверки.
+# Проверка орфанов для ОСТАЛЬНЫХ страниц остаётся живой: новая страница,
+# забытая в econ-nav.js, по-прежнему даёт FAIL.
+# Когда владелец решит удалить доноров - убрать и этот список: пустой набор
+# возвращает проверку к прежней строгости.
+UNLINKED_PAGES = {
+    "pipeline.html",
+    "econometrica.html",
+    "data-preparation.html",
+    "methodology.html",
+    "interpretation.html",
+}
+
 EM_DASH = "—"
 EM_DASH_ENTITY_RE = re.compile(r"&mdash;|&#8212;|&#x2014;", re.IGNORECASE)
 VERSION_RE = re.compile(r"\bv(\d+\.\d+\.\d+)\b")
@@ -139,6 +157,13 @@ def check_nav_js(all_html_files) -> list:
     id_set = set(ids)
     for path in all_html_files:
         if path.name in NON_PAGE_ASSETS:
+            continue
+        if path.name in UNLINKED_PAGES:
+            if path.stem in id_set:
+                fails.append(
+                    f"{relpath(path)}: страница числится сознательно отвязанной (UNLINKED_PAGES), "
+                    "но при этом есть в PAGES econ-nav.js — согласовать одно из двух"
+                )
             continue
         page_id = path.stem
         if page_id not in id_set:

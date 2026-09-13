@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Шаг 7. Отчёт – Aurora AI Econometrica</title>
+<script src="econ-nav.js" defer></script>
+<style>
+:root { --bg: #0d1117; --bg2: #161b22; --bg3: #1c2128; --text: #e6edf3; --text2: #8b949e; --text3: #6e7681; --accent: #58a6ff; --border: #30363d; --green: #3fb950; --amber: #d29922; --red: #f85149; --purple: #bc8cff; --teal: #39d0d8; }
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--text); line-height: 1.65; }
+h1 { font-size: 30px; font-weight: 700; margin-bottom: 6px; }
+h2 { font-size: 20px; font-weight: 700; margin: 44px 0 14px; padding-bottom: 10px; border-bottom: 1px solid var(--border); }
+h3 { font-size: 15px; font-weight: 600; margin: 24px 0 8px; }
+p { font-size: 14px; margin-bottom: 10px; color: var(--text2); }
+p strong { color: var(--text); }
+ul, ol { padding-left: 22px; margin-bottom: 14px; }
+li { font-size: 14px; color: var(--text2); margin-bottom: 5px; }
+li strong { color: var(--text); }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+code { background: var(--bg3); padding: 1px 6px; border-radius: 4px; font-size: 12.5px; color: var(--teal); font-family: 'Consolas', monospace; border: 1px solid var(--border); }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th { background: var(--bg3); color: var(--text2); padding: 10px 12px; text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; }
+td { padding: 8px 12px; border-top: 1px solid var(--border); color: var(--text2); }
+
+.container { max-width: 880px; margin: 0 auto; padding: 40px 32px 80px; }
+.sub { font-size: 15.5px; color: var(--text2); margin-bottom: 22px; }
+.strip { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 24px; padding-bottom: 20px; border-bottom: 1px solid var(--border); }
+.strip a, .strip .cur { font-size: 12px; padding: 5px 10px; border-radius: 6px; border: 1px solid var(--border); color: var(--text2); background: var(--bg2); white-space: nowrap; display: inline-block; }
+.strip .cur { color: var(--text); border-color: var(--accent); background: var(--bg3); font-weight: 700; }
+.table-wrap { overflow-x: auto; margin: 14px 0; border-radius: 8px; border: 1px solid var(--border); }
+.table-wrap td.k { color: var(--text); }
+.callout { padding: 14px 18px; border-radius: 8px; margin: 18px 0; border: 1px solid var(--border); background: var(--bg2); }
+.callout p, .callout li { font-size: 13.5px; }
+.callout p:last-child { margin-bottom: 0; }
+.callout .c-title { font-size: 12.5px; font-weight: 700; text-transform: uppercase; margin-bottom: 6px; letter-spacing: 0.04em; color: var(--accent); }
+.c-warn { border-color: rgba(210,153,34,0.35); background: rgba(210,153,34,0.07); }
+.c-warn .c-title { color: var(--amber); }
+.c-danger { border-color: rgba(248,81,73,0.35); background: rgba(248,81,73,0.07); }
+.c-danger .c-title { color: var(--red); }
+.c-ok { border-color: rgba(63,185,80,0.35); background: rgba(63,185,80,0.07); }
+.c-ok .c-title { color: var(--green); }
+.lead { font-size: 14.5px; color: var(--text); margin-bottom: 14px; }
+.do-list { list-style: none; padding-left: 0; }
+.do-list li { padding-left: 22px; position: relative; margin-bottom: 8px; }
+.do-list li::before { content: ''; position: absolute; left: 4px; top: 8px; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
+.example { background: var(--bg2); border: 1px solid var(--border); border-left: 3px solid var(--purple); border-radius: 8px; padding: 14px 18px; margin: 14px 0; }
+.example .e-title { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--purple); margin-bottom: 6px; }
+.example p { font-size: 13.5px; margin-bottom: 8px; }
+.example p:last-child { margin-bottom: 0; }
+.stepnav { display: flex; justify-content: space-between; gap: 16px; margin-top: 48px; padding-top: 20px; border-top: 1px solid var(--border); font-size: 13px; flex-wrap: wrap; }
+.footer { text-align: center; padding: 24px; border-top: 1px solid var(--border); margin-top: 40px; }
+.footer p { font-size: 11px; color: var(--text3); margin: 0; }
+</style>
+</head>
+<body>
+
+<div class="container">
+<h1>Шаг 7. Отчёт</h1>
+<p class="sub">Сборка презентации, таблицы и интерактивной страницы из результатов всех шагов.</p>
+
+<div class="strip"><a href="step-1-import.html">1. Импорт</a>
+  <a href="step-2-validate.html">2. Валидация</a>
+  <a href="step-3-model.html">3. Модель</a>
+  <a href="step-4-decompose.html">4. Декомпозиция</a>
+  <a href="step-5-optimize.html">5. Оптимизация</a>
+  <a href="step-6-planning.html">6. Планирование</a>
+  <span class="cur">7. Отчёт</span>
+  <a href="kpi-passports.html">Паспорта показателей</a></div>
+
+<h2 id="what">Что здесь происходит</h2>
+
+<p class="lead">Программа собирает всё, что посчитано на предыдущих шагах, в готовый документ – презентацию, таблицу или интерактивную страницу.</p>
+
+<p>Тексты, выводы и рекомендации в отчёте не шаблонные: они собираются из ваших чисел. Каналы, вердикты, прирост, оговорки о надёжности – всё берётся из вашей модели.</p>
+
+<p>На экране перед сборкой показаны итоговые карточки: балл качества модели, точность описания, средняя ошибка, прирост от оптимизации и оптимальный бюджет. Для байесовской модели рядом есть тест устойчивости – он отвечает на вопрос «а если модель ошиблась, насколько поедет вывод».</p>
+
+<h2 id="need">Что нужно от вас</h2>
+
+<ul class="do-list">
+  <li><strong>Выбрать формат</strong> и нажать «Создать отчёт». Каждое нажатие собирает один файл выбранного формата – не нужно ждать сборки всех трёх.</li>
+  <li><strong>Проверить, что все шаги пройдены.</strong> Если результаты остались от другой сессии, программа предложит подтянуть их с диска одной кнопкой или пересчитать.</li>
+</ul>
+
+<div class="table-wrap"><table>
+<tr><th>Формат</th><th>Кому и зачем</th></tr>
+<tr><td class="k">Презентация</td><td>Для разговора с руководством. Резюме, спецификация модели, декомпозиция, окупаемость каналов, доля бюджета против доли эффекта, динамика по периодам, сравнение сценариев, оптимальное распределение, прогноз – с графиками и рекомендациями.</td></tr>
+<tr><td class="k">Таблица</td><td>Для самостоятельной работы с цифрами. Отдельные листы: резюме, спецификация модели, декомпозиция, окупаемость каналов, доля бюджета против доли эффекта, динамика, сценарии, оптимизация, сырые ряды и глоссарий.</td></tr>
+<tr><td class="k">Интерактивная страница</td><td>Чтобы отправить клиенту или коллеге. Один самодостаточный файл с живыми графиками, открывается двойным щелчком в любом браузере, <strong>работает полностью без интернета</strong> и не требует установленной программы.</td></tr>
+</table></div>
+
+<h2 id="read">Как читать результат</h2>
+
+<h3>Где лежат файлы</h3>
+
+<p>Все отчёты сохраняются в папку <code>exports</code> активного проекта. Кнопка «Открыть папку» показывает её в проводнике. Зелёная отметка рядом с форматом означает, что файл этого типа уже создан в текущей сессии; кнопка «Пересоздать» обновит его.</p>
+
+<h3>Что смотреть в отчёте первым</h3>
+
+<ol>
+  <li><strong>Качество модели.</strong> Отвечает на вопрос «можно ли вообще доверять выводам». Если тут красные пометки – дальше читайте с поправкой.</li>
+  <li><strong>Декомпозиция.</strong> Сколько дала база, сколько добавили медиа.</li>
+  <li><strong>Каналы.</strong> Доля в общем вкладе, окупаемость или стоимость привлечения единицы, вердикт и правдоподобный диапазон. Это главный рабочий раздел.</li>
+  <li><strong>Оптимизация и прогноз.</strong> Куда переложить деньги и что это даст.</li>
+  <li><strong>Ограничения.</strong> Честный список оговорок: мало данных, подозрительные каналы, чувствительность прогноза. Читать обязательно – и не вырезать перед показом руководству.</li>
+</ol>
+
+<h3>Лист сырых рядов</h3>
+
+<p>В табличном отчёте есть лист с исходными рядами по периодам. Он нужен, чтобы построить свои графики: выделите нужные столбцы и вставьте диаграмму средствами Excel.</p>
+
+<h3>Тест устойчивости</h3>
+
+<p>Показывает, какие параметры модели сильнее всего двигают итоговый вывод, если их сдвинуть в пределах неопределённости. Длинная полоса означает, что вывод держится на этом параметре – его стоит перепроверить прежде, чем нести решение наверх.</p>
+
+<h2 id="errors">Типовые ошибки и что делать</h2>
+
+<div class="table-wrap"><table>
+<tr><th>Что видите</th><th>Причина</th><th>Что делать</th></tr>
+<tr><td class="k">Данные не загружены в память</td><td>Пайплайн проходили в другой сессии – результаты на диске, но не в памяти программы</td><td>Нажать «Загрузить результаты с диска». Если результатов нет – пересчитать декомпозицию и оптимизацию</td></tr>
+<tr><td class="k">Отчёт собрался не полностью</td><td>Часть шагов не пройдена: нет оптимизации или планирования</td><td>Вернуться к пропущенному шагу. Планирование необязательно – без него отчёт соберётся, просто без раздела прогноза</td></tr>
+<tr><td class="k">Файл не открывается или занят</td><td>Предыдущая версия отчёта открыта в Excel или PowerPoint</td><td>Закрыть файл и нажать «Пересоздать»</td></tr>
+<tr><td class="k">Нужен PDF</td><td>Отдельной кнопки сборки в PDF нет</td><td>Открыть готовую презентацию или таблицу и сохранить как PDF средствами самой программы</td></tr>
+<tr><td class="k">Отправили интерактивный отчёт, а у получателя пусто</td><td>Файл переслан не целиком либо открыт из архива без распаковки</td><td>Отправлять файл целиком и открывать после распаковки. Интернет получателю не нужен, графики внутри файла</td></tr>
+<tr><td class="k">В отчёте раздел ограничений выглядит неудобно</td><td>Там перечислены реальные слабые места модели</td><td>Не удалять. Убранная оговорка не исчезает – она всплывает через полгода как «вы обещали». Показывайте ограничения вместе с выводами</td></tr>
+</table></div>
+
+<div class="callout c-ok">
+  <div class="c-title">Пайплайн пройден</div>
+  <p>Файлы лежат в папке проекта. Данные обновятся – можно вернуться на шаг импорта, подгрузить новый файл и пройти путь заново: настройки проекта сохранятся.</p>
+</div>
+
+<div class="stepnav"><span><a href="step-6-planning.html">← Шаг 6. Планирование</a></span><span><a href="kpi-passports.html">Паспорта показателей →</a></span></div>
+
+</div>
+
+<div class="footer"><p>Aurora AI Econometrica · © 2026 ООО «Платформа Аврора» · auroraai.pro</p></div>
+</body>
+</html>

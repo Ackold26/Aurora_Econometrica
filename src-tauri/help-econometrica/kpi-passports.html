@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Паспорта показателей – Aurora AI Econometrica</title>
+<script src="econ-nav.js" defer></script>
+<style>
+:root { --bg: #0d1117; --bg2: #161b22; --bg3: #1c2128; --text: #e6edf3; --text2: #8b949e; --text3: #6e7681; --accent: #58a6ff; --border: #30363d; --green: #3fb950; --amber: #d29922; --red: #f85149; --purple: #bc8cff; --teal: #39d0d8; }
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--text); line-height: 1.65; }
+h1 { font-size: 30px; font-weight: 700; margin-bottom: 6px; }
+h2 { font-size: 20px; font-weight: 700; margin: 44px 0 14px; padding-bottom: 10px; border-bottom: 1px solid var(--border); }
+h3 { font-size: 15px; font-weight: 600; margin: 24px 0 8px; }
+p { font-size: 14px; margin-bottom: 10px; color: var(--text2); }
+p strong { color: var(--text); }
+ul, ol { padding-left: 22px; margin-bottom: 14px; }
+li { font-size: 14px; color: var(--text2); margin-bottom: 5px; }
+li strong { color: var(--text); }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+code { background: var(--bg3); padding: 1px 6px; border-radius: 4px; font-size: 12.5px; color: var(--teal); font-family: 'Consolas', monospace; border: 1px solid var(--border); }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th { background: var(--bg3); color: var(--text2); padding: 10px 12px; text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; }
+td { padding: 8px 12px; border-top: 1px solid var(--border); color: var(--text2); }
+
+.container { max-width: 880px; margin: 0 auto; padding: 40px 32px 80px; }
+.sub { font-size: 15.5px; color: var(--text2); margin-bottom: 22px; }
+.strip { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 24px; padding-bottom: 20px; border-bottom: 1px solid var(--border); }
+.strip a, .strip .cur { font-size: 12px; padding: 5px 10px; border-radius: 6px; border: 1px solid var(--border); color: var(--text2); background: var(--bg2); white-space: nowrap; display: inline-block; }
+.strip .cur { color: var(--text); border-color: var(--accent); background: var(--bg3); font-weight: 700; }
+.table-wrap { overflow-x: auto; margin: 14px 0; border-radius: 8px; border: 1px solid var(--border); }
+.table-wrap td.k { color: var(--text); }
+.callout { padding: 14px 18px; border-radius: 8px; margin: 18px 0; border: 1px solid var(--border); background: var(--bg2); }
+.callout p, .callout li { font-size: 13.5px; }
+.callout p:last-child { margin-bottom: 0; }
+.callout .c-title { font-size: 12.5px; font-weight: 700; text-transform: uppercase; margin-bottom: 6px; letter-spacing: 0.04em; color: var(--accent); }
+.c-warn { border-color: rgba(210,153,34,0.35); background: rgba(210,153,34,0.07); }
+.c-warn .c-title { color: var(--amber); }
+.c-danger { border-color: rgba(248,81,73,0.35); background: rgba(248,81,73,0.07); }
+.c-danger .c-title { color: var(--red); }
+.c-ok { border-color: rgba(63,185,80,0.35); background: rgba(63,185,80,0.07); }
+.c-ok .c-title { color: var(--green); }
+.lead { font-size: 14.5px; color: var(--text); margin-bottom: 14px; }
+.do-list { list-style: none; padding-left: 0; }
+.do-list li { padding-left: 22px; position: relative; margin-bottom: 8px; }
+.do-list li::before { content: ''; position: absolute; left: 4px; top: 8px; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
+.example { background: var(--bg2); border: 1px solid var(--border); border-left: 3px solid var(--purple); border-radius: 8px; padding: 14px 18px; margin: 14px 0; }
+.example .e-title { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--purple); margin-bottom: 6px; }
+.example p { font-size: 13.5px; margin-bottom: 8px; }
+.example p:last-child { margin-bottom: 0; }
+.stepnav { display: flex; justify-content: space-between; gap: 16px; margin-top: 48px; padding-top: 20px; border-top: 1px solid var(--border); font-size: 13px; flex-wrap: wrap; }
+.footer { text-align: center; padding: 24px; border-top: 1px solid var(--border); margin-top: 40px; }
+.footer p { font-size: 11px; color: var(--text3); margin: 0; }
+</style>
+</head>
+<body>
+
+<div class="container">
+<h1>Паспорта показателей</h1>
+<p class="sub">Одиннадцать типов целевых показателей: единицы, подписи в отчётах и ценность одной единицы.</p>
+
+<div class="strip"><a href="step-1-import.html">1. Импорт</a>
+  <a href="step-2-validate.html">2. Валидация</a>
+  <a href="step-3-model.html">3. Модель</a>
+  <a href="step-4-decompose.html">4. Декомпозиция</a>
+  <a href="step-5-optimize.html">5. Оптимизация</a>
+  <a href="step-6-planning.html">6. Планирование</a>
+  <a href="step-7-report.html">7. Отчёт</a>
+  <span class="cur">Паспорта показателей</span></div>
+
+<h2 id="what">Что такое паспорт показателя</h2>
+
+<p class="lead">Паспорт – это карточка вашего целевого показателя: в чём он измеряется, как называется в родительном падеже, что писать на оси графика и как называть стоимость привлечения одной единицы.</p>
+
+<p>Программа умеет работать не только с рублями. Целевым показателем может быть число упаковок, обращений, регистраций, выданных карт, подписок, установок приложения или любая другая считаемая величина. Но если бы всё это программа называла одинаково – «продажи» и «рублей», – отчёт получился бы неправдой: аптека продаёт упаковки, а не рубли, застройщик собирает обращения, а не рубли.</p>
+
+<p>Поэтому у каждого типа показателя есть свой паспорт, и его выбирают один раз, на шаге <a href="step-2-validate.html">«Валидация»</a>. Дальше подписи во всех расчётах и во всех отчётах берутся из него автоматически.</p>
+
+<h2 id="list">Одиннадцать паспортов</h2>
+
+<p>Паспорта делятся на три вида: денежные, счётные и долевые.</p>
+
+<h3>Денежные</h3>
+
+<div class="table-wrap"><table>
+<tr><th>Паспорт</th><th>Подпись на оси</th><th>Когда выбирают</th></tr>
+<tr><td class="k">Выручка</td><td>Продажи, ₽</td><td>Основной случай: целевой столбец – деньги от продаж</td></tr>
+<tr><td class="k">Прибыль</td><td>Прибыль, ₽</td><td>Если известна прибыль с единицы и считать хотите в прибыли, а не в обороте</td></tr>
+<tr><td class="k">Доход</td><td>Выручка, ₽</td><td>Отдельной карточки на экране выбора нет – паспорт оставлен, чтобы корректно открывались проекты, сохранённые в старых версиях</td></tr>
+</table></div>
+
+<p>Для денежных показателей главная метрика канала – окупаемость: сколько рублей результата принёс вложенный рубль.</p>
+
+<h3>Счётные</h3>
+
+<div class="table-wrap"><table>
+<tr><th>Паспорт</th><th>Подпись на оси</th><th>Единица</th><th>Стоимость привлечения</th><th>Что программа просит ввести</th></tr>
+<tr><td class="k">Продажи в штуках</td><td>Продажи, упак.</td><td>упак.</td><td>₽/упак.</td><td>Маржа на упаковку, ₽</td></tr>
+<tr><td class="k">Лиды</td><td>Лиды</td><td>лид.</td><td>₽/лид</td><td>Ценность лида, ₽</td></tr>
+<tr><td class="k">Регистрации</td><td>Регистрации</td><td>рег.</td><td>₽/рег.</td><td>Ценность регистрации, ₽</td></tr>
+<tr><td class="k">Выданные карты</td><td>Выданные карты</td><td>карт.</td><td>₽/карту</td><td>Ценность выданной карты, ₽</td></tr>
+<tr><td class="k">Подписки</td><td>Подписки</td><td>подп.</td><td>₽/подписку</td><td>MRR на подписку, ₽ – то есть ежемесячная выручка с одной подписки</td></tr>
+<tr><td class="k">Установки приложения</td><td>Установки</td><td>уст.</td><td>₽/установку</td><td>Ценность установки, ₽</td></tr>
+<tr><td class="k">Свой счётный показатель</td><td>Единицы</td><td>ед.</td><td>₽/ед.</td><td>Ценность единицы, ₽</td></tr>
+</table></div>
+
+<h3>Долевые</h3>
+
+<div class="table-wrap"><table>
+<tr><th>Паспорт</th><th>Подпись на оси</th><th>Когда применяется</th></tr>
+<tr><td class="k">Узнаваемость</td><td>Знание, %</td><td>Целевой показатель – доля людей, знающих бренд. Измеряется в процентах, поэтому ни окупаемость, ни стоимость единицы для него не считаются: растёт не число покупок, а доля аудитории</td></tr>
+</table></div>
+
+<h2 id="why">Что паспорт меняет на экране и в отчётах</h2>
+
+<ul class="do-list">
+  <li><strong>Подписи осей и заголовки таблиц</strong> во всех графиках – каскаде, динамике, кривых отдачи, прогнозе.</li>
+  <li><strong>Склонение единицы</strong> в тексте: одна упаковка, две упаковки, пять упаковок. Поэтому в отчёте не появляется «5 упаковка».</li>
+  <li><strong>Как называется эффективность канала.</strong> Для денежного показателя это окупаемость – во сколько раз вернулся рубль. Для счётного – стоимость привлечения одной единицы: сколько рублей стоит один лид, одна упаковка, одна установка.</li>
+  <li><strong>Как формулируется вердикт канала.</strong> Для рублей: «эффективен», «на грани окупаемости», «убыточен» по окупаемости. Для штук: то же самое, но сравнением стоимости привлечения с ценностью единицы.</li>
+  <li><strong>Формат чисел</strong> – рубли с валютой, штуки без неё, проценты со знаком процента.</li>
+</ul>
+
+<h2 id="value">Когда показатель не в рублях</h2>
+
+<p>Счётный показатель ставит вопрос, которого нет у денежного: <strong>сколько для бизнеса стоит одна единица</strong>. Без ответа на него программа посчитает, сколько стоит привлечь одну единицу, но не сможет сказать, хорошо это или плохо.</p>
+
+<div class="table-wrap"><table>
+<tr><th>Соотношение</th><th>Вывод по каналу</th></tr>
+<tr><td class="k">Стоимость привлечения ниже ценности единицы</td><td>Канал приносит больше, чем стоит привлечение. Окупается</td></tr>
+<tr><td class="k">Стоимость привлечения около ценности</td><td>Канал на грани. Проверьте качество данных и долгосрочный эффект</td></tr>
+<tr><td class="k">Стоимость привлечения выше ценности</td><td>Канал тратит больше, чем приносит. Убыточен</td></tr>
+</table></div>
+
+<div class="example">
+  <div class="e-title">Пример</div>
+  <p>Безрецептурный препарат. Целевой показатель – упаковки, паспорт «Продажи в штуках». Маржа на упаковку – 120 рублей. Модель показала, что цифровой канал приносит упаковку за 90 рублей, а наружная реклама – за 210.</p>
+  <p>Вывод: цифровой канал окупается с запасом, наружная реклама в этой логике убыточна. Но прежде чем срезать наружную рекламу, посмотрите на её правдоподобный диапазон: если он широкий, цифра 210 – вилка, а не факт.</p>
+</div>
+
+<p>Если ценность единицы вы не знаете точно – возьмите разумную нижнюю оценку. Заниженная ценность делает выводы консервативными: канал скорее покажется убыточным, чем окупаемым, и вы не переоцените рекламу.</p>
+
+<h2 id="errors">Типовые ошибки и что делать</h2>
+
+<div class="table-wrap"><table>
+<tr><th>Ошибка</th><th>Чем оборачивается</th><th>Что делать</th></tr>
+<tr><td class="k">Выбран денежный паспорт, а в столбце штуки</td><td>Отчёт называет упаковки рублями, окупаемость считается бессмыслицей</td><td>Сменить тип показателя на шаге «Валидация» и пересчитать</td></tr>
+<tr><td class="k">Не задана ценность единицы</td><td>Вердикты каналов останутся без оценки окупаемости</td><td>Задать ценность – маржу, ценность обращения, выручку с подписки</td></tr>
+<tr><td class="k">В ценность единицы подставлена цена полки вместо маржи</td><td>Все каналы выглядят прибыльнее, чем есть</td><td>Ставить то, что реально остаётся бизнесу с единицы</td></tr>
+<tr><td class="k">Карточка нужного типа неактивна</td><td>В данных нет столбца, похожего на этот тип показателя</td><td>Проверить название целевого столбца и его роль на шаге «Валидация»</td></tr>
+<tr><td class="k">В одном файле два целевых показателя – и рубли, и штуки</td><td>Модель объясняет один показатель, второй станет лишним фактором</td><td>Оставить один целевой столбец. Для второго – отдельный проект</td></tr>
+</table></div>
+
+<div class="stepnav"><span><a href="step-1-import.html">← Шаг 1. Импорт</a></span><span><a href="index.html">Справочный центр →</a></span></div>
+
+</div>
+
+<div class="footer"><p>Aurora AI Econometrica · © 2026 ООО «Платформа Аврора» · auroraai.pro</p></div>
+</body>
+</html>

@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Шаг 3. Модель – Aurora AI Econometrica</title>
+<script src="econ-nav.js" defer></script>
+<style>
+:root { --bg: #0d1117; --bg2: #161b22; --bg3: #1c2128; --text: #e6edf3; --text2: #8b949e; --text3: #6e7681; --accent: #58a6ff; --border: #30363d; --green: #3fb950; --amber: #d29922; --red: #f85149; --purple: #bc8cff; --teal: #39d0d8; }
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--text); line-height: 1.65; }
+h1 { font-size: 30px; font-weight: 700; margin-bottom: 6px; }
+h2 { font-size: 20px; font-weight: 700; margin: 44px 0 14px; padding-bottom: 10px; border-bottom: 1px solid var(--border); }
+h3 { font-size: 15px; font-weight: 600; margin: 24px 0 8px; }
+p { font-size: 14px; margin-bottom: 10px; color: var(--text2); }
+p strong { color: var(--text); }
+ul, ol { padding-left: 22px; margin-bottom: 14px; }
+li { font-size: 14px; color: var(--text2); margin-bottom: 5px; }
+li strong { color: var(--text); }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+code { background: var(--bg3); padding: 1px 6px; border-radius: 4px; font-size: 12.5px; color: var(--teal); font-family: 'Consolas', monospace; border: 1px solid var(--border); }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th { background: var(--bg3); color: var(--text2); padding: 10px 12px; text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; }
+td { padding: 8px 12px; border-top: 1px solid var(--border); color: var(--text2); }
+
+.container { max-width: 880px; margin: 0 auto; padding: 40px 32px 80px; }
+.sub { font-size: 15.5px; color: var(--text2); margin-bottom: 22px; }
+.strip { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 24px; padding-bottom: 20px; border-bottom: 1px solid var(--border); }
+.strip a, .strip .cur { font-size: 12px; padding: 5px 10px; border-radius: 6px; border: 1px solid var(--border); color: var(--text2); background: var(--bg2); white-space: nowrap; display: inline-block; }
+.strip .cur { color: var(--text); border-color: var(--accent); background: var(--bg3); font-weight: 700; }
+.table-wrap { overflow-x: auto; margin: 14px 0; border-radius: 8px; border: 1px solid var(--border); }
+.table-wrap td.k { color: var(--text); }
+.callout { padding: 14px 18px; border-radius: 8px; margin: 18px 0; border: 1px solid var(--border); background: var(--bg2); }
+.callout p, .callout li { font-size: 13.5px; }
+.callout p:last-child { margin-bottom: 0; }
+.callout .c-title { font-size: 12.5px; font-weight: 700; text-transform: uppercase; margin-bottom: 6px; letter-spacing: 0.04em; color: var(--accent); }
+.c-warn { border-color: rgba(210,153,34,0.35); background: rgba(210,153,34,0.07); }
+.c-warn .c-title { color: var(--amber); }
+.c-danger { border-color: rgba(248,81,73,0.35); background: rgba(248,81,73,0.07); }
+.c-danger .c-title { color: var(--red); }
+.c-ok { border-color: rgba(63,185,80,0.35); background: rgba(63,185,80,0.07); }
+.c-ok .c-title { color: var(--green); }
+.lead { font-size: 14.5px; color: var(--text); margin-bottom: 14px; }
+.do-list { list-style: none; padding-left: 0; }
+.do-list li { padding-left: 22px; position: relative; margin-bottom: 8px; }
+.do-list li::before { content: ''; position: absolute; left: 4px; top: 8px; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
+.example { background: var(--bg2); border: 1px solid var(--border); border-left: 3px solid var(--purple); border-radius: 8px; padding: 14px 18px; margin: 14px 0; }
+.example .e-title { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--purple); margin-bottom: 6px; }
+.example p { font-size: 13.5px; margin-bottom: 8px; }
+.example p:last-child { margin-bottom: 0; }
+.stepnav { display: flex; justify-content: space-between; gap: 16px; margin-top: 48px; padding-top: 20px; border-top: 1px solid var(--border); font-size: 13px; flex-wrap: wrap; }
+.footer { text-align: center; padding: 24px; border-top: 1px solid var(--border); margin-top: 40px; }
+.footer p { font-size: 11px; color: var(--text3); margin: 0; }
+</style>
+</head>
+<body>
+
+<div class="container">
+<h1>Шаг 3. Модель</h1>
+<p class="sub">Обучение байесовской модели: перенос эффекта, насыщение, праздники, качество.</p>
+
+<div class="strip"><a href="step-1-import.html">1. Импорт</a>
+  <a href="step-2-validate.html">2. Валидация</a>
+  <span class="cur">3. Модель</span>
+  <a href="step-4-decompose.html">4. Декомпозиция</a>
+  <a href="step-5-optimize.html">5. Оптимизация</a>
+  <a href="step-6-planning.html">6. Планирование</a>
+  <a href="step-7-report.html">7. Отчёт</a>
+  <a href="kpi-passports.html">Паспорта показателей</a></div>
+
+<h2 id="what">Что здесь происходит</h2>
+
+<p class="lead">Программа обучает байесовскую модель: находит, сколько продаж добавил каждый канал, с учётом того, что реклама действует не мгновенно и не бесконечно.</p>
+
+<h3>Три вещи, которые делает модель</h3>
+
+<div class="table-wrap"><table>
+<tr><th>Что</th><th>Зачем</th></tr>
+<tr><td class="k">Перенос эффекта во времени</td><td>Кампания в марте продолжает работать в апреле и мае. Модель подбирает, насколько быстро затухает след каждого канала. У цифровых каналов память короткая, у телевидения и наружной рекламы – длинная, с отложенным пиком.</td></tr>
+<tr><td class="k">Насыщение</td><td>Удвоение бюджета не даёт удвоения результата. После некоторой точки каждая следующая порция денег приносит всё меньше. Модель находит эту точку для каждого канала – именно она потом определяет, куда перекладывать бюджет.</td></tr>
+<tr><td class="k">Разделение вкладов</td><td>Модель раскладывает продажи на базовую часть, вклад каждого канала и влияние внешних факторов – так, чтобы всё в сумме давало факт.</td></tr>
+</table></div>
+
+<p>Оценка идёт не одним числом, а распределением: программа выдаёт не «окупаемость 1,8 раза», а «1,8 раза, правдоподобный диапазон от 1,2 до 2,4». Это главное отличие байесовского подхода – вы всегда видите, насколько модель уверена.</p>
+
+<h3>Праздники подставляются сами</h3>
+
+<p>Тринадцать российских праздничных периодов входят в модель как контрольные факторы – заводить под них столбцы не нужно. Если их не учесть, всплеск продаж в праздники модель припишет рекламе, которая в это время шла.</p>
+
+<div class="table-wrap"><table>
+<tr><th>Событие</th><th>Период влияния</th><th>Тип окна</th></tr>
+<tr><td class="k">Новогодние закупки</td><td>15–31 декабря</td><td>подготовка</td></tr>
+<tr><td class="k">Новогодние распродажи</td><td>25 декабря – 8 января</td><td>распродажа</td></tr>
+<tr><td class="k">День святого Валентина</td><td>1–14 февраля</td><td>подготовка</td></tr>
+<tr><td class="k">23 февраля</td><td>15–23 февраля</td><td>подготовка</td></tr>
+<tr><td class="k">8 марта</td><td>1–8 марта</td><td>подготовка</td></tr>
+<tr><td class="k">Майские праздники</td><td>28 апреля – 9 мая</td><td>календарный период</td></tr>
+<tr><td class="k">День России</td><td>11–12 июня</td><td>календарный период</td></tr>
+<tr><td class="k">Снова в школу</td><td>15 августа – 1 сентября</td><td>подготовка</td></tr>
+<tr><td class="k">День народного единства</td><td>3–4 ноября</td><td>календарный период</td></tr>
+<tr><td class="k">Чёрная пятница</td><td>последняя пятница ноября и следующие две недели</td><td>распродажа</td></tr>
+<tr><td class="k">Киберпонедельник</td><td>понедельник после Чёрной пятницы и следующая неделя</td><td>распродажа</td></tr>
+<tr><td class="k">Школьные каникулы</td><td>осенние 28 октября – 4 ноября, зимние 28 декабря – 8 января, весенние 22–30 марта, летние первая неделя июня</td><td>календарный период</td></tr>
+<tr><td class="k">Православная Пасха</td><td>неделя до праздника, сам день и три дня после – одиннадцать дней</td><td>календарный период</td></tr>
+</table></div>
+
+<p>Тип окна объясняет, где именно программа ждёт всплеск. <strong>Подготовка</strong> – активность идёт <em>до</em> события: подарки к 8 марта покупают в первую неделю марта, а не девятого. <strong>Распродажа</strong> – активность идёт <em>от</em> старта и держится две-три недели. <strong>Календарный период</strong> – всплеск внутри самих дат.</p>
+
+<div class="callout c-warn">
+  <div class="c-title">Пасха – единственный переходящий праздник набора</div>
+  <p>У остальных двенадцати событий даты постоянные, у Пасхи – своя в каждом году, и программа считает её сама. Окно влияния: неделя до праздника, сам день и три дня после.</p>
+  <p>В годы <strong>поздней</strong> Пасхи её окно накладывается на майские праздники (28 апреля – 9 мая), и разделить вклады двух событий становится трудно: модель видит один общий всплеск. Программа считает долю пересечения сама и предупреждает об этом; при сильном перекрытии она предложит рассматривать два события как одно. В годы ранней Пасхи пересечения нет вовсе, и предупреждения вы не увидите.</p>
+</div>
+
+<p>Праздниками управляют на предыдущем шаге, в панели «Авто-праздники РФ»: есть общий выключатель и отключение каждого события по отдельности. Отключайте, если ваша категория к празднику равнодушна – каждое событие добавляет в модель ещё одну переменную и уменьшает запас данных.</p>
+
+<h2 id="need">Что нужно от вас</h2>
+
+<ul class="do-list">
+  <li><strong>Нажать «Обучить модель»</strong> и подождать. Обычно это от трёх до пятнадцати минут: модель просчитывает тысячи вариантов, а не подгоняет одну формулу. Ход обучения виден на экране.</li>
+  <li><strong>Не закрывать программу</strong> во время счёта. Переключаться на другие шаги можно.</li>
+  <li><strong>По желанию – задать экспертные настройки.</strong> Кнопка экспертного режима открывает выбор типа затухания по каналам, настройки насыщения и сезонности. Если не уверены – оставьте как есть, значения по умолчанию рассчитаны на типовой медиамикс.</li>
+  <li><strong>По желанию – поправить деление каналов на имиджевые и перформанс.</strong> Программа предлагает категорию по названию канала, вы можете переназначить вручную.</li>
+</ul>
+
+<!-- AUTO_TRUST_LEVEL_3_START – auto-generated by tools/sync_help_lists.py – do not edit manually -->
+<h3>По каким словам программа делит каналы на имиджевые и перформанс</h3>
+<p>Имиджевые каналы работают вдолгую, их след затухает медленно; перформанс отвечает быстро и коротко. Модель учитывает это разными ожиданиями по длине следа, поэтому деление влияет на результат. Подсказка строится по ключевым словам в названии столбца:</p>
+<ul>
+<li><strong>Имиджевые</strong>: <!-- AUTO_BRAND_HINTS --><code>TRP</code>, <code>GRP</code>, <code>OTS</code>, <code>ОХВАТ</code>, <code>РЕЙТИНГ</code>, <code>TV</code>, <code>ТВ</code>, <code>OOH</code>, <code>НАРУЖК</code>, <code>РАДИО</code>, <code>RADIO</code>, <code>БРЕНД</code>, <code>BRAND</code>, <code>OLV</code><!-- /AUTO_BRAND_HINTS --></li>
+<li><strong>Перформанс</strong>: <!-- AUTO_PERF_HINTS --><code>DIGITAL</code>, <code>SEARCH</code>, <code>ПОИСК</code>, <code>CONTEXT</code>, <code>КОНТЕКСТ</code>, <code>SOCIAL</code>, <code>СОЦ</code>, <code>CTR</code>, <code>CPC</code>, <code>CPA</code>, <code>PERFORMANCE</code>, <code>ПЕРФ</code>, <code>ЯНДЕКС</code>, <code>GOOGLE</code>, <code>VK</code>, <code>ВК</code>, <code>TELEGRAM</code>, <code>ТЕЛЕГРАМ</code>, <code>МЕТА</code>, <code>META</code>, <code>КЛИК</code>, <code>ПРОСМОТР</code>, <code>ВИЗИТ</code>, <code>PROGRAMMATIC</code>, <code>ПРОГРАММАТИК</code>, <code>DSP</code><!-- /AUTO_PERF_HINTS --></li>
+<li><strong>Слова, которые перевешивают в пользу перформанса</strong>, если совпали оба списка: <!-- AUTO_STRONG_PERF_HINTS --><code>PROGRAMMATIC</code>, <code>ПРОГРАММАТИК</code>, <code>DSP</code>, <code>CPC</code>, <code>CPA</code>, <code>CTR</code>, <code>PERFORMANCE</code>, <code>ПЕРФ</code><!-- /AUTO_STRONG_PERF_HINTS --></li>
+</ul>
+<p>Если в какой-то категории оказался всего один канал, программа объединяет категории обратно – иначе разделение не на чем оценить.</p>
+<!-- AUTO_TRUST_LEVEL_3_END -->
+
+<h2 id="read">Как читать результат</h2>
+
+<h3>Общая оценка качества модели</h3>
+
+<p>Главное число шага – единый балл качества от 0 до 100. Он складывается из точности описания истории, ошибки прогноза и того, насколько устойчиво сошёлся расчёт.</p>
+
+<div class="table-wrap"><table>
+<tr><th>Балл</th><th>Оценка</th><th>Что это значит для решений</th></tr>
+<tr><td class="k">85 и выше</td><td>Отличное</td><td>Модель хорошо описывает данные и устойчива. Выводам можно доверять.</td></tr>
+<tr><td class="k">70–84</td><td>Хорошее</td><td>Надёжная рабочая модель. Решения принимать можно.</td></tr>
+<tr><td class="k">55–69</td><td>Приемлемое</td><td>Годится как ориентир. Крупные перекладки бюджета – осторожно и с пилотом.</td></tr>
+<tr><td class="k">40–54</td><td>Слабое</td><td>Выводы шатаются. Используйте как первичный ориентир, копите данные.</td></tr>
+<tr><td class="k">ниже 40</td><td>Ненадёжное</td><td>Доверять числам нельзя. Нужно больше данных или другой набор факторов.</td></tr>
+</table></div>
+
+<div class="callout c-warn">
+  <div class="c-title">Балл ограничивается сверху, если данных мало</div>
+  <p>При запасе меньше 2 к 1 балл не поднимется выше 50, при запасе меньше 4 к 1 – выше 70, даже если модель идеально описала историю. Это защита: на коротком ряду идеальное описание почти всегда означает, что модель выучила историю наизусть, а не поняла её.</p>
+</div>
+
+<h3>Высокая точность описания – ещё не хорошая модель</h3>
+
+<p>Главная ловушка. Модель с большим числом каналов на коротком ряду может «выучить» исторические случайности и показать почти идеальное совпадение с фактом – при этом ничего не предсказывая.</p>
+
+<p>Признаки, что так и произошло:</p>
+<ul>
+  <li>Окупаемость канала в сотни раз – модель приписала ему чужой эффект.</li>
+  <li>Очень высокая точность описания при запасе данных меньше 2 к 1.</li>
+  <li>Широкие правдоподобные диапазоны, включающие ноль: точная цифра данными не подтверждается.</li>
+</ul>
+
+<p>Программа сама помечает такие каналы и перечисляет их в разделе ограничений отчёта.</p>
+
+<h3>Сходимость расчёта</h3>
+
+<p>Модель считается несколькими независимыми «цепями», и программа проверяет, пришли ли они к одному ответу.</p>
+
+<div class="table-wrap"><table>
+<tr><th>Показатель сходимости</th><th>Что значит</th><th>Что делать</th></tr>
+<tr><td class="k">меньше 1,05</td><td>Цепи сошлись, всё в порядке</td><td>Ничего</td></tr>
+<tr><td class="k">1,05 – 1,10</td><td>Сходимость пограничная</td><td>Допустимо, но ключевые выводы лучше перепроверить</td></tr>
+<tr><td class="k">больше 1,10</td><td>Цепи пришли к разным ответам, результат ненадёжен</td><td>Переобучить дольше, упростить модель, проверить похожие столбцы</td></tr>
+</table></div>
+
+<p>Рядом показывается число срывов расчёта. Несколько штук на тысячи шагов – терпимо, десятки и сотни – сигнал, что модель слишком сложна для ваших данных.</p>
+
+<h3>Правдоподобные диапазоны</h3>
+
+<ul>
+  <li><strong>Узкий диапазон</strong> – модель уверена, цифру можно использовать как оценку.</li>
+  <li><strong>Широкий диапазон</strong> – уверенности мало, читайте оценку как вилку, а не как точное число.</li>
+  <li><strong>Диапазон включает ноль</strong> – эффект канала данными не подтверждён: возможно, его реальный вклад близок к нулю.</li>
+</ul>
+
+<h2 id="errors">Типовые ошибки и что делать</h2>
+
+<div class="table-wrap"><table>
+<tr><th>Симптом</th><th>Причина</th><th>Что делать</th></tr>
+<tr><td class="k">Цепи не сошлись, показатель сходимости выше 1,1</td><td>Модель слишком сложна для объёма данных, либо есть почти одинаковые столбцы</td><td>Обучить дольше, объединить слабые каналы, убрать похожие столбцы, отключить праздники целиком</td></tr>
+<tr><td class="k">Десятки срывов расчёта</td><td>Слишком много контрольных переменных</td><td>Самый быстрый рычаг – выключить учёт праздников на шаге «Валидация»: это убирает тринадцать переменных разом. После этого сверьте, не изменилась ли окупаемость ключевых каналов: если изменилась сильно, праздники для вашего продукта значимы и выключать их нельзя</td></tr>
+<tr><td class="k">Балл качества уткнулся в 50 или 70</td><td>Сработало ограничение по запасу данных</td><td>Добавить периоды, перейти на недельный шаг, сократить число каналов и факторов</td></tr>
+<tr><td class="k">Медиа объясняет почти все продажи</td><td>Не хватает внешних факторов – базовые продажи «съедены»</td><td>Вернуться на шаг импорта и добавить цену, промо, сезонность, конкурентов</td></tr>
+<tr><td class="k">Обучение идёт очень долго</td><td>Много каналов, длинный ряд, слабая машина</td><td>Это нормально для байесовской модели. Объединение мелких каналов ускоряет счёт заметно</td></tr>
+<tr><td class="k">После отключения праздников окупаемость каналов поехала</td><td>Праздничный эффект значим, и без него он перешёл на ближайшие каналы</td><td>Вернуть праздники. Ограничиться отключением тех событий, которые к вашей категории точно не относятся</td></tr>
+</table></div>
+
+<div class="stepnav"><span><a href="step-2-validate.html">← Шаг 2. Валидация</a></span><span><a href="step-4-decompose.html">Шаг 4. Декомпозиция →</a></span></div>
+
+</div>
+
+<div class="footer"><p>Aurora AI Econometrica · © 2026 ООО «Платформа Аврора» · auroraai.pro</p></div>
+</body>
+</html>

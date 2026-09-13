@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Шаг 5. Оптимизация – Aurora AI Econometrica</title>
+<script src="econ-nav.js" defer></script>
+<style>
+:root { --bg: #0d1117; --bg2: #161b22; --bg3: #1c2128; --text: #e6edf3; --text2: #8b949e; --text3: #6e7681; --accent: #58a6ff; --border: #30363d; --green: #3fb950; --amber: #d29922; --red: #f85149; --purple: #bc8cff; --teal: #39d0d8; }
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--text); line-height: 1.65; }
+h1 { font-size: 30px; font-weight: 700; margin-bottom: 6px; }
+h2 { font-size: 20px; font-weight: 700; margin: 44px 0 14px; padding-bottom: 10px; border-bottom: 1px solid var(--border); }
+h3 { font-size: 15px; font-weight: 600; margin: 24px 0 8px; }
+p { font-size: 14px; margin-bottom: 10px; color: var(--text2); }
+p strong { color: var(--text); }
+ul, ol { padding-left: 22px; margin-bottom: 14px; }
+li { font-size: 14px; color: var(--text2); margin-bottom: 5px; }
+li strong { color: var(--text); }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+code { background: var(--bg3); padding: 1px 6px; border-radius: 4px; font-size: 12.5px; color: var(--teal); font-family: 'Consolas', monospace; border: 1px solid var(--border); }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th { background: var(--bg3); color: var(--text2); padding: 10px 12px; text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; }
+td { padding: 8px 12px; border-top: 1px solid var(--border); color: var(--text2); }
+
+.container { max-width: 880px; margin: 0 auto; padding: 40px 32px 80px; }
+.sub { font-size: 15.5px; color: var(--text2); margin-bottom: 22px; }
+.strip { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 24px; padding-bottom: 20px; border-bottom: 1px solid var(--border); }
+.strip a, .strip .cur { font-size: 12px; padding: 5px 10px; border-radius: 6px; border: 1px solid var(--border); color: var(--text2); background: var(--bg2); white-space: nowrap; display: inline-block; }
+.strip .cur { color: var(--text); border-color: var(--accent); background: var(--bg3); font-weight: 700; }
+.table-wrap { overflow-x: auto; margin: 14px 0; border-radius: 8px; border: 1px solid var(--border); }
+.table-wrap td.k { color: var(--text); }
+.callout { padding: 14px 18px; border-radius: 8px; margin: 18px 0; border: 1px solid var(--border); background: var(--bg2); }
+.callout p, .callout li { font-size: 13.5px; }
+.callout p:last-child { margin-bottom: 0; }
+.callout .c-title { font-size: 12.5px; font-weight: 700; text-transform: uppercase; margin-bottom: 6px; letter-spacing: 0.04em; color: var(--accent); }
+.c-warn { border-color: rgba(210,153,34,0.35); background: rgba(210,153,34,0.07); }
+.c-warn .c-title { color: var(--amber); }
+.c-danger { border-color: rgba(248,81,73,0.35); background: rgba(248,81,73,0.07); }
+.c-danger .c-title { color: var(--red); }
+.c-ok { border-color: rgba(63,185,80,0.35); background: rgba(63,185,80,0.07); }
+.c-ok .c-title { color: var(--green); }
+.lead { font-size: 14.5px; color: var(--text); margin-bottom: 14px; }
+.do-list { list-style: none; padding-left: 0; }
+.do-list li { padding-left: 22px; position: relative; margin-bottom: 8px; }
+.do-list li::before { content: ''; position: absolute; left: 4px; top: 8px; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
+.example { background: var(--bg2); border: 1px solid var(--border); border-left: 3px solid var(--purple); border-radius: 8px; padding: 14px 18px; margin: 14px 0; }
+.example .e-title { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--purple); margin-bottom: 6px; }
+.example p { font-size: 13.5px; margin-bottom: 8px; }
+.example p:last-child { margin-bottom: 0; }
+.stepnav { display: flex; justify-content: space-between; gap: 16px; margin-top: 48px; padding-top: 20px; border-top: 1px solid var(--border); font-size: 13px; flex-wrap: wrap; }
+.footer { text-align: center; padding: 24px; border-top: 1px solid var(--border); margin-top: 40px; }
+.footer p { font-size: 11px; color: var(--text3); margin: 0; }
+</style>
+</head>
+<body>
+
+<div class="container">
+<h1>Шаг 5. Оптимизация</h1>
+<p class="sub">Перераспределение бюджета по кривым насыщения и сценарии «что если».</p>
+
+<div class="strip"><a href="step-1-import.html">1. Импорт</a>
+  <a href="step-2-validate.html">2. Валидация</a>
+  <a href="step-3-model.html">3. Модель</a>
+  <a href="step-4-decompose.html">4. Декомпозиция</a>
+  <span class="cur">5. Оптимизация</span>
+  <a href="step-6-planning.html">6. Планирование</a>
+  <a href="step-7-report.html">7. Отчёт</a>
+  <a href="kpi-passports.html">Паспорта показателей</a></div>
+
+<h2 id="what">Что здесь происходит</h2>
+
+<p class="lead">Программа ищет, как перераспределить тот же бюджет, чтобы получить больше результата, и показывает, что будет при другом бюджете.</p>
+
+<p>Опирается она на кривые насыщения, найденные при обучении: у каждого канала своя точка, после которой отдача от следующего рубля падает. Оптимизатор двигает деньги из перенасыщенных каналов в недогруженные, пока прирост не перестанет расти.</p>
+
+<p>Шаг состоит из нескольких блоков: текущее распределение, оптимальное в рамках того же бюджета, «что если» при другом бюджете, прогноз на будущий период с учётом удорожания медиа и сравнение сохранённых сценариев.</p>
+
+<h2 id="need">Что нужно от вас</h2>
+
+<ul class="do-list">
+  <li><strong>Указать общий бюджет</strong> и нажать «Оптимизировать». После расчёта ползунки сами встанут на оптимальные позиции.</li>
+  <li><strong>Задать ограничения, если они есть.</strong> Минимум и максимум по каналу – это ваши реальные обязательства: закупленный на год телевизионный пакет, минимальный порог входа в канал, потолок закупки. Без ограничений оптимизатор предложит математический идеал, который может быть неисполним.</li>
+  <li><strong>Сохранить сценарии</strong>, которые хотите сравнить между собой и показать коллегам.</li>
+</ul>
+
+<h2 id="read">Как читать результат</h2>
+
+<h3>Прирост</h3>
+
+<p>Главное число – на сколько процентов вырастет результат при том же бюджете, если переложить деньги как предложено. Читайте его вместе с правдоподобным диапазоном: если диапазон широкий, прирост – ориентир, а не обещание.</p>
+
+<h3>Отдача следующего рубля</h3>
+
+<p>По каждому каналу показывается отдача не всего вложенного, а <strong>следующего</strong> рубля. Это разные вещи: канал может быть в целом прибыльным, но уже настолько насыщенным, что доливать в него бессмысленно. Именно отдача следующего рубля определяет, куда пойдут деньги.</p>
+
+<p>Все каналы приводятся к единой денежной шкале, даже если часть дана в TRP, а часть в рублях – поэтому их можно сравнивать напрямую.</p>
+
+<h3>Кривые отдачи</h3>
+
+<p>На кривой каждого канала отмечены две точки: где вы находитесь сейчас и куда предлагает встать оптимизатор. Если текущая точка на пологой части кривой – канал насыщен, добавление денег почти не даст прироста. Если на крутой – канал недогружен.</p>
+
+<h3>Рекомендация по каждому каналу</h3>
+
+<div class="table-wrap"><table>
+<tr><th>Метка</th><th>Что значит</th></tr>
+<tr><td class="k">Наращивать</td><td>Канал недогружен и эффективен – увеличить бюджет</td></tr>
+<tr><td class="k">Держать</td><td>Канал близок к оптимуму – оставить как есть</td></tr>
+<tr><td class="k">Наблюдать</td><td>Сигнал неоднозначный – следить, резко не менять</td></tr>
+<tr><td class="k">Сократить умеренно</td><td>Канал переинвестирован – уменьшить долю</td></tr>
+<tr><td class="k">Сократить сильно</td><td>Каждый следующий рубль приносит убыток</td></tr>
+<tr><td class="k">Недостаточно данных</td><td>Оценка ненадёжна, нужен пилот</td></tr>
+</table></div>
+
+<p>Эти же метки попадут в декомпозицию и в итоговый отчёт – они считаются один раз и везде одинаковы.</p>
+
+<h3>Когда оптимизатор не нашёл прироста</h3>
+
+<p>Это нормальный и честный ответ, а не сбой. Программа скажет, почему именно:</p>
+<ul>
+  <li><strong>Вклад медиа нулевой</strong> – перекладывать нечего, модель не нашла эффекта каналов.</li>
+  <li><strong>Все каналы упёрлись в ограничения</strong> – ваши минимумы и максимумы не оставили оптимизатору свободы.</li>
+  <li><strong>Текущее распределение уже близко к оптимальному</strong> – лучший исход: делить деньги вы и так умеете.</li>
+</ul>
+
+<h3>Предупреждения о надёжности</h3>
+
+<div class="table-wrap"><table>
+<tr><th>Плашка</th><th>Когда появляется</th><th>Что делать</th></tr>
+<tr><td class="k">Жёлтая</td><td>Данных мало (запас меньше 4 к 1)</td><td>Опираться на правдоподобные диапазоны, а не на точную цифру прироста. Перекладывать частями и с пилотом</td></tr>
+<tr><td class="k">Красная</td><td>Модель не сошлась</td><td>Автоматическая переброска бюджета отключена. Сначала вернуться к обучению – рекомендациям в таком состоянии верить нельзя</td></tr>
+</table></div>
+
+<h2 id="errors">Типовые ошибки и что делать</h2>
+
+<div class="table-wrap"><table>
+<tr><th>Что видите</th><th>Причина</th><th>Что делать</th></tr>
+<tr><td class="k">Оптимизатор предлагает срезать канал до нуля</td><td>По модели канал глубоко убыточен либо сильно насыщен</td><td>Не выполнять буквально. Поставить минимум по каналу и проверить, что говорит правдоподобный диапазон: широкий диапазон – основание для пилота, а не для отключения</td></tr>
+<tr><td class="k">Прирост выглядит неправдоподобно большим</td><td>Тонкие данные или перепутанные единицы у одного из каналов</td><td>Проверить запас данных и стоимость единицы, посмотреть на пометки артефакта в декомпозиции</td></tr>
+<tr><td class="k">Прирост нулевой</td><td>Одна из трёх причин выше – программа назовёт её прямо</td><td>Если упёрлись ограничения – ослабить их; если вклад медиа нулевой – вернуться к качеству модели</td></tr>
+<tr><td class="k">Рекомендации противоречат прошлому опыту</td><td>Модель описывает историю, а история могла измениться: новый креатив, новый конкурент, смена цен</td><td>Проверить пилотом, а не перекладывать всё разом</td></tr>
+<tr><td class="k">Перенёс все деньги в один канал по рекомендации</td><td>Буквальное исполнение математического оптимума</td><td>Так не делают. Модель не знает про риски концентрации, охватные ограничения и сроки закупки – оптимум это ориентир, план остаётся за вами</td></tr>
+</table></div>
+
+<div class="callout c-danger">
+  <div class="c-title">Перед крупной перекладкой бюджета</div>
+  <p>Любую рекомендацию проверяйте пилотом на четыре-шесть недель на части бюджета, обычно на двадцати-тридцати процентах. Модель описывает прошлое, а прогноз чувствителен к смене креатива, новым кампаниям и сдвигам рынка.</p>
+</div>
+
+<div class="stepnav"><span><a href="step-4-decompose.html">← Шаг 4. Декомпозиция</a></span><span><a href="step-6-planning.html">Шаг 6. Планирование →</a></span></div>
+
+</div>
+
+<div class="footer"><p>Aurora AI Econometrica · © 2026 ООО «Платформа Аврора» · auroraai.pro</p></div>
+</body>
+</html>

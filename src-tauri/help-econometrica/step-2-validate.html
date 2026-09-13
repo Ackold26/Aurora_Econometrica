@@ -1,0 +1,196 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Шаг 2. Валидация – Aurora AI Econometrica</title>
+<script src="econ-nav.js" defer></script>
+<style>
+:root { --bg: #0d1117; --bg2: #161b22; --bg3: #1c2128; --text: #e6edf3; --text2: #8b949e; --text3: #6e7681; --accent: #58a6ff; --border: #30363d; --green: #3fb950; --amber: #d29922; --red: #f85149; --purple: #bc8cff; --teal: #39d0d8; }
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--text); line-height: 1.65; }
+h1 { font-size: 30px; font-weight: 700; margin-bottom: 6px; }
+h2 { font-size: 20px; font-weight: 700; margin: 44px 0 14px; padding-bottom: 10px; border-bottom: 1px solid var(--border); }
+h3 { font-size: 15px; font-weight: 600; margin: 24px 0 8px; }
+p { font-size: 14px; margin-bottom: 10px; color: var(--text2); }
+p strong { color: var(--text); }
+ul, ol { padding-left: 22px; margin-bottom: 14px; }
+li { font-size: 14px; color: var(--text2); margin-bottom: 5px; }
+li strong { color: var(--text); }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+code { background: var(--bg3); padding: 1px 6px; border-radius: 4px; font-size: 12.5px; color: var(--teal); font-family: 'Consolas', monospace; border: 1px solid var(--border); }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th { background: var(--bg3); color: var(--text2); padding: 10px 12px; text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; }
+td { padding: 8px 12px; border-top: 1px solid var(--border); color: var(--text2); }
+
+.container { max-width: 880px; margin: 0 auto; padding: 40px 32px 80px; }
+.sub { font-size: 15.5px; color: var(--text2); margin-bottom: 22px; }
+.strip { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 24px; padding-bottom: 20px; border-bottom: 1px solid var(--border); }
+.strip a, .strip .cur { font-size: 12px; padding: 5px 10px; border-radius: 6px; border: 1px solid var(--border); color: var(--text2); background: var(--bg2); white-space: nowrap; display: inline-block; }
+.strip .cur { color: var(--text); border-color: var(--accent); background: var(--bg3); font-weight: 700; }
+.table-wrap { overflow-x: auto; margin: 14px 0; border-radius: 8px; border: 1px solid var(--border); }
+.table-wrap td.k { color: var(--text); }
+.callout { padding: 14px 18px; border-radius: 8px; margin: 18px 0; border: 1px solid var(--border); background: var(--bg2); }
+.callout p, .callout li { font-size: 13.5px; }
+.callout p:last-child { margin-bottom: 0; }
+.callout .c-title { font-size: 12.5px; font-weight: 700; text-transform: uppercase; margin-bottom: 6px; letter-spacing: 0.04em; color: var(--accent); }
+.c-warn { border-color: rgba(210,153,34,0.35); background: rgba(210,153,34,0.07); }
+.c-warn .c-title { color: var(--amber); }
+.c-danger { border-color: rgba(248,81,73,0.35); background: rgba(248,81,73,0.07); }
+.c-danger .c-title { color: var(--red); }
+.c-ok { border-color: rgba(63,185,80,0.35); background: rgba(63,185,80,0.07); }
+.c-ok .c-title { color: var(--green); }
+.lead { font-size: 14.5px; color: var(--text); margin-bottom: 14px; }
+.do-list { list-style: none; padding-left: 0; }
+.do-list li { padding-left: 22px; position: relative; margin-bottom: 8px; }
+.do-list li::before { content: ''; position: absolute; left: 4px; top: 8px; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
+.example { background: var(--bg2); border: 1px solid var(--border); border-left: 3px solid var(--purple); border-radius: 8px; padding: 14px 18px; margin: 14px 0; }
+.example .e-title { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--purple); margin-bottom: 6px; }
+.example p { font-size: 13.5px; margin-bottom: 8px; }
+.example p:last-child { margin-bottom: 0; }
+.stepnav { display: flex; justify-content: space-between; gap: 16px; margin-top: 48px; padding-top: 20px; border-top: 1px solid var(--border); font-size: 13px; flex-wrap: wrap; }
+.footer { text-align: center; padding: 24px; border-top: 1px solid var(--border); margin-top: 40px; }
+.footer p { font-size: 11px; color: var(--text3); margin: 0; }
+</style>
+</head>
+<body>
+
+<div class="container">
+<h1>Шаг 2. Валидация</h1>
+<p class="sub">Проверка готовности данных к моделированию и последняя правка ролей столбцов.</p>
+
+<div class="strip"><a href="step-1-import.html">1. Импорт</a>
+  <span class="cur">2. Валидация</span>
+  <a href="step-3-model.html">3. Модель</a>
+  <a href="step-4-decompose.html">4. Декомпозиция</a>
+  <a href="step-5-optimize.html">5. Оптимизация</a>
+  <a href="step-6-planning.html">6. Планирование</a>
+  <a href="step-7-report.html">7. Отчёт</a>
+  <a href="kpi-passports.html">Паспорта показателей</a></div>
+
+<h2 id="what">Что здесь происходит</h2>
+
+<p class="lead">Программа проверяет, годятся ли ваши данные для моделирования, и даёт исправить роли столбцов до обучения.</p>
+
+<ul class="do-list">
+  <li>Считает статистику по каждому столбцу: минимум, максимум, среднее, разброс, долю нулей, пропуски.</li>
+  <li>Ставит общую оценку готовности – светофор: зелёный, жёлтый или красный.</li>
+  <li>Считает запас данных – сколько периодов приходится на одну оцениваемую переменную.</li>
+  <li>Строит тепловую карту связей между всеми числовыми столбцами и подсвечивает подозрительно похожие пары.</li>
+  <li>Показывает панель авто-праздников и панель стоимости единицы медиа.</li>
+</ul>
+
+<p>Обучение отсюда не запускается – это последняя развилка, где ещё дёшево что-то поправить.</p>
+
+<h2 id="need">Что нужно от вас</h2>
+
+<h3>Проверить и поправить роли столбцов</h3>
+
+<p>Слева – все столбцы файла, справа – четыре зоны. Перетащите столбец в нужную зону; чтобы убрать столбец из зоны, щёлкните по нему дважды или нажмите крестик.</p>
+
+<div class="table-wrap"><table>
+<tr><th>Зона</th><th>Что туда кладут</th></tr>
+<tr><td class="k">Целевой показатель</td><td>То, что объясняет модель: продажи, выручка, упаковки, обращения. Как правило, один столбец.</td></tr>
+<tr><td class="k">Медиа</td><td>Расходы или контакты по каждому рекламному каналу – то, чей эффект вы хотите измерить.</td></tr>
+<tr><td class="k">Внешние факторы</td><td>Сезонность, цены, промо, конкуренты, погода, макроэкономика. Нужны, чтобы отделить чистый эффект рекламы от всего остального.</td></tr>
+<tr><td class="k">Дата</td><td>Метка периода. Один столбец.</td></tr>
+</table></div>
+
+<div class="callout c-danger">
+  <div class="c-title">Пропущенный фактор не исчезает – он достаётся рекламе</div>
+  <p>Если заметная причина изменения продаж не попала в файл, модель не отбросит её эффект, а <strong>припишет его медиаканалам</strong>. Классический случай: не дали столбец промо – и весь всплеск продаж в дни акций засчитан рекламе, окупаемость телевидения завышена вдвое. Лучше положить лишний фактор, чем забыть важный.</p>
+</div>
+
+<h3>Выбрать режим и тип целевого показателя</h3>
+
+<p>Режим <strong>окупаемости</strong> считает отдачу в рублях, режим <strong>эффективности</strong> сравнивает каналы по вкладу в медиаединицах. Тип показателя выбирается карточкой: «в рублях» (выручка, прибыль) или «в штуках» (упаковки, обращения, регистрации, карты, подписки, установки, свой показатель). От выбора зависят подписи осей и единицы во всех последующих шагах и в отчёте – подробно это разобрано в <a href="kpi-passports.html">паспортах показателей</a>.</p>
+
+<h3>Задать стоимость единицы, если каналы в медиаметриках</h3>
+
+<p>Если часть каналов дана в TRP, показах или кликах, а вам нужна окупаемость в рублях – укажите стоимость одной единицы. Без этого один TRP, один показ и один рубль считаются сравнимыми, и окупаемость становится бессмысленной: телевидение покажет «115 раз», а перформанс – «0,03 раза».</p>
+
+<div class="table-wrap"><table>
+<tr><th>Канал</th><th>Единица</th><th>Ориентир, рублей за единицу</th></tr>
+<tr><td class="k">Телевидение, бренд, женщины 25–54</td><td>TRP</td><td>около 250 000 (200 000 – 300 000)</td></tr>
+<tr><td class="k">Телевидение, женщины 18–44</td><td>TRP</td><td>около 180 000</td></tr>
+<tr><td class="k">Телевидение, перформанс</td><td>TRP</td><td>около 120 000</td></tr>
+<tr><td class="k">Радио</td><td>GRP</td><td>около 30 000</td></tr>
+<tr><td class="k">Наружная реклама</td><td>контакты</td><td>около 80 за тысячу контактов</td></tr>
+<tr><td class="k">Цифровая медийка</td><td>показы</td><td>около 200 за тысячу показов</td></tr>
+<tr><td class="k">Видео и перформанс</td><td>просмотры, клики</td><td>по стоимости своего размещения</td></tr>
+<tr><td class="k">Канал уже в рублях</td><td>рубль</td><td>1 или оставить пустым</td></tr>
+</table></div>
+
+<p>Для чистых медиаединиц программа подставит ориентир сама. Цифры выше – рыночный ориентир, а не закон: подставьте свои закупочные ставки.</p>
+
+<h3>Решить, учитывать ли праздники</h3>
+
+<p>Панель «Авто-праздники РФ» включена по умолчанию и добавляет в модель тринадцать праздничных периодов как контрольные факторы. Здесь же их можно отключить – все разом или поштучно. Что это за события и когда их стоит выключать – на шаге <a href="step-3-model.html">«Модель»</a>.</p>
+
+<h2 id="read">Как читать результат</h2>
+
+<h3>Светофор</h3>
+
+<div class="table-wrap"><table>
+<tr><th>Цвет</th><th>Что значит</th><th>Что делать</th></tr>
+<tr><td class="k">Зелёный</td><td>Данные готовы к моделированию</td><td>Переходить к обучению</td></tr>
+<tr><td class="k">Жёлтый</td><td>Есть предупреждения: много нулей, слабый разброс, короткий ряд</td><td>Модель построится, но выводы с оговорками – прочитайте предупреждения</td></tr>
+<tr><td class="k">Красный</td><td>Нет целевого показателя, медиа или даты; данных слишком мало</td><td>Исправить до перехода дальше</td></tr>
+</table></div>
+
+<h3>Что именно проверяется</h3>
+
+<div class="table-wrap"><table>
+<tr><th>Показатель</th><th>Норма</th><th>Проблема</th></tr>
+<tr><td class="k">Запас данных (периодов на переменную)</td><td>от 10 к 1</td><td>меньше 4 к 1 – мало наблюдений; меньше 2 к 1 – критически мало</td></tr>
+<tr><td class="k">Нули в медиаканале</td><td>до 30%</td><td>больше 60% – канал почти не несёт сигнала</td></tr>
+<tr><td class="k">Разброс значений</td><td>от 20%</td><td>меньше 5% у канала – нечему объяснять эффект</td></tr>
+<tr><td class="k">Длина ряда</td><td>от 52 точек</td><td>меньше 52 – предупреждение о рисках</td></tr>
+<tr><td class="k">Пропуски</td><td>нет</td><td>любой пропуск в дате или целевом показателе – ошибка</td></tr>
+</table></div>
+
+<div class="callout c-warn">
+  <div class="c-title">Два требования, и оба обязательны</div>
+  <p>Запас данных и длина ряда – разные условия. На коротком периоде сезонность и длинные эффекты каналов не определяются надёжно, даже если запас высокий. И наоборот, длинная история не спасает, если каналов и факторов слишком много.</p>
+</div>
+
+<p>Запас данных считается как число строк, делённое на число каналов и факторов плюс один. Ниже 2 к 1 оценка качества модели ограничивается искусственно – это защита от обманчиво красивого результата на коротком ряду. От 4 к 1 ограничение снимается, от 6 к 1 модель устойчива.</p>
+
+<h3>Тепловая карта связей</h3>
+
+<ul>
+  <li><strong>Наведите курсор</strong> на ячейку – увидите силу связи и названия двух столбцов.</li>
+  <li><strong>Красные ячейки</strong> – связь сильнее 0,8. Два таких столбца несут почти одинаковую информацию, и модель не сможет разделить их вклады.</li>
+  <li>Пара «бюджет канала плюс его натуральная метрика» подсветится ожидаемо сильно, около 0,99 – это нормально и ничего не блокирует: в модель уходит только один столбец пары.</li>
+</ul>
+
+<h3>Слабые каналы</h3>
+
+<p>Если слабых каналов три и больше, появится предложение объединить их в «Малые медиа». Объединение применяется внутри модели и не меняет ваш исходный файл, зато поднимает запас данных.</p>
+
+<h2 id="errors">Типовые ошибки и что делать</h2>
+
+<div class="table-wrap"><table>
+<tr><th>Проблема</th><th>Чем грозит</th><th>Что делать</th></tr>
+<tr><td class="k">Слишком похожие столбцы (связь выше 0,8)</td><td>Модель не разделит их вклады, оценки обоих станут неустойчивыми</td><td>Оставить один. Частый случай – показы и клики одного инструмента. Пару «бюджет плюс натуральная метрика» не трогайте, программа развяжет её сама</td></tr>
+<tr><td class="k">Повторы дат</td><td>Период посчитается дважды</td><td>Один период – одна строка, дубли свернуть</td></tr>
+<tr><td class="k">Выбросы – резкий скачок без причины</td><td>Тянут оценку на себя</td><td>Проверить, не опечатка ли. Если событие реальное (разовая отгрузка) – добавить отдельный столбец-признак этого события</td></tr>
+<tr><td class="k">Столбец почти не меняется</td><td>Эффект оценить нечем</td><td>Если это не реклама, а постоянный фон – убрать: он и так входит в базовые продажи</td></tr>
+<tr><td class="k">Канал работал эпизодически, нулей больше половины</td><td>Сигнала мало, оценка шумная</td><td>Объединить со смежным каналом или исключить</td></tr>
+<tr><td class="k">Запас данных критически мал</td><td>Высокий риск «подгонки под историю»</td><td>Объединить мелкие каналы, убрать неменяющиеся факторы, перейти на недельный шаг, отключить часть праздников</td></tr>
+<tr><td class="k">Макропоказатель подан уровнем</td><td>Уровень заберёт себе общий рост, и реклама покажется неработающей</td><td>Пересчитать в изменение – подробный разбор на шаге <a href="step-1-import.html">«Импорт»</a></td></tr>
+</table></div>
+
+<div class="callout c-ok">
+  <div class="c-title">Можно переходить к обучению, если</div>
+  <p>Светофор зелёный или жёлтый, назначены целевой показатель и хотя бы два медиаканала, найдена дата, режим и тип показателя выбраны, стоимость единицы задана для тех каналов, что даны не в рублях.</p>
+</div>
+
+<div class="stepnav"><span><a href="step-1-import.html">← Шаг 1. Импорт</a></span><span><a href="step-3-model.html">Шаг 3. Модель →</a></span></div>
+
+</div>
+
+<div class="footer"><p>Aurora AI Econometrica · © 2026 ООО «Платформа Аврора» · auroraai.pro</p></div>
+</body>
+</html>

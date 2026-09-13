@@ -16,21 +16,22 @@
     { id: 'error-codes',       title: 'Коды ошибок',             group: 'start',    keywords: 'ошибка код диагностика проблема' },
     { id: 'install',           title: 'Установка и удаление',    group: 'start',    keywords: 'установка удаление деинсталляция инструкция WebView2 брандмауэр firewall loopback без прав администратора активация лицензия uninstall-cleanup' },
 
-    { id: 'data-preparation',  title: 'Подготовка данных',       group: 'data',     keywords: 'данные подготовка структура столбцы kpi media control date формат недельные помесячные FMCG pharma фарма объём ratio csv xlsx' },
-    { id: 'pipeline',          title: 'Pipeline: 7 шагов',       group: 'data',     keywords: 'pipeline import validate train decompose optimize planning report импорт валидация шаги процесс планирование горизонт инфляция backtest сценарии' },
-    { id: 'methodology',       title: 'Методология MMM',         group: 'data',     keywords: 'MMM bayesian байес MCMC NUTS hill adstock saturation насыщение trust levels CPP' },
-    { id: 'glossary',          title: 'Глоссарий терминов',      group: 'data',     keywords: 'глоссарий термины словарь определения ROAS ROI adstock насыщение MCMC R-hat ESS CPU CPP GRP TRP охват частота эластичность декомпозиция база lift backtest' },
+    { id: 'step-1-import',     title: 'Шаг 1. Импорт',           group: 'steps',    keywords: 'импорт загрузка файл xlsx csv столбцы роли автоопределение предпросмотр пример шаблон макроэкономика курс инфляция ключевая ставка ипц ввп изменение уровень названия столбцов' },
+    { id: 'step-2-validate',   title: 'Шаг 2. Валидация',        group: 'steps',    keywords: 'валидация проверка светофор запас данных ratio корреляция матрица роли столбцов стоимость юнита TRP режим KPI праздники слабые каналы мультиколлинеарность выбросы дубликаты' },
+    { id: 'step-3-model',      title: 'Шаг 3. Модель',           group: 'steps',    keywords: 'модель обучение adstock перенос насыщение hill MCMC NUTS байес MQS качество R-hat сходимость дивергенции праздники пасха майские окна бренд перформанс' },
+    { id: 'step-4-decompose',  title: 'Шаг 4. Декомпозиция',     group: 'steps',    keywords: 'декомпозиция каскад waterfall база baseline вклад каналов ROI окупаемость доля бюджета доля эффекта вердикт CPU стоимость единицы' },
+    { id: 'step-5-optimize',   title: 'Шаг 5. Оптимизация',      group: 'steps',    keywords: 'оптимизация бюджет распределение прирост lift кривые отдачи насыщение ограничения min max рекомендации наращивать сократить пилот' },
+    { id: 'step-6-planning',   title: 'Шаг 6. Планирование',     group: 'steps',    keywords: 'планирование медиаплан прогноз горизонт инфляция медиа backtest проверка на истории витрина доверия сценарии варианты зафиксировать прогноз' },
+    { id: 'step-7-report',     title: 'Шаг 7. Отчёт',            group: 'steps',    keywords: 'отчёт экспорт презентация pptx таблица xlsx html интерактивный офлайн папка exports ограничения тест устойчивости' },
 
-    { id: 'interpretation',    title: 'Интерпретация результатов', group: 'results', keywords: 'интерпретация результаты как читать отчёт MQS ROI CPU вердикт переобучение overfitting правдоподобный диапазон R-hat ratio waterfall декомпозиция baseline база spend effect доля бюджета эффект action label scale hold cut' },
-
-    { id: 'econometrica',      title: 'Visual Pipeline (UI)',    group: 'pipeline', keywords: 'pipeline импорт валидация колонки drag drop светофор корреляция матрица KPI медиа adstock обучение модель декомпозиция оптимизация отчёт xlsx' },
+    { id: 'kpi-passports',     title: 'Паспорта показателей',    group: 'ref',      keywords: 'паспорт показатель KPI счётный упаковки лиды регистрации карты подписки установки узнаваемость ценность единицы CPU единицы измерения подписи осей' },
+    { id: 'glossary',          title: 'Глоссарий терминов',      group: 'ref',      keywords: 'глоссарий термины словарь определения ROAS ROI adstock насыщение MCMC R-hat ESS CPU CPP GRP TRP охват частота эластичность декомпозиция база lift backtest' },
   ];
 
   const GROUPS = {
-    start:    { label: 'Начало',    color: '#2E5BFF' },
-    data:     { label: 'Данные и MMM', color: '#3fb950' },
-    results:  { label: 'Результаты',  color: '#39d0d8' },
-    pipeline: { label: 'Интерфейс',  color: '#58a6ff' },
+    start: { label: 'Начало',       color: '#2E5BFF' },
+    steps: { label: 'Шаги мастера', color: '#3fb950' },
+    ref:   { label: 'Справочное',   color: '#39d0d8' },
   };
 
   // Determine current page

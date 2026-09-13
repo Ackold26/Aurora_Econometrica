@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Шаг 4. Декомпозиция – Aurora AI Econometrica</title>
+<script src="econ-nav.js" defer></script>
+<style>
+:root { --bg: #0d1117; --bg2: #161b22; --bg3: #1c2128; --text: #e6edf3; --text2: #8b949e; --text3: #6e7681; --accent: #58a6ff; --border: #30363d; --green: #3fb950; --amber: #d29922; --red: #f85149; --purple: #bc8cff; --teal: #39d0d8; }
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--bg); color: var(--text); line-height: 1.65; }
+h1 { font-size: 30px; font-weight: 700; margin-bottom: 6px; }
+h2 { font-size: 20px; font-weight: 700; margin: 44px 0 14px; padding-bottom: 10px; border-bottom: 1px solid var(--border); }
+h3 { font-size: 15px; font-weight: 600; margin: 24px 0 8px; }
+p { font-size: 14px; margin-bottom: 10px; color: var(--text2); }
+p strong { color: var(--text); }
+ul, ol { padding-left: 22px; margin-bottom: 14px; }
+li { font-size: 14px; color: var(--text2); margin-bottom: 5px; }
+li strong { color: var(--text); }
+a { color: var(--accent); text-decoration: none; }
+a:hover { text-decoration: underline; }
+code { background: var(--bg3); padding: 1px 6px; border-radius: 4px; font-size: 12.5px; color: var(--teal); font-family: 'Consolas', monospace; border: 1px solid var(--border); }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th { background: var(--bg3); color: var(--text2); padding: 10px 12px; text-align: left; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; }
+td { padding: 8px 12px; border-top: 1px solid var(--border); color: var(--text2); }
+
+.container { max-width: 880px; margin: 0 auto; padding: 40px 32px 80px; }
+.sub { font-size: 15.5px; color: var(--text2); margin-bottom: 22px; }
+.strip { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 24px; padding-bottom: 20px; border-bottom: 1px solid var(--border); }
+.strip a, .strip .cur { font-size: 12px; padding: 5px 10px; border-radius: 6px; border: 1px solid var(--border); color: var(--text2); background: var(--bg2); white-space: nowrap; display: inline-block; }
+.strip .cur { color: var(--text); border-color: var(--accent); background: var(--bg3); font-weight: 700; }
+.table-wrap { overflow-x: auto; margin: 14px 0; border-radius: 8px; border: 1px solid var(--border); }
+.table-wrap td.k { color: var(--text); }
+.callout { padding: 14px 18px; border-radius: 8px; margin: 18px 0; border: 1px solid var(--border); background: var(--bg2); }
+.callout p, .callout li { font-size: 13.5px; }
+.callout p:last-child { margin-bottom: 0; }
+.callout .c-title { font-size: 12.5px; font-weight: 700; text-transform: uppercase; margin-bottom: 6px; letter-spacing: 0.04em; color: var(--accent); }
+.c-warn { border-color: rgba(210,153,34,0.35); background: rgba(210,153,34,0.07); }
+.c-warn .c-title { color: var(--amber); }
+.c-danger { border-color: rgba(248,81,73,0.35); background: rgba(248,81,73,0.07); }
+.c-danger .c-title { color: var(--red); }
+.c-ok { border-color: rgba(63,185,80,0.35); background: rgba(63,185,80,0.07); }
+.c-ok .c-title { color: var(--green); }
+.lead { font-size: 14.5px; color: var(--text); margin-bottom: 14px; }
+.do-list { list-style: none; padding-left: 0; }
+.do-list li { padding-left: 22px; position: relative; margin-bottom: 8px; }
+.do-list li::before { content: ''; position: absolute; left: 4px; top: 8px; width: 7px; height: 7px; border-radius: 50%; background: var(--accent); }
+.example { background: var(--bg2); border: 1px solid var(--border); border-left: 3px solid var(--purple); border-radius: 8px; padding: 14px 18px; margin: 14px 0; }
+.example .e-title { font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--purple); margin-bottom: 6px; }
+.example p { font-size: 13.5px; margin-bottom: 8px; }
+.example p:last-child { margin-bottom: 0; }
+.stepnav { display: flex; justify-content: space-between; gap: 16px; margin-top: 48px; padding-top: 20px; border-top: 1px solid var(--border); font-size: 13px; flex-wrap: wrap; }
+.footer { text-align: center; padding: 24px; border-top: 1px solid var(--border); margin-top: 40px; }
+.footer p { font-size: 11px; color: var(--text3); margin: 0; }
+</style>
+</head>
+<body>
+
+<div class="container">
+<h1>Шаг 4. Декомпозиция</h1>
+<p class="sub">Разложение результата на базу, вклад каналов и внешние факторы.</p>
+
+<div class="strip"><a href="step-1-import.html">1. Импорт</a>
+  <a href="step-2-validate.html">2. Валидация</a>
+  <a href="step-3-model.html">3. Модель</a>
+  <span class="cur">4. Декомпозиция</span>
+  <a href="step-5-optimize.html">5. Оптимизация</a>
+  <a href="step-6-planning.html">6. Планирование</a>
+  <a href="step-7-report.html">7. Отчёт</a>
+  <a href="kpi-passports.html">Паспорта показателей</a></div>
+
+<h2 id="what">Что здесь происходит</h2>
+
+<p class="lead">Программа раскладывает ваш результат на источники: сколько дала база, сколько добавил каждый канал, сколько пришлось на внешние факторы.</p>
+
+<div class="table-wrap"><table>
+<tr><th>Составляющая</th><th>Что это</th></tr>
+<tr><td class="k">Базовые продажи</td><td>То, что было бы и без рекламы: привычка покупателей, дистрибуция, сила бренда, сезон</td></tr>
+<tr><td class="k">Вклад медиа</td><td>То, что реклама добавила поверх базы. Именно этот кусок делится между каналами и оптимизируется</td></tr>
+<tr><td class="k">Внешние факторы</td><td>Влияние цены, промо, конкурентов, погоды, макро-факторов, праздников</td></tr>
+</table></div>
+
+<p>Результат показывается каскадом – слева база, дальше каждый канал добавляет свой блок, справа итог. Плюс таблица вкладов в абсолютных числах и в процентах, и сравнение доли бюджета с долей эффекта по каждому каналу.</p>
+
+<h2 id="need">Что нужно от вас</h2>
+
+<ul class="do-list">
+  <li><strong>Запустить декомпозицию</strong> – это несколько секунд, модель уже обучена.</li>
+  <li><strong>Проверить стоимость единицы</strong>, если каналы даны в медиаметриках. Именно здесь ошибка в стоимости превращается в бессмысленную окупаемость.</li>
+  <li><strong>Задать ценность одной единицы</strong>, если целевой показатель считается в штуках. Без неё нельзя сказать, окупается канал или нет: программа посчитает стоимость привлечения одной единицы, но сравнивать её будет не с чем. Подробно – в <a href="kpi-passports.html">паспортах показателей</a>.</li>
+</ul>
+
+<h2 id="read">Как читать результат</h2>
+
+<h3>Большая база – это нормально</h3>
+
+<p>Базовые продажи обычно составляют большую часть результата, нередко от 60 до 90%. Это не ошибка и не приговор рекламе: реклама работает поверх спроса, который уже есть. Тревожно как раз обратное – если медиа объясняет почти всё, значит, в модель не положили важные внешние факторы.</p>
+
+<h3>Каскад</h3>
+
+<p>Читается слева направо: стартовая база, затем блок каждого канала, в сумме – итог. Высота блока – абсолютный вклад канала.</p>
+
+<div class="callout c-warn">
+  <div class="c-title">Частая ошибка чтения</div>
+  <p>Не сравнивайте на глаз вклад канала с его бюджетом по каскаду. Канал может давать большой абсолютный вклад просто потому, что в него вложено много денег. Для сравнения есть отдельный взгляд – доля бюджета против доли эффекта.</p>
+</div>
+
+<h3>Доля бюджета против доли эффекта</h3>
+
+<p>Самый практичный взгляд. Для каждого канала сравниваются две доли: сколько процентов медиаденег в него ушло и сколько процентов общего вклада он создал.</p>
+
+<div class="table-wrap"><table>
+<tr><th>Картина</th><th>Что значит</th><th>Направление</th></tr>
+<tr><td class="k">Доля эффекта больше доли бюджета</td><td>Канал отрабатывает больше, чем стоит</td><td>Кандидат на усиление</td></tr>
+<tr><td class="k">Доли примерно равны</td><td>Канал сбалансирован</td><td>Держать</td></tr>
+<tr><td class="k">Доля эффекта меньше доли бюджета</td><td>Канал съедает бюджет непропорционально вкладу</td><td>Кандидат на сокращение</td></tr>
+</table></div>
+
+<p>Типичная находка – канал, который занимает большую часть бюджета и даёт малую долю эффекта. Программа выделяет такие каналы отдельно: это первый источник денег для перекладки.</p>
+
+<h3>Вердикты каналов</h3>
+
+<p>Каждому каналу выдаётся короткий вердикт. Какой именно – зависит от режима и от типа целевого показателя.</p>
+
+<p><strong>Если показатель в рублях</strong> – вердикт строится по окупаемости и по разрыву между долей эффекта и долей бюджета:</p>
+
+<div class="table-wrap"><table>
+<tr><th>Вердикт</th><th>Когда</th></tr>
+<tr><td class="k">Высокоэффективен</td><td>Окупаемость заметно выше типичной</td></tr>
+<tr><td class="k">Эффективен</td><td>Вклад выше доли бюджета</td></tr>
+<tr><td class="k">Сбалансирован</td><td>Вклад примерно равен доле бюджета</td></tr>
+<tr><td class="k">Слабее своей доли</td><td>Вклад ниже доли бюджета</td></tr>
+<tr><td class="k">Перенасыщен</td><td>Сильно недоотрабатывает бюджет</td></tr>
+<tr><td class="k">На грани окупаемости</td><td>Вложенный рубль почти не возвращается</td></tr>
+<tr><td class="k">Убыточный, глубоко убыточный</td><td>Возвращается меньше вложенного</td></tr>
+<tr><td class="k">Окупаемость завышена, похоже на артефакт</td><td>Десятки и сотни раз – скорее всего, перепутаны единицы или модель переобучена</td></tr>
+</table></div>
+
+<p><strong>Если показатель в штуках</strong> – вместо окупаемости считается стоимость привлечения одной единицы, и она сравнивается с ценностью единицы: ниже ценности – канал окупается, около неё – на грани, выше – убыточен. Если ценность не задана, вердикт прямо скажет, что оценить окупаемость нечем.</p>
+
+<p><strong>В режиме эффективности</strong> каналы сравниваются между собой по доле вклада: топ-драйвер, значимый, средний, слабый, пренебрежимо малый.</p>
+
+<div class="callout c-warn">
+  <div class="c-title">Пометка о широком диапазоне</div>
+  <p>Если правдоподобный диапазон шире самой оценки, к вердикту добавляется пометка. Это не недоверие ко всей модели – качество модели оценивается отдельно. Пометка напоминает читать оценку именно этого канала как вилку.</p>
+</div>
+
+<h2 id="errors">Типовые ошибки и что делать</h2>
+
+<div class="table-wrap"><table>
+<tr><th>Что видите</th><th>Причина</th><th>Что делать</th></tr>
+<tr><td class="k">Окупаемость канала в десятки и сотни раз</td><td>Канал дан в медиаединицах, а стоимость единицы не задана – рубли сравниваются с TRP</td><td>Вернуться на шаг «Валидация» и задать стоимость единицы для этого канала</td></tr>
+<tr><td class="k">Пометка о подозрительных единицах</td><td>То же самое, поймано автоматически</td><td>Проверить стоимость единицы у всех каналов, не только у помеченного</td></tr>
+<tr><td class="k">Медиа объясняет больше 80% результата</td><td>Базовые продажи «съедены» – не хватает внешних факторов</td><td>Добавить цену, промо, сезонность, конкурентов и переобучить</td></tr>
+<tr><td class="k">Вклад канала около нуля, диапазон от минуса до плюса</td><td>Канал работал эпизодически или почти не менялся</td><td>Объединить со смежным каналом или исключить и переобучить</td></tr>
+<tr><td class="k">У показателя в штуках не считается окупаемость</td><td>Не задана ценность одной единицы</td><td>Задать ценность: маржа на упаковку, ценность обращения, выручка с подписки</td></tr>
+<tr><td class="k">Вклады не совпадают с ощущениями от рынка</td><td>Возможен пропущенный фактор или зеркальный столбец</td><td>Проверить состав факторов, вернуться к <a href="step-1-import.html">шагу импорта</a></td></tr>
+</table></div>
+
+<div class="stepnav"><span><a href="step-3-model.html">← Шаг 3. Модель</a></span><span><a href="step-5-optimize.html">Шаг 5. Оптимизация →</a></span></div>
+
+</div>
+
+<div class="footer"><p>Aurora AI Econometrica · © 2026 ООО «Платформа Аврора» · auroraai.pro</p></div>
+</body>
+</html>

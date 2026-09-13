@@ -31,8 +31,8 @@ Edge-вызовом и собственным @page { size: A4; margin: 0 }, с�
    Legal Center, НЕ как светлый УДАЛЕНИЕ.html у Oracle) - раздел «Удаление»
    прогоняется через ТОТ ЖЕ print-конвейер (BASE_PRINT_CSS + strip_dark_theme_
    leaks), что и обычные страницы, а не через облегчённую обработку Oracle.
-3. Несколько страниц (features/data-preparation/econometrica/whats-new/
-   interpretation/methodology) объявляют --purple/--teal в своём :root и
+3. Несколько страниц (features/whats-new, а также новые step-*/kpi-passports)
+   объявляют --purple/--teal в своём :root и
    используют их в СОХРАНЯЕМЫХ (не голых тег-) селекторах - `.badge-expert`,
    `.role-date`, `.naming-card .zone`, `.change.sec`, `details.expert` и т.п.
    :root вырезается per-page, поэтому эти переменные остаются неопределены в
@@ -98,30 +98,46 @@ DEFAULT_PRODUCT = "Aurora AI Optimizer MMM"
 NAV_JS = DEFAULT_HELP_DIR / "econ-nav.js"
 
 # Порядок разделов PDF - логика новичка (директива Антона, ретранслирована
-# через team-lead 2026-07-19), НЕ порядок econ-nav.js (тот группирует под
-# экранный навбар: Начало/Данные и методология/Интерфейс/Возможности).
-# index (справочный центр = обзор) и about (о продукте) открывают документ;
-# user-guide/system-requirements - до install (проверить требования и в целом
-# ориентироваться в продукте, ДО того как ставить); install - установка
-# (раздел «Удаление» вырезан в приложение, см. split_install_body);
-# econometrica (Visual Pipeline UI) - экранный тур сразу после установки,
-# мост к глубоким методологическим разделам; pipeline/data-preparation/
-# methodology/interpretation - ядро продукта; features - каталог функций
-# (включает как подразделы «Режимы анализа и типы KPI» и «Отчёты и экспорт» -
-# отдельных файлов под них нет); faq/error-codes/glossary - справочные
-# разделы; whats-new - закрывает документ. Обновлять вручную при появлении/
-# уходе раздела.
+# через team-lead 2026-07-19), НЕ порядок econ-nav.js.
+#
+# Перестройка справки по шагам мастера (2026-09-13): ядро продукта - это
+# теперь СЕМЬ пошаговых разделов (step-1-import … step-7-report), каждый по
+# одной схеме «что происходит / что нужно от вас / как читать результат /
+# типовые ошибки», плюс сквозной kpi-passports (паспорта показателей -
+# единицы и подписи, затрагивают импорт, декомпозицию и отчёт разом).
+# Прежние тематические разделы (econometrica / pipeline / data-preparation /
+# methodology / interpretation) разобраны в эти семь; файлы остались на диске,
+# но выведены из навигации и из этого порядка - см. UNLINKED_PAGES в
+# tools/check_help_pdf_consistency.py. Решение об их удалении - отдельное.
+#
+# Кластер «о продукте и установка» сохранён отдельной группой в голове
+# документа: index (справочный центр = обзор) и about (о продукте) открывают
+# документ; user-guide/system-requirements - до install (проверить требования
+# и в целом сориентироваться в продукте ДО установки); install - установка
+# (раздел «Удаление» вырезан в приложение, см. split_install_body).
+# Дальше семь шагов по порядку прохождения, затем паспорта показателей;
+# features - каталог функций (включает как подразделы «Режимы анализа и типы
+# KPI» и «Отчёты и экспорт» - отдельных файлов под них нет); faq/error-codes/
+# glossary - справочные разделы; whats-new закрывает документ.
+# Обновлять вручную при появлении/уходе раздела.
 PAGE_ORDER = [
+    # кластер «о продукте и установка»
     "index",
     "about",
     "user-guide",
     "system-requirements",
     "install",
-    "econometrica",
-    "pipeline",
-    "data-preparation",
-    "methodology",
-    "interpretation",
+    # семь шагов мастера - ядро продукта
+    "step-1-import",
+    "step-2-validate",
+    "step-3-model",
+    "step-4-decompose",
+    "step-5-optimize",
+    "step-6-planning",
+    "step-7-report",
+    # сквозной раздел: единицы и подписи целевого показателя
+    "kpi-passports",
+    # справочные разделы
     "features",
     "faq",
     "error-codes",
