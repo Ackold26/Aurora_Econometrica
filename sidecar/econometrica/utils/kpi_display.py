@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import json
+import logging
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 # Читаем файл один раз при импорте модуля
 _DATA_PATH = Path(__file__).parent.parent / "data" / "kpi_display_registry.json"
@@ -11,8 +14,25 @@ def _load() -> dict:
     """Загружает реестр из JSON-файла (кешируется на модуль)."""
     global _registry
     if not _registry:
-        with open(_DATA_PATH, encoding="utf-8") as f:
-            _registry = json.load(f)
+        try:
+            with open(_DATA_PATH, encoding="utf-8") as f:
+                _registry = json.load(f)
+        except FileNotFoundError:
+            # Б-54 (13.09.2026): в собранном PyInstaller-пакете каталог data/
+            # раньше не попадал в --add-data (см. build_sidecar.py), и дефект
+            # молчал месяцами - оба вызывающих (aurora_html/sections.py::
+            # _passport_html, aurora_pptx/kpi_helpers.py::_passport) ловят широкий
+            # except Exception и тихо возвращают None, отчёт откатывается на
+            # подписи ROI по умолчанию для ЛЮБОГО KPI без единого следа. Оставляем
+            # запись в журнале sidecar ДО того, как исключение уйдёт вызывающему -
+            # widen except выше не трогаем (он и должен собрать отчёт без паспорта,
+            # не уронить его), но теперь пропажа реестра видна без живого прогона.
+            logger.error(
+                'Реестр отображения KPI не найден: %s - отчёт откатится на '
+                'денежные подписи ROI по умолчанию для любого показателя',
+                _DATA_PATH,
+            )
+            raise
     return _registry
 
 

@@ -36,7 +36,8 @@
         ],
         "resources": [
             "help-econometrica/*",
-            "../sidecar/econometrica/**/*",
+            "../sidecar/econometrica/econometrica-sidecar.exe",
+            "../sidecar/econometrica/_internal/",
             "../content-packs/*",
             "sidecar/pptx_pipeline.py",
             "../NOTICE.md"

@@ -99,6 +99,18 @@ PYINSTALLER_ARGS = [
     '--add-data', f'{ROOT / "engines"}:engines',
     '--add-data', f'{ROOT / "charts"}:charts',
     '--add-data', f'{ROOT / "utils"}:utils',
+    # data/kpi_display_registry.json - паспорт отображения KPI, читается
+    # utils/kpi_display.py по Path(__file__).parent.parent (frozen: _internal/utils/
+    # -> _internal/data/). Без этой строки каталог не попадает в пакет вовсе:
+    # _load() кидает FileNotFoundError, оба вызывающих (aurora_html/sections.py,
+    # aurora_pptx/kpi_helpers.py) глотают исключение через `except Exception: return
+    # None`, и отчёты молча откатываются на денежные подписи для ЛЮБОГО KPI.
+    # Найдено 12-13.09.2026 при разборе Б-53: узкий список ресурсов Tauri (exe +
+    # _internal/) снял костыль широкого шаблона, который раньше случайно клал файл
+    # РЯДОМ с exe (`_up_/sidecar/econometrica/data/...`, мимо _internal/, но хоть
+    # куда-то). В разработке путь совпадает случайно (data/ на уровень выше utils/,
+    # оба - на уровне ROOT); в собранном пакете - никогда.
+    '--add-data', f'{ROOT / "data"}:data',
     # aurora_pptx/ module + templates subfolder + strings_*.json (client-ready deliverables).
     # aurora_tokens.py is generated from Standards/tokens/tokens.json via build.py - see
     # regen step below in main(). Must be bundled as data so import works at runtime.
@@ -160,6 +172,71 @@ PYINSTALLER_ARGS = [
     '--exclude-module=jax.experimental.gpu',
     '--exclude-module=jax.experimental.cuda',
 ]
+
+
+def add_data_destinations(pyinstaller_args: list) -> set:
+    """Множество DEST-имён из всех `--add-data SRC:DEST` в списке аргументов.
+
+    `SRC` на Windows содержит свою `:` (буква диска) - берём последний сегмент
+    после разделения, DEST её никогда не содержит. Общий разбор для сторожа
+    ресурсов (см. `tests/test_bundle_resource_hygiene.py`) и для ручной сверки.
+    """
+    dests = set()
+    for prev, item in zip(pyinstaller_args, pyinstaller_args[1:]):
+        if prev == '--add-data':
+            dests.add(item.rsplit(':', 1)[-1])
+    return dests
+
+
+# Реестр известных не-кодовых ресурсов, которые движок читает по пути,
+# построенному от `__file__` (`Path(__file__).parent...`). Каждый ключ -
+# DEST-имя, ОБЯЗАННОЕ быть среди `add_data_destinations(PYINSTALLER_ARGS)`;
+# значение - где именно и что читается (для человека, не для проверки).
+# Пополнять при каждом новом таком чтении - иначе следующий Б-53-класс дефект
+# (Б-54: `data/kpi_display_registry.json` не уезжал в пакет, найдено 13.09.2026
+# при разборе сужения ресурсов Tauri) снова пройдёт незамеченным до живого прогона.
+KNOWN_FILE_RELATIVE_RESOURCES = {
+    'engines': 'engines/json_export.py читает исходник engines/modeler.py (ast-разбор своего кода)',
+    'charts': 'нет Path(__file__)-чтения (проверено 13.09.2026) - здесь только код, add-data нужен '
+              'для импорта модуля, не для ресурса; ключ в реестре как явный отрицательный вердикт',
+    'utils': 'utils/kpi_display.py - собственный модуль (родитель для поиска data/, см. ниже)',
+    'data': 'utils/kpi_display.py: Path(__file__).parent.parent / "data" / "kpi_display_registry.json" (Б-54)',
+    'aurora_pptx': 'aurora_pptx/builder.py: assets/icons/*.png, templates/brand_mark_*.png; i18n.py: strings_*.json',
+    'aurora_html': 'aurora_html/builder.py: strings_ru.json; __init__.py: TEMPLATES_DIR = .../templates',
+}
+
+
+# Каталоги-следы прогонов тестов/линтеров. PyInstaller --add-data копирует
+# исходные каталоги (engines/, charts/, utils/, aurora_pptx/, aurora_html/)
+# ЦЕЛИКОМ, включая любой такой каталог, если он лежал там на момент сборки
+# (пример: pytest импортирует модуль → __pycache__ рядом с исходником).
+# Б-53 (12.09.2026, sha 21d28ebe): .hypothesis/1368 файлов + тысячи __pycache__
+# уехали в поставку 2.5.2, +7,5 МБ, и сделали состав пакета зависимым от того,
+# гоняли ли тесты перед сборкой — два прогона одного кода дают разные суммы.
+# Тот же корень, что у Б-46 (широкий шаблон ресурсов Tauri, см. tauri.conf.json).
+# Явный список ресурсов в tauri.conf.json (только exe + _internal/) закрывает
+# класс на стороне Tauri; здесь — вторая линия обороны на стороне PyInstaller,
+# на случай если след появится ВНУТРИ уже собранного _internal/.
+TEST_RESIDUE_DIR_NAMES = frozenset({
+    '__pycache__', '.hypothesis', '.pytest_cache', '.mypy_cache', '.ruff_cache',
+})
+
+
+def purge_test_residue(dist_output: Path) -> list[Path]:
+    """Удаляет каталоги-следы прогонов тестов из собранного PyInstaller-пакета.
+
+    Возвращает список удалённых путей (для отчёта в консоль). Идёт СНИЗУ вверх
+    (topdown=False), чтобы `dirs.remove` из os.walk не понадобился и чтобы не
+    сломать обход при удалении вложенных `__pycache__` внутри других таких же.
+    """
+    removed = []
+    for dirpath, dirnames, _filenames in os.walk(dist_output, topdown=False):
+        base = os.path.basename(dirpath)
+        if base in TEST_RESIDUE_DIR_NAMES:
+            p = Path(dirpath)
+            shutil.rmtree(p, ignore_errors=True)
+            removed.append(p)
+    return removed
 
 
 def regenerate_tokens():
@@ -350,6 +427,14 @@ def main():
     build_tmp = ROOT / 'build_tmp'
     if build_tmp.exists():
         shutil.rmtree(build_tmp, ignore_errors=True)
+
+    # Б-53: снимаем следы прогонов тестов/линтеров, если они попали в пакет
+    # вместе с исходными каталогами (--add-data копирует их как есть).
+    residue = purge_test_residue(DIST / OUTPUT_NAME)
+    if residue:
+        print(f'\n[Б-53] Удалено {len(residue)} каталог(ов)-следа прогонов из пакета:')
+        for p in residue:
+            print(f'  - {p.relative_to(DIST / OUTPUT_NAME)}')
 
     exe_path = DIST / OUTPUT_NAME / f'{OUTPUT_NAME}.exe'
     if not exe_path.exists():
