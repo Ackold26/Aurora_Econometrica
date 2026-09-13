@@ -1,15 +1,15 @@
 {
   "version": "2.5.2",
-  "generated": "2026-09-13T12:30:31Z",
+  "generated": "2026-09-13T14:01:46Z",
   "sources": {
     "about.html": "a353994b95ec58c8c345f8e95c7659036f8c4b86efb31b91fdbed219b733be56",
     "data-preparation.html": "c094135d2cfa18b3af4f9894478c8c3df363649423eed3fd004151972c259fa4",
     "econometrica.html": "2fe514bf6926ea8cc50d3a561f01d9e706800bffde7770db1203dab7af30027e",
     "error-codes.html": "30c1c2a56367e27e7f5af3fc528f5cd37e82a7f442e63d0a462d79d91c9e541d",
     "faq.html": "915a4941504f938063104e917c6be2842917c5220e7ce5d6f3e4e762bfee261b",
-    "features.html": "19da8a7f226b66bf3536d4d50daddb2e1860253bf0f4698b0f848eaa1f012834",
+    "features.html": "2595403f3d3cee5b880e82d4d8a5ef12491a534a4918c3f843c90bc1049ec74b",
     "glossary.html": "2ec970b9d85f9b5951185bfce65aa26125b2be42bfa10d652e1fece5a8e5bcfa",
-    "index.html": "a8290b636cf7b1246eb2dae2059acb2c64dfdefec51f33cc0b4ededa7b0ef77d",
+    "index.html": "8a86e0e8d3e9c8f0f4df64b460f5bd68000b9401c70769a287bac3c832ad377f",
     "install.html": "37cf6b88b0afdc067fe5fcf8d5049a5cdaa84c26f0723c94583737efb41371f7",
     "interpretation.html": "fbc86093348c511c9e17a3576973023dcb12ee95cb1311491529f779df8b10b5",
     "kpi-passports.html": "9f5ba22e789c20edbc4cd669f50121182ea99f746bd1425f45e1d827d1a03221",
@@ -23,7 +23,7 @@
     "step-6-planning.html": "facd049c8ce85ee643402198c1ed9c874541461b4120ec2d9c652e4dc45479f5",
     "step-7-report.html": "4bb63ed2b26c2a885001decdaa4b34d3f01ae3b4c29a800f9ff1e3660cdd6cb1",
     "system-requirements.html": "c3a525b900541739d08d2fd7aad3b711bb694e2db8c15bfb6e772bec7fe0ee9a",
-    "user-guide.html": "c62f88291f28d691ab0446d5501c8e1b668e4433b25583455e472e267fc96855",
+    "user-guide.html": "3cc8c5eca10ba5c144a12fbdec756313df6a8b2fa1ede441813be9c05f4a44d2",
     "whats-new.html": "7ef990b708aa604720d60ba71aa4dbd7e5b92377f40b25bb7c98b0e36abf3d33",
     "econ-nav.js": "307b910bc22a167da17f647bff54ebc0f1e5041b3eb41feed7674be34a5d0107"
   }

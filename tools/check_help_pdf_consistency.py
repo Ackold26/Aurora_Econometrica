@@ -23,6 +23,10 @@ Dev/Aurora_Oracle/tools/check_help_consistency.py (волна 2 стандарт
    UNLINKED_PAGES, наоборот, НЕ должна быть в PAGES - иначе список и навигация
    разошлись; и каждая запись UNLINKED_PAGES обязана иметь файл на диске -
    запись, пережившая свой файл, превращает список в глушилку проверки.
+   Обратное направление тоже проверяется: живая ссылка (`href="name.html"`,
+   с якорем или без) со страницы, ДОСТИЖИМОЙ из навигации, на страницу из
+   UNLINKED_PAGES - тупик для клиента (находка внешнего аудита 2026-09-13,
+   см. check_links_to_unlinked_pages).
 2. U+2014 «—» (литерал + HTML-сущности &mdash;/&#8212;/&#x2014;) запрещён во
    всех src-tauri/help-econometrica/*.html.
 3. CPD-09: «Сипович»/«sipovich» запрещены в любом html справки; канон
@@ -189,6 +193,41 @@ def check_unlinked_pages() -> list:
                 "запись пережила свой файл: убрать её из списка "
                 "(иначе список молча прикрывает несуществующую страницу)"
             )
+    return fails
+
+
+# Ссылка на отвязанную страницу с живой: относительный href вида "name.html"
+# или "name.html#anchor" (без схемы/хоста/протокол-относительного "//").
+# Якорь на СВОЮ же страницу ("#id" без имени файла) сюда не попадает - для
+# него нет группы 1.
+INTERNAL_HREF_RE = re.compile(r'href\s*=\s*"([^":#][^"#]*\.html)(?:#[^"]*)?"')
+
+
+def check_links_to_unlinked_pages(all_html_files) -> list:
+    """Находка 4 внешнего аудита (2026-09-13): живая ссылка с достижимой из
+    навигации страницы на страницу из UNLINKED_PAGES - клиент проваливается
+    в тупик (страницы нет ни в навигации, ни в поиске, ни в собранном PDF, а
+    «назад» по навигации не ведёт никуда). Раньше UNLINKED_PAGES гасил
+    проверку орфанов ТОЛЬКО для самой отвязанной страницы (её саму не
+    требовало упоминания в PAGES), но не ловил обратную ситуацию - ссылку
+    НА неё с страницы, которая как раз в PAGES и в порядке PDF. Здесь именно
+    это: index.html и features.html (обе в нав и в PDF) ссылались на
+    econometrica.html#chat-mode (в UNLINKED_PAGES)."""
+    fails = []
+    for path in all_html_files:
+        if path.name in NON_PAGE_ASSETS or path.name in UNLINKED_PAGES:
+            continue  # сама отвязанная страница может ссылаться куда угодно - не наша забота
+        text = read_text(path)
+        for m in INTERNAL_HREF_RE.finditer(text):
+            target = m.group(1)
+            target_name = Path(target).name
+            if target_name in UNLINKED_PAGES:
+                fails.append(
+                    f"{relpath(path)}: живая ссылка на «{target}» ведёт на страницу из UNLINKED_PAGES "
+                    f"(«{target_name}» сознательно выведена из навигации и порядка PDF) — "
+                    "перенести содержимое на достижимую страницу и поправить ссылку, "
+                    "либо вернуть целевую страницу в навигацию"
+                )
     return fails
 
 
@@ -384,6 +423,7 @@ def main() -> int:
 
     all_fails.extend(check_nav_js(all_html_files))
     all_fails.extend(check_unlinked_pages())
+    all_fails.extend(check_links_to_unlinked_pages(all_html_files))
     all_fails.extend(check_em_dash(all_html_files))
     all_fails.extend(check_inv50_terms(all_html_files))
     all_fails.extend(check_copyright(all_html_files))

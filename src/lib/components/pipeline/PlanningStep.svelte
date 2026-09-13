@@ -411,6 +411,39 @@
     computeBaseline();
   }
 
+  // ── Сброс состояния шага при смене проекта (внешний аудит, находка 1) ──────
+  // baselineForecast присваивался ровно в одном месте (после удачного
+  // econ_scenario) и никогда не обнулялся, а PlanningStep не размонтируется при
+  // смене проекта (visibility-навигация в pipeline/+page.svelte). resetPipeline
+  // чистит modelData/decomposeData/mediaPlanDetected, но не локальный $state
+  // этого компонента – числа прежнего проекта оставались в панели подсказок,
+  // таблице сравнения и на графике бессрочно (INV-50). Паттерн сброса — тот же,
+  // что уже применён в OptimizeStep.svelte («Reset forecast config on project
+  // switch»): трекаем предыдущий projectId, сбрасываем только на РЕАЛЬНУЮ смену
+  // (не на первый mount, иначе стирали бы правки пользователя при каждом заходе
+  // на шаг внутри одного проекта). Вместе с baselineForecast сбрасываем и
+  // variants – они той же природы утечки (публикуются в planningLiveState и
+  // таблице сравнения тем же путём, хоть и не derived от baselineForecast).
+  let _prevProjectIdForPlanningReset = /** @type {string | null} */ (null);
+  $effect(() => {
+    const projectId = $activeProjectId;
+    if (_prevProjectIdForPlanningReset !== null && _prevProjectIdForPlanningReset !== projectId) {
+      baselineForecast = null;
+      baselineComputing = false;
+      baselineError = null;
+      baselineComputedHash = null;
+      variants = [];
+      editingVariant = false;
+      channelBudgets = {};
+      variantDraftName = '';
+      variantCounter = 1;
+      promiseSuccess = null;
+      promiseError = null;
+      templateError = null;
+    }
+    _prevProjectIdForPlanningReset = projectId;
+  });
+
   // P-1: авто-запуск прогноза базового плана при подтверждённом медиаплане.
   // once-guard по source_hash — пересчёт только при смене файла, не при каждом
   // ретриггере стора. При ошибке hash уже помечен → цикла нет (retry вручную).
