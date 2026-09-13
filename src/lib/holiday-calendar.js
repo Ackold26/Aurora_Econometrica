@@ -1,5 +1,5 @@
 /**
- * #6 Tier-3/OVB (2026-06-07): фронт-зеркало 12 авто-праздников РФ для UI-панели
+ * #6 Tier-3/OVB (2026-06-07): фронт-зеркало 13 авто-праздников РФ для UI-панели
  * отключения (HolidayControlsPanel). Имена + порядок ДОЛЖНЫ совпадать с backend
  * `sidecar/econometrica/utils/holiday_calendar_ru.py::HOLIDAY_DEFINITIONS`
  * (SSOT для генерации dummy при обучении). Здесь только display-лейблы (RU) +
@@ -7,8 +7,11 @@
  *
  * ⚠️ СИНХРОНИЗАЦИЯ: при изменении списка праздников в holiday_calendar_ru.py —
  * обновить здесь. Паритет имён покрыт тестом `holiday-calendar.test.js` (сверяет
- * фронт-имена с порядком/составом из этого же файла; backend-паритет — ручной,
- * 12 праздников hardcoded и стабильны с ADR-019, opt-out был отложен до v2.2.0).
+ * фронт-список с backend-файлом ЖИВЫМ разбором, не замороженным снимком —
+ * 13.09.2026, до этого сторож сравнивал фронт сам с собой и не поймал 13-е
+ * событие). Поштучный opt-out реализован (modeler.py: `disabled_holidays`
+ * пропускается при инъекции) — комментарий про «отложено до v2.2.0» был
+ * устаревшим, opt-out работает с #6 Tier-3/OVB (2026-06-07).
  *
  * @typedef {{ name: string, label: string, hint: string }} HolidayDef
  */
@@ -27,6 +30,7 @@ export const HOLIDAY_CALENDAR_RU = [
   { name: 'holiday_black_friday',     label: 'Чёрная пятница',          hint: 'Последняя пятница ноября + выходные' },
   { name: 'holiday_cyber_monday',     label: 'Киберпонедельник',        hint: 'Понедельник после Чёрной пятницы' },
   { name: 'holiday_school_breaks',    label: 'Школьные каникулы',       hint: 'Осенние / зимние / весенние / летние окна' },
+  { name: 'holiday_easter_orthodox',  label: 'Православная Пасха',      hint: 'Неделя до, сам день и три дня после (дата переходящая, считается по годам)' },
 ];
 
 /** @type {Record<string, HolidayDef>} быстрый доступ по machine-имени */
