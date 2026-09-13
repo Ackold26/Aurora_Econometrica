@@ -3631,7 +3631,7 @@
     background: color-mix(in srgb, #f97316 18%, transparent);
     border: 1px solid color-mix(in srgb, #f97316 36%, transparent);
     border-radius: 12px;
-    color: #fed7aa;
+    color: var(--warning);
     font-size: 11px;
     font-weight: 600;
     flex-shrink: 0;
@@ -3906,17 +3906,17 @@
   .banner-error {
     background: color-mix(in srgb, var(--danger) 10%, transparent);
     border: 1px solid color-mix(in srgb, var(--danger) 28%, transparent);
-    color: #fecaca;
+    color: var(--danger);
   }
   .banner-warn {
-    background: color-mix(in srgb, #f59e0b 10%, transparent);
-    border: 1px solid color-mix(in srgb, #f59e0b 28%, transparent);
-    color: #fde68a;
+    background: color-mix(in srgb, var(--warning) 10%, transparent);
+    border: 1px solid color-mix(in srgb, var(--warning) 28%, transparent);
+    color: var(--warning);
   }
   .banner-info {
-    background: color-mix(in srgb, #3b82f6 8%, transparent);
-    border: 1px solid color-mix(in srgb, #3b82f6 22%, transparent);
-    color: #bfdbfe;
+    background: color-mix(in srgb, var(--color-info) 8%, transparent);
+    border: 1px solid color-mix(in srgb, var(--color-info) 22%, transparent);
+    color: var(--color-info);
   }
 
   /* L8: per-channel override warning - gentler tone (informational, not error) */
@@ -3929,19 +3929,19 @@
     border-radius: 10px;
     background: color-mix(in srgb, #f97316 8%, transparent);
     border: 1px solid color-mix(in srgb, #f97316 24%, transparent);
-    color: #fed7aa;
+    color: var(--warning);
     font-size: 13px;
   }
   .override-banner .banner-icon { font-size: 16px; flex-shrink: 0; }
   .override-banner .banner-text { flex: 1; line-height: 1.4; margin: 0; }
-  .override-banner .banner-text strong { font-weight: 700; color: #fff; }
+  .override-banner .banner-text strong { font-weight: 700; color: var(--text-primary); }
   .btn-override-reset {
     flex-shrink: 0;
     padding: 6px 12px;
     background: color-mix(in srgb, #f97316 18%, transparent);
     border: 1px solid color-mix(in srgb, #f97316 36%, transparent);
     border-radius: 6px;
-    color: #fed7aa;
+    color: var(--warning);
     font-size: 12px;
     font-weight: 600;
     cursor: pointer;
@@ -3949,7 +3949,7 @@
   }
   .btn-override-reset:hover {
     background: color-mix(in srgb, #f97316 30%, transparent);
-    color: #fff;
+    color: var(--text-primary);
   }
   .lift-badge {
     flex-shrink: 0;
@@ -3957,7 +3957,7 @@
     background: color-mix(in srgb, var(--success) 15%, transparent);
     border: 1px solid color-mix(in srgb, var(--success) 30%, transparent);
     border-radius: 20px;
-    color: #22c55e;
+    color: var(--success);
     font-size: 13px;
     font-weight: 700;
     font-family: monospace;

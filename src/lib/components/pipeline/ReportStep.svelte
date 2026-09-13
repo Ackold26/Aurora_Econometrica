@@ -1333,15 +1333,16 @@
 
 <style>
   .report-step {
+    /* Скрол владеет .pipeline-main (см. +page.svelte) - здесь никаких
+       overflow-y / height: 100%, иначе вторая полоса прокрутки: колесо мыши
+       двигает то одно, то другое, а всплывающие подсказки обрезаются границей
+       этого контейнера (снимок владельца 13.09). Тот же приём уже применён в
+       OptimizeStep и DecomposeStep - переносим сюда последним. */
     display: flex;
     flex-direction: column;
     gap: 16px;
     padding: 20px;
-    height: 100%;
     box-sizing: border-box;
-    overflow-y: auto;
-    scrollbar-width: thin;
-    scrollbar-color: rgba(255,255,255,0.1) transparent;
   }
 
   /* ── Error banner ─────────────────────────────────────── */

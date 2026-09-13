@@ -38,6 +38,15 @@
         ],
         "createdAt": "2026-09-08T11:16:03.724Z",
         "reason": "Маша: анимируется ширина раздвигаемой боковой панели (сворачивание в 34px), при перетаскивании переход отключён через .resizing; transform не подходит - соседний контент обязан переразмечаться"
+      },
+      {
+        "rule": "layout-transition",
+        "value": "*",
+        "files": [
+          "src/lib/components/UpdateBlockingOverlay.svelte"
+        ],
+        "createdAt": "2026-09-12T21:43:18.774Z",
+        "reason": "Masha: polosa progressa zagruzki obnovleniya - shirina bukvalno oznachaet dolyu zagruzki (domain-appropriate motion); odin element vnutri dorozhki s overflow:hidden, drugih animaciy v blokiruyushchem okne net"
       }
     ]
   }
