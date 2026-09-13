@@ -325,10 +325,14 @@ def bootstrap_js(
         axisLabel: Object.assign({{}}, baseAxisStyle(pal).axisLabel, {{ formatter: '{{value}}%' }})
       }}),
       series: [
+        // CHART_SPEC 2.3 (2026-09-13): подписи '{{c}}%' на столбцах – раньше доля
+        // читалась только по оси Y.
         {{ name: '% бюджета', type: 'bar', data: data.spend_pct,
-          itemStyle: {{ color: pal.mutedColor, borderRadius: [3, 3, 0, 0] }}, barMaxWidth: 22 }},
+          itemStyle: {{ color: pal.mutedColor, borderRadius: [3, 3, 0, 0] }}, barMaxWidth: 22,
+          label: {{ show: true, position: 'top', color: pal.textColor, fontSize: 10, fontWeight: 600, formatter: '{{c}}%' }} }},
         {{ name: '% эффекта', type: 'bar', data: data.effect_pct,
-          itemStyle: {{ color: pal.heroColor, borderRadius: [3, 3, 0, 0] }}, barMaxWidth: 22 }}
+          itemStyle: {{ color: pal.heroColor, borderRadius: [3, 3, 0, 0] }}, barMaxWidth: 22,
+          label: {{ show: true, position: 'top', color: pal.textColor, fontSize: 10, fontWeight: 600, formatter: '{{c}}%' }} }}
       ]
     }};
   }}
@@ -430,6 +434,14 @@ def bootstrap_js(
             }}
           }};
         }}),
+        // CHART_SPEC 2.1 (2026-09-13): подпись значения на столбце – без наведения
+        // мышью число раньше читалось только по оси Y (тот же приём, что у mROAS,
+        // buildMroasOption выше).
+        label: {{
+          show: true, position: 'top',
+          color: pal.textColor, fontSize: 11, fontWeight: 600,
+          formatter: function(p) {{ return Math.round(p.value).toLocaleString('ru-RU'); }}
+        }},
         barMaxWidth: 32
       }}]
     }};
@@ -455,7 +467,10 @@ def bootstrap_js(
       grid: {{ left: 8, right: 8, bottom: 8, top: 40, containLabel: true }},
       tooltip: baseTooltip(pal),
       xAxis: Object.assign({{ type: 'category', data: data.dates }}, baseAxisStyle(pal)),
-      yAxis: Object.assign({{ type: 'value' }}, baseAxisStyle(pal)),
+      // CHART_SPEC 2.6 (2026-09-13): scale:true – тот же класс дефекта, что F-A3-01
+      // в ConvergenceDashboard.svelte (ось тянулась от нуля вместо диапазона данных;
+      // здесь ноль не несёт смысла – продажи/KPI, не остаток вокруг нуля).
+      yAxis: Object.assign({{ type: 'value', scale: true }}, baseAxisStyle(pal)),
       series: [
         {{ name: 'Факт', type: 'line', showSymbol: false, smooth: 0.2,
           data: data.actual, lineStyle: {{ width: 2, color: pal.heroColor }},
@@ -509,7 +524,13 @@ def bootstrap_js(
           return 'Прогноз: ' + p.value[0].toFixed(1) + '<br/>Остаток: ' + p.value[1].toFixed(1);
         }}
       }}),
+      // CHART_SPEC 2.8 (2026-09-13): scale:true на оси X – тот же класс дефекта,
+      // что F-A3-01 в ConvergenceDashboard.svelte / прежний scale:true в
+      // PPCScatter.svelte (прогнозные значения почти никогда не близки к нулю,
+      // принудительный ноль сжал бы всё облако точек в угол). Ось Y (остаток)
+      // не трогаем – остатки естественно тяготеют к нулю.
       xAxis: Object.assign({{ type: 'value', name: 'Прогноз', nameLocation: 'middle', nameGap: 28,
+        scale: true,
         nameTextStyle: {{ color: pal.textMutedColor, fontSize: 11 }} }}, baseAxisStyle(pal)),
       yAxis: Object.assign({{ type: 'value', name: 'Остаток', nameLocation: 'middle', nameGap: 40,
         nameTextStyle: {{ color: pal.textMutedColor, fontSize: 11 }} }}, baseAxisStyle(pal)),
@@ -547,10 +568,16 @@ def bootstrap_js(
         axisLabel: Object.assign({{}}, baseAxisStyle(pal).axisLabel, {{ formatter: '{{value}} млн' }})
       }}),
       series: [
+        // CHART_SPEC 2.5 (2026-09-13): подписи значений в млн ₽ на столбцах –
+        // раньше сумма читалась только по оси Y.
         {{ name: 'Текущий', type: 'bar', data: data.current,
-          itemStyle: {{ color: pal.mutedColor, borderRadius: [3, 3, 0, 0] }}, barMaxWidth: 22 }},
+          itemStyle: {{ color: pal.mutedColor, borderRadius: [3, 3, 0, 0] }}, barMaxWidth: 22,
+          label: {{ show: true, position: 'top', color: pal.textColor, fontSize: 10, fontWeight: 600,
+            formatter: function(p) {{ return p.value.toFixed(0) + ' млн'; }} }} }},
         {{ name: 'Оптимальный', type: 'bar', data: data.optimal,
-          itemStyle: {{ color: pal.heroColor, borderRadius: [3, 3, 0, 0] }}, barMaxWidth: 22 }}
+          itemStyle: {{ color: pal.heroColor, borderRadius: [3, 3, 0, 0] }}, barMaxWidth: 22,
+          label: {{ show: true, position: 'top', color: pal.textColor, fontSize: 10, fontWeight: 600,
+            formatter: function(p) {{ return p.value.toFixed(0) + ' млн'; }} }} }}
       ]
     }};
   }}
