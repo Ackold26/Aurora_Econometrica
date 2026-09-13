@@ -281,111 +281,42 @@
   let pdfSaveStatus = $state('');
 
   // Feedback form
-  let fbCategory = $state('problem');
-  let fbMessage = $state('');
-  /** @type {'idle'|'loading'|'recorded'|'sent'|'error'} */
-  let fbStatus = $state('idle');
+  // Обратная связь — заполняется в отдельной форме, которая открывается в браузере.
+  //
+  // 🔴 Программа больше не собирает поля обращения и ничего не отправляет сама (решение
+  // владельца 13.09.2026). Прежний путь отправки остался в `commands/feedback.rs`, но вход в
+  // него закрыт: вместе с ним ушло и «Отправлено!», которое программа говорила от имени
+  // сервиса, ничего не проверив. Подтверждение теперь даёт сама форма — тому, кто её заполнил.
+  /** Открывается ли сейчас браузер с формой. */
+  let fbOpening = $state(false);
   let fbError = $state('');
-  /** Сырая строка отказа — нужна поддержке при разборе, человеку её показываем под «Подробности». */
+  /** Сырая строка отказа — нужна поддержке, человеку показываем под «Подробности». */
   let fbErrorRaw = $state('');
 
-  /** Предел длины текста обращения — тот же, что в `commands/feedback.rs`. */
-  const FEEDBACK_MAX_CHARS = 4000;
-  /** Столько секунд программа не принимает повторную отправку — RATE_LIMIT_SECS в commands/feedback.rs. */
-  const FEEDBACK_COOLDOWN_SECS = 60;
-  /** Ключ отметки времени. Свой у каждой программы: запреты у них независимые. */
-  const FEEDBACK_SENT_KEY = 'econometrica-feedback-last-sent';
-  let fbCooldown = $state(0);
-  /** @type {ReturnType<typeof setInterval>|null} */
-  let fbTimer = null;
-
   /**
-   * Сколько секунд осталось до разрешённой повторной отправки.
-   *
-   * 🔴 Считается от ДОЛГОВРЕМЕННОЙ отметки времени, а не от счётчика тиков — перенос образца
-   * Creative Center, где это уже исправлено по двум находкам внешнего аудита 15.08: счётчик в
-   * состоянии страницы обнулялся при уходе с неё (человек возвращался раньше минуты, видел
-   * активную кнопку и получал отказ), а счётчик тиков после сна компьютера держал кнопку
-   * заблокированной дольше самого запрета.
+   * Человеческий текст отказа. Сами формулировки живут в `commands/feedback.rs` — они уже
+   * написаны для человека и называют адрес почты; здесь снимается только служебный код вида
+   * «[FB-001] », который нужен поддержке, а не человеку. Так текст не разъезжается с программой.
+   * @param {unknown} raw сырая строка отказа из программы
    */
-  function remainingCooldown() {
-    let sentAt = 0;
-    try {
-      sentAt = Number(localStorage.getItem(FEEDBACK_SENT_KEY)) || 0;
-    } catch {
-      // Хранилище может быть недоступно. Отсчёт тогда не восстановится — это неприятно, но
-      // отправку не ломает: запрет всё равно держит программа.
-      sentAt = 0;
-    }
-    if (!sentAt) return 0;
-    const passed = Math.floor((Date.now() - sentAt) / 1000);
-    return Math.max(0, FEEDBACK_COOLDOWN_SECS - passed);
-  }
-
-  /** Запустить (или продолжить) отсчёт до конца запрета повторной отправки. */
-  function startFeedbackCooldown() {
-    if (fbTimer) clearInterval(fbTimer);
-    fbCooldown = remainingCooldown();
-    if (fbCooldown <= 0) {
-      if (fbStatus === 'recorded' || fbStatus === 'sent') fbStatus = 'idle';
-      return;
-    }
-    fbTimer = setInterval(() => {
-      fbCooldown = remainingCooldown();
-      if (fbCooldown <= 0) {
-        if (fbTimer) clearInterval(fbTimer);
-        fbTimer = null;
-        fbStatus = 'idle';
-      }
-    }, 1000);
-  }
-
-  /**
-   * Человеческий текст отказа по коду — строение то же, что в `updateErrorText.js` (CPD-167):
-   * что случилось, чем это плохо, что делать. Сырая строка не теряется: она остаётся под
-   * подписью «Подробности».
-   */
-  /** @param {unknown} raw сырая строка отказа из программы */
   function feedbackErrorText(raw) {
-    const текст = String(raw);
-    if (текст.includes('FB-002') || текст.includes('FB002')) {
-      return 'Предыдущее обращение отправлено меньше минуты назад. Программа держит эту паузу, '
-        + 'чтобы случайный повторный нажим не отправил одно и то же дважды – подождите, пока '
-        + 'кнопка станет доступной, и отправьте снова.';
-    }
-    return 'Отправить обращение не удалось – связи с нашим сервером сейчас нет. '
-      + 'Обращение при этом никуда не сохранилось: скопируйте свой текст, чтобы он не потерялся, '
-      + 'и пришлите его на support@auroraai.pro – ответим так же.';
+    const без_кода = String(raw).replace(/^\[[A-Z]{2}-?\d{3}\]\s*/, '').trim();
+    return без_кода
+      || 'Открыть форму обратной связи не удалось. Напишите нам на support@auroraai.pro – ответим так же.';
   }
 
-  // Возврат на страницу раньше, чем истёк запрет повторной отправки: восстановить отсчёт,
-  // иначе кнопка выглядит доступной, а программа отвечает отказом. Уборка таймера — рядом
-  // с его запуском, чтобы одно не забылось без другого.
-  onMount(() => {
-    startFeedbackCooldown();
-    return () => { if (fbTimer) clearInterval(fbTimer); };
-  });
-
-
-  async function submitFeedback() {
-    if (!fbMessage.trim()) return;
-    fbStatus = 'loading';
+  async function openFeedbackForm() {
+    fbOpening = true;
     fbError = '';
+    fbErrorRaw = '';
     try {
-      // 🔴 Подтверждение показываем по ответу программы, а не по факту «вызов не упал»:
-      // 'recorded' – сервис подтвердил запись, 'sent' – отправка прошла, но признака записи
-      // в ответе не было. Утверждать доставку во втором случае нельзя.
-      const исход = await invoke('submit_feedback', { category: fbCategory, message: fbMessage });
-      fbStatus = исход === 'recorded' ? 'recorded' : 'sent';
-      fbMessage = '';
-      try {
-        localStorage.setItem(FEEDBACK_SENT_KEY, String(Date.now()));
-      } catch { /* хранилище недоступно — отсчёт не восстановится после ухода со страницы */ }
-      startFeedbackCooldown();
+      await invoke('open_feedback_form');
     } catch (err) {
-      fbStatus = 'error';
+      // Отказ обратной связи не мешает работе программы: это не её основная обязанность.
       fbError = feedbackErrorText(err);
       fbErrorRaw = String(err);
+    } finally {
+      fbOpening = false;
     }
   }
 
@@ -745,54 +676,26 @@
       <h2 class="section-title">Обратная связь</h2>
       <p class="section-desc">Сообщите о проблеме, предложите улучшение или задайте вопрос.</p>
       <div class="feedback-form">
-        <select class="fb-select" bind:value={fbCategory}>
-          <option value="problem">Проблема</option>
-          <option value="suggestion">Пожелание</option>
-          <option value="question">Вопрос</option>
-        </select>
-        <textarea
-          class="fb-textarea"
-          placeholder="Опишите подробнее..."
-          bind:value={fbMessage}
-          maxlength={FEEDBACK_MAX_CHARS}
-          rows="4"
-        ></textarea>
         <p class="fb-note">
-          Вместе с обращением уходят название и версия программы, метка компьютера и время – по ним
-          мы поймём, откуда оно пришло. Персональные данные и содержимое документов в тексте не
-          нужны: мы их не запрашиваем.
+          Обращение заполняется в отдельной форме – она откроется в браузере. Название и версия
+          программы, метка компьютера и время подставятся сами, набирать их не нужно.
         </p>
         <p class="fb-note">
-          Ответить в программе мы не сможем – обращение приходит без ваших контактных данных.
-          Нужен ответ – напишите на support@auroraai.pro.
+          Персональные данные и содержимое документов в тексте обращения не нужны – мы их не
+          запрашиваем.
         </p>
         <button
           class="fb-submit"
-          onclick={submitFeedback}
-          disabled={fbStatus === 'loading' || fbCooldown > 0 || !fbMessage.trim()}
-          title={fbCooldown > 0 ? `Следующее обращение можно отправить через ${fbCooldown} с` : ''}
+          onclick={openFeedbackForm}
+          disabled={fbOpening}
         >
-          {#if fbStatus === 'loading'}
-            Отправка...
-          {:else if fbCooldown > 0}
-            Отправлено
+          {#if fbOpening}
+            Открываю форму...
           {:else}
-            Отправить
+            Открыть форму обратной связи
           {/if}
         </button>
-        {#if fbStatus === 'recorded'}
-          <p class="fb-success" role="status">
-            Спасибо, обращение записано. Следующее можно отправить через {fbCooldown} с.
-          </p>
-        {/if}
-        {#if fbStatus === 'sent'}
-          <p class="fb-success" role="status">
-            Обращение отправлено. Подтверждения записи сервис не прислал – если дело важное,
-            продублируйте письмом на support@auroraai.pro. Следующее обращение можно отправить
-            через {fbCooldown} с.
-          </p>
-        {/if}
-        {#if fbStatus === 'error'}
+        {#if fbError}
           <p class="fb-error">{fbError}</p>
           {#if fbErrorRaw}
             <details class="fb-details">

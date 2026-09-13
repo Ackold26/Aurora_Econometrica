@@ -4073,6 +4073,7 @@ fn build_app() -> Result<(), String> {
             download_update,
             apply_update,
             feedback::submit_feedback,
+            feedback::open_feedback_form,
             // Campaign & Workflow commands
             commands::campaign::campaign_create,
             commands::campaign::campaign_list,
