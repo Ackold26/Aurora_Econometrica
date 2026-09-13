@@ -10,6 +10,7 @@
   import { invoke } from '@tauri-apps/api/core';
   import { onMount } from 'svelte';
   import { get } from 'svelte/store';
+  import FeedbackReportButton from '$lib/components/FeedbackReportButton.svelte';
   import {
     validateData, modelData, isComputing, computeStatus,
     completeStep, setStepError, resetDownstream, expertMode,
@@ -310,6 +311,7 @@
         <button class="btn-retry" onclick={retryTraining}>Повторить</button>
         <button class="btn-edit" onclick={editConfig}>Изменить настройки</button>
       </div>
+      <FeedbackReportButton ekran="Модель" oshibka={errorMessage} />
     </div>
   {/if}
 

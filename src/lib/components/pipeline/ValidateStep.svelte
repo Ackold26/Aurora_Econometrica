@@ -13,6 +13,7 @@
    */
   import { onMount } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
+  import FeedbackReportButton from '$lib/components/FeedbackReportButton.svelte';
   import ColumnMapper from '$lib/components/pipeline/ColumnMapper.svelte';
   import TrafficLight from '$lib/components/pipeline/TrafficLight.svelte';
   import CorrelationHeatmap from '$lib/components/pipeline/CorrelationHeatmap.svelte';
@@ -296,7 +297,10 @@
 
   <!-- Error -->
   {#if errorMsg}
-    <div class="error-banner"><TriangleAlert size={14} strokeWidth={1.5} style="vertical-align: -0.15em" /> {errorMsg}</div>
+    <div class="error-banner">
+      <TriangleAlert size={14} strokeWidth={1.5} style="vertical-align: -0.15em" /> {errorMsg}
+      <FeedbackReportButton ekran="Валидация" oshibka={errorMsg} />
+    </div>
   {/if}
 
   <!-- Objective selector: ROI / Effectiveness / Manual -->

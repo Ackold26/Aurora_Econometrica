@@ -12,6 +12,7 @@
   import { getCurrentWindow } from '@tauri-apps/api/window';
   import { onMount } from 'svelte';
   import DataTable from '$lib/components/DataTable.svelte';
+  import FeedbackReportButton from '$lib/components/FeedbackReportButton.svelte';
   import Tooltip from '$lib/components/Tooltip.svelte';
   import { TOOLTIPS } from '$lib/data/tooltip-texts.js';
   import PipelineOnboarding from '$lib/components/pipeline/PipelineOnboarding.svelte';
@@ -566,6 +567,7 @@
     <div class="error-banner">
       <span class="error-icon"><TriangleAlert size={14} strokeWidth={1.5} style="vertical-align: -0.15em" /></span>
       {errorMsg}
+      <FeedbackReportButton ekran="Импорт" oshibka={errorMsg} />
     </div>
   {/if}
 

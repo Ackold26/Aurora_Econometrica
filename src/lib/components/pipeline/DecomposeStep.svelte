@@ -9,6 +9,7 @@
   import { onMount } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
   import { get } from 'svelte/store';
+  import FeedbackReportButton from '$lib/components/FeedbackReportButton.svelte';
   import {
     activeProjectId,
     decomposeData,
@@ -546,6 +547,7 @@
       <span class="error-icon"><TriangleAlert size={16} strokeWidth={1.5} /></span>
       <span class="error-text">{errorMessage}</span>
       <button class="btn-retry" onclick={() => runDecompose()}>Повторить</button>
+      <FeedbackReportButton ekran="Декомпозиция" oshibka={errorMessage} />
     </div>
   {/if}
 

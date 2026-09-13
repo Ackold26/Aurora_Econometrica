@@ -10,6 +10,7 @@
   import { invoke } from '@tauri-apps/api/core';
   import { get } from 'svelte/store';
   import { tick } from 'svelte';
+  import FeedbackReportButton from '$lib/components/FeedbackReportButton.svelte';
   import {
     activeProjectId,
     modelData,
@@ -1725,6 +1726,7 @@
       <span class="error-icon"><AlertTriangle size={16} strokeWidth={1.5} /></span>
       <span class="error-text">{errorMessage}</span>
       <button class="btn-retry" onclick={runOptimize}>Повторить</button>
+      <FeedbackReportButton ekran="Оптимизация" oshibka={errorMessage} />
     </div>
   {/if}
 

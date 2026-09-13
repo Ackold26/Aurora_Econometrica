@@ -13,6 +13,7 @@
   import { productType } from '$lib/creative-store.js';
   import { theme, toggleTheme } from '$lib/store.js';
   import {
+    PIPELINE_STEPS,
     pipelineCurrentStep,
     pipelineStepMeta,
     activeProjectId,
@@ -27,6 +28,7 @@
     importData,
     validateSubStep,
   } from '$lib/project-state.js';
+  import { openFeedbackForm, feedbackErrorText } from '$lib/feedback.js';
   import PipelineStepper from '$lib/components/pipeline/PipelineStepper.svelte';
   import InsightsPanel from '$lib/components/pipeline/InsightsPanel.svelte';
   import ProjectSelector from '$lib/components/ProjectSelector.svelte';
@@ -168,6 +170,25 @@
       await invoke('open_help', { cabinetId: page });
     } catch (e) {
       console.error('Failed to open help:', e);
+    }
+  }
+
+  // Кнопка «Сообщить о проблеме» в шапке — рядом со справкой, доступна с любого шага.
+  // Экран берётся из текущего шага сам; текст ошибки здесь взять неоткуда (это не окно
+  // сбоя) — оба поля в форме остаются необязательными.
+  let fbHeaderOpening = $state(false);
+  let fbHeaderError = $state('');
+  async function reportProblemFromHeader() {
+    fbHeaderOpening = true;
+    fbHeaderError = '';
+    try {
+      const screen = PIPELINE_STEPS[$pipelineCurrentStep]?.labelRu ?? '';
+      await openFeedbackForm(screen, '');
+    } catch (e) {
+      fbHeaderError = feedbackErrorText(e);
+      console.error('Не удалось открыть форму обратной связи:', e);
+    } finally {
+      fbHeaderOpening = false;
     }
   }
 
@@ -443,6 +464,19 @@
             <line x1="12" y1="17" x2="12.01" y2="17"/>
           </svg>
         </button>
+        <button
+          class="header-icon-btn"
+          title="Сообщить о проблеме"
+          onclick={reportProblemFromHeader}
+          disabled={fbHeaderOpening}
+        >
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+          </svg>
+        </button>
+        {#if fbHeaderError}
+          <span class="fb-header-error" role="alert">{fbHeaderError}</span>
+        {/if}
       </div>
     </div>
 
@@ -665,6 +699,16 @@
   .header-icon-btn:hover {
     color: var(--text-primary, #e2e8f0);
     background: var(--bg-tertiary, rgba(255,255,255,0.06));
+  }
+  .header-icon-btn:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
+
+  .fb-header-error {
+    font-size: 11px;
+    color: var(--danger, #ef4444);
+    max-width: 220px;
   }
 
   .mode-toggle {

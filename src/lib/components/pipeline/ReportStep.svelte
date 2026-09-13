@@ -12,6 +12,7 @@
   import { openPath } from '@tauri-apps/plugin-opener';
   import { onMount } from 'svelte';
   import { get } from 'svelte/store';
+  import FeedbackReportButton from '$lib/components/FeedbackReportButton.svelte';
   import {
     activeProjectId,
     modelData,
@@ -859,6 +860,7 @@
       <button class="btn-retry" onclick={() => { stepState = 'idle'; errorMessage = null; }}>
         Попробовать снова
       </button>
+      <FeedbackReportButton ekran="Отчёт" oshibka={errorMessage} />
     </div>
   {/if}
 
