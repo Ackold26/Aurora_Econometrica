@@ -919,8 +919,8 @@ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, A
     # F-A1-5: оценочное число эффективных параметров ДО обучения.
     # Учитывает авто-инжектируемые контроли которые пользователь не видит
     # в таблице ролей, но которые реально раздувают n_params в модели:
-    #   - 12 праздников РФ (дефолт use_holidays=True; disabled_holidays в конфиге
-    #     не известен на этапе validate, используем дефолтные 12)
+    #   - праздники РФ, число берётся из календаря (дефолт use_holidays=True;
+    #     disabled_holidays в конфиге не известен на этапе validate)
     #   - intercept (1 параметр, всегда)
     #   - Фурье-члены сезонности: условны (нужно ≥2 цикла + autocorr ≥ 0.2),
     #     здесь НЕ включаем — честнее показать минимальную оценку; при обучении
@@ -941,18 +941,28 @@ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, A
     # Единая константа +13 соврала бы для OLS ровно настолько же, насколько
     # сырой знаменатель врал для байеса.
     #
-    # Праздников не всегда 12: modeler.py пропускает те, что пользователь дал
-    # сам (семантический дедуп по нормализованному имени), и отключённые в
-    # конфиге. Отключённые на этапе валидации неизвестны, а вот покрытые
-    # пользователем — видны прямо здесь, по списку колонок. Считаем их.
-    N_HOLIDAYS_DEFAULT = 12
+    # Праздников не всегда все из календаря: modeler.py пропускает те, что
+    # пользователь дал сам (семантический дедуп по нормализованному имени), и
+    # отключённые в конфиге. Отключённые на этапе валидации неизвестны, а вот
+    # покрытые пользователем — видны прямо здесь, по списку колонок. Считаем их.
+    # 🔴 Число праздников — БЕЗ собственной константы (задвоение источника
+    # истины, найдено 13.09.2026: календарь добавил 13-е событие (Пасху), а
+    # здесь годами лежала своя N_HOLIDAYS_DEFAULT = 12 — знаменатель занижался
+    # на единицу, «запас данных» выглядел лучше настоящего (нарушение INV-50).
+    # Источник истины ОДИН — сам календарь: len(list_holiday_names()).
+    # Добавление 14-го события впредь не разойдётся само по себе.
     N_INTERCEPT = 1
     try:
-        from utils.holiday_calendar_ru import user_covered_auto_holidays
+        from utils.holiday_calendar_ru import (
+            list_holiday_names,
+            user_covered_auto_holidays,
+        )
+        _total_holidays = len(list_holiday_names())
         _covered = len(user_covered_auto_holidays([c['name'] for c in columns]))
     except Exception:  # noqa: BLE001 — оценка не имеет права ронять валидацию
+        _total_holidays = 12  # запасной минимум при недоступном календаре
         _covered = 0
-    n_holidays_auto = max(N_HOLIDAYS_DEFAULT - _covered, 0)
+    n_holidays_auto = max(_total_holidays - _covered, 0)
     n_params_effective_bayesian = n_predictors + n_holidays_auto + N_INTERCEPT
     n_params_effective_ols = n_predictors + N_INTERCEPT
     # Историческое имя поля: оставлено, чтобы не сломать уже сохранённые
