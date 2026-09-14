@@ -2599,18 +2599,18 @@ fn accept_trial_consent(app_handle: tauri::AppHandle) -> Result<(), String> {
     user_config::save(&config_dir, &config)
 }
 
-/// Открыть локальный PDF «Условия ознакомительного использования» — без обращения в сеть,
-/// тем же приёмом, что и `save_help_pdf`/`open_user_guide` выше (Econometrica доставляет
-/// справочные материалы БАНДЛОМ resource_dir, не content-pack-каналом): сперва bundled
+/// Открыть локальный правовой PDF по имени файла — без обращения в сеть, тем же приёмом,
+/// что и `save_help_pdf`/`open_user_guide` выше (Econometrica доставляет справочные и
+/// правовые материалы БАНДЛОМ resource_dir, не content-pack-каналом): сперва bundled
 /// resource_dir (prod), при отсутствии - dev-фолбэк на `CARGO_MANIFEST_DIR/help-econometrica`.
 ///
-/// 🔴 Файл поставляет правовой блок отдельно от кода (см. Projects/PULSE_s48_consent.md) -
-/// до его прихода команда честно отвечает понятной ошибкой, а не тихим отказом или пустым
+/// Общий хелпер для `open_trial_terms` и `open_data_processing_terms` ниже — оба документа
+/// открываются одинаково, различается только имя файла и текст ошибки об отсутствии.
+///
+/// 🔴 Файлы поставляет правовой блок отдельно от кода (см. Projects/PULSE_s48_consent.md) -
+/// до их прихода команда честно отвечает понятной ошибкой, а не тихим отказом или пустым
 /// окном.
-#[tauri::command]
-fn open_trial_terms(app_handle: tauri::AppHandle) -> Result<(), String> {
-    let filename = user_config::TRIAL_TERMS_PDF_FILENAME;
-
+fn open_legal_pdf(app_handle: &tauri::AppHandle, filename: &str, human_name: &str) -> Result<(), String> {
     let resource_path = app_handle
         .path()
         .resource_dir()
@@ -2629,14 +2629,34 @@ fn open_trial_terms(app_handle: tauri::AppHandle) -> Result<(), String> {
         } else {
             return Err(format!(
                 "Файл «{filename}» пока не поставляется вместе с программой. \
-                 Обратитесь в поддержку Aurora AI, чтобы получить текст условий \
-                 ознакомительного использования."
+                 Обратитесь в поддержку Aurora AI, чтобы получить текст документа \
+                 «{human_name}»."
             ));
         }
     };
 
     tauri_plugin_opener::open_path(path.to_string_lossy().to_string(), None::<&str>)
         .map_err(|e| e.to_string())
+}
+
+/// Открыть локальный PDF «Условия ознакомительного использования» — см. `open_legal_pdf`.
+#[tauri::command]
+fn open_trial_terms(app_handle: tauri::AppHandle) -> Result<(), String> {
+    open_legal_pdf(
+        &app_handle,
+        user_config::TRIAL_TERMS_PDF_FILENAME,
+        "условия ознакомительного использования",
+    )
+}
+
+/// Открыть локальный PDF «Порядок обработки данных» — см. `open_legal_pdf`.
+#[tauri::command]
+fn open_data_processing_terms(app_handle: tauri::AppHandle) -> Result<(), String> {
+    open_legal_pdf(
+        &app_handle,
+        user_config::DATA_PROCESSING_PDF_FILENAME,
+        "порядок обработки данных",
+    )
 }
 
 /// Включить/выключить runtime-режим «только локально». Пишет `local_only` в
@@ -4138,6 +4158,7 @@ fn build_app() -> Result<(), String> {
             get_trial_consent_status,
             accept_trial_consent,
             open_trial_terms,
+            open_data_processing_terms,
             list_vault_status,
             // export_logs removed - now internal helper, open_logs_folder uses it
             open_logs_folder,

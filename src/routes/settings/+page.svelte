@@ -280,6 +280,12 @@
   let guideError = $state('');
   let pdfSaveStatus = $state('');
 
+  // Блок «Документы и соглашения» (s48, 2026-09-14) — открытие правовых PDF локально,
+  // тем же приёмом, что open_help/open_trial_terms выше: обе ошибки открытия держим
+  // раздельно, чтобы сообщение об отсутствии одного документа не гасило другое.
+  let termsDocError = $state('');
+  let dataProcessingDocError = $state('');
+
   // Feedback form
   // Обратная связь — заполняется в отдельной форме, которая открывается в браузере.
   //
@@ -891,6 +897,31 @@
       {#if diagPath}
         <p class="section-desc" style="margin-top: 8px; font-size: 12px; color: var(--accent-primary);">{diagPath}</p>
       {/if}
+    </section>
+
+    <section class="section">
+      <h2 class="section-title">Документы и соглашения</h2>
+      <p class="section-desc">Правовые документы программы. Открываются локально, без обращения в сеть.</p>
+      <div class="legal-docs-list">
+        <div class="legal-doc-row">
+          <span class="legal-doc-name">Условия ознакомительного использования</span>
+          <button class="btn-logs" onclick={async () => { termsDocError = ''; try { await invoke('open_trial_terms'); } catch(e) { termsDocError = String(e); console.error(e); } }}>
+            Открыть
+          </button>
+        </div>
+        {#if termsDocError}
+          <p class="import-status" style="color: var(--danger)">{termsDocError}</p>
+        {/if}
+        <div class="legal-doc-row">
+          <span class="legal-doc-name">Порядок обработки данных</span>
+          <button class="btn-logs" onclick={async () => { dataProcessingDocError = ''; try { await invoke('open_data_processing_terms'); } catch(e) { dataProcessingDocError = String(e); console.error(e); } }}>
+            Открыть
+          </button>
+        </div>
+        {#if dataProcessingDocError}
+          <p class="import-status" style="color: var(--danger)">{dataProcessingDocError}</p>
+        {/if}
+      </div>
     </section>
 
     <section class="section about-section">
@@ -1710,6 +1741,29 @@
     font-size: 12px;
     color: var(--text-muted);
     margin-left: 16px;
+  }
+
+  /* ── Документы и соглашения (s48) ── */
+  .legal-docs-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .legal-doc-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    background: var(--bg-tertiary);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 10px 12px;
+  }
+
+  .legal-doc-name {
+    font-size: 13px;
+    color: var(--text-secondary);
   }
 
   /* ── Cabinet Paths ── */

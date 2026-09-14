@@ -76,6 +76,20 @@ pub const TRIAL_TERMS_REVISION: &str = "2026-09-14";
 /// чтобы имя не разъехалось между ними.
 pub const TRIAL_TERMS_PDF_FILENAME: &str = "Условия ознакомительного использования.pdf";
 
+/// Имя PDF-файла «Порядок обработки данных — Econometrica», второго обязательного
+/// документа правового комплекта (см. Business/Projects/СИГНАЛ_сессиям_правовой_комплект_
+/// 2026-09-14.md). На него ссылаются пункты 6.2, 6.5, 6.8 «Условий»: без него эти пункты
+/// ведут в пустоту. Поставляется тем же бандлом, что и `TRIAL_TERMS_PDF_FILENAME` —
+/// `help-econometrica/*` в `tauri.conf.json` уже включает весь каталог маской, отдельная
+/// строка ресурса не нужна.
+pub const DATA_PROCESSING_PDF_FILENAME: &str = "Порядок обработки данных — Econometrica.pdf";
+
+/// Ключи документов в `tools/trial_terms_manifest.json` (объект `documents`). Общие для
+/// Rust-сторожа и `tools/sync_trial_terms.py` — расхождение ключа сторож ловит тем же
+/// приёмом, что и расхождение имени файла (`sync_script_filename_matches_rust_constant`).
+pub const TRIAL_TERMS_MANIFEST_KEY: &str = "terms";
+pub const DATA_PROCESSING_MANIFEST_KEY: &str = "data_processing";
+
 /// Зафиксированное согласие на условия ознакомительного использования. Юридически
 /// значимо → хранится в durable backend-конфиге (см. `CloudConsent` выше — тот же приём).
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -668,11 +682,15 @@ mod trial_terms_frontend_consistency_guard {
     }
 }
 
-/// Сверяет байты PDF с ожидаемой суммой из манифеста `tools/trial_terms_manifest.json`
-/// (JSON: `{"sha256": "...", "revision": "...", "status": "..."}`). Чистая функция — без
-/// обращения к диску, поэтому её красное/зелёное поведение проверяется юнит-тестами на
-/// синтетических данных (`trial_terms_manifest_guard_logic` ниже), а не только на реальном
-/// (юридически значимом, живущем вне репозитория) файле условий.
+/// Сверяет байты PDF с ожидаемой суммой одного документа из манифеста
+/// `tools/trial_terms_manifest.json` (JSON: `{"documents": {"<key>": {"sha256": "...",
+/// "revision": "...", "status": "..."}, ...}}`). `doc_key` — ключ документа внутри
+/// `documents` (`TRIAL_TERMS_MANIFEST_KEY` / `DATA_PROCESSING_MANIFEST_KEY`), `human_name` —
+/// название для человека, попадающее в текст ошибки, чтобы сторож называл КОНКРЕТНЫЙ
+/// документ, а не абстрактный "PDF". Чистая функция — без обращения к диску, поэтому её
+/// красное/зелёное поведение проверяется юнит-тестами на синтетических данных
+/// (`trial_terms_manifest_guard_logic` ниже), а не только на реальном (юридически значимом,
+/// живущем вне репозитория) файле.
 ///
 /// 🔴 Требование владельца s48 (2026-09-14): «сторож, который никогда не краснел, ничего не
 /// сторожит» — в этой линейке одиннадцать сторожей из тринадцати оказались мёртвыми именно
@@ -681,25 +699,36 @@ mod trial_terms_frontend_consistency_guard {
 /// `#[cfg(test)]` - вызывается только из тестовых модулей ниже; в production-сборке сверку
 /// суммы делает `tools/sync_trial_terms.py` до упаковки, а не рантайм программы.
 #[cfg(test)]
-fn verify_pdf_matches_manifest(pdf_bytes: &[u8], manifest_json: &str) -> Result<(), String> {
+fn verify_pdf_matches_manifest(
+    pdf_bytes: &[u8],
+    manifest_json: &str,
+    doc_key: &str,
+    human_name: &str,
+) -> Result<(), String> {
     use sha2::{Digest, Sha256};
 
     let manifest: serde_json::Value = serde_json::from_str(manifest_json)
         .map_err(|e| format!("манифест trial_terms_manifest.json не разобрался: {e}"))?;
 
-    let expected = match manifest.get("sha256").and_then(|v| v.as_str()) {
+    let doc = manifest.get("documents").and_then(|d| d.get(doc_key));
+
+    let expected = match doc.and_then(|d| d.get("sha256")).and_then(|v| v.as_str()) {
         Some(s) if !s.is_empty() => s,
         _ => {
-            let status = manifest
-                .get("status")
+            let status = doc
+                .and_then(|d| d.get("status"))
                 .and_then(|v| v.as_str())
                 .unwrap_or("сумма PDF в манифесте не задана");
             return Err(format!(
-                "манифест trial_terms_manifest.json ещё не заполнен: {status}"
+                "манифест trial_terms_manifest.json ещё не заполнен для документа \
+                 «{human_name}» (ключ {doc_key}): {status}"
             ));
         }
     };
-    let expected_revision = manifest.get("revision").and_then(|v| v.as_str()).unwrap_or("?");
+    let expected_revision = doc
+        .and_then(|d| d.get("revision"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("?");
 
     let mut hasher = Sha256::new();
     hasher.update(pdf_bytes);
@@ -707,10 +736,10 @@ fn verify_pdf_matches_manifest(pdf_bytes: &[u8], manifest_json: &str) -> Result<
 
     if actual != expected {
         return Err(format!(
-            "PDF условий не совпадает с эталоном манифеста (ожидалась редакция {expected_revision}, \
-             сумма {expected}): у файла в поставке сумма {actual} — доставлена НЕ та редакция, \
-             файл повреждён при переносе, либо манифест устарел (перезапустите \
-             tools/sync_trial_terms.py)"
+            "PDF документа «{human_name}» не совпадает с эталоном манифеста (ожидалась \
+             редакция {expected_revision}, сумма {expected}): у файла в поставке сумма \
+             {actual} — доставлена НЕ та редакция, файл повреждён при переносе, либо \
+             манифест устарел (перезапустите tools/sync_trial_terms.py)"
         ));
     }
     Ok(())
@@ -731,72 +760,111 @@ mod trial_terms_manifest_guard_logic {
         let mut hasher = Sha256::new();
         hasher.update(bytes);
         let hash = format!("{:x}", hasher.finalize());
-        let manifest = format!(r#"{{"revision":"2026-09-14","sha256":"{hash}"}}"#);
-        assert!(verify_pdf_matches_manifest(bytes, &manifest).is_ok());
+        let manifest =
+            format!(r#"{{"documents":{{"terms":{{"revision":"2026-09-14","sha256":"{hash}"}}}}}}"#);
+        assert!(verify_pdf_matches_manifest(bytes, &manifest, "terms", "Условия").is_ok());
     }
 
     /// 🔴 Доказательство красного: заведомо неверная сумма ОБЯЗАНА провалить проверку, а
-    /// сообщение — назвать и ожидаемую редакцию, и то, что суммы разошлись (не абстрактное
-    /// "тест упал").
+    /// сообщение — назвать документ, ожидаемую редакцию и то, что суммы разошлись (не
+    /// абстрактное "тест упал").
     #[test]
     fn fails_loudly_when_hash_does_not_match() {
         let bytes: &[u8] = "то, что реально лежит в поставке".as_bytes();
-        let manifest = r#"{"revision":"2026-09-14","sha256":"0000000000000000000000000000000000000000000000000000000000000000"}"#;
-        let err = verify_pdf_matches_manifest(bytes, manifest).unwrap_err();
+        let manifest = r#"{"documents":{"terms":{"revision":"2026-09-14","sha256":"0000000000000000000000000000000000000000000000000000000000000000"}}}"#;
+        let err = verify_pdf_matches_manifest(bytes, manifest, "terms", "Условия").unwrap_err();
         assert!(err.contains("не совпадает"), "сообщение обязано объяснять причину: {err}");
         assert!(err.contains("2026-09-14"), "сообщение обязано называть ожидаемую редакцию: {err}");
+        assert!(err.contains("Условия"), "сообщение обязано называть, какой документ разошёлся: {err}");
     }
 
     #[test]
     fn fails_loudly_on_malformed_manifest() {
-        let err = verify_pdf_matches_manifest(b"whatever", "not json").unwrap_err();
+        let err = verify_pdf_matches_manifest(b"whatever", "not json", "terms", "Условия").unwrap_err();
         assert!(err.contains("не разобрался"), "сообщение обязано называть причину: {err}");
     }
 
-    /// Манифест ещё не заполнен реальной суммой (текущее состояние — PDF заблокирован
-    /// проверкой на персональные данные) — сообщение обязано это объяснять, а не молча
-    /// падать на разборе типа.
+    /// Манифест ещё не заполнен реальной суммой для документа (например, поле pending) —
+    /// сообщение обязано это объяснять и называть документ, а не молча падать на разборе типа.
     #[test]
     fn fails_loudly_when_manifest_pending() {
-        let manifest = r#"{"revision":"2026-09-14","sha256":null,"status":"PENDING - проверка на ПДн"}"#;
-        let err = verify_pdf_matches_manifest(b"anything", manifest).unwrap_err();
+        let manifest = r#"{"documents":{"data_processing":{"revision":"2026-09-14","sha256":null,"status":"PENDING - проверка на ПДн"}}}"#;
+        let err = verify_pdf_matches_manifest(b"anything", manifest, "data_processing", "Порядок обработки данных").unwrap_err();
         assert!(err.contains("PENDING"), "сообщение обязано процитировать причину ожидания: {err}");
+        assert!(err.contains("Порядок обработки данных"), "сообщение обязано называть документ: {err}");
+    }
+
+    /// Ключ документа отсутствует в `documents` вовсе (второй документ не добавлен в
+    /// манифест) — обязан провалиться с понятным сообщением, а не запаниковать на None.
+    #[test]
+    fn fails_loudly_when_doc_key_missing() {
+        let manifest = r#"{"documents":{"terms":{"revision":"2026-09-14","sha256":"aa"}}}"#;
+        let err = verify_pdf_matches_manifest(b"anything", manifest, "data_processing", "Порядок обработки данных").unwrap_err();
+        assert!(
+            err.contains("Порядок обработки данных") && err.contains("data_processing"),
+            "сообщение обязано называть отсутствующий документ и его ключ: {err}"
+        );
     }
 }
 
-/// 🔴 Сторож поставки (s48, 2026-09-14): PDF условий обязан ФИЗИЧЕСКИ лежать там, откуда его
-/// возьмёт установщик (`src-tauri/help-econometrica/`, целиком включена в `bundle.resources`
-/// как `"help-econometrica/*"` в `tauri.conf.json`), И его сумма обязана совпадать с эталоном
-/// в `tools/trial_terms_manifest.json` — а не просто числиться строкой в конфигурации и не
-/// просто существовать (устаревшая или повреждённая копия тоже физически существует).
+/// 🔴 Сторож поставки (s48, 2026-09-14): ОБА правовых PDF обязаны ФИЗИЧЕСКИ лежать там,
+/// откуда их возьмёт установщик (`src-tauri/help-econometrica/`, целиком включена в
+/// `bundle.resources` как `"help-econometrica/*"` в `tauri.conf.json`), И их суммы обязаны
+/// совпадать с эталоном в `tools/trial_terms_manifest.json` — а не просто числиться строкой
+/// в конфигурации и не просто существовать (устаревшая или повреждённая копия тоже физически
+/// существует). Второй документ («Порядок обработки данных») добавлен по требованию
+/// правового блока (Business/Projects/СИГНАЛ_сессиям_правовой_комплект_2026-09-14.md) — без
+/// него пункты 6.2/6.5/6.8 «Условий» ведут в пустоту, поэтому его отсутствие валит поставку
+/// точно так же, как отсутствие «Условий».
 ///
-/// ⚠️ Ожидаемо КРАСНЫЙ, пока PDF заблокирован проверкой на персональные данные в метаданных
-/// (см. Projects/PULSE_s48_consent.md — находка: `/Author` = личное имя). Это не заглушка и
-/// не пропускаемый тест — файл не подделывается и не создаётся макетом: красный прогон здесь
-/// и есть честное напоминание, что поставка не готова. Манифест обновляется ТОЛЬКО через
-/// `tools/sync_trial_terms.py` — вручную сумму в него не подставлять.
+/// Манифест обновляется ТОЛЬКО через `tools/sync_trial_terms.py` — вручную сумму в него не
+/// подставлять (см. этот файл: обе суммы считает скрипт, а не рука).
 #[cfg(test)]
 mod trial_terms_delivery_guard {
-    use super::{verify_pdf_matches_manifest, TRIAL_TERMS_PDF_FILENAME, TRIAL_TERMS_REVISION};
+    use super::{
+        verify_pdf_matches_manifest, DATA_PROCESSING_MANIFEST_KEY, DATA_PROCESSING_PDF_FILENAME,
+        TRIAL_TERMS_MANIFEST_KEY, TRIAL_TERMS_PDF_FILENAME, TRIAL_TERMS_REVISION,
+    };
     use std::path::Path;
 
     const MANIFEST_JSON: &str = include_str!("../../../tools/trial_terms_manifest.json");
 
-    #[test]
-    fn trial_terms_pdf_matches_manifest_hash() {
+    /// Общая проверка одного документа поставки: файл физически на диске бандла + сумма
+    /// совпадает с манифестом. Вызывается для каждого из двух документов ниже — так падение
+    /// одного не маскирует и не подменяет падение другого (два отдельных теста, а не один
+    /// цикл с общим `assert`, чтобы `cargo test` печатал имя провалившегося документа).
+    fn check_delivered_document(filename: &str, doc_key: &str, human_name: &str) {
         let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
-        let pdf_path = manifest_dir.join("help-econometrica").join(TRIAL_TERMS_PDF_FILENAME);
+        let pdf_path = manifest_dir.join("help-econometrica").join(filename);
         let bytes = match std::fs::read(&pdf_path) {
             Ok(b) => b,
             Err(_) => panic!(
-                "PDF условий ознакомительного использования отсутствует в {} - поставка НЕ \
-                 готова (запустите tools/sync_trial_terms.py; см. Projects/PULSE_s48_consent.md)",
+                "PDF документа «{human_name}» отсутствует в {} - поставка НЕ готова \
+                 (запустите tools/sync_trial_terms.py; см. Projects/PULSE_s48_docsblock.md)",
                 pdf_path.display()
             ),
         };
-        if let Err(e) = verify_pdf_matches_manifest(&bytes, MANIFEST_JSON) {
+        if let Err(e) = verify_pdf_matches_manifest(&bytes, MANIFEST_JSON, doc_key, human_name) {
             panic!("{e}");
         }
+    }
+
+    #[test]
+    fn trial_terms_pdf_matches_manifest_hash() {
+        check_delivered_document(
+            TRIAL_TERMS_PDF_FILENAME,
+            TRIAL_TERMS_MANIFEST_KEY,
+            "Условия ознакомительного использования",
+        );
+    }
+
+    #[test]
+    fn data_processing_pdf_matches_manifest_hash() {
+        check_delivered_document(
+            DATA_PROCESSING_PDF_FILENAME,
+            DATA_PROCESSING_MANIFEST_KEY,
+            "Порядок обработки данных",
+        );
     }
 
     /// Вспомогательный к тесту выше: конфигурация обязана продолжать включать
@@ -812,15 +880,21 @@ mod trial_terms_delivery_guard {
         );
     }
 
-    /// Имя файла в `tools/sync_trial_terms.py` обязано дословно совпадать с
-    /// `TRIAL_TERMS_PDF_FILENAME` — иначе воспроизводимый перенос кладёт файл под ДРУГИМ
-    /// именем, и открытие условий из окна согласия (`open_trial_terms`) его не найдёт.
+    /// Имена файлов в `tools/sync_trial_terms.py` обязаны дословно совпадать с
+    /// `TRIAL_TERMS_PDF_FILENAME`/`DATA_PROCESSING_PDF_FILENAME` — иначе воспроизводимый
+    /// перенос кладёт файл под ДРУГИМ именем, и открытие документа из настроек
+    /// (`open_trial_terms`/`open_data_processing_terms`) его не найдёт.
     #[test]
     fn sync_script_filename_matches_rust_constant() {
         const SYNC_SCRIPT: &str = include_str!("../../../tools/sync_trial_terms.py");
         assert!(
             SYNC_SCRIPT.contains(TRIAL_TERMS_PDF_FILENAME),
-            "имя файла в tools/sync_trial_terms.py разошлось с TRIAL_TERMS_PDF_FILENAME"
+            "имя файла условий в tools/sync_trial_terms.py разошлось с TRIAL_TERMS_PDF_FILENAME"
+        );
+        assert!(
+            SYNC_SCRIPT.contains(DATA_PROCESSING_PDF_FILENAME),
+            "имя файла порядка обработки данных в tools/sync_trial_terms.py разошлось с \
+             DATA_PROCESSING_PDF_FILENAME"
         );
     }
 
