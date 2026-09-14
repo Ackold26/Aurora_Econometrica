@@ -11,9 +11,10 @@
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/svelte';
+import { tick } from 'svelte';
 import { invoke } from '@tauri-apps/api/core';
 import { getCurrentWindow } from '@tauri-apps/api/window';
-import { trialConsentPromptOpen } from '$lib/store.js';
+import { trialConsentPromptOpen, trialConsentResolved } from '$lib/store.js';
 import { SHOW_CLOUD_PROCESSING_PARAGRAPH } from '$lib/trial-terms-config.js';
 import TrialConsentOverlay from '$lib/components/TrialConsentOverlay.svelte';
 
@@ -28,6 +29,12 @@ beforeEach(() => {
   vi.mocked(invoke).mockResolvedValue(null);
   closeWindow.mockClear();
   trialConsentPromptOpen.set(true);
+  // s48 (третья волна): в реальном потоке к моменту, когда окно вообще может стать видимым,
+  // Rust уже ответил (resolveTrialConsentGate ставит trialConsentResolved ПЕРЕД тем, как
+  // компонент показывается) - иначе trialConsentBlocking навсегда true независимо от того,
+  // что происходит с trialConsentPromptOpen, и тест "перехват снимается" ниже не имел бы
+  // смысла (проверял бы состояние, которого в бою не бывает).
+  trialConsentResolved.set(true);
 });
 
 describe('TrialConsentOverlay — отметка и кнопка «Принимаю»', () => {
@@ -161,5 +168,92 @@ describe('TrialConsentOverlay — открытие условий', () => {
     await waitFor(() => {
       expect(screen.getByText(/пока не поставляется/)).toBeInTheDocument();
     });
+  });
+});
+
+describe('TrialConsentOverlay — второй слой защиты: перехват клавиш вне оверлея (s48, аудит второй волны)', () => {
+  it('нажатие клавиши на ФОНОВОМ элементе не доходит до window-обработчика продукта (bubble-фаза)', async () => {
+    const backgroundBtn = document.createElement('button');
+    document.body.appendChild(backgroundBtn);
+    render(TrialConsentOverlay);
+    await tick();
+
+    // Имитация обработчика продукта (handleHomeShortcut/handleCabinetShortcut/handleGlobalShortcut
+    // и любого будущего) - обычный window-слушатель без capture, ровно как они регистрируются.
+    const productHandlerSpy = vi.fn();
+    window.addEventListener('keydown', productHandlerSpy);
+
+    backgroundBtn.focus();
+    await fireEvent.keyDown(backgroundBtn, { key: '1' });
+
+    expect(productHandlerSpy).not.toHaveBeenCalled();
+
+    window.removeEventListener('keydown', productHandlerSpy);
+    backgroundBtn.remove();
+  });
+
+  it('нажатие клавиши ВНУТРИ оверлея (чекбокс) не гасится - работает как обычно', async () => {
+    render(TrialConsentOverlay);
+    await tick();
+
+    const productHandlerSpy = vi.fn();
+    window.addEventListener('keydown', productHandlerSpy);
+
+    const checkbox = screen.getByRole('checkbox');
+    await fireEvent.keyDown(checkbox, { key: ' ' });
+
+    expect(productHandlerSpy).toHaveBeenCalledTimes(1);
+
+    window.removeEventListener('keydown', productHandlerSpy);
+  });
+
+  it('после принятия условий (visible=false) перехват снимается - фон снова получает клавиши', async () => {
+    render(TrialConsentOverlay);
+    await tick();
+
+    trialConsentPromptOpen.set(false);
+    await tick();
+
+    const backgroundBtn = document.createElement('button');
+    document.body.appendChild(backgroundBtn);
+    const productHandlerSpy = vi.fn();
+    window.addEventListener('keydown', productHandlerSpy);
+
+    backgroundBtn.focus();
+    await fireEvent.keyDown(backgroundBtn, { key: '1' });
+
+    expect(productHandlerSpy).toHaveBeenCalledTimes(1);
+
+    window.removeEventListener('keydown', productHandlerSpy);
+    backgroundBtn.remove();
+  });
+
+  it('второй слой активен ДО монтирования разметки окна (Rust ещё не ответил - находка front-gate-s48)', async () => {
+    // Ровно момент между запуском приложения и разрешением промиса
+    // get_trial_consent_status: ответа ещё нет, поэтому решение «показывать ли модаль»
+    // ещё не принято (trialConsentPromptOpen = false, {#if visible} не смонтирован,
+    // overlayEl = null) - но заблокировано быть ОБЯЗАНО, потому что resolved = false.
+    trialConsentPromptOpen.set(false);
+    trialConsentResolved.set(false);
+    render(TrialConsentOverlay);
+    await tick();
+
+    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument(); // разметки окна ещё нет
+
+    const backgroundBtn = document.createElement('button');
+    document.body.appendChild(backgroundBtn);
+    const productHandlerSpy = vi.fn();
+    window.addEventListener('keydown', productHandlerSpy);
+
+    backgroundBtn.focus();
+    await fireEvent.keyDown(backgroundBtn, { key: '1' });
+
+    // `overlayEl` = null → isKeydownOutsideBlockingOverlay возвращает true («цель
+    // снаружи») → нажатие гасится. Это правильное поведение: раз окна ещё нет, внутри
+    // него быть не может ничто, значит гасить надо всё.
+    expect(productHandlerSpy).not.toHaveBeenCalled();
+
+    window.removeEventListener('keydown', productHandlerSpy);
+    backgroundBtn.remove();
   });
 });

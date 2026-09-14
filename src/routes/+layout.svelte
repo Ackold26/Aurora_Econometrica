@@ -5,7 +5,8 @@
   import { get } from 'svelte/store';
   import { page } from '$app/stores';
   import { goto } from '$app/navigation';
-  import { theme, updateRequired, layoutCabinets, cabinetsLoaded, activeCabinet, messages, navCollapsed, licenseError, cloudConsent, cloudConsentPromptOpen, trialConsentPromptOpen } from '$lib/store.js';
+  import { theme, updateRequired, layoutCabinets, cabinetsLoaded, activeCabinet, messages, navCollapsed, licenseError, cloudConsent, cloudConsentPromptOpen, trialConsentBlocking } from '$lib/store.js';
+  import { resolveTrialConsentGate } from '$lib/trial-consent-gate.js';
   import { refreshAssistantRoute, pendingRouteChangeNotice, acknowledgeRouteChange } from '$lib/assistant-route.js';
   import { initCreativeStore, productType } from '$lib/creative-store.js';
   import { toasts, dismiss, toast } from '$lib/toast.js';
@@ -125,7 +126,7 @@
     /** @param {KeyboardEvent} e */
     function handleGlobalKey(e) {
       handleGlobalShortcut({
-        trialConsentOpen: get(trialConsentPromptOpen),
+        trialConsentOpen: get(trialConsentBlocking),
         paletteOpen,
         setPaletteOpen: (open) => { paletteOpen = open; },
         toggleGlossary: () => showGlossaryPanel.update((v) => !v),
@@ -228,16 +229,11 @@
 
     // Условия ознакомительного использования (s48, 2026-09-14): блокирующий гейт,
     // независимый от cloud-consent ниже — не graceful, «Отказаться» закрывает программу.
-    // Отказ проверки трактуется как «согласие не подтверждено» (fail-closed) - юридический
-    // гейт не должен молча пропускать из-за временной ошибки IPC.
-    (async () => {
-      try {
-        const status = /** @type {{required: boolean}} */ (await invoke('get_trial_consent_status'));
-        if (status?.required !== false) trialConsentPromptOpen.set(true);
-      } catch {
-        trialConsentPromptOpen.set(true);
-      }
-    })();
+    // Тело вынесено в $lib/trial-consent-gate.js::resolveTrialConsentGate (третье уточнение
+    // аудита, 2026-09-14) - пока этот промис не разрешился, ЛЮБОЕ чтение состояния гейта
+    // (trialConsentBlocking) обязано читаться как «заблокировано» - см. докстринг
+    // trialConsentBlocking в $lib/store.js и src/tests/trial-consent-gate-race.test.js.
+    resolveTrialConsentGate(invoke);
 
     // Cloud-consent (облачная редакция): получить статус и при необходимости показать
     // экран согласия на first-run. Graceful — MMM доступен и без согласия; экран лишь

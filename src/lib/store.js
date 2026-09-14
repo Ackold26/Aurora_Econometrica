@@ -1,4 +1,4 @@
-import { writable, get } from 'svelte/store';
+import { writable, get, derived } from 'svelte/store';
 
 /** @type {import('svelte/store').Writable<{id: string, name: string, description: string, icon: string, color: string}|null>} */
 export const activeCabinet = writable(null);
@@ -198,11 +198,52 @@ export const cloudConsentPromptOpen = writable(false);
 /** Открыт ли блокирующий экран «Условия ознакомительного использования» (пробный период,
  * вынесенный из лицензионного договора в отдельный документ, п.5 ст.1286 ГК РФ). В отличие
  * от `cloudConsentPromptOpen` — не graceful: без согласия работа с программой невозможна
- * («Отказаться» закрывает программу). Ставится в true в `+layout.svelte` по ответу
- * Rust-команды `get_trial_consent_status` (согласие отсутствует или дано на устаревшую
- * редакцию документа).
+ * («Отказаться» закрывает программу). Ставится в true в `+layout.svelte` (через
+ * `$lib/trial-consent-gate.js::resolveTrialConsentGate`) по ответу Rust-команды
+ * `get_trial_consent_status` (согласие отсутствует или дано на устаревшую редакцию документа).
+ *
+ * 🔴 Умолчание `false` НАМЕРЕННО означает «окна пока не показываем» (не «условия приняты») -
+ * держит эту семантику ради `TrialConsentOverlay`: сама МОДАЛЬ не обязана мигать на старте у
+ * человека, который уже согласился давно (Rust ещё не ответил, а мы уже нарисовали бы окно).
+ * Для ГЕЙТА (что можно/нельзя делать, пока согласие не подтверждено) эта переменная САМА ПО
+ * СЕБЕ непригодна — используй `trialConsentBlocking` ниже. Прямое чтение `trialConsentPromptOpen`
+ * для решения «разрешено ли действие» ЗАПРЕЩЕНО везде, кроме этого файла и самого компонента
+ * оверлея (видимость модали) — см. `trialConsentBlocking`.
  * @type {import('svelte/store').Writable<boolean>} */
 export const trialConsentPromptOpen = writable(false);
+
+/** Пришёл ли уже ответ Rust-команды `get_trial_consent_status` (успешный или неуспешный —
+ * важен сам факт разрешения промиса, не его исход). Ставится в true ОДИН раз, в `finally`
+ * `resolveTrialConsentGate` — см. докстринг `trialConsentBlocking` ниже.
+ * @type {import('svelte/store').Writable<boolean>} */
+export const trialConsentResolved = writable(false);
+
+/** 🔴 s48 (2026-09-14, третье уточнение внешнего аудита): ЕДИНСТВЕННОЕ значение, которое
+ * обязаны читать все обработчики клавиш и любая другая проверка «разрешено ли действие,
+ * пока согласие не подтверждено» (было: `get(trialConsentPromptOpen)` напрямую в трёх местах
+ * — `+layout.svelte`, `+page.svelte`, `cabinet/+page.svelte` — и в `TrialConsentOverlay`).
+ *
+ * Находка: `trialConsentPromptOpen` — `writable(false)` по умолчанию, и держит `false` до
+ * ответа Rust. Первые миллисекунды после запуска (тем дольше, чем медленнее машина клиента)
+ * ЛЮБОЙ читатель этого значения видел «условия приняты», хотя правда — «ещё не знаем». Умолчание
+ * обязано быть безопасным («закрыто, пока не доказано обратное»), а не совпадать с «условия не
+ * требуются» — отсюда отдельная величина `trialConsentResolved`: пока ответа Rust не было
+ * (`resolved === false`) — блокируем БЕЗУСЛОВНО, независимо от текущего (ещё дефолтного)
+ * значения `trialConsentPromptOpen`.
+ *
+ * Проверено `src/tests/trial-consent-gate-race.test.js` двумя проверками разной природы
+ * (переписан 2026-09-14 после находки front-gate-s48 — прежняя версия хардкодила старое
+ * выражение внутри себя и не краснела ни на какой правке продукта): (а) поведенческая —
+ * вызывает `resolveTrialConsentGate` с поддельным `invoke` и проверяет саму эту производную
+ * (краснеет, если убрать проверку `resolved` из формулы ниже); (б) текстовая — требует от
+ * всех известных потребителей (`+layout.svelte`, `+page.svelte`, `cabinet/+page.svelte`,
+ * `TrialConsentOverlay.svelte`) читать именно `trialConsentBlocking`, а не сырой
+ * `trialConsentPromptOpen` (краснеет на возврате прямого чтения в любом из них).
+ * @type {import('svelte/store').Readable<boolean>} */
+export const trialConsentBlocking = derived(
+    [trialConsentResolved, trialConsentPromptOpen],
+    ([resolved, open]) => !resolved || open,
+);
 
 // ── Таймер сессии (Aurora design SSOT §11) ─────────────────────────────────
 // Отсчёт с запуска приложения. Управление: стоп/пуск (одиночный клик) + сброс (двойной клик).

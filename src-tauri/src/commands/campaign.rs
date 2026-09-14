@@ -339,8 +339,10 @@ pub fn workflow_save(brand_id: String, campaign: Campaign) -> Result<(), String>
 pub fn workflow_delete(brand_id: String, workflow_id: String) -> Result<(), String> {
     let brand = if brand_id.is_empty() { "default".to_string() } else { brand_id };
     let path = campaigns_dir(&brand).join(format!("{workflow_id}.json"));
+    // 🔴 Сценарий кампании собрал человек в окне программы — это его работа, а не
+    // служебный файл. В корзину; отказ возвращается ему текстом.
     if path.exists() {
-        std::fs::remove_file(&path).map_err(|e| e.to_string())?;
+        crate::soft_delete::soft_delete(&path).map_err(|e| format!("Сценарий не удалён: {e}"))?;
     }
     Ok(())
 }

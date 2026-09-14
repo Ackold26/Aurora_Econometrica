@@ -22,11 +22,26 @@ Projects/PULSE_s48_datalabels.md) держал цвет подписи внут�
 файла токенов (aurora_html_tokens.js — тот же файл, что подключает браузер),
 поэтому тест ловит и будущий ребрендинг палитры, если новый hero/muted-бар
 снова окажется недостаточно контрастным с выбранным полюсом чёрный/белый.
+
+🔴 Аудит s48 (14.09.2026): до этой правки проверка порога считала выбор цвета
+питон-портом `_label_color_for_fill()` — переписанной вручную копией логики
+`labelColorForFill()`, а не самим отгружаемым JS. Мутация «тело
+`labelColorForFill()` в interactive.py заменено на `return '#FFFFFF';`»
+(имя функции, `relLuminance`, порог 0.179 в комментарии остались нетронуты)
+оставляла все 17 тестов этого файла зелёными — порт продолжал считать
+правильно, а клиенту уехал бы код, всегда возвращающий белый. Теперь
+`_label_color_for_fill_real()` вырезает ТЕКСТ функций `relLuminance` и
+`labelColorForFill` из реально сгенерированного бандла (`bootstrap_js()`,
+тот же вызов, что кладёт HTML в отчёт клиента) и исполняет его в Node —
+мутация тела функции меняет то, что видит проверка (доказано мутацией,
+см. отчёт: без Node тест skip, не false-green).
 """
 from __future__ import annotations
 
 import json
 import re
+import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -70,22 +85,65 @@ def _contrast(hex_a: str, hex_b: str) -> float:
     return (lighter + 0.05) / (darker + 0.05)
 
 
-def _label_color_for_fill(fill_hex: str, dark_ink: str) -> str:
-    """Портирует ровно ту же логику выбора, что labelColorForFill() в JS."""
-    return dark_ink if _rel_luminance(fill_hex) > _LUMINANCE_THRESHOLD else "#FFFFFF"
+def _extract_js_function(js: str, name: str) -> str:
+    """Вырезает ТЕКСТ функции `name` из реально сгенерированного бандла —
+    от `function name(` до закрывающей фигурной скобки тела (баланс скобок,
+    не regex до первого `}`, тело содержит вложенные `{}`)."""
+    marker = f"function {name}("
+    start = js.index(marker)
+    brace_start = js.index("{", start)
+    depth = 0
+    i = brace_start
+    while i < len(js):
+        if js[i] == "{":
+            depth += 1
+        elif js[i] == "}":
+            depth -= 1
+            if depth == 0:
+                return js[start:i + 1]
+        i += 1
+    raise AssertionError(f"не нашёл закрывающую скобку функции {name!r}")
+
+
+def _label_color_for_fill_real(fill_hexes: list[str]) -> list[str]:
+    """Зовёт РЕАЛЬНЫЙ отгружаемый JS (`relLuminance`/`labelColorForFill`,
+    вырезанные из bootstrap_js() — того же вызова, что кладёт HTML в отчёт
+    клиента), а не питон-переписку его логики. Мутация тела функции меняет
+    то, что видит эта проверка — питон-порт был бы слеп к ней (доказано
+    аудитом s48: подмена тела на `return '#FFFFFF';` оставляла порт зелёным).
+    """
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node не найден в PATH - нечем исполнить отгружаемый JS напрямую")
+    js = _js()
+    real_rel_luminance = _extract_js_function(js, "relLuminance")
+    real_label_color_for_fill = _extract_js_function(js, "labelColorForFill")
+    script = (
+        f"{real_rel_luminance}\n{real_label_color_for_fill}\n"
+        f"global.window = {{ AURORA_THEMES: {json.dumps(PALETTES)} }};\n"
+        f"var fills = {json.dumps(fill_hexes)};\n"
+        "console.log(JSON.stringify(fills.map(labelColorForFill)));\n"
+    )
+    proc = subprocess.run(
+        [node, "-e", script], capture_output=True, text=True, timeout=15,
+    )
+    assert proc.returncode == 0, f"node упал при исполнении отгружаемого JS: {proc.stderr}"
+    return json.loads(proc.stdout)
 
 
 PALETTES = _load_theme_palettes()
-DARK_INK = PALETTES["light"]["textColor"]
 
 
 @pytest.mark.parametrize("theme", sorted(PALETTES.keys()))
 @pytest.mark.parametrize("fill_key", ["heroColor", "mutedColor"])
 def test_inside_bar_label_color_проходит_wcag_4_5_на_реальной_заливке(theme, fill_key):
     """Подпись ВНУТРИ заливки серии (insideBottom, buildForecastCompareOption)
-    должна читаться поверх фактического hero/muted-бара своей темы."""
+    должна читаться поверх фактического hero/muted-бара своей темы.
+
+    Цвет берёт не питон-порт, а реально отгружаемый JS (`_label_color_for_fill_real`) —
+    иначе подмена тела `labelColorForFill()` в бандле проходит незамеченной."""
     fill = PALETTES[theme][fill_key]
-    chosen = _label_color_for_fill(fill, DARK_INK)
+    chosen = _label_color_for_fill_real([fill])[0]
     contrast = _contrast(chosen, fill)
     assert contrast >= _MIN_CONTRAST, (
         f"тема={theme} заливка={fill_key}={fill} выбран текст={chosen} "

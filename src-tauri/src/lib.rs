@@ -6,6 +6,7 @@ pub mod errors;
 pub mod metrics;
 pub mod session;
 pub mod sidecar_runtime;
+pub mod soft_delete;
 pub mod win_acl;
 
 use commands::{brand, cabinet, claude, content_pack, content_updater, feedback, license, online_auth, parser, rag_client, updater, user_config, vault};
@@ -1740,7 +1741,10 @@ fn delete_inbox_file(cabinet_id: String, filename: String, app_handle: tauri::Ap
         return Err(format!("File not found: {}", filename));
     }
 
-    std::fs::remove_file(&file_path).map_err(|e| e.to_string())
+    // 🔴 Файл человека: он сам положил его в папку приёма. Уходит в корзину, откуда его
+    // можно вернуть, а не стирается насовсем. Отказ корзины показываем человеку текстом —
+    // он нажал «удалить» и обязан знать, что файл остался на месте.
+    soft_delete::soft_delete(&file_path).map_err(|e| format!("{filename}: {e}"))
 }
 
 #[tauri::command]
@@ -1894,7 +1898,9 @@ fn delete_export_file(cabinet_id: String, filename: String, app_handle: tauri::A
     }
 
     info!("Deleting export file: {}", file_path.display());
-    std::fs::remove_file(&file_path).map_err(|e| e.to_string())
+    // 🔴 Папка выдачи — готовые документы клиента, самый ценный результат его работы.
+    // Только в корзину; отказ возвращается человеку текстом, а не глотается.
+    soft_delete::soft_delete(&file_path).map_err(|e| format!("{filename}: {e}"))
 }
 
 #[tauri::command]
@@ -1930,21 +1936,39 @@ fn clear_chat_history(cabinet_id: String) -> Result<(), String> {
 /// стирались файлы клиента мимо корзины при каждом старте).
 const WORKSPACE_DIRS_CLEARED_ON_START: &[&str] = &["inbox"];
 
-/// Удаляет все файлы из перечисленных подкаталогов workspace. Возвращает число удалённых
+/// Убирает в корзину всё из перечисленных подкаталогов workspace. Возвращает число убранных
 /// файлов. Без AppHandle — чтобы поведение можно было проверить тестом на временном каталоге.
+///
+/// 🔴 Вторая половина CPD-69. Тогда из списка очистки убрали `exports` — и на том
+/// остановились, а `inbox` продолжал стираться мимо корзины при КАЖДОМ запуске программы.
+/// Файлы там кладёт человек, копии у программы нет; теперь они уходят в корзину, откуда их
+/// можно вернуть. Отказ корзины оставляет файл на месте и пишется в журнал внутри
+/// `soft_delete` — в счёт убранных такой файл не идёт.
 fn clear_workspace_dirs(workspace: &std::path::Path, dir_names: &[&str]) -> usize {
     let mut removed = 0;
+    let mut ostalos = 0usize;
     for dir_name in dir_names {
         let dir = workspace.join(dir_name);
         if dir.exists() {
             if let Ok(entries) = std::fs::read_dir(&dir) {
                 for entry in entries.flatten() {
-                    if std::fs::remove_file(entry.path()).is_ok() {
+                    if soft_delete::soft_delete(&entry.path()).is_ok() {
                         removed += 1;
+                    } else {
+                        ostalos += 1;
                     }
                 }
             }
         }
+    }
+    // 🔴 Число убранных без числа оставшихся врёт молчанием о несделанном: соседняя
+    // запись в журнале говорит «Inbox cleared: N file(s)», и читатель (мы сами при
+    // разборе жалобы клиента) понимает её как «папка чиста». Оба числа стоят рядом.
+    if ostalos > 0 {
+        warn!(
+            "Очистка при запуске: убрано {removed} файл(ов), ОСТАЛИСЬ на месте {ostalos} \
+             (причины по каждому — в предупреждениях выше)"
+        );
     }
     removed
 }

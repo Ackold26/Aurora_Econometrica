@@ -46,11 +46,37 @@ mod core_contract_tests {
     /// (кроме этого файла — здесь код только цитируется ради проверки формата в
     /// `coded_keeps_the_bracketed_format_documented_to_clients`, а не конструируется
     /// как ошибка пользователю), тем же приёмом обхода дерева (`walkdir`), каким уже
-    /// пользуются другие сторожи продукта. Ручного списка больше нет — ему негде
-    /// протухнуть, потому что он не существует отдельно от кода.
+    /// пользуются другие сторожи продукта.
+    ///
+    /// 🔴 s48-audit (2026-09-14, вторая волна): модель «эталон = только `src-tauri/src`»
+    /// оказалась НЕПОЛНОЙ — она выбросила `FB-002`, потому что код, реально его строящий,
+    /// живёт не здесь, а в общем крейте (`aurora_core::feedback::submit`, feedback.rs:73
+    /// на закреплённой ревизии, см. `PINNED_AURORA_CORE_REV` ниже), а продукт лишь вызывает
+    /// эту функцию из `commands/feedback.rs::submit_feedback` — команда с `#[tauri::command]`,
+    /// реально зарегистрированная в `generate_handler!` (лицо клиента может вызвать её через
+    /// `invoke` напрямую, даже если разметка фронтенда её больше не зовёт — см. докстринг
+    /// `commands/feedback.rs`). Обход `walkdir` по `aurora_core` здесь не работает: крейт —
+    /// git-зависимость вне этого репозитория, и `cargo metadata` для поиска её исходников на
+    /// диске ненадёжен КАК ПРОВЕРКА ТЕСТА (офлайн-окружение валит его сетевой ошибкой —
+    /// проверено фактом 14.09.2026, `getaddrinfo() thread failed to start`). Поэтому для кодов
+    /// из `aurora_core` — явный список `AURORA_CORE_FEEDBACK_CODES`, но не свободный: он
+    /// подключается к `reachable_codes` ТОЛЬКО если этот же обход находит реальный вызов
+    /// `aurora_core::feedback::submit` в `src-tauri/src` (значит функция правда используется
+    /// продуктом, не гипотеза), и список привязан к конкретной ревизии крейта — если
+    /// `Cargo.lock` укажет другую ревизию `aurora_core`, тест падает ДО того, как список
+    /// молча устареет, требуя пересверки с `feedback.rs` на новой ревизии.
     #[test]
     fn help_error_codes_page_matches_error_code_enum_both_ways() {
         use std::collections::HashSet;
+
+        /// Ревизия `aurora_core`, на которой сверен `AURORA_CORE_FEEDBACK_CODES` ниже
+        /// (см. `Cargo.lock`: `source = "git+.../aurora-platform-core.git?tag=aurora_core-v0.1.0#<rev>"`).
+        const PINNED_AURORA_CORE_REV: &str = "35d8345c4f20f66efc1012be4190b90f620f1ddb";
+        /// Коды, которые на ревизии `PINNED_AURORA_CORE_REV` строит
+        /// `aurora_core::feedback::submit` (сверено вручную по исходнику функции: FB-001 —
+        /// нераспознанная категория / отказ формы, FB-002 — вызов раньше минимального
+        /// интервала между отправками).
+        const AURORA_CORE_FEEDBACK_CODES: &[&str] = &["FB-001", "FB-002"];
 
         // "ErrorCode::XX000" в исходнике компилируется только если XX000 — настоящий
         // вариант enum'а; значит каждое совпадение — подлинное использование кода
@@ -59,6 +85,7 @@ mod core_contract_tests {
             regex::Regex::new(r"ErrorCode::([A-Z]{2})([0-9]{3})").expect("valid regex");
         let src_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
         let mut reachable_codes: HashSet<String> = HashSet::new();
+        let mut calls_aurora_core_feedback = false;
         for entry in walkdir::WalkDir::new(&src_root)
             .into_iter()
             .filter_map(|e| e.ok())
@@ -75,12 +102,46 @@ mod core_contract_tests {
             for caps in usage_re.captures_iter(&src) {
                 reachable_codes.insert(format!("{}-{}", &caps[1], &caps[2]));
             }
+            if src.contains("aurora_core::feedback::submit") {
+                calls_aurora_core_feedback = true;
+            }
         }
         assert!(
             !reachable_codes.is_empty(),
             "обход src-tauri/src не нашёл ни одного вызова ErrorCode:: — путь или regex сломаны, \
              проверка ничего не сторожит"
         );
+
+        if calls_aurora_core_feedback {
+            let cargo_lock_path =
+                std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("..").join("Cargo.lock");
+            let cargo_lock = std::fs::read_to_string(&cargo_lock_path).unwrap_or_else(|e| {
+                panic!("не удалось прочитать {}: {e}", cargo_lock_path.display())
+            });
+            let rev_re = regex::Regex::new(r#"name = "aurora_core"\nversion = "[^"]+"\nsource = "git\+[^"]*#([0-9a-f]{40})""#)
+                .expect("valid regex");
+            let actual_rev = rev_re
+                .captures(&cargo_lock)
+                .unwrap_or_else(|| {
+                    panic!(
+                        "{}: не нашёл строку 'aurora_core' с git-ревизией — формат Cargo.lock изменился?",
+                        cargo_lock_path.display()
+                    )
+                })
+                .get(1)
+                .expect("regex захватывает ревизию")
+                .as_str();
+            assert_eq!(
+                actual_rev, PINNED_AURORA_CORE_REV,
+                "aurora_core в Cargo.lock указывает на ревизию {actual_rev}, а \
+                 AURORA_CORE_FEEDBACK_CODES сверен с {PINNED_AURORA_CORE_REV} — пересверь \
+                 список кодов с aurora_core::feedback::submit на новой ревизии и обнови обе \
+                 константы, иначе список молча устареет"
+            );
+            for code in AURORA_CORE_FEEDBACK_CODES {
+                reachable_codes.insert((*code).to_string());
+            }
+        }
 
         let html_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
             .join("help-econometrica")

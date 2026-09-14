@@ -1,8 +1,9 @@
 <script>
   import { invoke } from '@tauri-apps/api/core';
   import { getCurrentWindow } from '@tauri-apps/api/window';
-  import { trialConsentPromptOpen } from '$lib/store.js';
+  import { trialConsentPromptOpen, trialConsentBlocking } from '$lib/store.js';
   import { SHOW_CLOUD_PROCESSING_PARAGRAPH } from '$lib/trial-terms-config.js';
+  import { isKeydownOutsideBlockingOverlay } from '$lib/global-shortcuts.js';
 
   // Экран «Условия ознакомительного использования» (s48, 2026-09-14). Пробный период выведен
   // правовым блоком из лицензионного договора в отдельный документ, единый для всей линейки
@@ -14,8 +15,8 @@
   // «Отказаться» закрывает программу целиком, «Принимаю» доступно только с поставленной
   // отметкой. Текст ниже согласован правовым блоком дословно - не редактировать формулировки.
   //
-  // 🔴 Дата в тексте отметки ниже ОБЯЗАНА совпадать с TRIAL_TERMS_REVISION в
-  // src-tauri/src/commands/user_config.rs - сторож расхождения:
+  // 🔴 Номер И дата в тексте отметки ниже ОБЯЗАНЫ совпадать с TRIAL_TERMS_REVISION в
+  // src-tauri/src/commands/user_config.rs (формат ГГГГ-ММ-ДД.НН) - сторож расхождения:
   // trial_terms_revision_matches_frontend_checkbox_text (там же).
   //
   // Средний абзац - условный (см. $lib/trial-terms-config.js): зависит от отдельной проверки,
@@ -31,8 +32,51 @@
   let declining = $state(false);
   let errorMsg = $state('');
   let openError = $state('');
+  /** @type {HTMLElement | null} */
+  let overlayEl = $state(null);
 
+  // `visible` управляет ТОЛЬКО разметкой ({#if} ниже) - модаль не обязана мигать у
+  // человека, который уже согласился давно, пока Rust ещё не ответил. Для решения
+  // «активен ли перехватчик» это значение НЕПРИГОДНО - см. `blockingActive` ниже.
   const visible = $derived($trialConsentPromptOpen);
+
+  // Второй, независимый от проверок в отдельных обработчиках слой защиты - см. докстринг
+  // isKeydownOutsideBlockingOverlay в $lib/global-shortcuts.js (s48, аудит второй волны,
+  // 2026-09-14). Пока условия не подтверждены - слушатель в ФАЗЕ ПЕРЕХВАТА на `window`
+  // гасит ЛЮБОЕ нажатие клавиши вне дерева этого оверлея ДО того, как оно дойдёт до цели
+  // и всплывёт до какого-либо обработчика продукта - не важно, проверяет тот
+  // `trialConsentOpen` сам или ещё не написан.
+  //
+  // 🔴 s48 (2026-09-14, третья волна аудита - находка front-gate-s48): раньше этот
+  // `$effect` был завязан на `visible` (то есть на сыром `trialConsentPromptOpen`) - той
+  // же величине, что и починенные обработчики клавиш ИЗБЕГАЮТ читать напрямую. В первые
+  // миллисекунды после запуска, пока Rust ещё не ответил, `trialConsentPromptOpen` = false,
+  // разметка ({#if visible}) не смонтирована - и этот, второй, слой защиты вообще не
+  // слушал, хотя именно на этот случай (обработчик, который забудет проверить гейт сам)
+  // его и заводили. Теперь монтирование листенера читает `trialConsentBlocking` -
+  // производную, которая по умолчанию блокирует (истинна), пока ответа нет.
+  const blockingActive = $derived($trialConsentBlocking);
+
+  $effect(() => {
+    if (!blockingActive) return;
+
+    /** @param {KeyboardEvent} e */
+    function blockKeydownOutsideOverlay(e) {
+      // `overlayEl` здесь может быть `null` - в окне гонки (блокировка уже активна,
+      // а `{#if visible}` ещё не смонтировал разметку, т.к. Rust не ответил и решение
+      // «показывать ли модаль» ещё не принято) `isKeydownOutsideBlockingOverlay(null, ...)`
+      // возвращает `true` («цель снаружи») - и гасит нажатие. Это ПРАВИЛЬНОЕ поведение,
+      // а не недосмотр: раз окна ещё нет, внутри него быть не может ничто, значит гасить
+      // надо всё - см. тест "второй слой активен ДО монтирования разметки окна" в
+      // src/tests/trial-consent-overlay.test.js.
+      if (!isKeydownOutsideBlockingOverlay(overlayEl, e.target)) return;
+      e.preventDefault();
+      e.stopPropagation();
+    }
+
+    window.addEventListener('keydown', blockKeydownOutsideOverlay, true);
+    return () => window.removeEventListener('keydown', blockKeydownOutsideOverlay, true);
+  });
 
   async function openTerms() {
     openError = '';
@@ -105,6 +149,7 @@
     aria-labelledby="trial-consent-title"
     tabindex="-1"
     onkeydown={handleKeydown}
+    bind:this={overlayEl}
   >
     <div class="card">
       <div class="gradient-line"></div>
@@ -138,7 +183,7 @@
 
       <label class="consent-check">
         <input type="checkbox" bind:checked={agreed} />
-        <span>Я принимаю Условия ознакомительного использования (редакция от 14.09.2026)</span>
+        <span>Я принимаю Условия ознакомительного использования (редакция 2 от 14.09.2026)</span>
       </label>
 
       {#if errorMsg}

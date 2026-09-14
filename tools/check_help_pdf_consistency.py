@@ -401,6 +401,60 @@ def check_pdf_freshness() -> tuple:
     return fails, []
 
 
+# ── PDF: пути сборочной машины ────────────────────────────────────────
+
+_MACHINE_PATH_MARKERS = ("file:///", "file://localhost/", "C:/Users", r"C:\Users", "AppData", "\\Temp\\", "/Temp/")
+
+
+def check_pdf_no_machine_paths() -> tuple:
+    """Возвращает (fails, warns). Найдено внешним аудитом s48: build_help_pdf.py
+    печатает merged.html/appendix.html из tempfile.TemporaryDirectory() -
+    относительные межстраничные href (`href="step-3-model.html#read"`,
+    `href="#read"`) резолвятся headless Edge в file:///.../aurora-help-pdf-
+    <rand>/... и застывают в PDF как ссылки-аннотации с абсолютным путём
+    сборочной машины, включая имя пользователя (140 из 141 аннотации в
+    econometrica-help.pdf на момент находки). Правка - namespace_internal_links()
+    в build_help_pdf.py переписывает такие ссылки в якоря внутри самого
+    документа (#page-<id>[--<anchor>]) ДО печати - здесь проверяем результат
+    на собранном файле, а не веря источнику: гейт читает URI каждой ссылки-
+    аннотации через pypdf и валит сборку при первом же совпадении с маркером
+    пути сборочной машины."""
+    bundle_pdf = HELP_DIR / PDF_NAME
+    if not bundle_pdf.exists():
+        return [], [f"{relpath(bundle_pdf)} не найден — проверка путей сборочной машины пропущена (не блокирует)"]
+
+    try:
+        import pypdf
+    except ImportError:
+        return [], ["pypdf не установлен — проверка путей сборочной машины в PDF пропущена (не блокирует)"]
+
+    try:
+        reader = pypdf.PdfReader(str(bundle_pdf))
+    except Exception as exc:  # noqa: BLE001 - битый PDF тоже надо показать, не падать молча
+        return [f"{relpath(bundle_pdf)}: не удалось прочитать PDF ({exc})"], []
+
+    fails = []
+    for page_no, page in enumerate(reader.pages, start=1):
+        annots = page.get("/Annots")
+        if not annots:
+            continue
+        for annot_ref in annots:
+            annot = annot_ref.get_object()
+            action = annot.get("/A")
+            if not action:
+                continue
+            uri = action.get_object().get("/URI")
+            if not uri:
+                continue
+            for marker in _MACHINE_PATH_MARKERS:
+                if marker in uri:
+                    fails.append(
+                        f"{relpath(bundle_pdf)}: страница {page_no}: ссылка-аннотация содержит путь сборочной машины ({marker!r} в {uri!r})"
+                    )
+                    break
+    return fails, []
+
+
 # ── Вывод ──────────────────────────────────────────────────────────────
 
 def main() -> int:
@@ -436,6 +490,10 @@ def main() -> int:
     all_fails.extend(pdf_fails)
     all_warns.extend(pdf_warns)
 
+    machine_path_fails, machine_path_warns = check_pdf_no_machine_paths()
+    all_fails.extend(machine_path_fails)
+    all_warns.extend(machine_path_warns)
+
     print(f"Линтер PDF-инфраструктуры справки Aurora AI Econometrica: {len(all_html_files)} html-страниц, econ-nav.js, манифест PDF\n")
 
     if all_warns:
@@ -452,7 +510,7 @@ def main() -> int:
 
     print("OK: econ-nav.js <-> файлы согласованы, U+2014 не найден, «доверительный интервал»/«ДИ»/«CI» "
           "в клиентском тексте не найдены (INV-50), копирайт «Платформа Аврора» на месте, "
-          "версия tauri.conf.json = package.json, PDF свежий.")
+          "версия tauri.conf.json = package.json, PDF свежий, ссылки-аннотации PDF без путей сборочной машины.")
     return 0
 
 

@@ -534,7 +534,7 @@ def derive_action_headline(
     # `reallocation_subjects` с порогом 0,5 — на сумме 0,5-1 млн заголовок слайда
     # молчал о переброске, которую другой слайд той же колоды уже назвал. Порог
     # значимости суммы теперь один на всю программу — `SIGNIFICANT_REALLOCATION_MLN`.
-    from utils.optimizer_honesty import reallocation_subjects
+    from utils.optimizer_honesty import reallocation_subjects, format_realloc_mln
     subjects = reallocation_subjects(facts)
     cut_source = subjects["cut_source"]
     scale_dest = subjects["scale_destination"]
@@ -627,15 +627,15 @@ def derive_action_headline(
             if subjects["kind"] == "rebalance":
                 if has_lift:
                     # Rebalance scenario - quantified reallocation
-                    return f"Перераспределить {realloc:.0f} млн руб в {scale_dest} - {lift_txt}"
+                    return f"Перераспределить {format_realloc_mln(realloc)} млн руб в {scale_dest} - {lift_txt}"
                 # Rebalance без верного lift - action без числа прироста
-                return f"Перераспределить {realloc:.0f} млн руб из {cut_source} в {scale_dest}"
+                return f"Перераспределить {format_realloc_mln(realloc)} млн руб из {cut_source} в {scale_dest}"
             if subjects["kind"] == "scale_only":
                 # Источник не определён — про «из» молчим, обещаем только рост.
                 _tail = f" - {lift_txt}" if has_lift else ""
-                return f"Перераспределить {realloc:.0f} млн руб в {scale_dest}{_tail}"
+                return f"Перераспределить {format_realloc_mln(realloc)} млн руб в {scale_dest}{_tail}"
             _tail = f" - {lift_txt}" if has_lift else ""
-            return f"Сократить {cut_source} ({realloc:.0f} млн руб){_tail}"
+            return f"Сократить {cut_source} ({format_realloc_mln(realloc)} млн руб){_tail}"
         # B1-fix R-14: «сбалансирован» при неопределённых вердиктах — не то же
         # самое; сначала снять неопределённость, потом перераспределять.
         _uncertain_n = sum(1 for c in channels if c.get("verdict") == "Uncertain")

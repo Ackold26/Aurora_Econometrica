@@ -519,6 +519,41 @@ def extract_body(html: str) -> str:
     return re.sub(r"<script\b[^>]*>.*?</script>", "", body, flags=re.S | re.I)
 
 
+_CROSS_PAGE_HREF_RE = re.compile(r'href="([a-zA-Z0-9_-]+)\.html(?:#([a-zA-Z0-9_-]+))?"')
+_SAME_PAGE_HREF_RE = re.compile(r'href="#(?!page-)([a-zA-Z0-9_-]+)"')
+_ANCHOR_ID_RE = re.compile(r'\bid="([a-zA-Z0-9_-]+)"')
+
+
+def namespace_internal_links(body: str, page_id: str) -> str:
+    """Печатный PDF - ОДИН склеенный документ (главы уже не отдельные HTML-
+    файлы на диске), а исходные help-страницы ссылаются друг на друга
+    относительными путями вида href="step-3-model.html#read" и якорями внутри
+    страницы href="#read". После извлечения body headless Edge печатает
+    merged.html из временного каталога сборки - относительный href резолвится
+    БРАУЗЕРОМ в file:///.../aurora-help-pdf-<rand>/step-3-model.html и
+    застывает в PDF как есть, вместе с именем пользователя и путём временного
+    каталога сборочной машины (найдено внешним аудитом s48, 140 таких
+    аннотаций). Правильная модель - раз все страницы уже в одном документе,
+    межстраничные и внутристраничные ссылки должны быть якорями ВНУТРИ этого
+    документа, а не путями на диск. Три прохода: 1) href="X.html[#Y]" ->
+    "#page-X[--Y]" (межстраничные), 2) href="#Y" -> "#page-{page_id}--Y"
+    (внутристраничные, до переименования id), 3) id="Y" -> "id=page-
+    {page_id}--Y" (несколько страниц-шагов делят один и тот же id="read" -
+    без неймспейса это были бы дублирующиеся id в одном DOM)."""
+
+    def cross_page_repl(match):
+        target_id, anchor = match.group(1), match.group(2)
+        frag = f"#page-{target_id}"
+        if anchor:
+            frag += f"--{anchor}"
+        return f'href="{frag}"'
+
+    body = _CROSS_PAGE_HREF_RE.sub(cross_page_repl, body)
+    body = _SAME_PAGE_HREF_RE.sub(lambda m: f'href="#page-{page_id}--{m.group(1)}"', body)
+    body = _ANCHOR_ID_RE.sub(lambda m: f'id="page-{page_id}--{m.group(1)}"', body)
+    return body
+
+
 def inline_local_images(html_fragment: str, help_dir: Path) -> str:
     def repl(match):
         filename = match.group(1)
@@ -528,6 +563,21 @@ def inline_local_images(html_fragment: str, help_dir: Path) -> str:
         return f'src="{image_to_data_uri(img_path)}"'
 
     return re.sub(r'src="([\w.-]+\.png)"', repl, html_fragment)
+
+
+_DOWNLOAD_LINK_RE = re.compile(r'<a\s+[^>]*\bdownload\b[^>]*>(.*?)</a>', re.S)
+
+
+def strip_download_links(body: str) -> str:
+    """Ссылки на скачивание шаблонов (`<a href="template_fmcg.xlsx" download>`)
+    указывают на файлы рядом с HTML-страницей в приложении - в печатном PDF
+    такого соседа нет, и (та же механика, что чинит namespace_internal_links)
+    относительный href резолвится headless Edge в file:///.../aurora-help-
+    pdf-<rand>/template_fmcg.xlsx, снова протаскивая путь сборочной машины
+    в клиентский документ (найдено гейтом check_pdf_no_machine_paths после
+    первой правки). Скачивание в статичном PDF всё равно нефункционально -
+    снимаем ссылку-аннотацию целиком, текст подписи оставляем как есть."""
+    return _DOWNLOAD_LINK_RE.sub(lambda m: m.group(1), body)
 
 
 def apply_brand_naming(html: str) -> str:
@@ -706,6 +756,8 @@ def build_merged_html(help_dir: Path, product: str, version: str, nav_titles: di
         title = nav_titles.get(page_id) or extract_title(raw, page_id)
         style = strip_dark_theme_leaks(extract_head_styles(raw))
         body = extract_body(raw)
+        body = namespace_internal_links(body, page_id)
+        body = strip_download_links(body)
         body = inline_local_images(body, help_dir)
         body = force_details_open(body)
         if page_id == "error-codes":
@@ -724,7 +776,7 @@ def build_merged_html(help_dir: Path, product: str, version: str, nav_titles: di
     ]
     for i, p in enumerate(pages, start=1):
         divider = build_section_divider_html(i, p["title"])
-        sections.append(f'<section class="pdf-page">{divider}{p["body"]}</section>')
+        sections.append(f'<section class="pdf-page" id="page-{p["id"]}">{divider}{p["body"]}</section>')
 
     html = f"""<!DOCTYPE html>
 <html lang="ru">

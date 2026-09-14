@@ -530,7 +530,11 @@ pub async fn brand_delete(
         return Err(format!("Brand '{}' not found", brand_id));
     }
 
-    std::fs::remove_dir_all(&brand_dir).map_err(|e| e.to_string())?;
+    // 🔴 В папке бренда лежат документы, которые загрузил человек, — его материалы, а не
+    // наши служебные файлы. Папка уходит в корзину целиком; отказ возвращается человеку
+    // текстом, и при отказе бренд НЕ считается удалённым (указатель активного не трогаем).
+    crate::soft_delete::soft_delete(&brand_dir)
+        .map_err(|e| format!("Бренд «{brand_id}» не удалён: {e}"))?;
 
     // Clear active if deleted brand was active
     let active_path = active_brand_file(&dir);
@@ -610,7 +614,11 @@ pub async fn brand_delete_doc(
         return Err(format!("Document not found: {}", filename));
     }
 
-    std::fs::remove_file(&file_path).map_err(|e| e.to_string())?;
+    // 🔴 Документ загрузил человек — уходит в корзину, а не стирается насовсем.
+    // Отказ возвращается ему текстом: при отказе документ остался на месте, и сообщать
+    // о нём в нормативный поиск ниже (как об удалённом) было бы враньём.
+    crate::soft_delete::soft_delete(&file_path)
+        .map_err(|e| format!("Документ «{filename}» не удалён: {e}"))?;
     info!("Document deleted from brand {}: {}", brand_id, filename);
 
     if rag_available().await {

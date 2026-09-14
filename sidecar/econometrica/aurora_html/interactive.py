@@ -1048,19 +1048,41 @@ def bootstrap_js(
         var chartId = btn.getAttribute('data-copy-chart');
         var chart = AURORA_CHARTS[chartId];
         if (!chart) {{ toast('График не готов'); return; }}
-        // Хосты инициализированы renderer:'svg' (initChart/initChartFromHost
-        // выше) - у SVG-рендерера getDataURL() ЦЕЛИКОМ игнорирует свои же
-        // опции (getSvgDataURL() внутри echarts.common не принимает
-        // аргументов вовсе - проверено на собранном отчёте: backgroundColor,
-        // переданный сюда, не попадал в SVG, корневой rect оставался
-        // fill="none"). Фон нужно на секунду вписать в OPTION самого
-        // графика - тогда echarts нарисует его реальным <rect> внутри SVG -
-        // и вернуть обратно сразу после экспорта, не оставляя графику
-        // постоянного backgroundColor.
-        var prevBg = chart.getOption().backgroundColor;
-        chart.setOption({{ backgroundColor: currentSurfaceColor() }}, false);
-        var url = chart.getDataURL({{ type: 'png', pixelRatio: 2 }});
-        chart.setOption({{ backgroundColor: prevBg || 'transparent' }}, false);
+        // 🔴 s48 (аудит, доказано первыми байтами файла): хосты инициализированы
+        // renderer:'svg' (initChart/initChartFromHost выше), а у SVG-рендерера
+        // echarts 5.5.1 getDataURL() ЦЕЛИКОМ игнорирует свои опции - вызывает
+        // getSvgDataURL(), который параметров не принимает вовсе. Кнопка
+        // обещает PNG, а отдавала файл `<chart>-aurora.png`, внутри которого
+        // лежал `<svg …>` - открыть штатным просмотрщиком или вставить в
+        // PowerPoint/Word как картинку было нельзя.
+        //
+        // Растровый экспорт живого SVG-графика не переключаем: renderer:'svg'
+        // у хоста в отчёте оставлен нарочно (чёткость подписей при печати
+        // HTML в PDF и при любом зуме) - трогать его означало бы менять то,
+        // что видит клиент в самом отчёте, ради кнопки экспорта. Вместо этого
+        // ТОЛЬКО для выгрузки поднимаем офф-скрин canvas-инстанс той же
+        // option/размера - у canvas-рендерера getDataURL() честно рисует
+        // растр и уважает type/pixelRatio/backgroundColor. Живой SVG-график
+        // не трогается и не мигает.
+        var host = chart.getDom();
+        var w = host.clientWidth || host.offsetWidth || 600;
+        var h = host.clientHeight || host.offsetHeight || 400;
+        var offscreen = document.createElement('div');
+        offscreen.style.cssText = 'position:fixed;left:-99999px;top:0;width:' + w + 'px;height:' + h + 'px;pointer-events:none;';
+        document.body.appendChild(offscreen);
+        var exportChart = null;
+        var url = null;
+        try {{
+          exportChart = echarts.init(offscreen, null, {{ renderer: 'canvas', width: w, height: h }});
+          var opt = chart.getOption();
+          opt.backgroundColor = currentSurfaceColor();
+          exportChart.setOption(opt, true);
+          url = exportChart.getDataURL({{ type: 'png', pixelRatio: 2, backgroundColor: currentSurfaceColor() }});
+        }} finally {{
+          if (exportChart) exportChart.dispose();
+          document.body.removeChild(offscreen);
+        }}
+        if (!url) {{ toast('Не удалось собрать PNG'); return; }}
         // Download via anchor
         var a = document.createElement('a');
         a.href = url;

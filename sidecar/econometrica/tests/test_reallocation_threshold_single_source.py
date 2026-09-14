@@ -157,6 +157,26 @@ def _pptx_slide_text(prs, index: int) -> str:
     return re.sub(r"\s+", " ", "\n".join(parts))
 
 
+# 🔴 Аудит s48 (14.09.2026): слайд SCQAR печатает пять независимых блоков
+# (СИТУАЦИЯ/ПРОБЛЕМА/ВОПРОС/ОТВЕТ/РЕКОМЕНДАЦИИ) как отдельные текст-шейпы —
+# label и тело у каждого блока свой шейп (проверено зондом: builder.py кладёт
+# их `self._text(...)` по одному). Мутация «вернуть гейт `and realloc >= 1` в
+# ветку ОТВЕТА» откатывает именно блок ОТВЕТ на «Сохранить аллокацию», но блок
+# РЕКОМЕНДАЦИИ считает значимость ОТДЕЛЬНЫМ вызовом `reallocation_subjects`
+# (`_rec_subjects`, не задетым этой мутацией) и продолжает называть cut_source.
+# `_pptx_slide_text` склеивал оба блока в одну строку, поэтому находка
+# «упомянут cut_source» из РЕКОМЕНДАЦИЙ маскировала молчание ОТВЕТА. Читаем
+# ТОЛЬКО блок ОТВЕТ — тело text-шейпа, идущего сразу за шейпом с текстом-меткой.
+def _pptx_block_body(prs, index: int, label: str) -> str:
+    texts = [shape.text_frame.text for shape in prs.slides[index].shapes if shape.has_text_frame]
+    for i, t in enumerate(texts):
+        if t.strip() == label:
+            if i + 1 < len(texts):
+                return texts[i + 1]
+            raise AssertionError(f"у блока {label!r} на слайде {index} нет тела")
+    raise AssertionError(f"блок {label!r} не найден на слайде {index} (шейпы: {texts})")
+
+
 # 🔴 Уточнение разведки s48 (по факту первого прогона этого теста): из четырёх
 # заголовков `derive_action_headline` порог значимости переброски реально влияет
 # на ТЕКСТ только двух — "mroas" (называет cut_source, только если он есть) и
@@ -201,8 +221,14 @@ def test_reallocation_significance_agrees_everywhere_in_the_gap_zone():
             _names_cut_source(_plain(render_recommendation(ctx))),
         "PPTX: слайд «Главное», Finding 3":
             _names_cut_source(_pptx_slide_text(prs, _SLIDE_AT_A_GLANCE)),
-        "PPTX: слайд SCQAR (ПРОБЛЕМА/ОТВЕТ/РЕКОМЕНДАЦИИ)":
-            _names_cut_source(_pptx_slide_text(prs, _SLIDE_SCQAR)),
+        # 🔴 s48: было — весь слайд SCQAR целиком (ПРОБЛЕМА/ОТВЕТ/РЕКОМЕНДАЦИИ
+        # склеены в одну строку). Блок РЕКОМЕНДАЦИИ считает значимость своим
+        # отдельным вызовом `reallocation_subjects` и продолжает называть
+        # cut_source даже когда регрессия откатила ИМЕННО блок ОТВЕТ на «Сохранить
+        # аллокацию» — слайд целиком маскировал это молчание. Читаем только тело
+        # блока ОТВЕТ, который и обязан отвечать на вопрос значимости.
+        "PPTX: слайд SCQAR, блок ОТВЕТ":
+            _names_cut_source(_pptx_block_body(prs, _SLIDE_SCQAR, "ОТВЕТ")),
     }
     for hint in _SIGNIFICANCE_HINTS:
         headline = derive_action_headline(_channels(), _facts(), hint) or ""
@@ -215,6 +241,30 @@ def test_reallocation_significance_agrees_everywhere_in_the_gap_zone():
         + "\n".join(f"  {'значима' if v else 'НЕ значима':<12} — {k}"
                      for k, v in places.items())
     )
+    # 🔴 s48: прежняя версия теста стерегла только СОГЛАСОВАННОСТЬ мест между
+    # собой, не саму величину порога — мутация `SIGNIFICANT_REALLOCATION_MLN =
+    # 100.0` оставляла все места согласны молчать про переброску (0,7 < 100
+    # везде), `len(verdicts) == 1` был доволен. 0,7 млн ₽ выше действующего
+    # порога значимости (0,5) — документ ОБЯЗАН называть переброску значимой
+    # everywhere, не просто одинаково.
+    assert all(places.values()), (
+        f"На сумме {GAP_AMOUNT_MLN} млн ₽ (выше порога значимости 0,5 млн) "
+        f"документ обязан ВЕЗДЕ называть переброску значимой — молчит здесь:\n"
+        + "\n".join(f"  {'значима' if v else 'НЕ значима':<12} — {k}"
+                     for k, v in places.items())
+    )
+
+
+def test_significant_reallocation_mln_constant_is_half_million():
+    """Прямой якорь на величину порога — не только на его согласованность.
+
+    Поведенческий тест выше доказывает СОГЛАСОВАННОСТЬ порога между местами
+    печати; этот — что сама величина не уехала (мутация константы на 100.0
+    прошла бы поведенческий тест незамеченной, если бы не строка выше, но
+    два независимых сторожа на одну и ту же величину дешевле одного хрупкого).
+    """
+    from utils.optimizer_honesty import SIGNIFICANT_REALLOCATION_MLN
+    assert SIGNIFICANT_REALLOCATION_MLN == 0.5
 
 
 # ─── Сторож против возврата литерала мимо единого источника ──────────────────
@@ -229,8 +279,14 @@ _GUARDED_FILES = (
 # в обход `_scqar_subjects`/`_rec_subjects`). Разрешённое сравнение —
 # только внутри самой функции reallocation_subjects (её файл сюда не входит) и
 # только с именованной константой (не с числовым литералом).
+# 🔴 s48: прежняя версия ловила только `>=` буквально — `realloc > 1` (или
+# `<`, `<=`, `==`, литерал слева: `1 <= realloc`) была эквивалентной записью
+# того же порога в обход общего источника и проходила мимо сторожа зелёной
+# (доказано мутацией). Ловим весь класс операторов сравнения, в обоих
+# порядках операндов.
 _INLINE_THRESHOLD_RE = re.compile(
-    r"(?:reallocation_mln|\brealloc\b).{0,20}?>=\s*\d+(?:\.\d+)?"
+    r"(?:reallocation_mln|\brealloc\b).{0,20}?(?:>=|<=|==|>|<)\s*\d+(?:\.\d+)?"
+    r"|\d+(?:\.\d+)?\s*(?:>=|<=|==|>|<).{0,20}?(?:reallocation_mln|\brealloc\b)"
 )
 
 

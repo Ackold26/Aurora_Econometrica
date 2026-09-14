@@ -3,7 +3,8 @@
   import { openUrl } from '@tauri-apps/plugin-opener';
   import { goto } from '$app/navigation';
   import { onMount } from 'svelte';
-  import { activeCabinet, messages, isLoading, pendingCommand, lastCabinetId, recordRecentCommand, cabinetOnboarding, theme, toggleTheme, inboxFiles, cloudConsent, cloudConsentPromptOpen } from '$lib/store.js';
+  import { get } from 'svelte/store';
+  import { activeCabinet, messages, isLoading, pendingCommand, lastCabinetId, recordRecentCommand, cabinetOnboarding, theme, toggleTheme, inboxFiles, cloudConsent, cloudConsentPromptOpen, trialConsentBlocking } from '$lib/store.js';
   import { ChartColumn } from 'lucide-svelte';
   import { activeProject } from '$lib/project-state.js';
   import { getProductName, getCommandBrief, getCommandMeta } from '$lib/command-meta.js';
@@ -11,6 +12,7 @@
   import { productType, activeBrand, isCreativeHub } from '$lib/creative-store.js';
   import { toast } from '$lib/toast.js';
   import { assistantRoute, refreshAssistantRoute } from '$lib/assistant-route.js';
+  import { handleCabinetShortcut } from '$lib/global-shortcuts.js';
 
   /** Открыть страницу загрузки Python в браузере системы.
    * Отдельная функция, потому что перехватывать надо и обычный клик, и средний: средняя кнопка
@@ -231,19 +233,21 @@
 
   /** @param {KeyboardEvent} e */
   function handleCabinetKeydown(e) {
-    // Ctrl+Shift+Z → toggle zen mode
-    if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'z') {
-      e.preventDefault();
-      zenMode = !zenMode;
-      return;
-    }
-    // Escape → execution→selection → zen off → back to home
-    if (e.key === 'Escape' && !['INPUT', 'TEXTAREA'].includes(/** @type {HTMLElement} */ (e.target)?.tagName)) {
-      if (pendingBriefCommand) { cancelBrief(); return; }
-      if (workspaceMode === 'execution') { workspaceMode = 'selection'; return; }
-      if (zenMode) { zenMode = false; return; }
-      goBack();
-    }
+    // Правило «пока окно условий открыто - сочетания клавиш не работают» - единый
+    // источник $lib/global-shortcuts.js (s48, 2026-09-14, вторая волна). См. докстринг
+    // handleCabinetShortcut - кабинет достижим сразу после обхода блокирующего экрана
+    // с главной страницы, обработчик здесь раньше не смотрел на состояние окна условий.
+    handleCabinetShortcut({
+      trialConsentOpen: get(trialConsentBlocking),
+      event: e,
+      zenMode,
+      setZenMode: (value) => { zenMode = value; },
+      pendingBriefCommand,
+      cancelBrief,
+      workspaceMode,
+      setWorkspaceMode: (value) => { workspaceMode = value; },
+      goBack,
+    });
   }
 
   // ── Dependency check for PPTX pipeline ──

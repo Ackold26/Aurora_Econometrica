@@ -586,15 +586,32 @@ impl SessionManager {
     }
 }
 
-/// Remove all files from inbox in user workspace.
+/// Убрать в корзину всё, что лежит в папке приёма на Рабочем столе клиента.
+///
+/// 🔴 Файлы здесь принадлежат человеку: он сам положил их сюда, и никакой копии у
+/// программы нет. Прежнее `remove_file` стирало их насовсем при каждом закрытии сессии —
+/// вопреки правовому документу поставки, который обещает клиенту, что программа сама
+/// ничего не удаляет. Теперь удаление мягкое, а отказ корзины не глушится: он уходит в
+/// журнал с путём и причиной внутри `soft_delete`, файл при этом остаётся на месте.
+/// Проход не прерывается — один занятый файл не имеет права оставить папку неубранной.
 fn clear_inbox(workspace: &Path) {
     let inbox = workspace.join("inbox");
+    let mut ostalos = 0usize;
     if let Ok(entries) = std::fs::read_dir(&inbox) {
         for entry in entries.flatten() {
-            if entry.file_type().is_ok_and(|ft| ft.is_file()) {
-                let _ = std::fs::remove_file(entry.path());
+            if entry.file_type().is_ok_and(|ft| ft.is_file())
+                && crate::soft_delete::soft_delete(&entry.path()).is_err()
+            {
+                ostalos += 1;
             }
         }
+    }
+    if ostalos > 0 {
+        warn!(
+            "Папка приёма {} убрана не полностью: {ostalos} файл(ов) остались на месте \
+             (причины по каждому — в предупреждениях выше)",
+            inbox.display()
+        );
     }
 }
 

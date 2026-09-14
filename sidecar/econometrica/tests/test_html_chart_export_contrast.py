@@ -114,21 +114,36 @@ def test_export_png_регрессия_белый_фон_константой_н
     )
 
 
-def test_export_png_фон_идёт_через_setoption_а_не_через_getdataurl_опцию():
-    """Регрессия на конкретную граблю: хосты инициализированы renderer:'svg'
-    (initChart/initChartFromHost), а у SVG-рендерера getDataURL() полностью
-    игнорирует свои опции (проверено на живом отчёте: backgroundColor в
-    getDataURL() не долетал до SVG). Фон обязан идти через chart.setOption()
-    ДО getDataURL(), иначе фикс контраста молча ничего не чинит."""
+def test_export_png_рисует_растр_офф_скрин_canvas_а_не_мутирует_живой_svg_график():
+    """s48, вторая находка (14.09.2026, аудит): у SVG-рендерера getDataURL()
+    ЦЕЛИКОМ игнорирует свои опции — `type:'png'` тоже, не только backgroundColor
+    (`getSvgDataURL()` внутри echarts.common параметров не принимает вовсе).
+    Кнопка «Сохранить PNG» отдавала файл `<chart>-aurora.png`, внутри которого
+    лежал `<svg …>` (доказано первыми байтами файла на живом отчёте — не
+    открывается штатным просмотрщиком и не вставляется в PowerPoint/Word).
+
+    Правка не переключает renderer живых хостов на canvas (renderer:'svg'
+    оставлен нарочно — чёткость подписей при печати HTML в PDF/зуме, тот же
+    выбор, что и раньше). ТОЛЬКО для выгрузки поднимается офф-скрин
+    canvas-инстанс той же option/размера — у canvas-рендерера getDataURL()
+    честно рисует растр и уважает свои опции (type/pixelRatio/backgroundColor).
+    Живой SVG-график `chart` при этом НЕ мутируется (setOption не зовётся на
+    самом `chart` — раньше именно так временно навязывался фон и была
+    возможность гонки/мигания при повторном клике)."""
     js = _js()
     assert "renderer: 'svg'" in js, "хосты уже не renderer:'svg' - проверка выше устарела"
     fn = js.split("function setupCopyPng", 1)[1].split("function ", 1)[0]
-    assert re.search(r"setOption\(\{\s*backgroundColor:\s*currentSurfaceColor\(\)", fn), (
-        "фон экспорта не выставлен через chart.setOption() перед getDataURL()"
+    assert re.search(r"renderer:\s*'canvas'", fn), (
+        "выгрузка не поднимает офф-скрин canvas-инстанс - у svg-рендерера getDataURL() не даст растра"
     )
-    assert not re.search(r"getDataURL\(\{[^}]*backgroundColor", fn), (
-        "backgroundColor передан аргументом в getDataURL() - у svg-рендерера он там молча игнорируется"
+    assert re.search(r"type:\s*'png'", fn), "экспорт не просит PNG у офф-скрин инстанса"
+    assert not re.search(r"\bchart\.setOption\(", fn), (
+        "живой SVG-график мутируется ради экспорта - фон должен идти через отдельный canvas-инстанс"
     )
+    assert re.search(r"backgroundColor:\s*currentSurfaceColor\(\)", fn), (
+        "фон экспорта не читает --surface текущей темы"
+    )
+    assert re.search(r"\.dispose\(\)", fn), "офф-скрин canvas-инстанс не освобождается после экспорта"
 
 
 def test_currentsurfacecolor_читает_css_переменную_surface():

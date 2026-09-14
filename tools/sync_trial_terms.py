@@ -3,7 +3,7 @@
 r"""
 Воспроизводимый перенос правовых PDF из эталонного места правового блока в ресурсы
 поставки Aurora AI Econometrica: «Условия ознакомительного использования» и «Порядок
-обработки данных — Econometrica».
+обработки данных - Aurora AI Econometrica».
 
 Область: s48 (2026-09-14). Файл условий менялся вручную трижды за один час правки
 правовым блоком - разовое копирование "руками" по названным кем-то цифрам размера/суммы
@@ -54,7 +54,7 @@ DEFAULT_TERMS_SOURCE = Path(
     r"D:\Docs\Aurora_Ai\Business\Договора\Условия ознакомительного использования.pdf"
 )
 DEFAULT_DATA_PROCESSING_SOURCE = Path(
-    r"D:\Docs\Aurora_Ai\Business\Договора\Порядок обработки данных — Econometrica.pdf"
+    r"D:\Docs\Aurora_Ai\Business\Договора\Порядок обработки данных - Aurora AI Econometrica.pdf"
 )
 
 # Имена файлов в ресурсах поставки. ОБЯЗАНЫ дословно совпадать с
@@ -63,7 +63,7 @@ DEFAULT_DATA_PROCESSING_SOURCE = Path(
 # `sync_script_filename_matches_rust_constant` (там же, читает этот файл через
 # include_str! и ищет обе строки ниже).
 TRIAL_TERMS_PDF_FILENAME = "Условия ознакомительного использования.pdf"
-DATA_PROCESSING_PDF_FILENAME = "Порядок обработки данных — Econometrica.pdf"
+DATA_PROCESSING_PDF_FILENAME = "Порядок обработки данных - Aurora AI Econometrica.pdf"
 
 # Ключи документов в манифесте (объект `documents`) - общие с Rust-константами
 # `TRIAL_TERMS_MANIFEST_KEY`/`DATA_PROCESSING_MANIFEST_KEY`.
@@ -78,7 +78,7 @@ MANIFEST_PATH = Path(__file__).resolve().parent / "trial_terms_manifest.json"
 # в тексте чекбокса TrialConsentOverlay.svelte (свой сторож - trial_terms_revision_
 # matches_frontend_checkbox_text). Здесь только для записи в манифест - справочно
 # (текст сообщения об ошибке), сторож поставки сверяет СУММУ, а не эту строку.
-TRIAL_TERMS_REVISION = "2026-09-14"
+TRIAL_TERMS_REVISION = "2026-09-14.02"
 
 
 def sha256_of(path: Path) -> str:

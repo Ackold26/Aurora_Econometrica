@@ -1,20 +1,20 @@
 {
   "documents": {
     "terms": {
-      "revision": "2026-09-14",
+      "revision": "2026-09-14.02",
       "filename": "Условия ознакомительного использования.pdf",
       "source_path": "D:\\Docs\\Aurora_Ai\\Business\\Договора\\Условия ознакомительного использования.pdf",
-      "sha256": "40b04e6e3bee64de4281d93c3d6ee3a734bb92298312175130f2117a365937e5",
-      "size_bytes": 192635,
-      "synced_at": "2026-09-14T03:06:49+00:00"
+      "sha256": "10b04b07262c0301ebbd44ba0e0cf02eb108f399fe717e3dbf9584687eb1fc5b",
+      "size_bytes": 180729,
+      "synced_at": "2026-09-14T05:08:04+00:00"
     },
     "data_processing": {
-      "revision": "2026-09-14",
-      "filename": "Порядок обработки данных — Econometrica.pdf",
-      "source_path": "D:\\Docs\\Aurora_Ai\\Business\\Договора\\Порядок обработки данных — Econometrica.pdf",
-      "sha256": "524467505c0764827e6674e596a6cc71763bdcff09ad75a97266340f666a8cd2",
-      "size_bytes": 186856,
-      "synced_at": "2026-09-14T03:06:49+00:00"
+      "revision": "2026-09-14.02",
+      "filename": "Порядок обработки данных - Aurora AI Econometrica.pdf",
+      "source_path": "D:\\Docs\\Aurora_Ai\\Business\\Договора\\Порядок обработки данных - Aurora AI Econometrica.pdf",
+      "sha256": "d8cbefae5ed913d3c86c70ad4f722a495e5d3ebf8ec3c5c573d578a2639b67eb",
+      "size_bytes": 183502,
+      "synced_at": "2026-09-14T05:08:04+00:00"
     }
   }
 }

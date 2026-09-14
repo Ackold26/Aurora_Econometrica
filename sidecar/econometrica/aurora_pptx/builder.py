@@ -2872,7 +2872,7 @@ class AuroraPPTXBuilder:
             # колоды на суммах 0,5-1 млн (Projects/THRESHOLDS_s48.md). Вызов
             # поднят выше «B1-fix R-13» ниже — она тоже читает эту же оценку
             # значимости вместо своего отдельного литерала.
-            from utils.optimizer_honesty import reallocation_subjects
+            from utils.optimizer_honesty import reallocation_subjects, format_realloc_mln
             _scqar_subjects = reallocation_subjects(f)
             cut_source = _scqar_subjects["cut_source"]
             scale_dest = _scqar_subjects["scale_destination"]
@@ -2911,11 +2911,11 @@ class AuroraPPTXBuilder:
                 # что уже проверена reallocation_subjects выше; раньше здесь
                 # стояло отдельное сравнение `realloc >= 1` тремя литералами.
                 if _scqar_subjects["kind"] == "rebalance":
-                    answer_parts.append(f"Перераспределить {realloc:.0f} млн ₽ из {cut_source} в {scale_dest}")
+                    answer_parts.append(f"Перераспределить {format_realloc_mln(realloc)} млн ₽ из {cut_source} в {scale_dest}")
                 elif _scqar_subjects["kind"] == "scale_only":
-                    answer_parts.append(f"Нарастить {scale_dest} на ~{realloc:.0f} млн ₽")
+                    answer_parts.append(f"Нарастить {scale_dest} на ~{format_realloc_mln(realloc)} млн ₽")
                 elif _scqar_subjects["kind"] == "cut_only":
-                    answer_parts.append(f"Сократить {cut_source} ({realloc:.0f} млн ₽)")
+                    answer_parts.append(f"Сократить {cut_source} ({format_realloc_mln(realloc)} млн ₽)")
                 if underperf:
                     answer_parts.append(f"остановить {underperf_str}")
                 answer_body = "; ".join(answer_parts) + "." if answer_parts else f"Сохранить текущую аллокацию по {leader} с контролем насыщения."
@@ -2999,19 +2999,19 @@ class AuroraPPTXBuilder:
                     # s47: тот же узел выбора сторон, что у сводки и SCQAR.
                     # s48: и тот же порог значимости суммы (был свой, 1 млн —
                     # см. Projects/THRESHOLDS_s48.md).
-                    from utils.optimizer_honesty import reallocation_subjects
+                    from utils.optimizer_honesty import reallocation_subjects, format_realloc_mln
                     _rec_subjects = reallocation_subjects(f)
                     cut_source = _rec_subjects["cut_source"]
                     scale_dest = _rec_subjects["scale_destination"]
 
                     if _rec_subjects["kind"] == "rebalance":
                         action_01_body = (
-                            f" {realloc:.0f} млн ₽ из {cut_source} в {scale_dest}. "
+                            f" {format_realloc_mln(realloc)} млн ₽ из {cut_source} в {scale_dest}. "
                             "Отложенный эффект (adstock) компенсирует краткосрочный спад охвата."
                         )
                     elif _rec_subjects["kind"] == "scale_only":
                         action_01_body = (
-                            f" Нарастить {scale_dest} на ~{realloc:.0f} млн ₽ – "  # П8-1
+                            f" Нарастить {scale_dest} на ~{format_realloc_mln(realloc)} млн ₽ – "  # П8-1
                             "за счёт roll-over бюджета или дополнительных средств."
                         )
                     elif _rec_subjects["kind"] == "cut_only":
@@ -3020,7 +3020,7 @@ class AuroraPPTXBuilder:
                         # которого оптимизатор не режет. Убрана: когда сторон нет,
                         # колода молчит про переброску, а не выдумывает источник.
                         action_01_body = (
-                            f" Сократить {cut_source} ({realloc:.0f} млн ₽) – "  # П8-1
+                            f" Сократить {cut_source} ({format_realloc_mln(realloc)} млн ₽) – "  # П8-1
                             "текущая аллокация неэффективна."
                         )
                     else:

@@ -638,7 +638,7 @@ def render_executive_summary(ctx: dict) -> str:
         bd_contrib_pct = facts.get("budget_dominator_contrib_pct") or 0.0
         # s47: стороны переброски — только через общее правило (см. сводку и
         # рекомендацию: три места одного отчёта обязаны называть один источник).
-        from utils.optimizer_honesty import reallocation_subjects
+        from utils.optimizer_honesty import reallocation_subjects, format_realloc_mln
         subjects = reallocation_subjects(facts)
         cut_source = subjects["cut_source"]
         scale_dest = subjects["scale_destination"]
@@ -730,22 +730,22 @@ def render_executive_summary(ctx: dict) -> str:
             if cut_source and scale_dest:
                 if has_extra_underperf:
                     answer = scqar["answer"]["template"].format(
-                        realloc=realloc, cut_source=cut_source,
+                        realloc=format_realloc_mln(realloc), cut_source=cut_source,
                         scale_destination=scale_dest, underperf=underperf,
                     )
                 else:
                     # Без underperf clause - основная часть только
                     answer = (
-                        f"Перебалансировать {realloc:.0f} млн ₽ из {cut_source} "
+                        f"Перебалансировать {format_realloc_mln(realloc)} млн ₽ из {cut_source} "
                         f"в {scale_dest}."
                     )
             elif scale_dest:  # no Cut signal but Scale opportunity exists
                 answer = scqar.get("answer_no_cut", {}).get("template", scqar["answer"]["template"]).format(
-                    realloc=realloc, scale_destination=scale_dest,
+                    realloc=format_realloc_mln(realloc), scale_destination=scale_dest,
                 )
             else:  # cut_source present but no Scale destination
                 answer = scqar.get("answer_no_scale", {}).get("template", scqar["answer"]["template"]).format(
-                    realloc=realloc, cut_source=cut_source,
+                    realloc=format_realloc_mln(realloc), cut_source=cut_source,
                 )
             # v1.3.2 audit fix (M2): scqar.recommendation template = «Ожидаемый
             # прирост ROAS: +N пп». Для non-monetary modes слово «ROAS» leak.
@@ -895,7 +895,7 @@ def render_at_a_glance(ctx: dict) -> str:
         lift = facts.get("expected_lift_pct") or 0
         binding = bool(facts.get("binding_constraints"))
         # s47: стороны переброски — из общего правила, не из локальной эвристики.
-        from utils.optimizer_honesty import reallocation_subjects
+        from utils.optimizer_honesty import reallocation_subjects, format_realloc_mln
         subjects = reallocation_subjects(facts)
         # v1.3.2 audit fix (M1): для effectiveness mode «all below breakeven»
         # семантически unapplicable (shares always sum to 100%, threshold
@@ -932,16 +932,16 @@ def render_at_a_glance(ctx: dict) -> str:
             tpl = strings["findings_templates"]
             if subjects["kind"] == "rebalance":
                 f3 = tpl["f3_realloc"].format(
-                    realloc=subjects["amount_mln"],
+                    realloc=format_realloc_mln(subjects["amount_mln"]),
                     cut_source=subjects["cut_source"],
                     scale_destination=subjects["scale_destination"])
             elif subjects["kind"] == "scale_only":
                 f3 = tpl["f3_realloc_no_cut"].format(
-                    realloc=subjects["amount_mln"],
+                    realloc=format_realloc_mln(subjects["amount_mln"]),
                     scale_destination=subjects["scale_destination"])
             else:  # cut_only
                 f3 = tpl["f3_realloc_no_scale"].format(
-                    realloc=subjects["amount_mln"],
+                    realloc=format_realloc_mln(subjects["amount_mln"]),
                     cut_source=subjects["cut_source"])
             # Пласт 2 (2026-07-11): KPI-aware — для count/effectiveness «ROAS» не применим.
             if kpi["is_legacy"]:
@@ -1569,7 +1569,7 @@ def render_recommendation(ctx: dict) -> str:
         lift = facts.get("expected_lift_pct")
         underperf = [c.get("name") for c in channels if c.get("verdict") == "Cut"]
         # s47: те же стороны переброски, что у сводки и резюме — одно правило.
-        from utils.optimizer_honesty import reallocation_subjects
+        from utils.optimizer_honesty import reallocation_subjects, format_realloc_mln
         subjects = reallocation_subjects(facts)
         binding = bool(facts.get("binding_constraints"))
         converged = facts.get("optimization_converged", True)
@@ -1615,7 +1615,7 @@ def render_recommendation(ctx: dict) -> str:
             # = biggest grow recommendation. Avoids «из Performance в Social»
             # когда Performance - small-budget сhannel.
             action_01_text = (
-                f"{subjects['amount_mln']:.0f} млн ₽ из {subjects['cut_source']} "
+                f"{format_realloc_mln(subjects['amount_mln'])} млн ₽ из {subjects['cut_source']} "
                 f"в {subjects['scale_destination']}. "
                 "Остаточный эффект компенсирует краткосрочный спад охвата."
             )
@@ -1626,12 +1626,12 @@ def render_recommendation(ctx: dict) -> str:
             # трогал, — и спорила с резюме того же отчёта. Промолчать про «из»
             # честнее, чем назвать неверный канал: говорим только про получателя.
             action_01_text = (
-                f"Нарастить {subjects['scale_destination']} на ~{subjects['amount_mln']:.0f} млн ₽ – "
+                f"Нарастить {subjects['scale_destination']} на ~{format_realloc_mln(subjects['amount_mln'])} млн ₽ – "
                 "за счёт переноса бюджета или дополнительных средств."
             )
         elif subjects["kind"] == "cut_only":
             action_01_text = (
-                f"Сократить {subjects['cut_source']} ({subjects['amount_mln']:.0f} млн ₽) – "
+                f"Сократить {subjects['cut_source']} ({format_realloc_mln(subjects['amount_mln'])} млн ₽) – "
                 "текущая аллокация неэффективна. Явного канала для роста нет – "
                 "рассмотрите расширение медиа-микса."
             )

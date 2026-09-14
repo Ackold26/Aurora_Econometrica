@@ -2,9 +2,11 @@
   import { invoke } from '@tauri-apps/api/core';
   import { goto } from '$app/navigation';
   import { onMount } from 'svelte';
-  import { activeCabinet, messages, errorMessage, theme, toggleTheme, updateRequired, layoutCabinets, cabinetsLoaded, lastCabinetId, licenseError as licenseErrorStore } from '$lib/store.js';
+  import { get } from 'svelte/store';
+  import { activeCabinet, messages, errorMessage, theme, toggleTheme, updateRequired, layoutCabinets, cabinetsLoaded, lastCabinetId, licenseError as licenseErrorStore, trialConsentBlocking } from '$lib/store.js';
   import { isCreativeHub, isEconometrica, activeBrand, brands, refreshBrands, setActiveBrand, productType } from '$lib/creative-store.js';
   import { toast } from '$lib/toast.js';
+  import { handleHomeShortcut } from '$lib/global-shortcuts.js';
   import CabinetCard from '$lib/components/CabinetCard.svelte';
   import BrandSelector from '$lib/components/BrandSelector.svelte';
   import AetherLogo from '$lib/components/AetherLogo.svelte';
@@ -148,19 +150,17 @@
 
   /** @param {KeyboardEvent} e */
   function handleHomeKeydown(e) {
-    // Ctrl+, → Settings
-    if (e.ctrlKey && e.key === ',') {
-      e.preventDefault();
-      goto('/settings');
-      return;
-    }
-    // 1-9 → open cabinet by index (only when not in input)
-    if (!e.ctrlKey && !e.altKey && !e.metaKey && /^[1-9]$/.test(e.key) && !['INPUT', 'TEXTAREA'].includes(/** @type {HTMLElement} */ (e.target)?.tagName)) {
-      const idx = parseInt(e.key) - 1;
-      if ($layoutCabinets[idx]) {
-        openCabinet($layoutCabinets[idx]);
-      }
-    }
+    // Правило «пока окно условий открыто - сочетания клавиш не работают» - единый
+    // источник $lib/global-shortcuts.js (s48, 2026-09-14, вторая волна). См. докстринг
+    // handleHomeShortcut - это ГЛАВНАЯ страница, ровно та, где TrialConsentOverlay
+    // появляется первым.
+    handleHomeShortcut({
+      trialConsentOpen: get(trialConsentBlocking),
+      event: e,
+      layoutCabinets: $layoutCabinets,
+      gotoSettings: () => goto('/settings'),
+      openCabinetByIndex: (idx) => openCabinet($layoutCabinets[idx]),
+    });
   }
 
   onMount(() => {
