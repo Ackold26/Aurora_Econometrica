@@ -997,13 +997,13 @@ class AuroraPPTXBuilder:
             s2 = "Потенциал для перераспределения бюджета"
 
         # Finding 3 - reallocation / honest disclosure
-        def _fmt_mln(v):
-            if v is None:
-                return "0"
-            return f"{v:.1f}" if v < 10 else f"{v:.0f}"
+        # s48: локальный форматтер снят — он печатал «1.0 млн» с точкой и нулевой
+        # десятой, тогда как соседний слайд той же колоды печатал «1 млн ₽» через
+        # общую функцию. В одном файле было два написания одной суммы (внешний
+        # аудит s48b, High-1). Формат суммы живёт в ОДНОМ месте — рядом с порогом.
 
         # s47: стороны переброски — общее правило, одно на HTML и на колоду.
-        from utils.optimizer_honesty import reallocation_subjects
+        from utils.optimizer_honesty import reallocation_subjects, format_realloc_mln
         _f3_subjects = reallocation_subjects(f)
 
         # v1.3.2 audit fix (M1): для effectiveness mode skip - shares always
@@ -1024,7 +1024,7 @@ class AuroraPPTXBuilder:
                 )
         elif _f3_subjects["kind"] == "rebalance":
             # L15 (math-fix v1.4 Section C): action-driven reallocation subjects
-            f3 = (f"Рекомендация: перераспределить {_fmt_mln(_f3_subjects['amount_mln'])} млн "
+            f3 = (f"Рекомендация: перераспределить {format_realloc_mln(_f3_subjects['amount_mln'])} млн "
                   f"из {_f3_subjects['cut_source']} в {_f3_subjects['scale_destination']}")
             s3 = _lift_phrase_pptx(expected_lift_pct, self.kpi) if expected_lift_pct is not None else "Ожидаемый эффект - положительный"
         elif _f3_subjects["kind"] == "scale_only":
@@ -1035,11 +1035,11 @@ class AuroraPPTXBuilder:
             # на всю программу (utils.optimizer_honesty.reallocation_subjects);
             # когда оптимизатор не назвал, кого режет, — про «из» молчим.
             f3 = (f"Рекомендация: нарастить {_f3_subjects['scale_destination']} "
-                  f"на ~{_fmt_mln(_f3_subjects['amount_mln'])} млн")
+                  f"на ~{format_realloc_mln(_f3_subjects['amount_mln'])} млн")
             s3 = _lift_phrase_pptx(expected_lift_pct, self.kpi) if expected_lift_pct is not None else "Ожидаемый эффект - положительный"
         elif _f3_subjects["kind"] == "cut_only":
             f3 = (f"Рекомендация: сократить {_f3_subjects['cut_source']} "
-                  f"({_fmt_mln(_f3_subjects['amount_mln'])} млн) - аллокация неэффективна")
+                  f"({format_realloc_mln(_f3_subjects['amount_mln'])} млн) - аллокация неэффективна")
             s3 = _lift_phrase_pptx(expected_lift_pct, self.kpi) if expected_lift_pct is not None else "Ожидаемый эффект - положительный"
         else:
             f3 = "Рекомендация: сохранить текущую аллокацию по лидеру портфеля"

@@ -257,3 +257,99 @@ describe('TrialConsentOverlay — второй слой защиты: перех
     backgroundBtn.remove();
   });
 });
+
+describe('TrialConsentOverlay — второй слой защиты: перехват кликов МЫШЬЮ вне оверлея (s48, четвёртая находка)', () => {
+  // 🔴 Аудит s48 (четвёртая находка): клавиатура закрыта блоком выше (isKeydownOutsideBlockingOverlay
+  // + capture-listener на 'keydown'), но на главной странице девять обработчиков нажатия
+  // МЫШЬЮ (карточки кабинетов, шестерёнка настроек, кнопки «Продолжить/Новый проект» и др.),
+  // и ни один гейт их не проверял - клик в первые сотни миллисекунд после запуска (пока
+  // trialConsentBlocking=true, а trialConsentPromptOpen ещё false - Rust не ответил) проходил.
+  //
+  // Правка (не тестируется здесь напрямую, только её следствие): второй такой же
+  // capture-listener, но на 'click', той же формы, что и keydown-блокировщик выше - гасит
+  // ЛЮБОЙ клик мышью (и синтетический клик касания) вне оверлея, пока blockingActive истинно.
+  // Один узел на класс «клик мимо оверлея», а не девять узлов на девять обработчиков - новый,
+  // ещё не написанный десятый обработчик заведомо попадает под тот же перехватчик.
+  it('клик МЫШЬЮ на фоновом элементе (карточка кабинета/настройки) не доходит до обработчика продукта', async () => {
+    const backgroundBtn = document.createElement('button');
+    document.body.appendChild(backgroundBtn);
+    render(TrialConsentOverlay);
+    await tick();
+
+    // Имитация продуктового обработчика клика (openCabinet, gotoSettings и любого
+    // будущего) - обычный слушатель без capture, ровно как они регистрируются в коде.
+    const productHandlerSpy = vi.fn();
+    window.addEventListener('click', productHandlerSpy);
+
+    await fireEvent.click(backgroundBtn);
+
+    expect(productHandlerSpy).not.toHaveBeenCalled();
+
+    window.removeEventListener('click', productHandlerSpy);
+    backgroundBtn.remove();
+  });
+
+  it('клик мышью ВНУТРИ оверлея (чекбокс, кнопки) не гасится - окно условий остаётся рабочим', async () => {
+    render(TrialConsentOverlay);
+    await tick();
+
+    const productHandlerSpy = vi.fn();
+    window.addEventListener('click', productHandlerSpy);
+
+    const checkbox = /** @type {HTMLInputElement} */ (screen.getByRole('checkbox'));
+    await fireEvent.click(checkbox);
+
+    expect(checkbox.checked).toBe(true); // клик по отметке реально сработал
+    expect(productHandlerSpy).toHaveBeenCalledTimes(1); // и не гасится вторым слоем
+
+    const acceptBtn = screen.getByRole('button', { name: /Принимаю/ });
+    expect(acceptBtn).not.toBeDisabled();
+    await fireEvent.click(acceptBtn);
+    await waitFor(() => {
+      expect(invoke).toHaveBeenCalledWith('accept_trial_consent');
+    });
+
+    window.removeEventListener('click', productHandlerSpy);
+  });
+
+  it('после принятия условий перехват кликов снимается полностью - фон снова кликабелен', async () => {
+    render(TrialConsentOverlay);
+    await tick();
+
+    trialConsentPromptOpen.set(false); // как после accept(): resolved уже true (beforeEach)
+    await tick();
+
+    const backgroundBtn = document.createElement('button');
+    document.body.appendChild(backgroundBtn);
+    const productHandlerSpy = vi.fn();
+    window.addEventListener('click', productHandlerSpy);
+
+    await fireEvent.click(backgroundBtn);
+
+    expect(productHandlerSpy).toHaveBeenCalledTimes(1);
+
+    window.removeEventListener('click', productHandlerSpy);
+    backgroundBtn.remove();
+  });
+
+  it('перехватчик активен ДО монтирования разметки окна (Rust ещё не ответил)', async () => {
+    trialConsentPromptOpen.set(false);
+    trialConsentResolved.set(false);
+    render(TrialConsentOverlay);
+    await tick();
+
+    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument();
+
+    const backgroundBtn = document.createElement('button');
+    document.body.appendChild(backgroundBtn);
+    const productHandlerSpy = vi.fn();
+    window.addEventListener('click', productHandlerSpy);
+
+    await fireEvent.click(backgroundBtn);
+
+    expect(productHandlerSpy).not.toHaveBeenCalled();
+
+    window.removeEventListener('click', productHandlerSpy);
+    backgroundBtn.remove();
+  });
+});

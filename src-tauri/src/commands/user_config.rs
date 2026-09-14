@@ -747,6 +747,18 @@ mod trial_terms_frontend_consistency_guard {
                  (TRIAL_TERMS_REVISION = {TRIAL_TERMS_REVISION})"
             )
         });
+        // s48: докстринг TRIAL_TERMS_REVISION требует двузначный номер - иначе строковое
+        // сравнение в trial_consent_outdated (".10" < ".2" лексикографически) даёт ту же
+        // ловушку монотонности, что уже чинили на уровне даты. u32::parse однозначный номер
+        // разбирает без возражений, поэтому длину проверяем отдельно.
+        assert_eq!(
+            number_part.len(),
+            2,
+            "номер редакции в TRIAL_TERMS_REVISION обязан быть двузначным (docstring требует \
+             ГГГГ-ММ-ДД.НН) - иначе строковое сравнение \".10\" < \".2\" в trial_consent_outdated \
+             сломает монотонность редакций на новом уровне; получено '{number_part}' \
+             (TRIAL_TERMS_REVISION = {TRIAL_TERMS_REVISION})"
+        );
 
         assert!(
             OVERLAY.contains(&ru_date),

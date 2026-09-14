@@ -1076,6 +1076,15 @@ def bootstrap_js(
           exportChart = echarts.init(offscreen, null, {{ renderer: 'canvas', width: w, height: h }});
           var opt = chart.getOption();
           opt.backgroundColor = currentSurfaceColor();
+          // 🔴 s48 (аудит, гипотеза подтверждена зондом Playwright на реальном
+          // отчёте): `opt` унаследован от живого графика вместе с его признаком
+          // `animation: true` (см. PREFERS_REDUCED_MOTION выше). Новый инстанс
+          // exportChart рисуется с нуля, а getDataURL() зовётся синхронно следом
+          // за setOption - снимок уходит ДО первого кадра анимации: оси и подписи
+          // на месте, столбцы/линии - нулевой высоты. У живого графика беды нет
+          // (он давно дорисован), а офф-скрин инстанс всегда снимается сразу
+          // после создания - анимация ему не нужна никогда.
+          opt.animation = false;
           exportChart.setOption(opt, true);
           url = exportChart.getDataURL({{ type: 'png', pixelRatio: 2, backgroundColor: currentSurfaceColor() }});
         }} finally {{
