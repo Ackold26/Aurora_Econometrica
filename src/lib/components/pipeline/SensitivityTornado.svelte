@@ -270,7 +270,7 @@
     <div class="empty-state" role="status">
       <TrendingUp size={24} strokeWidth={1} />
       <p>Данные чувствительности недоступны</p>
-      <span class="empty-note">Запустите анализ чувствительности для отображения tornado chart</span>
+      <span class="empty-note">Запустите анализ чувствительности для отображения торнадо-диаграммы</span>
     </div>
   {:else}
     <EChartBase option={option} height={chartHeight} />

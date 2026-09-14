@@ -262,9 +262,9 @@
     if (!mData?.diagnostics) return '';
     const parts = [];
     if (isOls) {
-      parts.push(`Линейная регрессия с ${nChannels} канал${nChannels > 4 ? 'ами' : nChannels > 1 ? 'ами' : 'ом'} медиа через Adstock (Geometric) + Hill saturation. β-коэффициенты оценены closed-form OLS. Правдоподобные диапазоны - bootstrap.`);
+      parts.push(`Линейная регрессия с ${nChannels} канал${nChannels > 4 ? 'ами' : nChannels > 1 ? 'ами' : 'ом'} медиа через остаточный эффект (Geometric) + Hill saturation. β-коэффициенты оценены closed-form OLS. Правдоподобные диапазоны - bootstrap.`);
     } else {
-      parts.push(`Bayesian Marketing Mix Model с ${nChannels} канал${nChannels > 4 ? 'ами' : nChannels > 1 ? 'ами' : 'ом'} медиа через Adstock (отложенный эффект) + Hill saturation (убывающая отдача).`);
+      parts.push(`Bayesian Marketing Mix Model с ${nChannels} канал${nChannels > 4 ? 'ами' : nChannels > 1 ? 'ами' : 'ом'} медиа через остаточный эффект (adstock) + Hill saturation (убывающая отдача).`);
       parts.push(`Оценка через MCMC-сэмплер${rHat != null ? `, R-hat = ${rHat.toFixed(3)}` : ''}${divergences != null ? `, дивергенций ${divergences}` : ''}.`);
     }
     if (nPeriods > 0) parts.push(`База данных: ${nPeriods} период${nPeriods > 4 ? 'ов' : nPeriods > 1 ? 'а' : ''}${ratio != null ? `, Ratio наблюдений к параметрам ${ratio.toFixed(1)}:1` : ''}.`);
@@ -602,8 +602,8 @@
       lines.push('Структура презентации:');
       lines.push('- Executive summary - MQS, R², MAPE, прирост от оптимизации');
       lines.push(isOls
-        ? '- Спецификация модели - Линейная регрессия, Adstock + Hill, OLS · closed-form · bootstrap-правдоподобный диапазон'
-        : '- Спецификация модели - Bayesian MMM, Adstock + Hill, MCMC');
+        ? '- Спецификация модели - Линейная регрессия, остаточный эффект (adstock) + Hill, OLS · closed-form · bootstrap-правдоподобный диапазон'
+        : '- Спецификация модели - Bayesian MMM, остаточный эффект (adstock) + Hill, MCMC');
       lines.push('- Декомпозиция продаж - базовый спрос и медиа по каналам');
       lines.push('- ROI-анализ - Share of Spend vs Share of Effect, Gap');
       lines.push('- Динамика по периодам - база, медиа, внешние факторы и конкуренты во времени');
@@ -1083,7 +1083,7 @@
             <div class="format-title">PPTX - для презентации</div>
           </div>
           <p class="format-desc">
-            Executive summary, спецификация модели ({isOls ? 'OLS · closed-form · bootstrap-правдоподобный диапазон' : 'Bayesian MMM, Adstock, Hill'}), декомпозиция продаж,
+            Executive summary, спецификация модели ({isOls ? 'OLS · closed-form · bootstrap-правдоподобный диапазон' : 'Bayesian MMM, остаточный эффект, Hill'}), декомпозиция продаж,
             ROI по каналам, Share of Spend vs Effect, динамика по периодам, сравнение сценариев,
             оптимальное распределение, прогноз. С графиками и рекомендациями.
           </p>
@@ -1175,9 +1175,9 @@
                 <ul>
                   <li>Резюме - MQS, R², MAPE, прирост от оптимизации</li>
                   {#if isOls}
-                    <li>Спецификация модели - Линейная регрессия с Adstock (Geometric) + Hill saturation, β оценены closed-form OLS, правдоподобные диапазоны - bootstrap</li>
+                    <li>Спецификация модели - Линейная регрессия с остаточным эффектом (Geometric) + Hill saturation, β оценены closed-form OLS, правдоподобные диапазоны - bootstrap</li>
                   {:else}
-                    <li>Спецификация модели - Bayesian MMM, Adstock + Hill saturation, MCMC-сэмплер, priors</li>
+                    <li>Спецификация модели - Bayesian MMM, остаточный эффект (adstock) + Hill saturation, MCMC-сэмплер, priors</li>
                   {/if}
                   <li>Декомпозиция продаж - вклад базы и медиа по каналам</li>
                   <li>ROI-анализ - доля затрат и доля эффекта, разрыв, эффективность</li>

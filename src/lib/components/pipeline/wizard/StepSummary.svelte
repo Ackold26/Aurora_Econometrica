@@ -320,9 +320,9 @@
         <span class="traffic-dot dot-{ppcSt}" aria-hidden="true"></span>
         <span class="sr-only">PPC: {trafficLabel(ppcSt)}</span>
         <div class="diag-body">
-          <span class="diag-name">Posterior predictive</span>
+          <span class="diag-name">Апостериорная проверка (PPC)</span>
           <span class="diag-vals">
-            R² {fmt2(diagnostics.ppc.r2)} на observed
+            R² {fmt2(diagnostics.ppc.r2)} на факте
             {#if diagnostics.ppc.hasBias}
               <span class="diag-action"> - обнаружен систематический сдвиг остатков</span>
             {:else}

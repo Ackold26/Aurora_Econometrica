@@ -47,8 +47,8 @@
   };
 
   const METHOD_HELP = {
-    did: 'Difference-in-Differences с two-way fixed effects. Сравнивает treated и control units до/после treatment. Требует panel данные с treatment_column, ≥4 periods, ≥4 units, наличие control units.',
-    scm: 'Synthetic Control Method (Abadie classic). Строит синтетический контроль для одного treated unit как взвешенную комбинацию donor units. Требует ≥6 pre-treatment periods, ≥3 donor units.',
+    did: 'Разность разностей (Difference-in-Differences, DiD) с двусторонними фиксированными эффектами. Сравнивает единицы с воздействием и контрольные единицы до/после начала воздействия. Требует панельные данные со столбцом воздействия (treatment_column), ≥4 периодов, ≥4 единиц, наличие контрольных единиц.',
+    scm: 'Метод синтетического контроля (Synthetic Control Method, SCM; классика Абадие). Строит синтетический контроль для одной единицы с воздействием как взвешенную комбинацию единиц-доноров. Требует ≥6 периодов до начала воздействия, ≥3 единицы-донора.',
     forest: 'Causal Forest (Wager-Athey 2018) для heterogeneous treatment effects. Surface которые сегменты получили больший эффект. Требует n≥100 observations + binary treatment + features.',
   };
 
@@ -137,49 +137,49 @@
     </label>
 
     <label>
-      Sheet name (для xlsx, опционально)
+      Название листа (для xlsx, опционально)
       <input type="text" bind:value={sheetName} placeholder="например 'Афала'" />
     </label>
 
     <label>
-      KPI column
+      Столбец KPI
       <input type="text" bind:value={kpiColumn} placeholder="kpi или 'Продажи в руб.'" required />
     </label>
 
     {#if method !== 'forest' || unitColumn || timeColumn}
       <label>
-        Unit column (region/city)
+        Столбец единицы (регион/город)
         <input type="text" bind:value={unitColumn} placeholder="region" required={method !== 'forest'} />
       </label>
 
       <label>
-        Time column
+        Столбец времени
         <input type="text" bind:value={timeColumn} placeholder="period или 'date'" required={method !== 'forest'} />
       </label>
     {/if}
 
     {#if method === 'did' || method === 'forest'}
       <label>
-        Treatment column (binary 0/1)
+        Столбец воздействия (0/1)
         <input type="text" bind:value={treatmentColumn} placeholder="treated" required />
       </label>
     {/if}
 
     {#if method === 'did'}
       <label>
-        Control columns (comma-separated, опционально)
+        Контрольные переменные (через запятую, опционально)
         <input type="text" bind:value={controlColumns} placeholder="x1, x2, x3" />
       </label>
     {/if}
 
     {#if method === 'scm'}
       <label>
-        Treated unit (имя региона)
+        Регион с воздействием (имя региона)
         <input type="text" bind:value={treatedUnit} placeholder="region_0" required />
       </label>
 
       <label>
-        Treatment period (значение в time_column для split)
+        Период начала воздействия (значение в столбце времени)
         <input type="text" bind:value={treatmentPeriod} placeholder="2024-06 или 13" required />
       </label>
 
@@ -191,18 +191,18 @@
 
     {#if method === 'forest'}
       <label>
-        Feature columns (heterogeneity drivers)
+        Столбцы признаков (факторы неоднородности)
         <input type="text" bind:value={featureColumns} placeholder="age, income, region_size" required />
       </label>
 
       <label>
-        Confounder columns (опционально)
+        Столбцы посторонних факторов (конфаундеров)
         <input type="text" bind:value={confounderColumns} placeholder="seasonality, prior_brand_awareness" />
       </label>
     {/if}
 
     <label>
-      Confidence (0-1)
+      Уровень диапазона (0-1)
       <input type="number" min="0.5" max="0.99" step="0.05" bind:value={confidence} />
     </label>
   </div>

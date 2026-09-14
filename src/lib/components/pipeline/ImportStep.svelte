@@ -646,7 +646,7 @@
             </p>
             {#if allowOverride && $modelEngine !== 'bayesian'}
               <p class="engine-card-warn">
-                <TriangleAlert size={14} strokeWidth={1.5} style="vertical-align: -0.15em" /> При n &lt; 30 Bayesian-сэмплер может расходиться (divergences &gt; 0) и давать ненадёжные posterior'ы. Рекомендуем OLS.
+                <TriangleAlert size={14} strokeWidth={1.5} style="vertical-align: -0.15em" /> При n &lt; 30 Bayesian-сэмплер может расходиться (дивергенции &gt; 0) и давать ненадёжные апостериорные оценки. Рекомендуем OLS.
               </p>
             {/if}
           </button>

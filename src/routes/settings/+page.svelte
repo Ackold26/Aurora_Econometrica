@@ -509,7 +509,7 @@
     <section class="section">
       <h2 class="section-title">Подсказки и обучение (v1.3)</h2>
       <p class="section-desc">
-        Inline tooltips, «Зачем этот шаг?» панели и подсказки по терминам. По умолчанию включены для новых пользователей.
+        Встроенные подсказки, «Зачем этот шаг?» панели и подсказки по терминам. По умолчанию включены для новых пользователей.
         Опытные эконометристы могут скрыть для чистого UI.
       </p>
       <div class="theme-toggle-row">
@@ -517,20 +517,20 @@
         <button
           class="theme-toggle"
           onclick={() => hideEducationalHints.set(!$hideEducationalHints)}
-          aria-label="Toggle educational hints"
+          aria-label="Переключить обучающие подсказки"
         >
           {#if $hideEducationalHints}
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
               <polyline points="20 6 9 17 4 12"/>
             </svg>
-            <span>Скрыты (Expert)</span>
+            <span>Скрыты (эксперт)</span>
           {:else}
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
               <circle cx="12" cy="12" r="9"/>
               <line x1="15" y1="9" x2="9" y2="15"/>
               <line x1="9" y1="9" x2="15" y2="15"/>
             </svg>
-            <span>Показаны (Novice)</span>
+            <span>Показаны (новичок)</span>
           {/if}
         </button>
       </div>

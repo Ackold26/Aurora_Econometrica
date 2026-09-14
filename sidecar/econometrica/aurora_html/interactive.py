@@ -227,6 +227,38 @@ def bootstrap_js(
            (window.AURORA_THEMES && window.AURORA_THEMES.light) || {{}};
   }}
 
+  // Подпись значения ВНУТРИ заливки серии (bar/area) не может брать цвет
+  // текста темы – заливка серии не зависит от темы (hero/muted-бары те же
+  // hex во всех трёх), поэтому нужен расчёт по фактической яркости фона
+  // под подписью, а не тема-зависимый токен и не константа (s48, жалоба
+  // владельца: белая подпись на светлой gold/muted заливке нечитаема и в
+  // тёмной, и в светлой теме).
+  //
+  // Порог 0.179 по относительной яркости (формула WCAG) – точка, где
+  // контраст тёмного текста (#0A1628, ink светлой темы) и контраст белого
+  // текста к фону ОБА пересекают норму 4.5:1 (см. таблицу контраста в
+  // Projects/PULSE_s48_datalabels.md): ниже порога чёрный уже не проходит,
+  // выше порога белый уже не проходит. Используется ТОЛЬКО когда подпись
+  // лежит поверх заливки серии – для подписей над/сбоку фигуры (на фоне
+  // полотна графика) уже используется pal.textColor, он подобран под фон
+  // карточки и трогать его не нужно.
+  function relLuminance(hex) {{
+    var h = String(hex || '').replace('#', '');
+    if (h.length !== 6) return 1;  // неизвестный формат - считаем светлым (безопаснее тёмный текст)
+    var r = parseInt(h.substr(0, 2), 16) / 255;
+    var g = parseInt(h.substr(2, 2), 16) / 255;
+    var b = parseInt(h.substr(4, 2), 16) / 255;
+    function chan(c) {{ return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4); }}
+    return 0.2126 * chan(r) + 0.7152 * chan(g) + 0.0722 * chan(b);
+  }}
+  function labelColorForFill(fillHex) {{
+    // '#0A1628' - тот же ink, что textColor светлой/тёплой темы (tokens.json
+    // brand.text.primary): не тема-зависимый выбор, а тёмный полюс шкалы
+    // чёрный/белый для текста поверх ЛЮБОЙ светлой заливки.
+    var darkInk = (window.AURORA_THEMES && window.AURORA_THEMES.light && window.AURORA_THEMES.light.textColor) || '#0A1628';
+    return relLuminance(fillHex) > 0.179 ? darkInk : '#FFFFFF';
+  }}
+
   function baseAxisStyle(pal) {{
     return {{
       axisLine:  {{ lineStyle: {{ color: pal.gridColor, width: 1 }} }},
@@ -656,13 +688,18 @@ def bootstrap_js(
       z: 2,
       barMaxWidth: 48,
       data: data.values.map(function(v, idx) {{
-        return {{
+        var fill = (idx === accIdx) ? pal.heroColor : pal.mutedColor;
+        var item = {{
           value: v,
-          itemStyle: {{
-            color: (idx === accIdx) ? pal.heroColor : pal.mutedColor,
-            borderRadius: [3, 3, 0, 0]
-          }}
+          itemStyle: {{ color: fill, borderRadius: [3, 3, 0, 0] }}
         }};
+        // insideBottom - подпись лежит поверх ЗАЛИВКИ столбца (fill), а не
+        // поверх фона полотна: цвет надо считать по яркости fill, не брать
+        // из темы (см. labelColorForFill выше). Раньше здесь был '#ffffff'
+        // константой - на gold hero-баре и на светлом muted-баре (hero и
+        // мьютед у light/fun темы) белый текст давал 2.3-2.4:1 контраста.
+        if (hasCi) {{ item.label = {{ color: labelColorForFill(fill) }}; }}
+        return item;
       }}),
       // С полосой диапазона подпись уходит к основанию столбца: верх столбца
       // и его окрестность заняты полосой, подпись там читалась бы сквозь неё.
@@ -670,7 +707,7 @@ def bootstrap_js(
         show: true,
         position: hasCi ? 'insideBottom' : 'top',
         distance: hasCi ? 10 : 4,
-        color: hasCi ? '#ffffff' : pal.textColor,
+        color: pal.textColor,
         fontSize: 11, fontWeight: 600,
         formatter: function(p) {{ return fmtVal(p.value); }}
       }}
@@ -992,13 +1029,38 @@ def bootstrap_js(
   }}
 
   // ─── Copy chart as PNG ────────────────────────────────────────────
+  // Фон картинки = фактический фон КАРТОЧКИ графика текущей темы
+  // (`--surface`, тот же токен, что в .chart-container - layout.css), а не
+  // белая константа (s48, находка при приёмке): текст графика (подписи,
+  // легенда, оси) красится под этот же фон через pal.textColor/textMutedColor
+  // (interactive.py, currentPalette()) - белый фон рвал эту пару в тёмной
+  // теме (светлый текст поверх белого, ~1.2:1).
+  function currentSurfaceColor() {{
+    try {{
+      var v = getComputedStyle(document.documentElement).getPropertyValue('--surface');
+      v = (v || '').trim();
+      return v || '#ffffff';
+    }} catch (e) {{ return '#ffffff'; }}
+  }}
   function setupCopyPng() {{
     document.querySelectorAll('[data-copy-chart]').forEach(function(btn) {{
       btn.addEventListener('click', function() {{
         var chartId = btn.getAttribute('data-copy-chart');
         var chart = AURORA_CHARTS[chartId];
         if (!chart) {{ toast('График не готов'); return; }}
-        var url = chart.getDataURL({{ type: 'png', pixelRatio: 2, backgroundColor: '#ffffff' }});
+        // Хосты инициализированы renderer:'svg' (initChart/initChartFromHost
+        // выше) - у SVG-рендерера getDataURL() ЦЕЛИКОМ игнорирует свои же
+        // опции (getSvgDataURL() внутри echarts.common не принимает
+        // аргументов вовсе - проверено на собранном отчёте: backgroundColor,
+        // переданный сюда, не попадал в SVG, корневой rect оставался
+        // fill="none"). Фон нужно на секунду вписать в OPTION самого
+        // графика - тогда echarts нарисует его реальным <rect> внутри SVG -
+        // и вернуть обратно сразу после экспорта, не оставляя графику
+        // постоянного backgroundColor.
+        var prevBg = chart.getOption().backgroundColor;
+        chart.setOption({{ backgroundColor: currentSurfaceColor() }}, false);
+        var url = chart.getDataURL({{ type: 'png', pixelRatio: 2 }});
+        chart.setOption({{ backgroundColor: prevBg || 'transparent' }}, false);
         // Download via anchor
         var a = document.createElement('a');
         a.href = url;

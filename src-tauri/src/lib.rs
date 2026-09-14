@@ -2568,6 +2568,77 @@ fn withdraw_cloud_consent(app_handle: tauri::AppHandle) -> Result<(), String> {
     user_config::save(&config_dir, &config)
 }
 
+/// Статус согласия на «Условия ознакомительного использования» (пробный период, вынесенный
+/// из лицензионного договора в отдельный документ, п.5 ст.1286 ГК РФ, единый для линейки).
+/// `required` = согласие отсутствует ИЛИ дано на устаревшую редакцию документа.
+#[tauri::command]
+fn get_trial_consent_status(app_handle: tauri::AppHandle) -> Result<serde_json::Value, String> {
+    let config_dir = app_handle.path().app_config_dir().map_err(|e| e.to_string())?;
+    Ok(serde_json::json!({
+        "required": user_config::trial_consent_required(&config_dir),
+    }))
+}
+
+/// Зафиксировать согласие на текущую редакцию условий ознакомительного использования.
+/// Редакция берётся из СВОЕЙ Rust-константы `TRIAL_TERMS_REVISION`, а не из того, что
+/// прислал фронт — фронт не может подтвердить согласие на редакцию, которую сам придумал.
+/// Durable backend-persist — переживает очистку WebView2-кэша (тот же приём, что и
+/// `accept_cloud_consent` выше).
+#[tauri::command]
+fn accept_trial_consent(app_handle: tauri::AppHandle) -> Result<(), String> {
+    let config_dir = app_handle.path().app_config_dir().map_err(|e| e.to_string())?;
+    let mut config = user_config::load(&config_dir);
+    let accepted_at = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    config.trial_consent = Some(user_config::TrialConsent {
+        revision: user_config::TRIAL_TERMS_REVISION.to_string(),
+        accepted_at,
+    });
+    user_config::save(&config_dir, &config)
+}
+
+/// Открыть локальный PDF «Условия ознакомительного использования» — без обращения в сеть,
+/// тем же приёмом, что и `save_help_pdf`/`open_user_guide` выше (Econometrica доставляет
+/// справочные материалы БАНДЛОМ resource_dir, не content-pack-каналом): сперва bundled
+/// resource_dir (prod), при отсутствии - dev-фолбэк на `CARGO_MANIFEST_DIR/help-econometrica`.
+///
+/// 🔴 Файл поставляет правовой блок отдельно от кода (см. Projects/PULSE_s48_consent.md) -
+/// до его прихода команда честно отвечает понятной ошибкой, а не тихим отказом или пустым
+/// окном.
+#[tauri::command]
+fn open_trial_terms(app_handle: tauri::AppHandle) -> Result<(), String> {
+    let filename = user_config::TRIAL_TERMS_PDF_FILENAME;
+
+    let resource_path = app_handle
+        .path()
+        .resource_dir()
+        .map_err(|e| e.to_string())?
+        .join("help-econometrica")
+        .join(filename);
+
+    let path = if resource_path.exists() {
+        resource_path
+    } else {
+        let dev_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("help-econometrica")
+            .join(filename);
+        if dev_path.exists() {
+            dev_path
+        } else {
+            return Err(format!(
+                "Файл «{filename}» пока не поставляется вместе с программой. \
+                 Обратитесь в поддержку Aurora AI, чтобы получить текст условий \
+                 ознакомительного использования."
+            ));
+        }
+    };
+
+    tauri_plugin_opener::open_path(path.to_string_lossy().to_string(), None::<&str>)
+        .map_err(|e| e.to_string())
+}
+
 /// Включить/выключить runtime-режим «только локально». Пишет `local_only` в
 /// user_config; egress-гейт `run_claude` (ensure_not_local_only) читает его и
 /// блокирует облачный ИИ, когда включено. Одна сборка, два режима.
@@ -4064,6 +4135,9 @@ fn build_app() -> Result<(), String> {
             get_cloud_consent_status,
             accept_cloud_consent,
             withdraw_cloud_consent,
+            get_trial_consent_status,
+            accept_trial_consent,
+            open_trial_terms,
             list_vault_status,
             // export_logs removed - now internal helper, open_logs_folder uses it
             open_logs_folder,

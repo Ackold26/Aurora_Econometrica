@@ -195,6 +195,15 @@ export const cloudConsent = writable({
  * @type {import('svelte/store').Writable<boolean>} */
 export const cloudConsentPromptOpen = writable(false);
 
+/** Открыт ли блокирующий экран «Условия ознакомительного использования» (пробный период,
+ * вынесенный из лицензионного договора в отдельный документ, п.5 ст.1286 ГК РФ). В отличие
+ * от `cloudConsentPromptOpen` — не graceful: без согласия работа с программой невозможна
+ * («Отказаться» закрывает программу). Ставится в true в `+layout.svelte` по ответу
+ * Rust-команды `get_trial_consent_status` (согласие отсутствует или дано на устаревшую
+ * редакцию документа).
+ * @type {import('svelte/store').Writable<boolean>} */
+export const trialConsentPromptOpen = writable(false);
+
 // ── Таймер сессии (Aurora design SSOT §11) ─────────────────────────────────
 // Отсчёт с запуска приложения. Управление: стоп/пуск (одиночный клик) + сброс (двойной клик).
 // Сбрасывается при перезапуске приложения. Эталон DocMaster.

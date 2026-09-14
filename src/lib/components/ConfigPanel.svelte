@@ -614,13 +614,13 @@
   <div class="config-group">
     <label class="config-label">
       <span class="adstock-label-group">
-        Adstock
+        Остаточный эффект (adstock)
         <span
           class="adstock-help-icon"
           tabindex="0"
           role="button"
-          aria-label="Справка о типах Adstock"
-          title={`Adstock – модель остаточного эффекта рекламы во времени.
+          aria-label="Справка об остаточном эффекте"
+          title={`Остаточный эффект – то, как реклама продолжает влиять на продажи после показа.
 
 Geometric (быстрый спад):
 - Каналы с быстрым откликом: эффект почти сразу, затухает за 1-2 периода.
@@ -639,7 +639,7 @@ Weibull (плавный нарастающий эффект):
 - Рекомендуемый выбор для большинства проектов.`}
         >?</span>
       </span>
-      <span class="config-hint">Тип отложенного эффекта</span>
+      <span class="config-hint">Тип остаточного эффекта</span>
     </label>
     <div class="adstock-with-preview">
       <button
@@ -680,7 +680,7 @@ Weibull (плавный нарастающий эффект):
       <div class="advanced-section">
         <!-- Per-channel adstock -->
         <div class="config-group">
-          <label class="config-label"><GlossaryTerm termId="adstock">Adstock</GlossaryTerm> по каналам</label>
+          <label class="config-label"><GlossaryTerm termId="adstock">Остаточный эффект</GlossaryTerm> по каналам</label>
           {#each Object.entries(channelEnabled).filter(([,v]) => v) as [ch]}
             <div class="adstock-row">
               <span class="adstock-name">{ch}</span>
@@ -713,14 +713,14 @@ Weibull (плавный нарастающий эффект):
               <input type="radio" name="mcmcPreset" value="standard" bind:group={mcmcPreset} />
               <span class="preset-body">
                 <span class="preset-label">Стандартный</span>
-                <span class="preset-hint">Tune 2000 · Draws 2000 · Chains 4 – подходит для большинства задач</span>
+                <span class="preset-hint">Прогрев 2000 · Сэмплы 2000 · Цепи 4 – подходит для большинства задач</span>
               </span>
             </label>
             <label class="preset-radio">
               <input type="radio" name="mcmcPreset" value="precise" bind:group={mcmcPreset} />
               <span class="preset-body">
                 <span class="preset-label">Высокая точность</span>
-                <span class="preset-hint">Tune 4000 · Draws 4000 · Chains 4 – медленнее, для финальных моделей</span>
+                <span class="preset-hint">Прогрев 4000 · Сэмплы 4000 · Цепи 4 – медленнее, для финальных моделей</span>
               </span>
             </label>
             <label class="preset-radio">
@@ -785,7 +785,7 @@ Weibull (плавный нарастающий эффект):
   {#if selectedKpi && Object.values(channelEnabled).filter(Boolean).length > 0}
     <div class="config-summary">
       <span class="summary-label">Конфигурация:</span>
-      KPI: <strong>{selectedKpi}</strong> | {Object.values(channelEnabled).filter(Boolean).length} каналов | Adstock: авто
+      KPI: <strong>{selectedKpi}</strong> | {Object.values(channelEnabled).filter(Boolean).length} каналов | Остаточный эффект: авто
     </div>
   {/if}
 
@@ -867,7 +867,7 @@ Weibull (плавный нарастающий эффект):
     </p>
   {/if}
   {#if adstockAutoLabel && !$expertMode}
-    <p class="adstock-auto-label">Adstock: {adstockAutoLabel} (авто по BIC)</p>
+    <p class="adstock-auto-label">Остаточный эффект: {adstockAutoLabel} (авто по BIC)</p>
   {/if}
 </div>
 

@@ -76,26 +76,26 @@
       <span class="version-tag">Sprint 3 backend M0-M4 · v1.0.14-rc</span>
     </div>
     <p class="subtitle">
-      Causal inference поверх MMM: <strong>DiD</strong> для geo-holdout tests,
-      <strong>SCM</strong> для post-hoc holdout markets, <strong>Causal Forest</strong>
-      для heterogeneous treatment effects по сегментам.
+      Причинный вывод поверх MMM: <strong>DiD</strong> – для гео-экспериментов с отключением рекламы в контрольных регионах,
+      <strong>SCM</strong> – для рынков, задним числом выбранных в качестве контрольных, <strong>Causal Forest</strong>
+      – для неоднородных эффектов воздействия по сегментам.
     </p>
 
     <div class="caveat-banner">
-      <strong><TriangleAlert size={14} strokeWidth={1.5} style="vertical-align: -0.15em" /> v1.0.14 honest caveat:</strong> backend validated на synthetic data + DGP-controlled
-      ground truth recovery. Real-customer geo-disaggregated validation запланирован в v1.0.15
-      после получения Materia Medica regional data + treatment markers. Используй с осторожностью
-      на real client data - assumptions (parallel-trends, convex-hull, overlap) проверяй вручную
-      через honest_disclosure блок ниже.
+      <strong><TriangleAlert size={14} strokeWidth={1.5} style="vertical-align: -0.15em" /> честное предупреждение v1.0.14:</strong> серверная часть проверена на синтетических данных с контролируемым процессом генерации (DGP) и известным истинным эффектом.
+      Проверка на данных реальных клиентов с разбивкой по регионам запланирована в v1.0.15
+      после получения региональных данных Materia Medica и меток воздействия. Используй с осторожностью
+      на данных реальных клиентов - предпосылки (параллельные тренды, выпуклая оболочка, перекрытие) проверяй вручную
+      в блоке «честное раскрытие» (honest_disclosure) ниже.
     </div>
 
     {#if !projectDir}
       <div class="warn-banner">
-        <TriangleAlert size={14} strokeWidth={1.5} style="vertical-align: -0.15em" /> Не выбран активный project. Перейди в раздел «Проекты» и выбери проект перед запуском
-        causal методов.
+        <TriangleAlert size={14} strokeWidth={1.5} style="vertical-align: -0.15em" /> Не выбран активный проект. Перейди в раздел «Проекты» и выбери проект перед запуском
+        причинных методов.
       </div>
     {:else}
-      <p class="project-info">📁 Активный project: <code>{projectDir}</code></p>
+      <p class="project-info">📁 Активный проект: <code>{projectDir}</code></p>
     {/if}
   </header>
 

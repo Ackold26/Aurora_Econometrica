@@ -306,22 +306,9 @@ def _collect_violations():
 # литералы; малейшая правка соседней разметки сдвигает границы "строки".
 # Файловая гранулярность устойчивее для этого источника текста.
 _LEGITIMISED_ADSTOCK_FILES = {
-    "lib/components/ConfigPanel.svelte": (
-        "справка о типах Adstock (значок '?' у поля Adstock, expertMode) — "
-        "методологический тултип продвинутой панели, не проза"
-    ),
     "lib/components/pipeline/ChannelCategoriesPanel.svelte": (
         "подсказка про adstock decay/hierarchical prior при категоризации "
         "каналов (продвинутая панель)"
-    ),
-    "lib/components/pipeline/DecomposeStep.svelte": (
-        "подсказка «Adstock decay» на графике декомпозиции (продвинутая панель)"
-    ),
-    "lib/components/pipeline/ReportStep.svelte": (
-        "превью содержимого отчёта (спецификация модели: Adstock + Hill, "
-        "и в markup, и в <script> — генерация markdown-превью) — зеркалит "
-        "ту же развилку, что уже узаконена в report.rs (лист «Спецификация "
-        "модели»)"
     ),
     # Вскрыто закрытием дыры покрытия 2026-07-26: эти три файла раньше были
     # невидимы для проверки (текст жил внутри <script>). Узаконены по тому же
@@ -330,11 +317,6 @@ _LEGITIMISED_ADSTOCK_FILES = {
         "строка ключевых слов поиска по командам («mmm байес mcmc adstock "
         "hill насыщение») — поисковый индекс, а не подпись: пользователь "
         "ищет по тому имени, которое знает, включая профессиональное"
-    ),
-    "lib/components/pipeline/ExpertModelPanel.svelte": (
-        "тултип коэффициента канала в ЭКСПЕРТНОЙ панели — плотный "
-        "технический текст того же класса, что уже узаконен для "
-        "ConfigPanel/DecomposeStep"
     ),
 }
 # OnboardingOverlay.svelte исключён из реестра 2026-07-26: решение владельца —

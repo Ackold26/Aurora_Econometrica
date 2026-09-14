@@ -5,13 +5,14 @@
   import { get } from 'svelte/store';
   import { page } from '$app/stores';
   import { goto } from '$app/navigation';
-  import { theme, updateRequired, layoutCabinets, cabinetsLoaded, activeCabinet, messages, navCollapsed, licenseError, cloudConsent, cloudConsentPromptOpen } from '$lib/store.js';
+  import { theme, updateRequired, layoutCabinets, cabinetsLoaded, activeCabinet, messages, navCollapsed, licenseError, cloudConsent, cloudConsentPromptOpen, trialConsentPromptOpen } from '$lib/store.js';
   import { refreshAssistantRoute, pendingRouteChangeNotice, acknowledgeRouteChange } from '$lib/assistant-route.js';
   import { initCreativeStore, productType } from '$lib/creative-store.js';
   import { toasts, dismiss, toast } from '$lib/toast.js';
   import { onMount } from 'svelte';
   import UpdateBlockingOverlay from '$lib/components/UpdateBlockingOverlay.svelte';
   import CloudConsentOverlay from '$lib/components/CloudConsentOverlay.svelte';
+  import TrialConsentOverlay from '$lib/components/TrialConsentOverlay.svelte';
   import Toast from '$lib/components/Toast.svelte';
   import CommandPalette from '$lib/components/CommandPalette.svelte';
   import NavRail from '$lib/components/NavRail.svelte';
@@ -21,6 +22,7 @@
   import IntroTutorial from '$lib/components/IntroTutorial.svelte';
   import { showGlossaryPanel, glossaryInitialTerm, showIntroTutorial } from '$lib/project-state.js';
   import { filterCabinetsByProduct, initCommandMeta } from '$lib/command-meta.js';
+  import { handleGlobalShortcut } from '$lib/global-shortcuts.js';
   import { initPsyData } from '$lib/psy.js';
   import { initClassifierData } from '$lib/chat-classifier.js';
   import { initOnboardingData } from '$lib/onboarding-config.js';
@@ -117,19 +119,18 @@
     // кнопкой «Что такое MMM?» на главной. Решение Антона 2026-06-02.
 
     // Command Palette: Ctrl+K / Cmd+K. v1.3.0 + Ctrl+G - glossary panel.
+    // Правило «пока окно условий открыто - сочетания не работают» вынесено в
+    // $lib/global-shortcuts.js (s48, 2026-09-14) - проверяется там прямым вызовом,
+    // без монтирования всего layout. См. докстринг файла - там же история находки.
     /** @param {KeyboardEvent} e */
     function handleGlobalKey(e) {
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'k') {
-        e.preventDefault();
-        paletteOpen = !paletteOpen;
-      }
-      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'g') {
-        // Audit fix v1.3.0: guard против modal stacking - не показывать
-        // glossary если CommandPalette открыт (избегаем z-index overlap).
-        if (paletteOpen) return;
-        e.preventDefault();
-        showGlossaryPanel.update((v) => !v);
-      }
+      handleGlobalShortcut({
+        trialConsentOpen: get(trialConsentPromptOpen),
+        paletteOpen,
+        setPaletteOpen: (open) => { paletteOpen = open; },
+        toggleGlossary: () => showGlossaryPanel.update((v) => !v),
+        event: e,
+      });
     }
     window.addEventListener('keydown', handleGlobalKey);
 
@@ -225,6 +226,19 @@
       heartbeat();
     })();
 
+    // Условия ознакомительного использования (s48, 2026-09-14): блокирующий гейт,
+    // независимый от cloud-consent ниже — не graceful, «Отказаться» закрывает программу.
+    // Отказ проверки трактуется как «согласие не подтверждено» (fail-closed) - юридический
+    // гейт не должен молча пропускать из-за временной ошибки IPC.
+    (async () => {
+      try {
+        const status = /** @type {{required: boolean}} */ (await invoke('get_trial_consent_status'));
+        if (status?.required !== false) trialConsentPromptOpen.set(true);
+      } catch {
+        trialConsentPromptOpen.set(true);
+      }
+    })();
+
     // Cloud-consent (облачная редакция): получить статус и при необходимости показать
     // экран согласия на first-run. Graceful — MMM доступен и без согласия; экран лишь
     // информирует и разблокирует кабинеты-советники. В локальной редакции advisorsEnabled=false.
@@ -264,6 +278,7 @@
 
 <UpdateBlockingOverlay />
 <CloudConsentOverlay />
+<TrialConsentOverlay />
 <CommandPalette open={paletteOpen} onClose={() => paletteOpen = false} />
 
 {#if $showGlossaryPanel}

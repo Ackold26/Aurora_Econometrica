@@ -502,7 +502,7 @@ describe('G. modelPreTrainingInsights', () => {
     const txt = joinText(out);
     expect(txt).toContain('Готово к обучению');
     expect(txt).toContain('Что происходит');
-    expect(txt).toContain('Adstock');
+    expect(txt).toContain('adstock');
     expect(txt).toContain('12 праздников РФ');
     expect(txt).toContain('После обучения смотрим');
   });

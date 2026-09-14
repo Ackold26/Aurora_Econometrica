@@ -53,6 +53,51 @@ pub struct UserConfig {
     /// говорить не о чем.
     #[serde(default)]
     pub route_notice_pending: bool,
+    /// Согласие на «Условия ознакомительного использования» (пробный период, вынесенный
+    /// из лицензионного договора в отдельный документ, п.5 ст.1286 ГК РФ, единый для
+    /// линейки Aurora AI). None = согласие не давалось.
+    #[serde(default)]
+    pub trial_consent: Option<TrialConsent>,
+}
+
+/// Редакция «Условий ознакомительного использования». Bump (при изменении формулировок
+/// правовым блоком) → согласие запрашивается повторно. Формат ISO ГГГГ-ММ-ДД — сортируется
+/// лексикографически, поэтому сравнение строк ниже даёт верный хронологический порядок.
+///
+/// 🔴 Дата в тексте чекбокса `TrialConsentOverlay.svelte` (юридически согласованный текст,
+/// менять нельзя) обязана совпадать с этой константой — расхождение ловит тест
+/// `trial_terms_revision_matches_frontend_checkbox_text` ниже (в родственном продукте
+/// линейки разошедшиеся константы фронта и Rust уже были проблемой).
+pub const TRIAL_TERMS_REVISION: &str = "2026-09-14";
+
+/// Имя PDF-файла условий, поставляемого бандлом рядом со справкой продукта
+/// (`src-tauri/help-econometrica/`, см. `tauri.conf.json` → `bundle.resources`,
+/// "help-econometrica/*"). Одна константа на команду открытия и сторож поставки —
+/// чтобы имя не разъехалось между ними.
+pub const TRIAL_TERMS_PDF_FILENAME: &str = "Условия ознакомительного использования.pdf";
+
+/// Зафиксированное согласие на условия ознакомительного использования. Юридически
+/// значимо → хранится в durable backend-конфиге (см. `CloudConsent` выше — тот же приём).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TrialConsent {
+    /// Редакция документа, на которую дано согласие (ISO ГГГГ-ММ-ДД).
+    pub revision: String,
+    /// Unix-время (секунды) принятия — для аудита.
+    pub accepted_at: i64,
+}
+
+/// Pure: устарело/отсутствует ли согласие на условия ознакомительного использования.
+fn trial_consent_outdated(consent: &Option<TrialConsent>) -> bool {
+    match consent {
+        Some(c) => c.revision.as_str() < TRIAL_TERMS_REVISION,
+        None => true,
+    }
+}
+
+/// Нужно ли показать экран согласия на условия ознакомительного использования:
+/// согласие отсутствует или дано на устаревшую (более старую) редакцию документа.
+pub fn trial_consent_required(config_dir: &Path) -> bool {
+    trial_consent_outdated(&load(config_dir).trial_consent)
 }
 
 /// Версия условий облачной обработки. Bump → согласие запрашивается повторно
@@ -507,5 +552,295 @@ mod tests {
         assert_eq!(after.execution_mode.as_deref(), Some("cloud"));
 
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    // ── Условия ознакомительного использования (s48, 2026-09-14) ──────────────────
+
+    #[test]
+    fn trial_consent_required_when_absent() {
+        assert!(trial_consent_outdated(&None));
+    }
+
+    #[test]
+    fn trial_consent_satisfied_at_current_revision() {
+        let c = Some(TrialConsent { revision: TRIAL_TERMS_REVISION.to_string(), accepted_at: 1 });
+        assert!(!trial_consent_outdated(&c));
+    }
+
+    #[test]
+    fn trial_consent_required_again_when_revision_is_older() {
+        // Согласие дано на более старую (лексикографически меньшую ISO-дату) редакцию →
+        // требуется повторно, даже если признак принятия стоит.
+        let c = Some(TrialConsent { revision: "2020-01-01".to_string(), accepted_at: 1 });
+        assert!(trial_consent_outdated(&c));
+    }
+
+    #[test]
+    fn trial_consent_serde_roundtrip() {
+        let c = TrialConsent { revision: "2026-09-14".to_string(), accepted_at: 1_700_000_000 };
+        let json = serde_json::to_string(&c).unwrap();
+        let back: TrialConsent = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.revision, "2026-09-14");
+        assert_eq!(back.accepted_at, 1_700_000_000);
+    }
+
+    /// Гейт приёмки: согласие ПЕРЕЖИВАЕТ перезапуск (durable-хранение, не только память
+    /// процесса) — тот же круг «записали → прочитали с диска», что и у `explicit_mode_survives_restart`.
+    #[test]
+    fn trial_consent_survives_restart() {
+        let dir = std::env::temp_dir().join(format!("aurora-econ-trial-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+
+        assert!(trial_consent_required(&dir), "свежая установка - согласие ещё не дано");
+
+        let mut config = load(&dir);
+        config.trial_consent = Some(TrialConsent {
+            revision: TRIAL_TERMS_REVISION.to_string(),
+            accepted_at: 1_726_000_000,
+        });
+        save(&dir, &config).expect("согласие обязано записаться");
+
+        assert!(!trial_consent_required(&dir), "согласие на текущую редакцию обязано пережить перезапуск");
+        let reloaded = load(&dir).trial_consent.expect("согласие обязано читаться с диска");
+        assert_eq!(reloaded.revision, TRIAL_TERMS_REVISION);
+        assert_eq!(reloaded.accepted_at, 1_726_000_000);
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// При смене редакции (правовой блок обновил текст условий) сохранённое согласие на
+    /// СТАРУЮ редакцию не защищает от повторного показа — человек обязан увидеть новый текст.
+    #[test]
+    fn trial_consent_shows_again_when_saved_revision_is_outdated() {
+        let dir = std::env::temp_dir().join(format!("aurora-econ-trial-stale-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+
+        let config = UserConfig {
+            trial_consent: Some(TrialConsent { revision: "2025-01-01".to_string(), accepted_at: 1 }),
+            ..Default::default()
+        };
+        save(&dir, &config).expect("прежнее согласие записано");
+
+        assert!(
+            trial_consent_required(&dir),
+            "согласие на устаревшую редакцию не должно закрывать показ окна"
+        );
+
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Старый конфиг без поля `trial_consent` (люди, обновившиеся с версии до s48) читается
+    /// без ошибок serde и трактуется как «согласия не было» — а не как отказ разбора файла.
+    #[test]
+    fn trial_consent_defaults_to_none_for_legacy_config() {
+        let cfg: UserConfig = serde_json::from_str(r#"{"model":"opus"}"#).unwrap();
+        assert!(cfg.trial_consent.is_none());
+    }
+}
+
+/// 🔴 Сторож расхождения констант фронта/Rust (s48, 2026-09-14): дата в юридически
+/// согласованном тексте чекбокса `TrialConsentOverlay.svelte` обязана совпадать с
+/// `TRIAL_TERMS_REVISION`. В родственном продукте линейки такие константы уже расходились
+/// молча — здесь любое расхождение краснеет прогон.
+///
+/// Ось мутации: поднять `TRIAL_TERMS_REVISION` без правки текста во фронтенд-компоненте
+/// (или наоборот) — тест обязан покраснеть.
+#[cfg(test)]
+mod trial_terms_frontend_consistency_guard {
+    use super::TRIAL_TERMS_REVISION;
+
+    #[test]
+    fn trial_terms_revision_matches_frontend_checkbox_text() {
+        const OVERLAY: &str =
+            include_str!("../../../src/lib/components/TrialConsentOverlay.svelte");
+        let parts: Vec<&str> = TRIAL_TERMS_REVISION.split('-').collect();
+        assert_eq!(
+            parts.len(),
+            3,
+            "TRIAL_TERMS_REVISION обязана быть в формате ГГГГ-ММ-ДД, получено {TRIAL_TERMS_REVISION}"
+        );
+        let ru_date = format!("{}.{}.{}", parts[2], parts[1], parts[0]);
+        assert!(
+            OVERLAY.contains(&ru_date),
+            "текст чекбокса в TrialConsentOverlay.svelte не содержит дату редакции {ru_date} \
+             (TRIAL_TERMS_REVISION = {TRIAL_TERMS_REVISION}) - константы разошлись"
+        );
+    }
+}
+
+/// Сверяет байты PDF с ожидаемой суммой из манифеста `tools/trial_terms_manifest.json`
+/// (JSON: `{"sha256": "...", "revision": "...", "status": "..."}`). Чистая функция — без
+/// обращения к диску, поэтому её красное/зелёное поведение проверяется юнит-тестами на
+/// синтетических данных (`trial_terms_manifest_guard_logic` ниже), а не только на реальном
+/// (юридически значимом, живущем вне репозитория) файле условий.
+///
+/// 🔴 Требование владельца s48 (2026-09-14): «сторож, который никогда не краснел, ничего не
+/// сторожит» — в этой линейке одиннадцать сторожей из тринадцати оказались мёртвыми именно
+/// потому, что их не проверяли на срабатывание. Ниже — доказательство обоих исходов.
+///
+/// `#[cfg(test)]` - вызывается только из тестовых модулей ниже; в production-сборке сверку
+/// суммы делает `tools/sync_trial_terms.py` до упаковки, а не рантайм программы.
+#[cfg(test)]
+fn verify_pdf_matches_manifest(pdf_bytes: &[u8], manifest_json: &str) -> Result<(), String> {
+    use sha2::{Digest, Sha256};
+
+    let manifest: serde_json::Value = serde_json::from_str(manifest_json)
+        .map_err(|e| format!("манифест trial_terms_manifest.json не разобрался: {e}"))?;
+
+    let expected = match manifest.get("sha256").and_then(|v| v.as_str()) {
+        Some(s) if !s.is_empty() => s,
+        _ => {
+            let status = manifest
+                .get("status")
+                .and_then(|v| v.as_str())
+                .unwrap_or("сумма PDF в манифесте не задана");
+            return Err(format!(
+                "манифест trial_terms_manifest.json ещё не заполнен: {status}"
+            ));
+        }
+    };
+    let expected_revision = manifest.get("revision").and_then(|v| v.as_str()).unwrap_or("?");
+
+    let mut hasher = Sha256::new();
+    hasher.update(pdf_bytes);
+    let actual = format!("{:x}", hasher.finalize());
+
+    if actual != expected {
+        return Err(format!(
+            "PDF условий не совпадает с эталоном манифеста (ожидалась редакция {expected_revision}, \
+             сумма {expected}): у файла в поставке сумма {actual} — доставлена НЕ та редакция, \
+             файл повреждён при переносе, либо манифест устарел (перезапустите \
+             tools/sync_trial_terms.py)"
+        ));
+    }
+    Ok(())
+}
+
+/// Юнит-тесты логики сверки — на синтетических байтах, без реального документа: доказывают,
+/// что механизм действительно способен покраснеть, не дожидаясь того, придёт ли когда-нибудь
+/// правовой PDF. Ось мутации у каждого теста — сделать сверку тождественной, независимо от
+/// входа (например, вернуть `Ok(())` безусловно) — красит противоположный тест.
+#[cfg(test)]
+mod trial_terms_manifest_guard_logic {
+    use super::verify_pdf_matches_manifest;
+
+    #[test]
+    fn matches_when_hash_equals_manifest() {
+        use sha2::{Digest, Sha256};
+        let bytes: &[u8] = "условная замена содержимого документа для юнит-теста".as_bytes();
+        let mut hasher = Sha256::new();
+        hasher.update(bytes);
+        let hash = format!("{:x}", hasher.finalize());
+        let manifest = format!(r#"{{"revision":"2026-09-14","sha256":"{hash}"}}"#);
+        assert!(verify_pdf_matches_manifest(bytes, &manifest).is_ok());
+    }
+
+    /// 🔴 Доказательство красного: заведомо неверная сумма ОБЯЗАНА провалить проверку, а
+    /// сообщение — назвать и ожидаемую редакцию, и то, что суммы разошлись (не абстрактное
+    /// "тест упал").
+    #[test]
+    fn fails_loudly_when_hash_does_not_match() {
+        let bytes: &[u8] = "то, что реально лежит в поставке".as_bytes();
+        let manifest = r#"{"revision":"2026-09-14","sha256":"0000000000000000000000000000000000000000000000000000000000000000"}"#;
+        let err = verify_pdf_matches_manifest(bytes, manifest).unwrap_err();
+        assert!(err.contains("не совпадает"), "сообщение обязано объяснять причину: {err}");
+        assert!(err.contains("2026-09-14"), "сообщение обязано называть ожидаемую редакцию: {err}");
+    }
+
+    #[test]
+    fn fails_loudly_on_malformed_manifest() {
+        let err = verify_pdf_matches_manifest(b"whatever", "not json").unwrap_err();
+        assert!(err.contains("не разобрался"), "сообщение обязано называть причину: {err}");
+    }
+
+    /// Манифест ещё не заполнен реальной суммой (текущее состояние — PDF заблокирован
+    /// проверкой на персональные данные) — сообщение обязано это объяснять, а не молча
+    /// падать на разборе типа.
+    #[test]
+    fn fails_loudly_when_manifest_pending() {
+        let manifest = r#"{"revision":"2026-09-14","sha256":null,"status":"PENDING - проверка на ПДн"}"#;
+        let err = verify_pdf_matches_manifest(b"anything", manifest).unwrap_err();
+        assert!(err.contains("PENDING"), "сообщение обязано процитировать причину ожидания: {err}");
+    }
+}
+
+/// 🔴 Сторож поставки (s48, 2026-09-14): PDF условий обязан ФИЗИЧЕСКИ лежать там, откуда его
+/// возьмёт установщик (`src-tauri/help-econometrica/`, целиком включена в `bundle.resources`
+/// как `"help-econometrica/*"` в `tauri.conf.json`), И его сумма обязана совпадать с эталоном
+/// в `tools/trial_terms_manifest.json` — а не просто числиться строкой в конфигурации и не
+/// просто существовать (устаревшая или повреждённая копия тоже физически существует).
+///
+/// ⚠️ Ожидаемо КРАСНЫЙ, пока PDF заблокирован проверкой на персональные данные в метаданных
+/// (см. Projects/PULSE_s48_consent.md — находка: `/Author` = личное имя). Это не заглушка и
+/// не пропускаемый тест — файл не подделывается и не создаётся макетом: красный прогон здесь
+/// и есть честное напоминание, что поставка не готова. Манифест обновляется ТОЛЬКО через
+/// `tools/sync_trial_terms.py` — вручную сумму в него не подставлять.
+#[cfg(test)]
+mod trial_terms_delivery_guard {
+    use super::{verify_pdf_matches_manifest, TRIAL_TERMS_PDF_FILENAME, TRIAL_TERMS_REVISION};
+    use std::path::Path;
+
+    const MANIFEST_JSON: &str = include_str!("../../../tools/trial_terms_manifest.json");
+
+    #[test]
+    fn trial_terms_pdf_matches_manifest_hash() {
+        let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+        let pdf_path = manifest_dir.join("help-econometrica").join(TRIAL_TERMS_PDF_FILENAME);
+        let bytes = match std::fs::read(&pdf_path) {
+            Ok(b) => b,
+            Err(_) => panic!(
+                "PDF условий ознакомительного использования отсутствует в {} - поставка НЕ \
+                 готова (запустите tools/sync_trial_terms.py; см. Projects/PULSE_s48_consent.md)",
+                pdf_path.display()
+            ),
+        };
+        if let Err(e) = verify_pdf_matches_manifest(&bytes, MANIFEST_JSON) {
+            panic!("{e}");
+        }
+    }
+
+    /// Вспомогательный к тесту выше: конфигурация обязана продолжать включать
+    /// `help-econometrica/*` целиком в ресурсы поставки — иначе даже присланный PDF
+    /// не попадёт к клиенту. Проверка строки в конфиге ДОПОЛНЯЕТ проверку суммы выше,
+    /// а не заменяет её.
+    #[test]
+    fn tauri_conf_bundles_help_econometrica_directory() {
+        const TAURI_CONF: &str = include_str!("../../tauri.conf.json");
+        assert!(
+            TAURI_CONF.contains("\"help-econometrica/*\""),
+            "tauri.conf.json больше не включает help-econometrica/* в ресурсы поставки"
+        );
+    }
+
+    /// Имя файла в `tools/sync_trial_terms.py` обязано дословно совпадать с
+    /// `TRIAL_TERMS_PDF_FILENAME` — иначе воспроизводимый перенос кладёт файл под ДРУГИМ
+    /// именем, и открытие условий из окна согласия (`open_trial_terms`) его не найдёт.
+    #[test]
+    fn sync_script_filename_matches_rust_constant() {
+        const SYNC_SCRIPT: &str = include_str!("../../../tools/sync_trial_terms.py");
+        assert!(
+            SYNC_SCRIPT.contains(TRIAL_TERMS_PDF_FILENAME),
+            "имя файла в tools/sync_trial_terms.py разошлось с TRIAL_TERMS_PDF_FILENAME"
+        );
+    }
+
+    /// Редакция дублируется буквально В ТРЁХ местах (Rust-константа ниже — источник истины
+    /// для логики согласия; текст чекбокса `TrialConsentOverlay.svelte` — юридически
+    /// согласованный текст, дата в нём не может «просто ссылаться» на константу; поле
+    /// `revision` в `tools/sync_trial_terms.py`, попадающее в манифест исключительно для
+    /// человекочитаемого сообщения об ошибке, а не для самой сверки — её делает сумма).
+    /// Каждая копия под своим сторожем: эта - за python-скрипт, `trial_terms_revision_
+    /// matches_frontend_checkbox_text` выше - за фронтенд. Обе читают ОДНУ и ту же
+    /// `TRIAL_TERMS_REVISION` - бампить редакцию нужно в трёх местах, но забыть одно из них
+    /// незамеченным нельзя: тест покраснеет.
+    #[test]
+    fn sync_script_revision_matches_rust_constant() {
+        const SYNC_SCRIPT: &str = include_str!("../../../tools/sync_trial_terms.py");
+        assert!(
+            SYNC_SCRIPT.contains(&format!("\"{TRIAL_TERMS_REVISION}\"")),
+            "редакция в tools/sync_trial_terms.py (TRIAL_TERMS_REVISION) разошлась с \
+             user_config.rs::TRIAL_TERMS_REVISION = {TRIAL_TERMS_REVISION} - сообщения об \
+             ошибке сторожа поставки будут называть неверную редакцию"
+        );
     }
 }

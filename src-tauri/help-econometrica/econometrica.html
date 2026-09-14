@@ -345,7 +345,7 @@ tr:hover td { background: var(--bg3); }
     <div class="content">
       <h4>Оценка качества: MQS и R-hat</h4>
       <p><strong>MQS (Model Quality Score)</strong> – композитный балл качества модели (0–100): учитывает R², MAPE, R-hat сходимость цепей. Оценки: Excellent (85+), Good (70–84), Fair (55–69), Poor (&lt;55).</p>
-      <p><strong>R-hat</strong> – диагностика сходимости. R-hat &lt; 1.01 = хорошо, &gt; 1.1 = проблема (увеличьте draws).</p>
+      <p><strong>R-hat</strong> – диагностика сходимости. R-hat &lt; 1.05 = модели можно доверять; &gt;= 1.05 = цепи не сошлись, автоматическая переброска бюджета на шаге «Оптимизация» отключается (увеличьте warmup/tune и draws, сократите число каналов).</p>
     </div>
   </div>
 

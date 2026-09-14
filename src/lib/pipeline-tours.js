@@ -74,7 +74,7 @@ export const MODEL_TOUR = [
   {
     selector: '[data-tour="model-config"]',
     title: 'Настройки обучения',
-    body: 'Выбор adstock для каждого канала (geometric/weibull/auto), параметры MCMC (chains/draws/tune), кнопка запуска. Дефолт 4×2000×2000 – надёжный baseline.',
+    body: 'Выбор остаточного эффекта для каждого канала (geometric/weibull/auto), параметры MCMC (chains/draws/tune), кнопка запуска. Дефолт 4×2000×2000 – надёжный baseline.',
   },
   {
     selector: '[data-tour="model-mqs"]',

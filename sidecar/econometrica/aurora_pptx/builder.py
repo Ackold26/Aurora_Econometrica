@@ -2864,14 +2864,27 @@ class AuroraPPTXBuilder:
                     complication_parts.append(f"по {metric_short} {hero} опережает ({metric_fmt})")
             if underperf:
                 complication_parts.append(f"{underperf_str} тянут портфель вниз")
+            # L15 (math-fix v1.4 Section C, 2026-04-29): use cut_source /
+            # scale_destination from action_summary вместо leader/hero.
+            # s47: через общее правило — тот же источник, что у сводки и слайда
+            # рекомендаций. s48: порог тоже общий (SIGNIFICANT_REALLOCATION_MLN) —
+            # свой порог 1 млн, который здесь стоял, спорил с Finding 3 этой же
+            # колоды на суммах 0,5-1 млн (Projects/THRESHOLDS_s48.md). Вызов
+            # поднят выше «B1-fix R-13» ниже — она тоже читает эту же оценку
+            # значимости вместо своего отдельного литерала.
+            from utils.optimizer_honesty import reallocation_subjects
+            _scqar_subjects = reallocation_subjects(f)
+            cut_source = _scqar_subjects["cut_source"]
+            scale_dest = _scqar_subjects["scale_destination"]
+
             # B1-fix R-13 (2026-07-03): хвост «Портфель требует перебалансировки»
             # противоречил ответу «Сохранить аллокацию» при lift≈0 (Kagocel-зонд:
             # ПРОБЛЕМА требует, ОТВЕТ сохраняет). Хвост — из фактов оптимизатора.
+            # s48: «есть потенциал переброски» — из reallocation_subjects (kind !=
+            # 'none'), а не из отдельного сравнения суммы с литералом 1 — тот же
+            # порог, что у ОТВЕТА этого слайда и у Finding 3 соседнего слайда.
             _lift_f = f.get("expected_lift_pct")
-            _realloc_potential = bool(
-                (f.get("cut_source_channel") or f.get("scale_destination_channel"))
-                and (f.get("reallocation_mln") or 0) >= 1
-            )
+            _realloc_potential = _scqar_subjects["kind"] != "none"
             _has_real_lift = _lift_f is not None and _lift_f >= 0.5
             if _realloc_potential and _has_real_lift:
                 _compl_tail = "Портфель требует перебалансировки."
@@ -2886,14 +2899,6 @@ class AuroraPPTXBuilder:
                 if complication_parts else _compl_tail
             )
 
-            # L15 (math-fix v1.4 Section C, 2026-04-29): use cut_source /
-            # scale_destination from action_summary вместо leader/hero.
-            # s47: через общее правило — тот же источник, что у сводки и слайда
-            # рекомендаций. Порог здесь свой (1 млн), поэтому он передан явно.
-            from utils.optimizer_honesty import reallocation_subjects
-            _scqar_subjects = reallocation_subjects(f, min_mln=1.0)
-            cut_source = _scqar_subjects["cut_source"]
-            scale_dest = _scqar_subjects["scale_destination"]
             # Честность отчётов (09.08): та же причина, что гейтит action_title
             # выше через derive_action_headline (model_refused) - здесь узел
             # свой, отдельный от derive_action_headline, гейт дублируется
@@ -2902,11 +2907,14 @@ class AuroraPPTXBuilder:
                 answer_body = "Модель не завершила расчёт корректно – рекомендации по переброске отключены."
             else:
                 answer_parts = []
-                if cut_source and scale_dest and realloc >= 1:
+                # s48: ветки по _scqar_subjects["kind"] — та же значимость суммы,
+                # что уже проверена reallocation_subjects выше; раньше здесь
+                # стояло отдельное сравнение `realloc >= 1` тремя литералами.
+                if _scqar_subjects["kind"] == "rebalance":
                     answer_parts.append(f"Перераспределить {realloc:.0f} млн ₽ из {cut_source} в {scale_dest}")
-                elif scale_dest and realloc >= 1:
+                elif _scqar_subjects["kind"] == "scale_only":
                     answer_parts.append(f"Нарастить {scale_dest} на ~{realloc:.0f} млн ₽")
-                elif cut_source and realloc >= 1:
+                elif _scqar_subjects["kind"] == "cut_only":
                     answer_parts.append(f"Сократить {cut_source} ({realloc:.0f} млн ₽)")
                 if underperf:
                     answer_parts.append(f"остановить {underperf_str}")
@@ -2989,8 +2997,10 @@ class AuroraPPTXBuilder:
                     lift = f.get("expected_lift_pct")
                     underperf = [c.get("name") for c in self.channels if c.get("verdict") in ("Cut",)]
                     # s47: тот же узел выбора сторон, что у сводки и SCQAR.
+                    # s48: и тот же порог значимости суммы (был свой, 1 млн —
+                    # см. Projects/THRESHOLDS_s48.md).
                     from utils.optimizer_honesty import reallocation_subjects
-                    _rec_subjects = reallocation_subjects(f, min_mln=1.0)
+                    _rec_subjects = reallocation_subjects(f)
                     cut_source = _rec_subjects["cut_source"]
                     scale_dest = _rec_subjects["scale_destination"]
 
