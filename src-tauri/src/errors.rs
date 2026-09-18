@@ -18,12 +18,62 @@ pub use aurora_core::errors::*;
 mod core_contract_tests {
     use super::*;
 
+    /// Шаблон поиска ревизии `aurora_core` в `Cargo.lock`. Вынесен из тела теста ниже, чтобы
+    /// его можно было проверить отдельно, на синтетическом тексте: сам разбор `Cargo.lock` –
+    /// тоже механизм, и он тоже обязан уметь краснеть по делу, а не по окончанию строк
+    /// (см. `cargo_lock_pattern_reads_both_line_endings`).
+    const AURORA_CORE_REV_PATTERN: &str =
+        r#"name = "aurora_core"\r?\nversion = "[^"]+"\r?\nsource = "git\+[^"]*#([0-9a-f]{40})""#;
+
     #[test]
     fn coded_keeps_the_bracketed_format_documented_to_clients() {
         assert_eq!(
             coded(ErrorCode::LI005, "срок лицензии истёк"),
             "[LI-005] срок лицензии истёк",
             "формат кода ошибки — клиентская поверхность: он напечатан в справке продукта"
+        );
+    }
+
+    /// 🔴 Находка 7 внешнего аудита (s49, 18.09.2026), проверка гипотезой-зондом: разбор
+    /// `Cargo.lock` склеен литеральными переводами строки, а `Cargo.lock` – файл, который
+    /// на Windows легко оказывается с окончаниями CRLF (перенос дерева, чужая настройка
+    /// `core.autocrlf`, правка сторонним средством). Тогда шаблон не совпадает, и сторож
+    /// кодов ошибок падает с сообщением «формат Cargo.lock изменился?» – то есть врёт
+    /// о причине и уводит разбор в сторону.
+    ///
+    /// Проверяется на синтетическом тексте, а не на настоящем `Cargo.lock`: у файла в
+    /// дереве окончания LF, и настоящий файл этот класс дефекта доказать не может в
+    /// принципе – он его просто не содержит.
+    #[test]
+    fn cargo_lock_pattern_reads_both_line_endings() {
+        let re = regex::Regex::new(AURORA_CORE_REV_PATTERN).expect("valid regex");
+        let rev = "35d8345c4f20f66efc1012be4190b90f620f1ddb";
+        // Адрес источника намеренно записан БЕЗ сетевой схемы: сторож обращений наружу
+        // (`tests/guard_left_position_egress.rs`) читает исходники продукта и справедливо
+        // считает адресоподобный фрагмент в литерале путём наружу. Для проверяемого здесь
+        // свойства – окончаний строк – схема роли не играет.
+        let s_lf = format!(
+            "name = \"aurora_core\"\nversion = \"0.1.0\"\n\
+             source = \"git+aurora-platform-core.git?tag=aurora_core-v0.1.0#{rev}\"\n"
+        );
+        let s_crlf = s_lf.replace('\n', "\r\n");
+
+        let vzyat = |text: &str| {
+            re.captures(text)
+                .map(|c| c.get(1).expect("шаблон захватывает ревизию").as_str().to_string())
+        };
+
+        assert_eq!(
+            vzyat(&s_lf),
+            Some(rev.to_string()),
+            "с окончаниями LF ревизия обязана находиться – иначе зонд сломан, а не предмет"
+        );
+        assert_eq!(
+            vzyat(&s_crlf),
+            Some(rev.to_string()),
+            "с окончаниями CRLF ревизия обязана находиться ТОЖЕ: иначе сторож кодов ошибок \
+             падает на машине с CRLF и сообщает «формат Cargo.lock изменился?», хотя формат \
+             тот же самый"
         );
     }
 
@@ -118,8 +168,7 @@ mod core_contract_tests {
             let cargo_lock = std::fs::read_to_string(&cargo_lock_path).unwrap_or_else(|e| {
                 panic!("не удалось прочитать {}: {e}", cargo_lock_path.display())
             });
-            let rev_re = regex::Regex::new(r#"name = "aurora_core"\nversion = "[^"]+"\nsource = "git\+[^"]*#([0-9a-f]{40})""#)
-                .expect("valid regex");
+            let rev_re = regex::Regex::new(AURORA_CORE_REV_PATTERN).expect("valid regex");
             let actual_rev = rev_re
                 .captures(&cargo_lock)
                 .unwrap_or_else(|| {

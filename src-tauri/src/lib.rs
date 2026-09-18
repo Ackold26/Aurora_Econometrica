@@ -1952,6 +1952,16 @@ fn clear_workspace_dirs(workspace: &std::path::Path, dir_names: &[&str]) -> usiz
         if dir.exists() {
             if let Ok(entries) = std::fs::read_dir(&dir) {
                 for entry in entries.flatten() {
+                    // 🔴 Только файлы, как в соседнем обходе той же папки (`list_inbox_files`).
+                    // Папка, заведённая человеком внутри папки приёма, уезжала в корзину
+                    // целиком при каждом запуске (находка 6 внешнего аудита, s49 18.09.2026):
+                    // прежнее безвозвратное удаление папку не трогало вовсе, и перевод
+                    // очистки на корзину (CPD-69) незаметно расширил её область. Пропущенная
+                    // запись НЕ считается оставшейся: она не «не удалилась», её намеренно
+                    // не трогают.
+                    if !entry.file_type().is_ok_and(|ft| ft.is_file()) {
+                        continue;
+                    }
                     if soft_delete::soft_delete(&entry.path()).is_ok() {
                         removed += 1;
                     } else {
@@ -4673,6 +4683,45 @@ mod workspace_clear_tests {
         assert!(
             exports.join("Письмо.docx").exists(),
             "выдача клиента не должна исчезать при запуске приложения"
+        );
+    }
+
+    /// 🔴 Находка 6 внешнего аудита (s49, 18.09.2026): очистка при запуске не различала
+    /// файл и папку, тогда как соседний обход папки приёма (`list_inbox_files`) различает.
+    ///
+    /// Подкаталог, который человек завёл сам внутри папки приёма («Материалы клиента»,
+    /// «Февраль»), уезжал в корзину ЦЕЛИКОМ при каждом запуске программы – со всем, что в
+    /// нём лежало. Прежний, безвозвратный `remove_file` папку не трогал вовсе, то есть
+    /// перевод очистки на корзину (CPD-69) заодно расширил её область – починка одного
+    /// принесла дефект рядом.
+    ///
+    /// Ось мутации: убрать проверку типа записи в `clear_workspace_dirs` – тест краснеет
+    /// и числом убранного, и уехавшей папкой.
+    #[test]
+    fn start_cleanup_leaves_a_users_subfolder_alone() {
+        let dir = tempfile::tempdir().unwrap();
+        let workspace = dir.path();
+        let inbox = workspace.join("inbox");
+        let podpapka = inbox.join("Материалы клиента");
+        std::fs::create_dir_all(&podpapka).unwrap();
+        std::fs::write(podpapka.join("бриф.docx"), b"brief").unwrap();
+        std::fs::write(inbox.join("исходник.pptx"), b"source").unwrap();
+
+        let removed = clear_workspace_dirs(workspace, WORKSPACE_DIRS_CLEARED_ON_START);
+
+        assert_eq!(removed, 1, "убран обязан быть ровно один файл, лежащий в самой папке приёма");
+        assert!(
+            podpapka.is_dir(),
+            "папка, заведённая человеком внутри папки приёма, обязана остаться на месте"
+        );
+        assert!(
+            podpapka.join("бриф.docx").exists(),
+            "и всё, что человек в неё положил, обязано уцелеть"
+        );
+        assert!(
+            !inbox.join("исходник.pptx").exists(),
+            "при этом файлы самой папки приёма по-прежнему убираются – иначе тест доказывал \
+             бы, что очистка просто перестала работать"
         );
     }
 

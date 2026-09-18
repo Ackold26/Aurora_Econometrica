@@ -146,6 +146,7 @@ def _fmt_x_with_ci(mean: Any, ci_low: Any, ci_high: Any) -> str:
 # терялся заново при каждом новом документе. Алиас сохраняет имя для ~20 вызывающих ниже.
 from utils.kpi_display import fmt_pct as _fmt_pct
 from utils.kpi_display import fmt_share_pct as _fmt_share_pct
+from utils.kpi_display import active_channels_phrase as _active_channels_phrase
 
 
 def _fmt_ru_decimal(v: Any, decimals: int, suffix: str = "", fallback: str = "-") -> str:
@@ -643,16 +644,30 @@ def render_executive_summary(ctx: dict) -> str:
         cut_source = subjects["cut_source"]
         scale_dest = subjects["scale_destination"]
 
+        # s49: «в квартал» было wireframe-предположением о периодичности —
+        # на реальных данных budget = сумма ЗА ВЕСЬ проанализированный период
+        # (в образце 104 недели), не за квартал. Честно называем период из
+        # meta["data_window_label"] (narrative_adapter._derive_data_coverage),
+        # тот же источник, что уже использует aurora_pptx (B1-fix R-02).
+        _period_phrase = (
+            f"за период {meta.get('data_window_label')}" if meta.get("data_window_label")
+            else "за анализируемый период"
+        )
+        # s49 (18.09.2026): «активных каналов» было зашито в шаблоне жёсткой
+        # формой, не зависящей от N (тот же класс, что и «в квартал» выше) -
+        # через единую точку склонения (utils.kpi_display.active_channels_phrase),
+        # ту же, что теперь использует и aurora_pptx (не второй самопал).
+        _channels_phrase = _active_channels_phrase(n_ch)
         if kpi["is_legacy"]:
             situation = scqar["situation"]["template"].format(
-                client=client, budget_mln=budget, n_channels=n_ch,
-                weighted_roi=wr, mqs=mqs_fmt
+                client=client, budget_mln=budget, channels_phrase=_channels_phrase,
+                weighted_roi=wr, mqs=mqs_fmt, period_phrase=_period_phrase
             )
         else:
             # v1.3.2: KPI-aware situation - заменяем «Weighted ROI X×» на CPU/доля.
             situation = (
-                f"{client} размещает {budget:.0f} млн ₽ в квартал через "
-                f"{n_ch} активных каналов. {_weighted_summary_phrase(wr, kpi)}, "
+                f"{client} размещает {budget:.0f} млн ₽ {_period_phrase} через "
+                f"{_channels_phrase}. {_weighted_summary_phrase(wr, kpi)}, "
                 f"MQS модели {mqs_fmt}/100."
             )
         # L14: complication uses budget_dominator (not leader). Fallback when
@@ -957,7 +972,8 @@ def render_at_a_glance(ctx: dict) -> str:
         cut_n = sum(1 for c in channels if c.get("verdict") in ("Cut", "Reduce"))
         f4 = strings["findings_templates"]["f4_verdicts"].format(
             scale_phrase=_n_channels(scale_n), cut_phrase=_n_channels(cut_n))
-        f4_sup = strings["findings_templates"]["f4_verdicts_support"].format(n_channels=len(channels))
+        f4_sup = strings["findings_templates"]["f4_verdicts_support"].format(
+            channels_phrase=_active_channels_phrase(len(channels)))
         findings.append((f4, f4_sup))
 
         # Нет числа - нет подписи (2026-07-25): mqs_score может отсутствовать
@@ -1331,7 +1347,8 @@ def render_action_table(ctx: dict) -> str:
         elif top_n == 1:
             title = strings["action_titles"]["s07_dominant"].format(pct_fmt=_fmt_pct(pct))
         elif other_n > 0:
-            title = strings["action_titles"]["s07_top_n"].format(top_n=top_n, pct_fmt=_fmt_pct(pct))
+            title = strings["action_titles"]["s07_top_n"].format(
+                channels_phrase=_n_channels(top_n), pct_fmt=_fmt_pct(pct))
         else:
             title = strings["action_titles"]["s07_balanced"]
     else:

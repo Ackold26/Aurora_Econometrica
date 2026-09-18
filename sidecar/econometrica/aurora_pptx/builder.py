@@ -1072,10 +1072,19 @@ class AuroraPPTXBuilder:
             s4 = "Для уверенных действий нужно больше данных или длиннее история"
         elif uncertain_n > 0:
             f4 = f"Портфель: {_ru_channels(scale_n)} к росту, {_ru_channels(cut_n)} к сокращению"
-            s4 = f"Из {len(self.channels)} каналов у {_ru_channels(uncertain_n)} вердикт неопределённый"
+            # s49 (18.09.2026): «{len(...)} каналов» жёстко во множественном -
+            # тот же класс, что и «активных каналов» ниже. _ru_channels уже
+            # определена в этой области видимости - переиспользуем, второй
+            # точки склонения не заводим.
+            s4 = f"Из {_ru_channels(len(self.channels))} у {_ru_channels(uncertain_n)} вердикт неопределённый"
         else:
             f4 = f"Портфель: {_ru_channels(scale_n)} к росту, {_ru_channels(cut_n)} к сокращению"
-            s4 = f"Из {len(self.channels)} активных каналов - чёткая рекомендация по каждому"
+            # s49: «активных каналов» жёстко во множественном независимо от N -
+            # нужна согласованная форма прилагательного, которой _ru_channels
+            # (голый носитель без прилагательного) не даёт; единая точка со
+            # SCQAR-ситуацией выше (utils.kpi_display.active_channels_phrase).
+            from utils.kpi_display import active_channels_phrase
+            s4 = f"Из {active_channels_phrase(len(self.channels))} - чёткая рекомендация по каждому"
 
         # Finding 5 - MQS quality signal.
         # 2026-07-25: нет числа - нет подписи. self.mqs_score=None (метрика не
@@ -2831,14 +2840,15 @@ class AuroraPPTXBuilder:
                 f"за период {self.data_window_label}" if self.data_window_label
                 else "за анализируемый период"
             )
-            # Склонение: 1 канал / 2-4 канала / 5+ каналов.
-            _ch_word = ("канал" if n_ch % 10 == 1 and n_ch % 100 != 11
-                        else "канала" if n_ch % 10 in (2, 3, 4) and n_ch % 100 not in (12, 13, 14)
-                        else "каналов")
-            _ch_adj = ("активный" if _ch_word == "канал"
-                       else "активных")
+            # s49 (18.09.2026): здесь стояло своё локальное склонение
+            # (_ch_word/_ch_adj) — второй самопал рядом с уже существующей
+            # единой точкой (utils.kpi_display.plural, которой пользуется
+            # aurora_html). Заведена одна общая функция для обоих строителей -
+            # тот же приём, что уже применён для честной подписи периода выше.
+            from utils.kpi_display import active_channels_phrase
             situation_body = (
-                f"{self.client} размещает {tb:.0f} млн ₽ {_period_phrase} через {n_ch} {_ch_adj} {_ch_word}. "
+                f"{self.client} размещает {tb:.0f} млн ₽ {_period_phrase} через "
+                f"{active_channels_phrase(n_ch)}. "
                 + wr_segment
                 + f"MQS модели {self._mstr(self.mqs_score, '{:.0f}')}/100."
             )
