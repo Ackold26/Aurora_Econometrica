@@ -1,0 +1,573 @@
+{
+  "mqs": {
+    "score": 82.7,
+    "raw_score": 82.7,
+    "tier": "good",
+    "tier_label": "Хорошее",
+    "color": "#3b82f6",
+    "thinness_cap": null,
+    "ratio": 6.8,
+    "components": {
+      "r_squared": {
+        "value": 0.8518,
+        "score": 85.2
+      },
+      "mape": {
+        "value": 4.02,
+        "score": 92.0
+      },
+      "convergence": {
+        "r_hat_max": 1.0,
+        "divergences": 3,
+        "score": 70
+      }
+    }
+  },
+  "verdict": "Модель объясняет 85% вариации продаж (R²). Надёжный результат для принятия бюджетных решений.",
+  "metrics": {
+    "r_squared": 0.8518,
+    "mape_pct": 4.02,
+    "rmse": 8398942.74,
+    "r_hat_max": 1.0,
+    "divergences": 3,
+    "n_observations": 48,
+    "n_parameters": 11,
+    "effective_parameters": 7.1,
+    "ratio": 6.8,
+    "ratio_nominal": 4.4,
+    "ess_bulk_min": 884.5,
+    "ess_tail_min": 1596.1,
+    "bfmi_min": 0.695,
+    "mcmc": {
+      "chains": 4,
+      "draws": 2000,
+      "tune": 2000,
+      "target_accept": 0.95
+    }
+  },
+  "checks": {
+    "convergence": false,
+    "fit": true,
+    "ratio": true,
+    "ess": true,
+    "bfmi": true
+  },
+  "model_spec": {
+    "family": "bayesian_mmm",
+    "engine": "PyMC + NumPyro (JAX) NUTS",
+    "title": "Спецификация модели",
+    "subtitle": "Байесовская Media Mix Model с Adstock и Hill saturation",
+    "formula": "Sales_t = β₀ + Σᵢ βᵢ · Hill(Adstock(Media_i,t), αᵢ, γᵢ) + Σⱼ γⱼ · Control_j,t + ε_t",
+    "formula_latex": "Sales_t = \\beta_0 + \\sum_i \\beta_i \\cdot Hill(Adstock(Media_{i,t}), \\alpha_i, \\gamma_i) + \\sum_j \\gamma_j \\cdot Control_{j,t} + \\varepsilon_t",
+    "transformations": [
+      {
+        "name": "Hill (saturation)",
+        "formula": "Hill(x, α, γ) = x^α / (x^α + γ^α)",
+        "note": "Моделирует убывающую отдачу: первые рубли работают сильнее последних."
+      },
+      {
+        "name": "Adstock (geometric)",
+        "formula": "x'_t = x_t + λ · x'_{t-1}",
+        "note": "Накопительный эффект: реклама прошлого периода продолжает работать."
+      },
+      {
+        "name": "Adstock (Weibull)",
+        "formula": "x'_t = Σ θ₁^((k-1)^θ₂) · x_{t-k}",
+        "note": "Гибкая форма затухания: пик может быть отложен (TV)."
+      }
+    ],
+    "priors": [
+      {
+        "symbol": "β₀",
+        "name": "intercept (базовые продажи)",
+        "distribution": "Normal(0, 0.5)",
+        "note": "нормализованная шкала, центр 0"
+      },
+      {
+        "symbol": "βᵢ",
+        "name": "media coefficients",
+        "distribution": "HalfNormal(0.3)",
+        "note": "положительные эффекты медиа; tight prior для устойчивости NUTS"
+      },
+      {
+        "symbol": "αᵢ",
+        "name": "Hill steepness",
+        "distribution": "Gamma(5, 3)",
+        "note": "mean ≈ 1.67, var ≈ 0.56 - типичная форма saturation"
+      },
+      {
+        "symbol": "γᵢ",
+        "name": "Hill half-saturation",
+        "distribution": "Beta(3, 3)",
+        "note": "концентрируется около 0.5 - половина насыщения посередине шкалы"
+      },
+      {
+        "symbol": "γⱼ",
+        "name": "control coefficients",
+        "distribution": "Normal(0, 0.3)",
+        "note": "эффекты сезонности/праздников/тренда"
+      },
+      {
+        "symbol": "σ",
+        "name": "noise (residual std)",
+        "distribution": "HalfNormal(0.3)",
+        "note": "на нормализованной шкале (std(y) = 1)"
+      }
+    ],
+    "inference": {
+      "method": "NUTS (No-U-Turn Sampler) через NumPyro/JAX",
+      "default_chains": 2,
+      "default_draws": 500,
+      "default_tune": 500,
+      "note": "Tight priors устраняют funnel-геометрию и сводят divergences к нулю на малых выборках (~30 наблюдений)."
+    },
+    "normalization": "Media и control нормализованы (X / max(X)) перед инференсом, y нормализован к std=1 - для стабильной NUTS-геометрии."
+  },
+  "per_param_rhat": {
+    "intercept": 1.0,
+    "media_betas[0]": 1.0,
+    "media_betas[1]": 1.0,
+    "media_betas[2]": 1.0,
+    "media_betas[3]": 1.0,
+    "sigma": 1.0
+  },
+  "preflight": {
+    "quick_proxy": {
+      "tier": "reliable",
+      "warnings": [],
+      "checks": {
+        "condition_number": {
+          "value": 1.26,
+          "threshold_ok": 30.0,
+          "threshold_fail": 100.0,
+          "status": "ok"
+        },
+        "correlations": {
+          "flagged_pairs": [],
+          "threshold_warn": 0.9,
+          "threshold_fail": 0.95
+        },
+        "variance_ratio": {
+          "per_channel": [
+            {
+              "channel": "tv_spend",
+              "cv": 0.766,
+              "mean": 14133103.42,
+              "std": 10821313.67,
+              "status": "ok"
+            },
+            {
+              "channel": "digital_spend",
+              "cv": 0.614,
+              "mean": 4871582.23,
+              "std": 2992725.63,
+              "status": "ok"
+            },
+            {
+              "channel": "ooh_spend",
+              "cv": 0.912,
+              "mean": 2626057.79,
+              "std": 2394805.78,
+              "status": "ok"
+            },
+            {
+              "channel": "performance_spend",
+              "cv": 0.63,
+              "mean": 824163.02,
+              "std": 519133.36,
+              "status": "ok"
+            }
+          ],
+          "threshold_ok": 0.1,
+          "threshold_fail": 0.05
+        }
+      }
+    },
+    "prior_predictive": {
+      "status": "warn",
+      "coverage": 0.688,
+      "warning": "Prior predictive coverage 69% между 50% и 80%. Приоры частично расходятся с данными - обучение продолжится, но апостериорный правдоподобный диапазон может быть оптимистично узким.",
+      "recommendation": "Обучение возможно, но используйте результаты как направление. Для повышения точности - соберите данные за более длинный период либо проведите incrementality-тест на 1-2 ключевых каналах."
+    }
+  },
+  "reproducibility": {
+    "seed": 42,
+    "seed_source": "default",
+    "sampler_tier": "numpyro-nuts",
+    "chain_method_requested": "parallel",
+    "chain_method_delivered": true,
+    "jax_devices": 8,
+    "data_fingerprint": {
+      "content": {
+        "status": "ok",
+        "algo": "aurora-frame-v1",
+        "content_sha256": "e3cc4f62aa8e6e61509cda8821e41bbe0f9af43af395ab6def54f99e42d6d087",
+        "n_rows": 48,
+        "n_cols": 13,
+        "columns": [
+          "date",
+          "sales_rub",
+          "tv_spend",
+          "tv_trp",
+          "digital_spend",
+          "digital_impressions",
+          "ooh_spend",
+          "ooh_contacts",
+          "performance_spend",
+          "performance_clicks",
+          "competitor_trp",
+          "price_index",
+          "category_sales"
+        ]
+      },
+      "file": {
+        "status": "ok",
+        "algo": "sha256-full-file",
+        "file_sha256": "45951e2670b729c2981da9d2c23d206e8999d5e0b5930b0dfded02179140321b",
+        "size_bytes": 10188,
+        "file_name": "synth_fmcg_brand.xlsx",
+        "file_ext": ".xlsx"
+      }
+    },
+    "has_compiler": true,
+    "mcmc": {
+      "chains": 4,
+      "draws": 2000,
+      "tune": 2000
+    },
+    "versions": {
+      "python": "3.12.10",
+      "numpy": "2.4.2",
+      "pymc": "5.28.4",
+      "pytensor": "2.38.2",
+      "numpyro": "0.20.1",
+      "jax": "0.7.2"
+    },
+    "platform": {
+      "system": "Windows",
+      "release": "11",
+      "machine": "AMD64",
+      "python": "3.12.10"
+    }
+  },
+  "y_pred_reconstruction_failed": false,
+  "per_control_contraction": {
+    "season_fourier_sin_1": 0.953,
+    "season_fourier_cos_1": 0.951,
+    "season_fourier_sin_2": 0.958,
+    "season_fourier_cos_2": 0.955,
+    "season_fourier_sin_3": 0.959,
+    "season_fourier_cos_3": 0.959
+  },
+  "seasonality": {
+    "detected": true,
+    "period": 12,
+    "n_harmonics": 3,
+    "autocorr": 0.639,
+    "granularity": "M"
+  },
+  "hierarchical": {
+    "enabled": false
+  },
+  "actual_vs_predicted": {
+    "actual": [
+      175384601.0,
+      173654637.0,
+      153808915.0,
+      153106048.0,
+      155618881.0,
+      152372661.0,
+      158295167.0,
+      170744566.0,
+      180533086.0,
+      192114122.0,
+      190037330.0,
+      217960685.0,
+      204658751.0,
+      201122730.0,
+      191597036.0,
+      159346250.0,
+      159227342.0,
+      156389867.0,
+      138471764.0,
+      152128924.0,
+      173237077.0,
+      187224020.0,
+      201189982.0,
+      218714701.0,
+      208503440.0,
+      198327020.0,
+      161062794.0,
+      144988599.0,
+      139781536.0,
+      148421684.0,
+      158830871.0,
+      141698908.0,
+      153963767.0,
+      177495093.0,
+      166606591.0,
+      183387190.0,
+      193335402.0,
+      174390089.0,
+      167899653.0,
+      147660943.0,
+      149611708.0,
+      158064536.0,
+      165369579.0,
+      140969130.0,
+      192936667.0,
+      190601769.0,
+      203194545.0,
+      183613753.0
+    ],
+    "predicted": [
+      189405834.4149,
+      179770928.6919,
+      162945060.4004,
+      160000659.775,
+      155312025.0395,
+      159977024.0123,
+      159285308.1201,
+      165538123.4152,
+      175913538.3021,
+      189521224.2674,
+      194642627.7704,
+      202650359.3794,
+      201198065.405,
+      195210825.0786,
+      179239354.7273,
+      157077303.9772,
+      157583208.1158,
+      156742079.7322,
+      147670040.0925,
+      160269568.2854,
+      174852656.6981,
+      187702913.6475,
+      197015697.4999,
+      201190003.3947,
+      203893880.6482,
+      195228010.6244,
+      168422440.974,
+      153139825.8552,
+      145744880.2062,
+      150999435.0893,
+      155329307.0713,
+      154637547.8528,
+      165025108.8663,
+      183999843.3246,
+      183147439.8176,
+      192763648.5624,
+      195055320.8623,
+      189577587.7258,
+      174358923.5894,
+      151410118.207,
+      155183066.766,
+      160537784.4984,
+      160327762.0526,
+      157708451.3233,
+      180800146.3865,
+      192570192.1119,
+      198835019.1604,
+      199849192.9811
+    ],
+    "dates": [
+      "2022-01-31",
+      "2022-02-28",
+      "2022-03-31",
+      "2022-04-30",
+      "2022-05-31",
+      "2022-06-30",
+      "2022-07-31",
+      "2022-08-31",
+      "2022-09-30",
+      "2022-10-31",
+      "2022-11-30",
+      "2022-12-31",
+      "2023-01-31",
+      "2023-02-28",
+      "2023-03-31",
+      "2023-04-30",
+      "2023-05-31",
+      "2023-06-30",
+      "2023-07-31",
+      "2023-08-31",
+      "2023-09-30",
+      "2023-10-31",
+      "2023-11-30",
+      "2023-12-31",
+      "2024-01-31",
+      "2024-02-29",
+      "2024-03-31",
+      "2024-04-30",
+      "2024-05-31",
+      "2024-06-30",
+      "2024-07-31",
+      "2024-08-31",
+      "2024-09-30",
+      "2024-10-31",
+      "2024-11-30",
+      "2024-12-31",
+      "2025-01-31",
+      "2025-02-28",
+      "2025-03-31",
+      "2025-04-30",
+      "2025-05-31",
+      "2025-06-30",
+      "2025-07-31",
+      "2025-08-31",
+      "2025-09-30",
+      "2025-10-31",
+      "2025-11-30",
+      "2025-12-31"
+    ]
+  },
+  "unit_costs_applied_at_training": false,
+  "unit_costs_snapshot": {},
+  "engine": "bayesian",
+  "sensitivity_tornado": {
+    "baseline_roi": 1.1418,
+    "parameters": [
+      {
+        "name": "beta_tv_spend",
+        "baseline_value": 0.7748,
+        "low_variation": {
+          "value": 0.61984,
+          "delta_roi_pct": -7.69
+        },
+        "high_variation": {
+          "value": 0.92976,
+          "delta_roi_pct": 7.69
+        },
+        "sensitivity_pct": 15.38,
+        "channel": "tv_spend",
+        "param_type": "beta"
+      },
+      {
+        "name": "hill_gamma_tv_spend",
+        "baseline_value": 0.6633,
+        "low_variation": {
+          "value": 0.53064,
+          "delta_roi_pct": 5.57
+        },
+        "high_variation": {
+          "value": 0.79596,
+          "delta_roi_pct": -5.11
+        },
+        "sensitivity_pct": 10.68,
+        "channel": "tv_spend",
+        "param_type": "hill_gamma"
+      },
+      {
+        "name": "beta_ooh_spend",
+        "baseline_value": 0.4366,
+        "low_variation": {
+          "value": 0.34928,
+          "delta_roi_pct": -5.06
+        },
+        "high_variation": {
+          "value": 0.52392,
+          "delta_roi_pct": 5.06
+        },
+        "sensitivity_pct": 10.12,
+        "channel": "ooh_spend",
+        "param_type": "beta"
+      },
+      {
+        "name": "beta_digital_spend",
+        "baseline_value": 0.378,
+        "low_variation": {
+          "value": 0.3024,
+          "delta_roi_pct": -4.1
+        },
+        "high_variation": {
+          "value": 0.4536,
+          "delta_roi_pct": 4.1
+        },
+        "sensitivity_pct": 8.2,
+        "channel": "digital_spend",
+        "param_type": "beta"
+      },
+      {
+        "name": "beta_performance_spend",
+        "baseline_value": 0.2949,
+        "low_variation": {
+          "value": 0.23592,
+          "delta_roi_pct": -3.15
+        },
+        "high_variation": {
+          "value": 0.35388,
+          "delta_roi_pct": 3.15
+        },
+        "sensitivity_pct": 6.3,
+        "channel": "performance_spend",
+        "param_type": "beta"
+      },
+      {
+        "name": "adstock_decay_tv_spend",
+        "baseline_value": 0.305,
+        "low_variation": {
+          "value": 0.244,
+          "delta_roi_pct": -2.64
+        },
+        "high_variation": {
+          "value": 0.366,
+          "delta_roi_pct": 2.97
+        },
+        "sensitivity_pct": 5.62,
+        "channel": "tv_spend",
+        "param_type": "adstock_decay"
+      },
+      {
+        "name": "hill_gamma_ooh_spend",
+        "baseline_value": 0.5712,
+        "low_variation": {
+          "value": 0.45696,
+          "delta_roi_pct": 2.5
+        },
+        "high_variation": {
+          "value": 0.68544,
+          "delta_roi_pct": -2.35
+        },
+        "sensitivity_pct": 4.85,
+        "channel": "ooh_spend",
+        "param_type": "hill_gamma"
+      }
+    ],
+    "n_candidates_evaluated": 15,
+    "variation_pct": 20.0
+  },
+  "negative_baseline": {
+    "prob_negative": 0.0,
+    "verdict": "not_applicable",
+    "detectable": false,
+    "cv": 0.127,
+    "sigmas_needed": 15.8,
+    "baseline_mean": 146737507.95,
+    "baseline_p05": 136863883.32,
+    "baseline_p95": 156362269.16,
+    "share_periods_negative": 0.0,
+    "n_draws": 8000,
+    "basis": "baseline_before_factor_breakout_mean",
+    "controls_dropped": false,
+    "thresholds": {
+      "ok_below": 0.2,
+      "fail_above": 0.8
+    }
+  },
+  "holidays_excluded": true,
+  "model_fingerprint": "7f5edbe3e5f7f49448d458b084010e53642d38284621e071f68c56f6452b5cab",
+  "model_reliability": {
+    "verdict": "uncertain",
+    "refused": false,
+    "reasons": [
+      "3 дивергенц(ий) MCMC – лёгкая нестабильность сэмплера, трактуйте рекомендации осторожно.",
+      "Праздники РФ исключены из модели: если категория сезонна к праздникам, вклад медиаканалов может быть смещён (omitted-variable bias). Убедитесь, что спрос категории к праздникам нечувствителен."
+    ],
+    "caveat_text": "Рекомендации ориентировочные: модель на ограниченных данных. Опирайтесь на правдоподобные диапазоны, а не точечные цифры; крупные сдвиги бюджета валидируйте лифт-тестом. Праздники исключены – возможен OVB, если категория сезонна."
+  },
+  "honesty_verdict": "uncertain",
+  "honesty_reasons": [
+    "3 дивергенц(ий) MCMC – лёгкая нестабильность сэмплера, трактуйте рекомендации осторожно.",
+    "Праздники РФ исключены из модели: если категория сезонна к праздникам, вклад медиаканалов может быть смещён (omitted-variable bias). Убедитесь, что спрос категории к праздникам нечувствителен."
+  ]
+}
