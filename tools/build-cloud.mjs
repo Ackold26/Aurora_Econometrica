@@ -925,6 +925,37 @@ export function findDeliveryGuard(startDir) {
  * который поедет людям, — там молчания быть не должно. Число печатается в обоих
  * случаях, останавливает только выпуск.
  */
+/**
+ * Гейт поставки (решение владельца 2026-09-19): установщик не собирается, если
+ * рабочее дерево грязное, HEAD не отправлен в origin или CI по нему не зелёный.
+ *
+ * 🔴 До этой правки поставка шла мимо CI полностью — три поставки ядра сентября
+ * ушли клиентам с красным CI, потому что сборка проверяла крейт шлюза и чистоту
+ * манифеста, но не спрашивала CI вовсе. Гейт был, красный, и его обходили —
+ * это хуже отсутствия гейта. Логика проверки — `tools/ship-gate.mjs`, общая
+ * для трёх продуктов ядра, не дублируется здесь текстом.
+ *
+ * Только на боевом пути, тем же условием, что `checkDeliveryGuard`: `--check`
+ * и `--test` ничего не отправляют клиенту, спрашивать CI незачем.
+ */
+export function checkShipGate(startDir = ROOT, { release = false } = {}) {
+  if (!release) return;
+  const gate = join(startDir, 'tools', 'ship-gate.mjs');
+  if (!existsSync(gate)) {
+    fail(
+      'гейт поставки не найден: tools/ship-gate.mjs',
+      'файл должен быть в дереве рядом с этим скриптом — без него отгружать нельзя, молчание гейта неотличимо от его согласия',
+    );
+  }
+  const run = spawnSync(process.execPath, [gate], { cwd: startDir, stdio: 'inherit' });
+  if (run.error || run.status !== 0) {
+    fail(
+      'гейт поставки не пройден (см. вывод выше)',
+      'AURORA_SHIP_OVERRIDE=1 + AURORA_SHIP_OVERRIDE_REASON="<причина>" — только осознанное исключение, не обход по умолчанию',
+    );
+  }
+}
+
 export function checkDeliveryGuard(startDir = ROOT, { release = false } = {}) {
   const guard = findDeliveryGuard(startDir);
   if (!guard) {
@@ -1256,6 +1287,7 @@ async function main() {
   // Порог передаётся честно: выпуск — всё, что не проверка и не прогон тестов.
   // Вызов стоит ДО подмены манифеста: отказ на этом шаге не оставляет за собой
   // изменённого дерева, восстанавливать нечего.
+  checkShipGate(ROOT, { release: !checkOnly && !testOnly });
   checkDeliveryGuard(ROOT, { release: !checkOnly && !testOnly });
 
   const composed = composeManifest(base, fragment);

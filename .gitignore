@@ -81,3 +81,4 @@ sidecar/econometrica/aurora_html/templates/aurora_html_tokens.js
 
 # Служебный кэш Supabase CLI (версии, временные файлы) — не исходники
 supabase/.temp/
+tools/ship-log.jsonl
