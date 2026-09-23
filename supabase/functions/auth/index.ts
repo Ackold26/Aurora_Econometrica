@@ -811,10 +811,16 @@ const STALE_ACTIVATION_DAYS = 30;
 const ASSET_URL_TTL_SECS = 600;
 
 // v0.8.5: Product migration mapping (old clients → new product names)
+// 🔴 23.09.2026 (решение владельца): подмена `analytics-hub → marketing` СНЯТА – у Smart
+// Analytica одно имя лицензии, `analytics-hub`, то же, что шлёт программа и по которому
+// выдача хранилищ (`content`) ищет лицензию без всяких подмен. Пока подмена жила, каждой
+// машине нужна была ПАРА записей (`marketing` для входа, `analytics-hub` для хранилищ), и
+// гашение второй половины 22.09 остановило выдачу хранилищ всем установкам. Возвращать
+// подмену нельзя: вход и выдача хранилищ снова разойдутся. Сторож расхождения –
+// `aurora-meta/tools/vydat_licenziyu.py`, `check_product_migration_consistency`.
 const PRODUCT_MIGRATION: Record<string, string> = {
   "creative": "creative-hub",
   "media": "marketing",
-  "analytics-hub": "marketing",
 };
 
 // v0.8.5: Content version uses canonical product name (not migrated license product)
@@ -916,7 +922,7 @@ Deno.serve(async (req: Request) => {
     // Consent audit trail (cloud edition): optional, absent for other products/editions.
     const consent_terms_version = body.consent_terms_version ?? null;
     const consent_accepted_at = body.consent_accepted_at ?? null;
-    // License lookup uses migrated product (analytics-hub → marketing)
+    // License lookup uses migrated product (legacy names only; analytics-hub is looked up as is)
     const licenseProduct = PRODUCT_MIGRATION[rawProduct] || rawProduct;
     // Content lookup uses override if present, otherwise same as license
     const contentProduct = CONTENT_PRODUCT_OVERRIDE[rawProduct] || licenseProduct;
