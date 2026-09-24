@@ -843,7 +843,7 @@ const CONTENT_PRODUCT_OVERRIDE: Record<string, string> = {
 // `__proto__`, `toString`, `valueOf` давали `500 Internal server error` вместо обычного разбора.
 // У `Map` такого дна нет: неизвестное имя — всегда `undefined`.
 const СОСТАВ_ПРОГРАММЫ: ReadonlyMap<string, string[]> = new Map([
-  ["analytics-hub", ["media-analyst", "communication-analyst"]],
+  ["analytics-hub", ["media-analyst", "communication-analyst", "data-analyst"]],
 ]);
 
 // 🔴 ПРОГРАММЫ, КОТОРЫМ ПЕРЕЧЕНЬ КАБИНЕТОВ НЕ НУЖЕН ПО УСТРОЙСТВУ (CPD-139).
