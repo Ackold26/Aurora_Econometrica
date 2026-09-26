@@ -1239,19 +1239,20 @@ mod tests {
 
     // CPD-84: своё имя пакета этого дерева должно опознаваться как "econometrica", а не
     // проваливаться в новую ветку `_ => "unknown"` — иначе покупатель Эконометрики сам
-    // остался бы без кабинетов после этой правки. `CARGO_PKG_NAME` в тесте недоступен как
-    // переменная (это compile-time env!() макрос), поэтому сверяем ожидаемое имя из
-    // Cargo.toml ("aurora-econometrica-gui") напрямую и всю цепочку до реального списка
-    // кабинетов обеих редакций.
+    // остался бы без кабинетов после этой правки. `env!("CARGO_PKG_NAME")` — макрос
+    // ВРЕМЕНИ КОМПИЛЯЦИИ, он читает то же значение и в тесте, и в основном коде, поэтому
+    // берём его, а не жёсткую строку: жёсткая строка подтвердила бы только сегодняшнее имя
+    // и не поймала бы будущее переименование пакета, которое как раз и проваливает продукт
+    // в `unknown`.
     #[test]
     fn own_package_name_maps_to_econometrica_not_unknown() {
-        assert_eq!(map_pkg_to_product("aurora-econometrica-gui"), "econometrica");
+        assert_eq!(map_pkg_to_product(env!("CARGO_PKG_NAME")), "econometrica");
     }
 
     #[test]
     fn econometrica_product_key_reaches_its_own_cabinets_not_empty_fallback() {
         use crate::commands::cabinet::{filter_by_product, get_cabinet_definitions};
-        let product = map_pkg_to_product("aurora-econometrica-gui");
+        let product = map_pkg_to_product(env!("CARGO_PKG_NAME"));
         let visible = filter_by_product(product, get_cabinet_definitions());
         let ids: Vec<&str> = visible.iter().map(|c| c.id.as_str()).collect();
         if cfg!(feature = "cloud_advisors") {
