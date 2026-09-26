@@ -1236,6 +1236,38 @@ mod tests {
             total
         );
     }
+
+    // CPD-84: своё имя пакета этого дерева должно опознаваться как "econometrica", а не
+    // проваливаться в новую ветку `_ => "unknown"` — иначе покупатель Эконометрики сам
+    // остался бы без кабинетов после этой правки. `CARGO_PKG_NAME` в тесте недоступен как
+    // переменная (это compile-time env!() макрос), поэтому сверяем ожидаемое имя из
+    // Cargo.toml ("aurora-econometrica-gui") напрямую и всю цепочку до реального списка
+    // кабинетов обеих редакций.
+    #[test]
+    fn own_package_name_maps_to_econometrica_not_unknown() {
+        assert_eq!(map_pkg_to_product("aurora-econometrica-gui"), "econometrica");
+    }
+
+    #[test]
+    fn econometrica_product_key_reaches_its_own_cabinets_not_empty_fallback() {
+        use crate::commands::cabinet::{filter_by_product, get_cabinet_definitions};
+        let product = map_pkg_to_product("aurora-econometrica-gui");
+        let visible = filter_by_product(product, get_cabinet_definitions());
+        let ids: Vec<&str> = visible.iter().map(|c| c.id.as_str()).collect();
+        if cfg!(feature = "cloud_advisors") {
+            assert_eq!(
+                ids,
+                vec!["econometrist"],
+                "🔴 облачная редакция Эконометрики после CPD-84 должна видеть econometrist, \
+                 а не пустой список (это означало бы, что имя пакета провалилось в `unknown`)"
+            );
+        } else {
+            assert!(
+                ids.is_empty(),
+                "локальная редакция (152-ФЗ) не должна показывать advisor-кабинеты"
+            );
+        }
+    }
 }
 
 // ── Heartbeat ──────────────────────────────────────────────
