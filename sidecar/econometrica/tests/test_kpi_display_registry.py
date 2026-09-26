@@ -12,8 +12,10 @@ import json
 import pytest
 from utils.kpi_display import (
     all_display_types,
+    fmt_share_pct,
     get_display,
     plural,
+    share_pct_value,
 )
 from utils.kpi_registry import assert_display_registry_consistent
 
@@ -76,3 +78,30 @@ def test_generator_idempotent():
     result1 = generate(data)
     result2 = generate(data)
     assert result1 == result2
+
+
+class TestSharePctValueRounding:
+    """Аудит s47, находка 5 (та же точка класса, что fmt_share_pct): доля
+    канала округляется до одной десятой, а не до целого — иначе сумма долей
+    строк таблицы каналов расходится со 100 (87.5+7.5+5.0 → int-round
+    88+8+5=101). share_pct_value — общая точка для sections.py (HTML action
+    table) и builder.py (_build_action_table_rows), где "%" уже в шапке
+    столбца и ячейке не нужен свой знак.
+    """
+
+    def test_three_channels_sum_to_100(self):
+        total = 1000.0
+        parts = [875.0, 75.0, 50.0]  # 87.5% / 7.5% / 5.0%
+        shares = [share_pct_value(p, total) for p in parts]
+        assert shares == [87.5, 7.5, 5.0]
+        assert sum(shares) == pytest.approx(100.0)
+
+    def test_zero_or_missing_total_is_zero_not_zerodiv(self):
+        assert share_pct_value(10, 0) == 0.0
+        assert share_pct_value(10, None) == 0.0
+        assert share_pct_value(None, 100) == 0.0
+
+    def test_matches_fmt_share_pct_rounding_convention(self):
+        # Одна десятая — общий принцип с fmt_share_pct (уже готовый процент).
+        value = share_pct_value(87.5, 100.0)
+        assert fmt_share_pct(value) == "87.5%"

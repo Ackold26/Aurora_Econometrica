@@ -500,3 +500,73 @@ class TestMonetaryRegressionKpiHelpers:
         from aurora_html.sections import _lift_phrase
         result = _lift_phrase(5.0, _kpi_monetary())
         assert "ROAS" in result, f"Регрессия: sections._lift_phrase monetary потерял ROAS: {result!r}"
+
+
+# ─── Аудит s47, находка 5 (вторая точка класса): доля вклада канала ───────────
+
+def _share_payload():
+    """Payload monetary-фикстуры с тремя синтетическими каналами в пропорции
+    87.5 / 7.5 / 5.0 — целочисленное округление даёт 88+8+5=101, одна десятая
+    должна дать ровно 100.0."""
+    if not os.path.exists(_FIXTURE):
+        return None
+    with open(_FIXTURE, encoding="utf-8") as f:
+        base = json.load(f)
+    p = copy.deepcopy(base)
+    p["channels"] = [
+        {"name": "Канал A", "spend": 1_000_000.0, "contribution": 875.0,
+         "mroas": 1.5, "verdict": "Scale", "verdict_display": "Масштабировать"},
+        {"name": "Канал B", "spend": 200_000.0, "contribution": 75.0,
+         "mroas": 1.2, "verdict": "Hold", "verdict_display": "Удержать"},
+        {"name": "Канал C", "spend": 100_000.0, "contribution": 50.0,
+         "mroas": 0.8, "verdict": "Watch", "verdict_display": "Наблюдать"},
+    ]
+    return p
+
+
+class TestActionTableShareOneDecimal:
+    """sections.py:render_action_table и builder.py:_build_action_table_rows —
+    доля вклада канала (столбец «Доля», знак «%» уже в шапке) считается через
+    общую точку kpi_display.share_pct_value, одна десятая, сумма долей строк
+    сходится к 100.0.
+    """
+
+    def test_html_action_table_shares_sum_to_100(self):
+        payload = _share_payload()
+        if payload is None:
+            pytest.skip("Фикстура недоступна")
+        from aurora_html.sections import render_action_table
+        ctx = _make_ctx(payload)
+        if ctx is None:
+            pytest.skip("strings_ru.json недоступен")
+        html = render_action_table(ctx)
+        # Строки таблицы: <tr data-channel="...">...</tr>, в каждой 4 атрибута
+        # data-sort (budget/contrib/mroas/share) — последний в строке = share.
+        rows = re.findall(r'<tr data-channel="[^"]*">(.*?)</tr>', html, re.DOTALL)
+        assert len(rows) == 3, f"ожидали 3 строки канала, нашли {len(rows)}"
+        shares = []
+        for row in rows:
+            sorts = re.findall(r'data-sort="([^"]+)"', row)
+            assert sorts, f"строка без data-sort: {row!r}"
+            shares.append(float(sorts[-1]))
+        assert shares == [87.5, 7.5, 5.0], f"доли строк: {shares!r}"
+        assert sum(shares) == pytest.approx(100.0), \
+            f"сумма долей разъехалась со 100: {shares!r} → {sum(shares)}"
+
+    def test_pptx_action_table_rows_shares_sum_to_100(self):
+        payload = _share_payload()
+        if payload is None:
+            pytest.skip("Фикстура недоступна")
+        try:
+            from aurora_pptx.builder import AuroraPPTXBuilder
+        except ImportError as e:
+            pytest.skip(f"AuroraPPTXBuilder недоступен: {e}")
+        # __init__ без .build() — лёгкий (без matplotlib-рендера), даёт
+        # self.channels/self.kpi для прямого вызова _build_action_table_rows.
+        builder = AuroraPPTXBuilder(payload)
+        rows = builder._build_action_table_rows(builder.channels)
+        assert len(rows) == 3, f"ожидали 3 строки канала, нашли {len(rows)}"
+        shares = [float(row[4]) for row in rows]
+        assert shares == [87.5, 7.5, 5.0], f"доли строк (PPTX): {shares!r}"
+        assert sum(shares) == pytest.approx(100.0), \
+            f"сумма долей (PPTX) разъехалась со 100: {shares!r} → {sum(shares)}"

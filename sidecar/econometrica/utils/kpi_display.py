@@ -149,3 +149,28 @@ def fmt_share_pct(v: Any, fallback: str = "-") -> str:
     except (TypeError, ValueError):
         return fallback
     return f"{f:.1f}%"
+
+
+def share_pct_value(part: Any, total: Any) -> float:
+    """Доля `part` от `total` в процентах, округлённая до одной десятой —
+    тот же принцип, что `fmt_share_pct` (аудит s47, находка 5): сложенные
+    доли строк таблицы каналов должны читаться как 100.0, а не 101 из-за
+    независимого округления каждой строки до целого (87.5+7.5+5.0 → 88+8+5).
+
+    Вынесена отдельно от `fmt_share_pct`, потому что там `v` — уже готовое
+    процентное число, а здесь на входе доля/итог (contribution/total_contrib),
+    и на выходе нужно число БЕЗ знака "%" — для ячеек таблиц, где "%" уже
+    стоит в шапке столбца отдельной строкой (aurora_html/sections.py action
+    table, aurora_pptx/builder.py _build_action_table_rows).
+
+    Возвращает 0.0 при пустом/нулевом/нечисловом `total` вместо деления
+    на ноль.
+    """
+    try:
+        p = float(part or 0)
+        t = float(total or 0)
+    except (TypeError, ValueError):
+        return 0.0
+    if t == 0:
+        return 0.0
+    return round(p / t * 100, 1)

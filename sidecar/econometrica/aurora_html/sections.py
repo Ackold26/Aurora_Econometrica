@@ -146,6 +146,7 @@ def _fmt_x_with_ci(mean: Any, ci_low: Any, ci_high: Any) -> str:
 # терялся заново при каждом новом документе. Алиас сохраняет имя для ~20 вызывающих ниже.
 from utils.kpi_display import fmt_pct as _fmt_pct
 from utils.kpi_display import fmt_share_pct as _fmt_share_pct
+from utils.kpi_display import share_pct_value as _share_pct_value
 from utils.kpi_display import active_channels_phrase as _active_channels_phrase
 
 
@@ -1382,7 +1383,9 @@ def render_action_table(ctx: dict) -> str:
         from engines.channel_action import soften_verdict_display
         v_display = c.get("verdict_display") or soften_verdict_display(verdict, None)[0]
         v_modality = c.get("verdict_modality") or "firm"
-        share_pct = int(round(float(c.get("contribution") or 0) / total_contrib * 100))
+        # Аудит s47, находка 5 (та же точка класса, что fmt_share_pct): одна десятая
+        # вместо целого, иначе сумма долей строк уезжает от 100 (87.5+7.5+5.0→88+8+5=101).
+        share_pct = _share_pct_value(c.get("contribution"), total_contrib)
         fn = fn_by_name.get(name, "")
         fn_html = f'<sup class="fn-marker">{fn}</sup>' if fn else ''
 
@@ -1401,7 +1404,7 @@ def render_action_table(ctx: dict) -> str:
             f'<td class="num" data-sort="{spend_mln:.2f}">{_fmt_mln(spend_mln)}</td>'
             f'<td class="num" data-sort="{float(c.get("contribution") or 0):.2f}">{_fmt_contrib(c.get("contribution"), contrib_scale)}</td>'
             f'<td class="num" data-sort="{float(mroas or 0):.3f}">{mroas_html}{fn_html}</td>'
-            f'<td class="num" data-sort="{share_pct}">{share_pct}</td>'
+            f'<td class="num" data-sort="{share_pct}">{share_pct:.1f}</td>'
             f'<td><span class="verdict-badge verdict-{escape(verdict)} verdict-mod-{escape(v_modality)}">{escape(v_display)}</span></td>'
             f'</tr>'
         )

@@ -1191,8 +1191,12 @@ class AuroraPPTXBuilder:
                     roi_str = "-"
             else:
                 roi_str = f"{float(mroas):.1f}" if mroas else "-"
-            share_pct = int(round(contrib / total_contrib * 100))
-            share_str = f"{share_pct}" if share_pct > 0 else "0"
+            # Аудит s47, находка 5 (та же точка класса, что fmt_share_pct/kpi_display.py):
+            # одна десятая вместо целого, иначе сумма долей строк расходится с 100
+            # (87.5+7.5+5.0→88+8+5=101).
+            from utils.kpi_display import share_pct_value
+            share_pct = share_pct_value(contrib, total_contrib)
+            share_str = f"{share_pct:.1f}" if share_pct > 0 else "0.0"
             footnote = fn_by_name.get(name, "")
 
             # Phase 1.9: posterior 90% HDI bracket on mROAS - None when v1.0/v1.1 pickle.
