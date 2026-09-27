@@ -35,6 +35,9 @@
   import { TOOLTIPS } from '$lib/data/tooltip-texts.js';
   import { TriangleAlert, ChartColumn, Globe, Check, ClipboardList } from 'lucide-svelte';
   import { getAllTerms } from '$lib/glossary.js';
+  // s50 (аудит M-1): доля канала в медиа-вкладе — везде одна десятая, единый
+  // формат с DecomposeStep/InsightsPanel (не toFixed(0)).
+  import { formatChannelSharePct } from '$lib/format-numbers.js';
 
   let showOnboarding = $state(false);
   let onboardingChecked = false;
@@ -277,7 +280,7 @@
     const parts = [];
     if (mqs != null) parts.push(`Качество модели: MQS ${mqs.toFixed(0)} (${mqsLabel})${rSq != null ? `, R² ${rSq.toFixed(3)}` : ''}${mape != null ? `, MAPE ${mape.toFixed(1)}%` : ''}.`);
     if (basePct != null) parts.push(`Декомпозиция продаж: базовый спрос ${basePct.toFixed(0)}%, медиа-вклад ${(100 - basePct).toFixed(0)}%.`);
-    if (topDriver) parts.push(`Главный драйвер - ${topDriver.name} (${topDriver.contribution_pct?.toFixed(0) ?? '-'}% от медиа-вклада, ROI ${topDriver.roi?.toFixed(2) ?? '-'}×).`);
+    if (topDriver) parts.push(`Главный драйвер - ${topDriver.name} (${formatChannelSharePct(topDriver.contribution_pct)} от медиа-вклада, ROI ${topDriver.roi?.toFixed(2) ?? '-'}×).`);
     if (lift != null) {
       if (lift > 5) parts.push(`Оптимизация обещает +${lift.toFixed(1)}% KPI при текущем бюджете.`);
       else if (lift > 0.5) parts.push(`Оптимизация: +${lift.toFixed(1)}% - план близок к оптимальному.`);
@@ -394,7 +397,7 @@
     else if (basePct >= 40) parts.push(`**Бренд и медиа работают вместе.** База = ${basePct.toFixed(0)}%, медиа-вклад = ${(100 - basePct).toFixed(0)}%.`);
     else parts.push(`**Продажи держатся на рекламе.** База всего ${basePct.toFixed(0)}% - если остановить медиа, продажи упадут на ${(100 - basePct).toFixed(0)}%. Это характерно для молодых брендов или категорий с короткой лояльностью.`);
     if (topDriver) {
-      parts.push(`**Главный медиа-драйвер - «${escapeHtml(dispName(topDriver))}»** (${topDriver.contribution_pct?.toFixed(0) ?? '-'}% от всего медиа-вклада${topDriver.roi != null ? `, ROI ${topDriver.roi.toFixed(2)}×` : ''}). Этот канал лучше всего генерирует продажи на текущем бюджете.`);
+      parts.push(`**Главный медиа-драйвер - «${escapeHtml(dispName(topDriver))}»** (${formatChannelSharePct(topDriver.contribution_pct)} от всего медиа-вклада${topDriver.roi != null ? `, ROI ${topDriver.roi.toFixed(2)}×` : ''}). Этот канал лучше всего генерирует продажи на текущем бюджете.`);
     }
     return parts.join(' ');
   });
@@ -503,7 +506,7 @@
     if (topDriver) {
       items.push({
         q: `Почему «${topDriver.name}» показал самый большой вклад?`,
-        a: `У этого канала сочетание высокого бюджета и высокой эффективности (ROI ${topDriver.roi?.toFixed(2) ?? '-'}×). Он даёт ${topDriver.contribution_pct?.toFixed(0) ?? '-'}% всего медиа-вклада в продажи. Это не значит «лучший» - просто самый крупный. Смотрите ROI чтобы понять эффективность на рубль.`,
+        a: `У этого канала сочетание высокого бюджета и высокой эффективности (ROI ${topDriver.roi?.toFixed(2) ?? '-'}×). Он даёт ${formatChannelSharePct(topDriver.contribution_pct)} всего медиа-вклада в продажи. Это не значит «лучший» - просто самый крупный. Смотрите ROI чтобы понять эффективность на рубль.`,
       });
     }
 

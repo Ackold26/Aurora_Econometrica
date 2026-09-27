@@ -34,7 +34,7 @@
   import ChannelComparisonChart from '$lib/components/pipeline/ChannelComparisonChart.svelte';
   import RecommendationCard from '$lib/components/pipeline/RecommendationCard.svelte';
   import { pipelineCurrentStep } from '$lib/project-state.js';
-  import { formatMoney, formatCount, formatEfficiencyGap } from '$lib/format-numbers.js';
+  import { formatMoney, formatCount, formatEfficiencyGap, formatChannelSharePct } from '$lib/format-numbers.js';
   import ExpertDecomposePanel from '$lib/components/pipeline/ExpertDecomposePanel.svelte';
   import ChannelTimeline from '$lib/components/pipeline/ChannelTimeline.svelte';
   import TrustBanner from '$lib/components/pipeline/TrustBanner.svelte';
@@ -102,7 +102,7 @@
           icon: Lightbulb,
           title: 'Что мы видим',
           // s50: доля с одной десятой – то же число, что строка канала в отчёте.
-          text: `${top.name} даёт ${(top.contribution_pct ?? 0).toFixed(1)}% медиа-вклада в продажи.`,
+          text: `${top.name} даёт ${formatChannelSharePct(top.contribution_pct)} медиа-вклада в продажи.`,
           detail: 'Все каналы сбалансированы по эффективности (разрыв в пределах ±10 пп). Проверьте оптимизацию для прироста при тех же ресурсах.',
           tone: 'info',
         };
@@ -210,8 +210,7 @@
       return '-';
     }
     if (displayMetric === 'share') {
-      const share = channelSharePct(ch);
-      return share != null ? `${share.toFixed(1)}%` : '-';
+      return formatChannelSharePct(channelSharePct(ch));
     }
     return '-';
   }

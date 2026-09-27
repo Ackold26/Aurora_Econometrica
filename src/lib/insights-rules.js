@@ -44,6 +44,10 @@ import {
 // а не пугать «Мультиколлинеарностью» на встроенном примере.
 import { declaredPairKeys, isDeclaredPair } from './channel-pairs.js';
 import { DEFAULT_TRAINING_ESTIMATE } from './training-estimate.js';
+// s50 (аудит M-1): доля канала в медиа-вкладе — везде одна десятая, единый
+// формат с DecomposeStep/ReportStep (не toFixed(0) — расхождение со строкой
+// таблицы, см. format-numbers.js:formatChannelSharePct).
+import { formatChannelSharePct } from './format-numbers.js';
 
 /**
  * Resolve KPI view с default legacy fallback.
@@ -1604,7 +1608,7 @@ export function decomposeInsights(data, kpiInput = null) {
   if (top && totalEffectPct > 0) {
     out.push({
       severity: 'success',
-      text: `Декомпозиция готова: ${basePctRounded}% продаж – базовые (без медиа), ${mediaPctRounded}% – вклад рекламы. Главный драйвер: ${top.name} (${top.contribution_pct?.toFixed(0)}% от медиа-вклада).`,
+      text: `Декомпозиция готова: ${basePctRounded}% продаж – базовые (без медиа), ${mediaPctRounded}% – вклад рекламы. Главный драйвер: ${top.name} (${formatChannelSharePct(top.contribution_pct)} от медиа-вклада).`,
       tip: 'Базовые продажи – это то, что вы получили бы при нулевом медиа-бюджете (бренд, дистрибуция, лояльность). Медиа-вклад – что добавила реклама поверх базы.',
     });
   }
@@ -1681,7 +1685,7 @@ export function decomposeInsights(data, kpiInput = null) {
       // fix 2026-07-13 (INV-50): вклад без единицы («вклад 1 300 000») не давал
       // понять — лиды это или рубли. Единица результата из паспорта.
       const contribUnit = kpi?.targetUnit || '₽';
-      return `${rank} ${c.name}: ${c.contribution_pct?.toFixed(0)}% от медиа-вклада, ROI ${roi}, бюджет ${spend} → вклад ${contrib} ${contribUnit}`;
+      return `${rank} ${c.name}: ${formatChannelSharePct(c.contribution_pct)} от медиа-вклада, ROI ${roi}, бюджет ${spend} → вклад ${contrib} ${contribUnit}`;
     }).join('\n');
     out.push({
       severity: 'info',
@@ -1827,7 +1831,7 @@ export function decomposeInsights(data, kpiInput = null) {
   if (top && top.contribution_pct > 50) {
     out.push({
       severity: 'warning',
-      text: `Высокая концентрация: ${top.name} даёт ${top.contribution_pct.toFixed(0)}% всего медиа-вклада.`,
+      text: `Высокая концентрация: ${top.name} даёт ${formatChannelSharePct(top.contribution_pct)} всего медиа-вклада.`,
       tip: 'Зависимость от одного канала – риск. Если он перестанет работать (смена алгоритма, рост CPM, насыщение) – упадёт значительная часть продаж. Диверсифицируйте mix.',
     });
   }
@@ -2752,7 +2756,7 @@ export function reportInsights(ctx = {}) {
       const driverValue = kpi.isLegacy
         ? (top.roi != null ? `${top.roi.toFixed(2)}×` : '-')
         : _fmtMetric(top.roi, kpi);
-      reco += `\n\nГлавный драйвер продаж: ${top.name} (${top.contribution_pct?.toFixed(0) ?? '-'}% от медиа-вклада, ${driverMetric} ${driverValue}).`;
+      reco += `\n\nГлавный драйвер продаж: ${top.name} (${formatChannelSharePct(top.contribution_pct)} от медиа-вклада, ${driverMetric} ${driverValue}).`;
     }
     if (suspicious.length > 0) {
       const susMetric = kpi.isLegacy ? 'ROI' : kpi.metricShort;

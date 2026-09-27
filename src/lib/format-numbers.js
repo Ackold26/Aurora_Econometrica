@@ -70,6 +70,30 @@ export function formatPct(n, opts = {}) {
 }
 
 /**
+ * Доля канала в медиа-вкладе, % — ЕДИНЫЙ формат на всю программу: фиксированная
+ * одна десятая, БЕЗ условной точности `formatPct` и без auto-detect доли/дроби
+ * (значение уже в процентах, `formatPct` иначе умножит малую долю на 100).
+ * Mirrors Python `utils/kpi_display.py:fmt_share_pct`.
+ *
+ * Аудит s50 (M-1): столбец «Доля» таблицы разложения показывал одну десятую
+ * («87.5»), а заголовок панели выводов и шага отчёта рядом округляли ТУ ЖЕ
+ * долю до целого («88%») через `contribution_pct.toFixed(0)` — расхождение
+ * видно на одном экране (INV-50: число на экране равно расчёту).
+ *
+ * Источник значения — готовое `contribution_pct`/`share_of_effect` канала из
+ * движка (decomposer.py: одна десятая, знаменатель — весь медиа-вклад); эта
+ * функция только форматирует, не пересчитывает.
+ *
+ * @param {number | null | undefined} n  доля канала в процентах (87.5, не 0.875)
+ * @param {string} [fallback]
+ * @returns {string}
+ */
+export function formatChannelSharePct(n, fallback = '-') {
+  if (n == null || !isFinite(n)) return fallback;
+  return `${Number(n).toFixed(1)}%`;
+}
+
+/**
  * Разрыв канала (`efficiency_gap`) — ЕДИНСТВЕННЫЙ формат на всю программу.
  *
  * 🔴 Живой прогон 08.09 (ЧИСЛА-1). Одно значение `efficiency_gap = -38.5` показывалось
