@@ -101,7 +101,8 @@
         return {
           icon: Lightbulb,
           title: 'Что мы видим',
-          text: `${top.name} даёт ${(top.contribution_pct ?? 0).toFixed(0)}% медиа-вклада в продажи.`,
+          // s50: доля с одной десятой – то же число, что строка канала в отчёте.
+          text: `${top.name} даёт ${(top.contribution_pct ?? 0).toFixed(1)}% медиа-вклада в продажи.`,
           detail: 'Все каналы сбалансированы по эффективности (разрыв в пределах ±10 пп). Проверьте оптимизацию для прироста при тех же ресурсах.',
           tone: 'info',
         };
@@ -209,11 +210,27 @@
       return '-';
     }
     if (displayMetric === 'share') {
-      // Share % = ch.share_of_effect (если есть) или ch.contribution / total.
-      const share = ch.share_of_effect ?? (ch.contribution / (data?.total_contribution || 1));
-      return share != null ? `${(share * 100).toFixed(1)}%` : '-';
+      const share = channelSharePct(ch);
+      return share != null ? `${share.toFixed(1)}%` : '-';
     }
     return '-';
+  }
+
+  /**
+   * Доля канала в медиа-вкладе, % (s50) – то же число, что строка таблицы
+   * каналов в отчёте. share_of_effect/contribution_pct движка УЖЕ в процентах
+   * (decomposer.py: round(... * 100, 1)); прежде здесь умножали на 100 ещё
+   * раз и показывали «8750.0%». Фолбэк – вклад от суммы вкладов ВСЕХ каналов,
+   * переведённый в проценты здесь же (поля total_contribution движок не отдаёт).
+   * @param {any} ch
+   * @returns {number | null}
+   */
+  function channelSharePct(ch) {
+    const ready = ch.share_of_effect ?? ch.contribution_pct;
+    if (ready != null) return Number(ready);
+    const total = (data?.channels ?? []).reduce(
+      (/** @type {number} */ s, /** @type {any} */ c) => s + (Number(c.contribution) || 0), 0);
+    return total > 0 ? (Number(ch.contribution) || 0) / total * 100 : null;
   }
 
   /**
@@ -239,9 +256,10 @@
       }
     }
     if (displayMetric === 'share') {
-      const share = ch.share_of_effect ?? 0;
-      if (share > 0.20) return 'roi-good';
-      if (share > 0.05) return 'roi-mid';
+      // Пороги – на процентной шкале (доля уже в процентах, см. channelSharePct).
+      const share = channelSharePct(ch) ?? 0;
+      if (share > 20) return 'roi-good';
+      if (share > 5) return 'roi-mid';
       return 'roi-bad';
     }
     return '';
