@@ -1,3 +1,12 @@
+## s51 (27.09)
+старт: 2026-09-27 13:43:53
+sev | file:line | суть | сценарий
+Medium | src/lib/command-meta.js:167-172 (+ +layout.svelte:~190) | при недоступном/битом content-pack command-meta-data.json `_products` остаётся {} (command-meta.js:45) → известный продукт «econometrica» получает [] и кабинет econometrist исчезает; до правки JS отдавал уже отфильтрованный Rust-ом список (lib.rs:52) | get_content_pack rejects (подпись manifest устарела после правки pack без re-sign, CLAUDE.md §18) или JSON.parse бросает → catch в layout → кабинетов 0, хотя Rust уже ограничил список правильно
+Medium | sidecar/econometrica/tests/test_frontier_share_of_samples_text.py:490 | сторож по исходнику не ловит третий (цензурированный) очаг: регэксп `round\(\(?share_\w+[^)]*\*\s*100\)` не совпадает с `round((share_floor + share_ceiling) * 100)` – `[^)]*` упирается во внутреннюю `)` | вернуть в frontier.py:~1158 прежний `round((share_floor + share_ceiling) * 100)` → тест зелёный, «0%»/«100%» возвращаются в caveat
+нет находок | builder.py s10_methodology / _big_number | зонд hier+wide_branch, +12 каналов переноса, OLS+hier+wide → check() = [] | —
+нет находок | report.rs Spend vs Effect | значения статические (не формулы), pct_fmt 0.0%, знаменатель движка = сумма channel_total по всем каналам (decomposer.py:960,1128) | —
+финиш: 2026-09-27 (аудит s51 завершён)
+
 # Внешний аудит s50 – живой журнал находок
 
 Диапазон: 21526770..HEAD (без Projects/). Формат: severity | file:line | суть | сценарий

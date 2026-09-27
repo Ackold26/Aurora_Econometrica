@@ -1,1142 +1,1393 @@
-diff --git a/sidecar/econometrica/aurora_html/builder.py b/sidecar/econometrica/aurora_html/builder.py
-index 5e8c4109..0976dbe0 100644
---- a/sidecar/econometrica/aurora_html/builder.py
-+++ b/sidecar/econometrica/aurora_html/builder.py
-@@ -445,8 +445,10 @@ class AuroraHTMLBuilder:
-         return [round(float(c.get("spend") or 0) / total * 100, 1) for c in self.channels]
- 
-     def _effect_pct_series(self) -> list[float]:
--        total = sum(float(c.get("contribution") or 0) for c in self.channels) or 1.0
--        return [round(float(c.get("contribution") or 0) / total * 100, 1) for c in self.channels]
-+        # s50: подпись столбца «% эффекта» — то же число, что строка таблицы
-+        # каналов (единый источник доли, contribution_pct движка).
-+        from utils.kpi_display import channel_share_pcts
-+        return channel_share_pcts(self.channels)
- 
-     def _model_context_json(self) -> str:
-         """Model params for budget what-if slider.
-diff --git a/sidecar/econometrica/aurora_html/interactive.py b/sidecar/econometrica/aurora_html/interactive.py
-index 7593cb3a..2079a0f5 100644
---- a/sidecar/econometrica/aurora_html/interactive.py
-+++ b/sidecar/econometrica/aurora_html/interactive.py
-@@ -1121,10 +1121,22 @@ def bootstrap_js(
-   }}
- 
-   // ─── Animated number counters ─────────────────────────────────────
--  function animateCounter(el, target, duration) {{
-+  // s50: число знаков после точки берётся из data-counter-end. Прежде счётчик
-+  // всегда округлял до целого и переписывал отрисованную сервером долю лидера
-+  // с одной десятой в целое – крупное число спорило со строкой таблицы каналов.
-+  function counterDecimals(raw) {{
-+    var s = String(raw == null ? '' : raw);
-+    var i = s.indexOf('.');
-+    return i < 0 ? 0 : s.length - i - 1;
-+  }}
-+  function counterText(v, decimals) {{
-+    return decimals > 0 ? v.toFixed(decimals) : String(Math.round(v));
-+  }}
-+  function animateCounter(el, target, duration, decimals) {{
-     duration = duration || 1200;
-+    decimals = decimals || 0;
-     if (PREFERS_REDUCED_MOTION) {{
--      el.textContent = formatCounterValue(target, el.textContent);
-+      el.textContent = formatCounterValue(target, el.textContent, decimals);
-       return;
-     }}
-     var suffix = '';
-@@ -1143,18 +1155,18 @@ def bootstrap_js(
-       // easeOutQuart
-       pct = 1 - Math.pow(1 - pct, 4);
-       var v = start + (target - start) * pct;
--      el.textContent = prefix + Math.round(v) + suffix;
-+      el.textContent = prefix + counterText(v, decimals) + suffix;
-       if (pct < 1) requestAnimationFrame(step);
--      else el.textContent = prefix + Math.round(target) + suffix;
-+      else el.textContent = prefix + counterText(target, decimals) + suffix;
-     }}
-     requestAnimationFrame(step);
-   }}
--  function formatCounterValue(target, orig) {{
-+  function formatCounterValue(target, orig, decimals) {{
-     var prefix = /^\\+/.test(orig) ? '+' : '';
-     var suffix = '';
-     var m = (orig || '').match(/[^0-9+\\-\\.,\\s].*$/);
-     if (m) suffix = m[0];
--    return prefix + Math.round(target) + suffix;
-+    return prefix + counterText(target, decimals || 0) + suffix;
-   }}
-   function setupCounters() {{
-     var nodes = document.querySelectorAll('[data-counter-end]');
-@@ -1163,8 +1175,9 @@ def bootstrap_js(
-       entries.forEach(function(entry) {{
-         if (entry.isIntersecting) {{
-           var el = entry.target;
--          var target = parseFloat(el.getAttribute('data-counter-end'));
--          if (!isNaN(target)) animateCounter(el, target);
-+          var raw = el.getAttribute('data-counter-end');
-+          var target = parseFloat(raw);
-+          if (!isNaN(target)) animateCounter(el, target, undefined, counterDecimals(raw));
-           io.unobserve(el);
-         }}
-       }});
-diff --git a/sidecar/econometrica/aurora_html/sections.py b/sidecar/econometrica/aurora_html/sections.py
-index 9c056d5e..c970134d 100644
---- a/sidecar/econometrica/aurora_html/sections.py
-+++ b/sidecar/econometrica/aurora_html/sections.py
-@@ -146,7 +146,7 @@ def _fmt_x_with_ci(mean: Any, ci_low: Any, ci_high: Any) -> str:
- # терялся заново при каждом новом документе. Алиас сохраняет имя для ~20 вызывающих ниже.
- from utils.kpi_display import fmt_pct as _fmt_pct
- from utils.kpi_display import fmt_share_pct as _fmt_share_pct
--from utils.kpi_display import share_pct_value as _share_pct_value
-+from utils.kpi_display import channel_share_pcts as _channel_share_pcts
- from utils.kpi_display import active_channels_phrase as _active_channels_phrase
- 
- 
-@@ -677,7 +677,7 @@ def render_executive_summary(ctx: dict) -> str:
-             complication = scqar["complication"]["template"].format(
-                 budget_dominator=budget_dom,
-                 budget_dom_spend_pct_fmt=_fmt_pct(bd_spend_pct),
--                budget_dom_contrib_pct_fmt=_fmt_pct(bd_contrib_pct),
-+                budget_dom_contrib_pct_fmt=_fmt_share_pct(bd_contrib_pct),
-                 hero=hero, hero_mroas=hero_m,
-             )
-         else:
-@@ -856,14 +856,14 @@ def render_at_a_glance(ctx: dict) -> str:
-             )
-             f1_sup = (
-                 f"{leader} – лидер среди медиа "  # П8-1
--                f"({_fmt_pct(facts.get('leader_share_contrib_pct'))} медиа-вклада)"  # П8-2
-+                f"({_fmt_share_pct(facts.get('leader_share_contrib_pct'))} медиа-вклада)"  # П8-2
-             )
-         else:
-             # N1 (Phase 0.1): pre-format pct values to avoid {x:.0f} rounding
-             # 0.4% to "0%" - see _fmt_pct conditional precision logic.
-             f1 = strings["findings_templates"]["f1_leader"].format(
-                 leader=leader,
--                contrib_pct_fmt=_fmt_pct(facts.get("leader_share_contrib_pct") or 0),
-+                contrib_pct_fmt=_fmt_share_pct(facts.get("leader_share_contrib_pct") or 0),
-                 spend_pct_fmt=_fmt_pct(facts.get("leader_share_spend_pct") or 0),
-             )
-             if kpi["is_legacy"]:
-@@ -1103,7 +1103,7 @@ def render_section_divider(ctx: dict) -> str:
-         spct = facts.get("leader_share_spend_pct") or 0
-         takeaway = strings["action_titles"]["s04_takeaway"].format(
-             leader=leader,
--            contrib_pct_fmt=_fmt_pct(cpct),
-+            contrib_pct_fmt=_fmt_share_pct(cpct),
-             spend_pct_fmt=_fmt_pct(spct))
-     else:
-         takeaway = "Декомпозиция покажет, какие каналы генерируют какой вклад"
-@@ -1146,13 +1146,13 @@ def render_key_message(ctx: dict) -> str:
-             big_label = "Медиа-вклад в продажи"
-             big_support = f"Базовый спрос: {_fmt_pct(baseline_pct)} · {portfolio_phrase}"  # П8-2
-             quote = (
--                f"{leader} – лидер среди медиа ({_fmt_pct(cpct)} медиа-вклада), "  # П8-2 П8-1
-+                f"{leader} – лидер среди медиа ({_fmt_share_pct(cpct)} медиа-вклада), "  # П8-2 П8-1
-                 f"но абсолютный медиа-эффект {_fmt_pct(media_pct)} от продаж. "  # П8-2
-                 "Низкий вклад медиа – проверить отложенный эффект (adstock), насыщение, качество данных."  # П8-2 П8-1
-             )
-         else:
-             title = strings["action_titles"]["s05_default"].format(leader=leader)
--            big = _fmt_pct(cpct)
-+            big = _fmt_share_pct(cpct)
-             big_label = f"Доля {leader} в инкрементальных продажах"
-             big_support = f"При {_fmt_pct(spct)} доли бюджета · {portfolio_phrase}"
- 
-@@ -1327,9 +1327,20 @@ def render_action_table(ctx: dict) -> str:
-     # _contrib_scale: единица и масштаб выбираются согласованно (fix 2026-07-13,
-     # INV-50). budget всегда «₽ млн» (затраты — деньги для любого KPI).
- 
-+    # s50: доля канала в медиа-вкладе — одно число на весь отчёт
-+    # (channel_share_pcts: contribution_pct движка, фолбэк — по ВСЕМ каналам).
-+    # Прежде строки таблицы делили на видимые 10 каналов, а заголовок
-+    # округлял накопленную сумму до целого («88%» над строкой «87.5»).
-+    shares = _channel_share_pcts(channels)
-+
-     # Title branching (mirrors PPTX S7 post-audit logic)
-     if channels:
--        contribs = sorted((float(c.get("contribution") or 0) for c in channels), reverse=True)
-+        pairs = sorted(
-+            zip((float(c.get("contribution") or 0) for c in channels), shares),
-+            key=lambda p: p[0],
-+            reverse=True,
-+        )
-+        contribs = [p[0] for p in pairs]
-         total_real = sum(contribs)
-         total_c = total_real or 1.0
-         acc = 0.0
-@@ -1339,17 +1350,18 @@ def render_action_table(ctx: dict) -> str:
-             top_n += 1
-             if acc / total_c >= 0.85:
-                 break
--        pct = int(round(acc / total_c * 100))
-+        # X в «топ-N дают X%» — сумма УЖЕ ОКРУГЛЁННЫХ долей строк таблицы.
-+        pct = round(sum(p[1] for p in pairs[:top_n]), 1)
-         other_n = len(channels) - top_n
-         if total_real <= 0:
-             title = strings["action_titles"]["s07_zero"]
-         elif len(channels) == 1:
-             title = strings["action_titles"]["s07_single"]
-         elif top_n == 1:
--            title = strings["action_titles"]["s07_dominant"].format(pct_fmt=_fmt_pct(pct))
-+            title = strings["action_titles"]["s07_dominant"].format(pct_fmt=_fmt_share_pct(pct))
-         elif other_n > 0:
-             title = strings["action_titles"]["s07_top_n"].format(
--                channels_phrase=_n_channels(top_n), pct_fmt=_fmt_pct(pct))
-+                channels_phrase=_n_channels(top_n), pct_fmt=_fmt_share_pct(pct))
-         else:
-             title = strings["action_titles"]["s07_balanced"]
-     else:
-@@ -1360,8 +1372,6 @@ def render_action_table(ctx: dict) -> str:
-     flagged = [c for c in visible if c.get("verdict") in ("Reduce", "Cut")][:3]
-     fn_by_name = {c.get("name"): str(i + 1) for i, c in enumerate(flagged) if c.get("name")}
- 
--    total_contrib = sum(float(c.get("contribution") or 0) for c in visible) or 1.0
--
-     # Масштаб+единица столбца «Вклад» — согласованно (fix 2026-07-13, INV-50):
-     # для count адаптивный масштаб (млн/тыс/ед) с единицей результата из паспорта,
-     # для monetary — «₽ млн» как раньше.
-@@ -1370,7 +1380,7 @@ def render_action_table(ctx: dict) -> str:
-     )
- 
-     rows_html = []
--    for c in visible:
-+    for c, share_pct in zip(visible, shares):
-         name = c.get("name") or "-"
-         spend_mln = float(c.get("spend") or 0) / 1_000_000.0
-         mroas = c.get("mroas")
-@@ -1385,7 +1395,7 @@ def render_action_table(ctx: dict) -> str:
-         v_modality = c.get("verdict_modality") or "firm"
-         # Аудит s47, находка 5 (та же точка класса, что fmt_share_pct): одна десятая
-         # вместо целого, иначе сумма долей строк уезжает от 100 (87.5+7.5+5.0→88+8+5=101).
--        share_pct = _share_pct_value(c.get("contribution"), total_contrib)
-+        # s50: share_pct — из общего списка shares (знаменатель — все каналы).
-         fn = fn_by_name.get(name, "")
-         fn_html = f'<sup class="fn-marker">{fn}</sup>' if fn else ''
- 
+diff --git a/sidecar/econometrica/aurora_html/strings_ru.json b/sidecar/econometrica/aurora_html/strings_ru.json
+index 3ef6206b..b0b757ce 100644
+--- a/sidecar/econometrica/aurora_html/strings_ru.json
++++ b/sidecar/econometrica/aurora_html/strings_ru.json
+@@ -152,10 +152,10 @@
+     "s04_takeaway": "{leader} даёт {contrib_pct_fmt} медиа-вклада при {spend_pct_fmt} бюджета – основная точка оптимизации",
+     "s05_default": "{leader} остаётся драйвером, но эффективность требует проверки насыщения",
+     "s06_hero": "{hero} – наиболее эффективный канал, сигнал к пересмотру аллокации",
+-    "s07_dominant": "Один канал даёт {pct_fmt} продаж – остальные рекомендованы к консолидации",
+-    "s07_top_n": "Топ-{channels_phrase} дают {pct_fmt} продаж – остальные рекомендованы к консолидации",
++    "s07_dominant": "Один канал даёт {pct_fmt} медиа-вклада – остальные рекомендованы к консолидации",
++    "s07_top_n": "Топ-{channels_phrase} дают {pct_fmt} медиа-вклада – остальные рекомендованы к консолидации",
+     "s07_balanced": "Все каналы портфеля активно работают – консолидация не требуется",
+-    "s07_single": "Один канал портфеля обеспечивает 100% продаж",
++    "s07_single": "Один канал портфеля обеспечивает 100% медиа-вклада",
+     "s07_zero": "Вклад каналов требует пересчёта – проверьте входные данные",
+     "s08_leader": "{leader}-всплески выделяются на устойчивой базе – медиа-активность видна во времени",
+     "s09_scale_hero": "Aurora рекомендует нарастить {hero} и пересмотреть позицию {leader}",
 diff --git a/sidecar/econometrica/aurora_pptx/builder.py b/sidecar/econometrica/aurora_pptx/builder.py
-index 6cf1b88d..3dc8fbc4 100644
+index 3dc8fbc4..b8b8e954 100644
 --- a/sidecar/econometrica/aurora_pptx/builder.py
 +++ b/sidecar/econometrica/aurora_pptx/builder.py
-@@ -121,6 +121,16 @@ def _fmt_pct(v, fallback="-"):
-     return f"{round(f)}%"
- 
- 
-+def _fmt_share_pct(v, fallback="-"):
-+    """s50: доля канала в медиа-вкладе — одна десятая, то же число, что в
-+    строке таблицы каналов (столбец «Доля эффекта»). Не `_fmt_pct`: его
-+    условная точность округляет 87.5 до «88%», и заголовок спорил со строкой.
-+    Общий счётчик — utils.kpi_display.fmt_share_pct (тот же, что в веб-отчёте).
-+    """
-+    from utils.kpi_display import fmt_share_pct
-+    return fmt_share_pct(v, fallback)
-+
-+
- # ─── KPI/mode-aware helpers (v1.3.2) ────────────────────────────────────────
- #
- # Helpers extracted to aurora_pptx.kpi_helpers - импортируются без aurora_tokens
-@@ -881,14 +891,23 @@ class AuroraPPTXBuilder:
- 
-     # ---------- Big number (hero callout) ----------
- 
--    def _big_number(self, slide, x, y, number, *, label, support=None, size=96):
-+    def _big_number(self, slide, x, y, number, *, label, support=None, size=96, number_width=5.0):
-+        # s50: доля с одной десятой («87.5%») шире целого («88%») и при кегле 140
-+        # переносилась на вторую строку за низ слайда. Число всегда в одну строку:
-+        # кегль ужимается, пока не встанет в ширину бокса (та же мерка PIL, что
-+        # у check_overflow).
-+        from . import text_metrics as TM
-+        while size > 72 and TM.wrap_lines(
-+            str(number), int(Inches(number_width)), size, font_name=self.serif,
-+        ) > 1:
-+            size -= 8
-         self._text(
-             slide, x, y - 0.3, 5.0, 0.25, label.upper(),
+@@ -906,13 +906,20 @@ class AuroraPPTXBuilder:
              font=self.sans, size=8, bold=True, color=self.gold,
          )
          self._hairline(slide, x, y - 0.05, 1.2, weight=0.75, color=self.gold)
++        # s51: высота числа – измеренная (text_metrics, та же мерка и тот же
++        # межстрочный по умолчанию, что у check_overflow), а не доля кегля:
++        # подпись на `y + size / 55` лежала выше низа строки числа и у «100.0%»
++        # наезжала на 0.2". Подпись – под измеренным низом с зазором.
++        number_h = TM.text_height_emu(
++            str(number), int(Inches(number_width)), size, font_name=self.serif,
++        ) / 914400.0
          self._text(
--            slide, x, y, 5.0, size / 50,
-+            slide, x, y, number_width, size / 50,
+-            slide, x, y, number_width, size / 50,
++            slide, x, y, number_width, number_h,
              number, font=self.serif, size=size, color=self.deep_100,
          )
          if support:
-@@ -956,14 +975,14 @@ class AuroraPPTXBuilder:
-         # leader's share-of-media (misleading "X% sales" phrasing).
-         if honest and media_pct is not None and baseline_pct is not None:
-             f1 = f"Медиа-вклад {_fmt_pct(media_pct)}, базовый спрос {_fmt_pct(baseline_pct)} – модель объясняет продажи через organic"  # П8-2
--            s1 = f"{leader} – лидер среди медиа ({_fmt_pct(leader_contrib_pct)} медиа-вклада)" if leader_contrib_pct is not None else f"{leader} – лидер среди медиа"  # П8-2
-+            s1 = f"{leader} – лидер среди медиа ({_fmt_share_pct(leader_contrib_pct)} медиа-вклада)" if leader_contrib_pct is not None else f"{leader} – лидер среди медиа"  # П8-2
+             self._text(
+-                slide, x, y + size / 55, 5.0, 0.3, support,
++                slide, x, y + number_h + 0.06, 5.0, 0.3, support,
+                 font=self.sans, size=10, italic=True, color=self.deep_60,
+             )
+ 
+@@ -1590,7 +1597,7 @@ class AuroraPPTXBuilder:
+             else:
+                 takeaway = f"{leader} - основной драйвер портфеля и точка оптимизации"
          else:
-             if leader_contrib_pct is not None and leader_spend_pct is not None:
-                 # B1-fix R-12 (2026-07-03): leader_share_contrib_pct — доля в
-                 # МЕДИА-вкладе, не в продажах (Kagocel: «32% продаж» реально
-                 # 32% медиа-вклада = 12% продаж при медиа 38%). Квалификатор
-                 # обязателен — иначе клиент завышает роль канала втрое.
--                f1 = f"{leader} - {_fmt_pct(leader_contrib_pct)} медиа-вклада при {_fmt_pct(leader_spend_pct)} бюджета"
-+                f1 = f"{leader} - {_fmt_share_pct(leader_contrib_pct)} медиа-вклада при {_fmt_pct(leader_spend_pct)} бюджета"
-             else:
-                 f1 = f"{leader} - максимальный медиа-вклад в продажи"
-             # v1.3.2: KPI-aware portfolio metric (ROI×/CPU/доля).
-@@ -1146,7 +1165,10 @@ class AuroraPPTXBuilder:
-         Auto-generates footnote superscripts only for Reduce/Cut verdicts,
-         keyed by order (max 3 footnotes to fit bottom-block layout).
-         """
--        total_contrib = sum(float(c.get("contribution") or 0) for c in channels) or 1.0
-+        # s50: доля строки — из единого источника (contribution_pct движка,
-+        # фолбэк — по ВСЕМ каналам), тот же, что у веб-таблицы и заголовка S7.
-+        from utils.kpi_display import channel_share_pcts
-+        shares = channel_share_pcts(channels)
-         # Assign footnote numbers to the first 3 flagged channels (Reduce/Cut).
-         # Filter within channels[:10] (same slice the row loop uses) so the
-         # bottom-block footnote text and the row superscript always pair up.
-@@ -1162,7 +1184,7 @@ class AuroraPPTXBuilder:
-         fn_by_name = {c["name"]: str(i + 1) for i, c in enumerate(flagged) if c.get("name")}
+-            takeaway = "TV генерирует 42% продаж при 28% бюджета - основная точка оптимизации портфеля"
++            takeaway = "TV генерирует 42% медиа-вклада при 28% бюджета - основная точка оптимизации портфеля"
+         self._render_section_divider(
+             slide_num=6,
+             takeaway=takeaway,
+@@ -2248,7 +2255,7 @@ class AuroraPPTXBuilder:
+         # Covers all edge cases (all-zero / single-channel / consolidate / balanced).
+         s07_title = (
+             derive_action_headline(self.channels, self.facts, "portfolio")
+-            or "Консолидировать до топ-5 каналов - они обеспечивают 87% продаж"
++            or "Консолидировать до топ-5 каналов - они обеспечивают 87% медиа-вклада"
+         )
+         self._action_title(
+             slide, s07_title,
+@@ -3205,6 +3212,91 @@ class AuroraPPTXBuilder:
+         left_y = 1.85
+         left_w = (self.w - 2 * self.safe) * 0.48
  
-         rows = []
--        for c in channels[:10]:
-+        for c, share_pct in zip(channels[:10], shares):
-             name = c.get("name") or "-"
-             spend = float(c.get("spend") or 0)
-             contrib = float(c.get("contribution") or 0)
-@@ -1194,8 +1216,6 @@ class AuroraPPTXBuilder:
-             # Аудит s47, находка 5 (та же точка класса, что fmt_share_pct/kpi_display.py):
-             # одна десятая вместо целого, иначе сумма долей строк расходится с 100
-             # (87.5+7.5+5.0→88+8+5=101).
--            from utils.kpi_display import share_pct_value
--            share_pct = share_pct_value(contrib, total_contrib)
-             share_str = f"{share_pct:.1f}" if share_pct > 0 else "0.0"
-             footnote = fn_by_name.get(name, "")
++        # B1-fix R-01: метрики через _mstr (None → «н/д», не wireframe-числа);
++        # ESS может прийти дробным (min bulk/tail из arviz) — показываем целым.
++        _ess_str = self._mstr(
++            int(round(self.ess_min)) if isinstance(self.ess_min, (int, float)) else None,
++            "{:,}").replace(",", " ")
++        if self.is_ols:
++            # OLS не имеет MCMC diagnostics. Показываем frequentist метрики.
++            diag = [
++                ("R²",                self._mstr(self.r_squared, "{:.3f}")),
++                ("MAPE",              self._mstr(self.mape_pct, "{:.1f}%")),
++                ("Метод",             "closed-form OLS"),
++                ("Диапазон",          "bootstrap n=200"),  # факт ols_bootstrap.py (был n=1000)
++            ]
++        else:
++            diag = [
++                ("R²",                self._mstr(self.r_squared, "{:.3f}")),
++                ("MAPE",              self._mstr(self.mape_pct, "{:.1f}%")),
++                ("R-hat (max)",       self._mstr(self.r_hat_max, "{:.3f}")),
++                ("ESS (min)",         _ess_str),
++            ]
++
++        # P0.7 шаг 15: воспроизводимость и сертификат.
++        diag.extend(строки_сертификата(self.data.get("certificate")))
++
++        # s51: список диагностики и сноски считаются ДО карточки спецификации –
++        # от их измеренной высоты зависит, сколько места остаётся карточке.
++        # Прежде высота ряда была задана под одну строку, а значение «Совпадение
++        # расчётов» – фраза из сертификата в 80–100 знаков: в колонке 45 % она
++        # шла в три строки и на образце для покупателя уходила за линию подвала
++        # (+0.22") поверх сноски о приорах. Мерка – text_metrics, та же, что у
++        # check_overflow.
++        from . import text_metrics as TM
++        строка_диаг = TM.line_height_emu(10, 1.2, self.sans, True) / 914400.0
++        ряды = []
++        for label, val in diag:
++            доля_подписи = 0.55
++            отступ_знач, ширина_знач = left_w * 0.55, left_w * 0.45
++            if TM.wrap_lines(val, int(Inches(ширина_знач)), 10, self.sans, True) > 1:
++                # Длинное значение забирает место у подписи: колонка подписи
++                # сужается до длины самой подписи (в одну строку).
++                for доля in (0.30, 0.35, 0.40, 0.45):
++                    if TM.wrap_lines(label, int(Inches(left_w * доля)), 10, self.sans) == 1:
++                        доля_подписи = доля
++                        break
++                отступ_знач = left_w * доля_подписи + 0.15
++                ширина_знач = left_w - отступ_знач
++            доп = max(0.0, TM.text_height_emu(
++                val, int(Inches(ширина_знач)), 10, font_name=self.sans, bold=True,
++            ) / 914400.0 - строка_диаг)
++            ряды.append((label, val, доля_подписи, отступ_знач, ширина_знач, доп))
++        доп_всего = sum(ряд[-1] for ряд in ряды)
++
++        # Сноски кладутся снизу вверх от одного низа: «Приоры» – всегда на 6.87
++        # (с 6.97 в ветке иерархических приоров она уходила за линию подвала),
++        # строка v1.1.0 – над ней по измеренной высоте.
++        # Trust Level 3 (v1.1.0): brand vs performance disclosure если активен.
++        # Speaker note + bottom note - minimal disclosure без layout disruption.
++        # HTML report имеет full block в methodology; здесь kompakt single-line note.
++        hier = (self.data.get('diagnostics') or {}).get('hierarchical') or {}
++        t3_text = None
++        if hier.get('enabled'):
++            cats = hier.get('channel_categories') or {}
++            n_brand = sum(1 for v in cats.values() if v == 'brand')
++            n_perf = sum(1 for v in cats.values() if v == 'performance')
++            t3_text = (
++                f"v1.1.0: Brand vs Performance split - {n_brand} brand, {n_perf} performance каналов. "
++                f"Hierarchical priors разделяют long-decay (бренд ~12 нед) и short-decay (perf ~1-2 нед)."
++            )
++        y_сноски = 6.87
++        if t3_text:
++            t3_y = y_сноски - 0.02 - TM.text_height_emu(
++                t3_text, int(Inches(8.3)), 7, font_name=self.sans,
++            ) / 914400.0
++            ВЕРХ_СНОСКИ = t3_y - 0.02
++        else:
++            ВЕРХ_СНОСКИ = y_сноски - 0.02
++
++        # Если рядам не хватает места даже при нижнем пределе шага, карточка
++        # спецификации ужимается ровно на нехватку: уменьшается кегль ПУСТЫХ
++        # строк-разделителей формул (сами формулы не меняются), блок
++        # диагностики поднимается на столько же. Когда всё помещается,
++        # геометрия слайда прежняя.
++        ПОЛ_ШАГА = 0.18
++        нехватка = (len(ряды) * ПОЛ_ШАГА + доп_всего) - (ВЕРХ_СНОСКИ - (left_y + 3.4))
++
+         # LEFT: Formula card
+         self._text(
+             slide, left_x, left_y, left_w, 0.25, "СПЕЦИФИКАЦИЯ",
+@@ -3212,7 +3304,6 @@ class AuroraPPTXBuilder:
+         )
+         self._hairline(slide, left_x, left_y + 0.28, 1.0, weight=0.75, color=self.gold)
  
-@@ -1564,7 +1584,7 @@ class AuroraPPTXBuilder:
-                 # B1-fix R-12: cpct — доля в МЕДИА-вкладе, не в продажах
-                 # (без квалификатора клиент завышает роль канала кратно).
-                 takeaway = (
--                    f"{leader} даёт {_fmt_pct(cpct)} медиа-вклада при {_fmt_pct(spct)} бюджета - "
-+                    f"{leader} даёт {_fmt_share_pct(cpct)} медиа-вклада при {_fmt_pct(spct)} бюджета - "
-                     "основная точка оптимизации портфеля"
-                 )
-             else:
-@@ -1690,7 +1710,7 @@ class AuroraPPTXBuilder:
-                     if portfolio_phrase else f"Базовый спрос: {_fmt_pct(baseline_pct)}."  # П8-2
-                 )
-                 quote_txt = (
--                    f"{leader} – лидер среди медиа ({_fmt_pct(cpct)} медиа-вклада), "  # П8-2 П8-1
-+                    f"{leader} – лидер среди медиа ({_fmt_share_pct(cpct)} медиа-вклада), "  # П8-2 П8-1
-                     f"но абсолютный медиа-эффект {_fmt_pct(media_pct)} от продаж. "  # П8-2
-                     "Низкий вклад медиа – проверить отложенный эффект (adstock), насыщение, качество данных."  # П8-2 П8-1
-                 )
-@@ -1698,7 +1718,7 @@ class AuroraPPTXBuilder:
-                 # Action title - leader's position statement
-                 title = f"{leader} остаётся основным драйвером, но эффективность требует проверки насыщения"
-                 # Big number - leader contribution share
--                big_number = _fmt_pct(cpct) if cpct is not None else "-"
-+                big_number = _fmt_share_pct(cpct) if cpct is not None else "-"
-                 big_label = f"Доля {leader} в инкрементальных продажах"
-                 if spct is not None and portfolio_phrase:
-                     big_support = f"При {_fmt_pct(spct)} доли бюджета. {portfolio_phrase}."
-@@ -1740,6 +1760,8 @@ class AuroraPPTXBuilder:
-             label=big_label,
-             support=big_support,
-             size=140,
-+            # До цитаты справа (quote_x = 6.8) с зазором 0.2".
-+            number_width=6.8 - self.safe - 0.2,
+-        self._rect(slide, left_x, left_y + 0.45, left_w, 2.3, fill=self.bg_quiet)
+         if self.is_ols:
+             formulas = [
+                 "y_t = baseline_t + Σ β_i · sat(adstock(x_i,t)) + ε_t",
+@@ -3245,67 +3336,63 @@ class AuroraPPTXBuilder:
+                 "β_i ~ HalfNormal (слабоинформативный) · CPP-normalized",
+                 "ε_t ~ Normal(0, σ)",
+             ]
++
++        def _высота_формул(кегль_пустой):
++            return sum(
++                TM.line_height_emu(10 if line.strip() else кегль_пустой, 1.25, self.mono)
++                for line in formulas
++            ) / 914400.0
++
++        кегль_пустой = 10
++        подъём = 0.0
++        if нехватка > 0:
++            полная = _высота_формул(10)
++            for кегль in range(9, 1, -1):
++                кегль_пустой = кегль
++                if полная - _высота_формул(кегль) >= нехватка:
++                    break
++            подъём = min(нехватка, полная - _высота_формул(кегль_пустой))
++
++        self._rect(slide, left_x, left_y + 0.45, left_w, 2.3 - подъём, fill=self.bg_quiet)
+         self._paragraphs(
+-            slide, left_x + 0.25, left_y + 0.6, left_w - 0.5, 2.1,
++            slide, left_x + 0.25, left_y + 0.6, left_w - 0.5, 2.1 - подъём,
+             [(line, {
+-                "font": self.mono, "size": 10,
++                "font": self.mono, "size": 10 if line.strip() else кегль_пустой,
+                 "color": self.deep_100 if line.strip() else self.deep_60,
+             }) for line in formulas],
+             line_spacing=1.25,
          )
  
-         # Right: pull quote
-@@ -1882,7 +1904,7 @@ class AuroraPPTXBuilder:
-             _l = self.facts.get("leader_channel") or "Лидер"
-             _c = self.facts.get("leader_share_contrib_pct")
-             _s = self.facts.get("leader_share_spend_pct")
--            _tk = (f"{_l} даёт {_fmt_pct(_c)} медиа-вклада при {_fmt_pct(_s)} бюджета"
-+            _tk = (f"{_l} даёт {_fmt_share_pct(_c)} медиа-вклада при {_fmt_pct(_s)} бюджета"
-                    if _c is not None and _s is not None
-                    else f"{_l} - основной драйвер портфеля")
+         # LEFT bottom: diagnostics mini
+-        diag_y = left_y + 3.0
++        diag_y = left_y + 3.0 - подъём
+         self._text(
+             slide, left_x, diag_y, left_w, 0.25, "ДИАГНОСТИКА",
+             font=self.sans, size=9, bold=True, color=self.gold,
+         )
+         self._hairline(slide, left_x, diag_y + 0.28, 1.0, weight=0.75, color=self.gold)
+ 
+-        # B1-fix R-01: метрики через _mstr (None → «н/д», не wireframe-числа);
+-        # ESS может прийти дробным (min bulk/tail из arviz) — показываем целым.
+-        _ess_str = self._mstr(
+-            int(round(self.ess_min)) if isinstance(self.ess_min, (int, float)) else None,
+-            "{:,}").replace(",", " ")
+-        if self.is_ols:
+-            # OLS не имеет MCMC diagnostics. Показываем frequentist метрики.
+-            diag = [
+-                ("R²",                self._mstr(self.r_squared, "{:.3f}")),
+-                ("MAPE",              self._mstr(self.mape_pct, "{:.1f}%")),
+-                ("Метод",             "closed-form OLS"),
+-                ("Диапазон",          "bootstrap n=200"),  # факт ols_bootstrap.py (был n=1000)
+-            ]
+-        else:
+-            diag = [
+-                ("R²",                self._mstr(self.r_squared, "{:.3f}")),
+-                ("MAPE",              self._mstr(self.mape_pct, "{:.1f}%")),
+-                ("R-hat (max)",       self._mstr(self.r_hat_max, "{:.3f}")),
+-                ("ESS (min)",         _ess_str),
+-            ]
+-
+-        # P0.7 шаг 15: воспроизводимость и сертификат.
+-        diag.extend(строки_сертификата(self.data.get("certificate")))
+         dy = diag_y + 0.4
+         # Шаг строки сжимается ровно настолько, чтобы список кончился выше
+         # сноски слайда. Прежний шаг 0.3 сохраняется везде, где список в него
+         # укладывается (без сертификата – четыре метрики). Отпечаток данных и
+         # перенос эффекта доводят список до восьми строк, и при 0.3 последние
+         # две легли бы поверх сноски о приорах и под линию подвала.
+-        ВЕРХ_СНОСКИ = 6.85
+-        шаг = min(0.3, max((ВЕРХ_СНОСКИ - dy) / max(len(diag), 1), 0.18))
++        # Многострочное значение добавляет к своему ряду измеренный избыток
++        # высоты (`доп`) – он вычитается из места до деления на шаги.
++        шаг = min(0.3, max((ВЕРХ_СНОСКИ - dy - доп_всего) / max(len(ряды), 1), ПОЛ_ШАГА))
+         высота_строки = min(0.25, шаг - 0.02)
+-        for label, val in diag:
++        for label, val, доля_подписи, отступ_знач, ширина_знач, доп in ряды:
+             self._text(
+-                slide, left_x, dy, left_w * 0.55, высота_строки, label,
++                slide, left_x, dy, left_w * доля_подписи, высота_строки, label,
+                 font=self.sans, size=10, color=self.deep_60,
+             )
+             self._text(
+-                slide, left_x + left_w * 0.55, dy, left_w * 0.45, высота_строки, val,
++                slide, left_x + отступ_знач, dy, ширина_знач, высота_строки + доп, val,
+                 font=self.sans, size=10, bold=True, color=self.deep_100,
+                 align=PP_ALIGN.RIGHT,
+             )
+-            self._hairline(slide, left_x, dy + высота_строки + 0.02, left_w, weight=0.25)
+-            dy += шаг
++            self._hairline(slide, left_x, dy + высота_строки + доп + 0.02, left_w, weight=0.25)
++            dy += шаг + доп
+ 
+         # RIGHT: Limitations (tier-1 differentiator)
+         right_x = left_x + left_w + 0.5
+@@ -3345,19 +3432,10 @@ class AuroraPPTXBuilder:
+             self._rect(slide, right_x, ly + 0.07, 0.08, 0.08, fill=self.deep_60)
+             ly += 0.80
+ 
+-        # Trust Level 3 (v1.1.0): brand vs performance disclosure если активен.
+-        # Speaker note + bottom note - minimal disclosure без layout disruption.
+-        # HTML report имеет full block в methodology; здесь kompakt single-line note.
+-        hier = (self.data.get('diagnostics') or {}).get('hierarchical') or {}
+-        if hier.get('enabled'):
+-            cats = hier.get('channel_categories') or {}
+-            n_brand = sum(1 for v in cats.values() if v == 'brand')
+-            n_perf = sum(1 for v in cats.values() if v == 'performance')
+-            t3_text = (
+-                f"v1.1.0: Brand vs Performance split - {n_brand} brand, {n_perf} performance каналов. "
+-                f"Hierarchical priors разделяют long-decay (бренд ~12 нед) и short-decay (perf ~1-2 нед)."
+-            )
+-            self._source(slide, 6.65, text=t3_text)
++        # Trust Level 3 (v1.1.0): текст сноски и её место посчитаны выше, до
++        # карточки спецификации.
++        if t3_text:
++            self._source(slide, t3_y, text=t3_text)
+             # B1-fix R-06: «12+ FMCG-проектов Aurora» — недоказуемое заявление
+             # (INV-50); честная формулировка о слабоинформативных приорах.
+             _bottom_note = (
+@@ -3365,7 +3443,7 @@ class AuroraPPTXBuilder:
+                 if self.is_ols
+                 else "Приоры: слабоинформативные, на основе индустриальных бенчмарков Bayesian MMM."
+             )
+-            self._source(slide, 6.97, text=_bottom_note)
++            self._source(slide, y_сноски, text=_bottom_note)
          else:
-@@ -2866,7 +2888,7 @@ class AuroraPPTXBuilder:
-             if budget_dom and bd_spend_pct is not None and abs((bd_spend_pct or 0) - (bd_contrib_pct or 0)) >= 5.0:
-                 complication_parts.append(
-                     f"{budget_dom} занимает {_fmt_pct(bd_spend_pct)} бюджета, "
--                    f"но даёт {_fmt_pct(bd_contrib_pct)} эффекта"
-+                    f"но даёт {_fmt_share_pct(bd_contrib_pct)} эффекта"
-                 )
-             if hero != leader and hero_m >= 1.0:
-                 # v1.3.2: KPI-aware metric label в complication.
+             # Bottom note (concise: ≤100 chars fits 1 line at 7pt in 8.3" column)
+             _bottom_note2 = (
+@@ -3373,7 +3451,7 @@ class AuroraPPTXBuilder:
+                 if self.is_ols
+                 else "Приоры: слабоинформативные, на основе индустриальных бенчмарков Bayesian MMM."
+             )
+-            self._source(slide, 6.87, text=_bottom_note2)
++            self._source(slide, y_сноски, text=_bottom_note2)
+ 
+         self._footer(slide, 9 + self._page_shift)
+ 
 diff --git a/sidecar/econometrica/engines/narrative_adapter.py b/sidecar/econometrica/engines/narrative_adapter.py
-index 2cfc4cf6..65139aa3 100644
+index 65139aa3..48c96782 100644
 --- a/sidecar/econometrica/engines/narrative_adapter.py
 +++ b/sidecar/econometrica/engines/narrative_adapter.py
-@@ -240,6 +240,9 @@ def _merge_channels(decomp_chs: list | None, opt_chs: list | None) -> list[dict]
-             "name": clean_name,
-             "spend": dc.get("spend") or oc.get("current_spend"),
-             "contribution": dc.get("contribution"),
-+            # Доля канала в медиа-вкладе из движка (decomposer.py) — единый
-+            # источник числа доли для всех поверхностей отчёта (s50).
-+            "contribution_pct": dc.get("contribution_pct"),
-             "roi": dc.get("roi") or oc.get("current_roi"),
-             "avg_roi": avg_roi,
-             "mroas": marginal,
-@@ -569,10 +572,18 @@ def derive_action_headline(
- 
-     if slide_hint == "portfolio":
-         # s07: action = consolidation recommendation with quantified target share
--        contribs = sorted(
--            (float(c.get("contribution") or 0) for c in channels),
-+        # s50: X в «топ-N дают X%» — сумма УЖЕ ОКРУГЛЁННЫХ долей строк таблицы
-+        # (channel_share_pcts — тот же источник, что столбец «Доля эффекта»),
-+        # а не округлённое накопление: иначе заголовок «88%» стоял над строкой
-+        # «87.5», а на 50.14+35.34 дал бы 85.5 при сумме строк 85.4.
-+        from utils.kpi_display import channel_share_pcts, fmt_share_pct
-+        pairs = sorted(
-+            zip((float(c.get("contribution") or 0) for c in channels),
-+                channel_share_pcts(channels)),
-+            key=lambda p: p[0],
-             reverse=True,
-         )
-+        contribs = [p[0] for p in pairs]
-         total = sum(contribs) or 1.0
-         if total <= 0:
-             return "Перепроверить входные данные - вклад каналов не рассчитывается"
-@@ -583,15 +594,15 @@ def derive_action_headline(
-             top_n += 1
-             if acc / total >= 0.85:
-                 break
--        pct = int(round(acc / total * 100))
-+        pct = round(sum(p[1] for p in pairs[:top_n]), 1)
-         other_n = max(0, len(channels) - top_n)
-         if len(channels) == 1:
-             return "Портфель состоит из одного канала - рекомендуется диверсификация"
+@@ -601,8 +601,8 @@ def derive_action_headline(
          if other_n == 0:
              return "Все каналы работают - консолидация не требуется"
          if top_n == 1:
--            return f"Сфокусировать бюджет на одном канале - он даёт {pct}% продаж"
--        return f"Консолидировать до топ-{top_n} каналов - они обеспечивают {pct}% продаж"
-+            return f"Сфокусировать бюджет на одном канале - он даёт {fmt_share_pct(pct)} продаж"
-+        return f"Консолидировать до топ-{top_n} каналов - они обеспечивают {fmt_share_pct(pct)} продаж"
+-            return f"Сфокусировать бюджет на одном канале - он даёт {fmt_share_pct(pct)} продаж"
+-        return f"Консолидировать до топ-{top_n} каналов - они обеспечивают {fmt_share_pct(pct)} продаж"
++            return f"Сфокусировать бюджет на одном канале - он даёт {fmt_share_pct(pct)} медиа-вклада"
++        return f"Консолидировать до топ-{top_n} каналов - они обеспечивают {fmt_share_pct(pct)} медиа-вклада"
  
      if slide_hint == "timeline":
          # B1-fix R-09 (2026-07-03): прежний заголовок «Перейти на пульсирующее
-@@ -600,7 +611,9 @@ def derive_action_headline(
-         # строится из реального числа (доля лидера в медиа-вкладе) без обещаний.
-         share = facts.get("leader_share_contrib_pct")
-         if leader and share is not None:
--            return f"{leader} – {share:.0f}% медиа-вклада: контролировать динамику и признаки насыщения"  # П8-1
-+            # s50: доля лидера — то же число, что в его строке таблицы (одна десятая).
-+            from utils.kpi_display import fmt_share_pct
-+            return f"{leader} – {fmt_share_pct(share)} медиа-вклада: контролировать динамику и признаки насыщения"  # П8-1
-         if leader:
-             return f"Контролировать динамику {leader} – опора медиа-вклада портфеля"  # П8-1
-         return "Динамика вкладов: базовый уровень и медиа по периодам"
-@@ -679,7 +692,12 @@ def _derive_narrative_facts(
-     weighted_roi = (total_contrib / total_spend) if total_spend > 0 else None
+diff --git a/sidecar/econometrica/optimize/frontier.py b/sidecar/econometrica/optimize/frontier.py
+index aba1ad86..db4b48e1 100644
+--- a/sidecar/econometrica/optimize/frontier.py
++++ b/sidecar/econometrica/optimize/frontier.py
+@@ -126,6 +126,23 @@ def _multiplier_ru(value: float) -> str:
+     return text.replace('.', ',') + '×'
  
-     leader_spend = float(leader.get("spend") or 0)
--    leader_contrib = float(leader.get("contribution") or 0)
-+    # s50: доля канала в медиа-вкладе — то же число, что в строке таблицы
-+    # каналов (utils.kpi_display.channel_share_pcts), а не свой пересчёт от
-+    # суммы после слияния: иначе «доля лидера» в тексте и строка лидера в
-+    # таблице одного отчёта расходились.
-+    from utils.kpi_display import channel_share_pcts
-+    _share_by_id = {id(c): s for c, s in zip(channels, channel_share_pcts(channels))}
  
-     top_2 = by_contrib[:2]
-     top_2_contrib = sum(float(c.get("contribution") or 0) for c in top_2)
-@@ -783,9 +801,9 @@ def _derive_narrative_facts(
-     budget_dominator = by_spend[0] if by_spend else {}
-     # Audit fix (2026-04-29): clamp negative spend к 0. Negative spend = data
-     # corruption (validator should catch, но defensive guard protects narrative
--    # template от rendering negative percentages). Same для contribution.
-+    # template от rendering negative percentages). Same для contribution
-+    # (s50: clamp доли вклада — ниже, в budget_dominator_contrib_pct).
-     bd_spend = max(float(budget_dominator.get("spend") or 0), 0.0)
--    bd_contrib = max(float(budget_dominator.get("contribution") or 0), 0.0)
- 
-     # L15 (math-fix v1.4 Section C, 2026-04-29): cut_source / scale_destination
-     # for accurate reallocation narrative.
-@@ -830,7 +848,7 @@ def _derive_narrative_facts(
-         "total_contrib_mln": total_contrib / 1_000_000.0 if total_contrib else 0.0,
-         "weighted_roi": weighted_roi,
-         "leader_share_spend_pct": (leader_spend / total_spend * 100) if total_spend > 0 else None,
--        "leader_share_contrib_pct": (leader_contrib / total_contrib * 100) if total_contrib > 0 else None,
-+        "leader_share_contrib_pct": _share_by_id.get(id(leader)) if total_contrib > 0 else None,
-         "top_2_names": [c.get("name") for c in top_2],
-         "top_2_contrib_pct": (top_2_contrib / total_contrib * 100) if total_contrib > 0 else None,
-         "underperformer_names": underperformer_names_dedup,
-@@ -863,7 +881,9 @@ def _derive_narrative_facts(
-         # L14: budget_dominator separate from contribution leader
-         "budget_dominator_channel": budget_dominator.get("name"),
-         "budget_dominator_spend_pct": (bd_spend / total_spend * 100) if total_spend > 0 else None,
--        "budget_dominator_contrib_pct": (bd_contrib / total_contrib * 100) if total_contrib > 0 else None,
-+        "budget_dominator_contrib_pct": (
-+            max(_share_by_id.get(id(budget_dominator), 0.0), 0.0) if total_contrib > 0 else None
-+        ),
-         # L15: action-driven reallocation subjects
-         "cut_source_channel": cut_source,
-         "scale_destination_channel": scale_destination,
-@@ -1269,6 +1289,15 @@ def _map_pipeline_to_builder_data(
-     )
-     # Canonical order: contribution desc - keeps tables and narrative consistent
-     channels.sort(key=lambda c: float(c.get("contribution") or 0), reverse=True)
-+    # s50: доля канала в медиа-вкладе — ОДНО число на все поверхности отчёта
-+    # (строка таблицы, заголовок «топ-N дают X%», доля лидера в тексте).
-+    # Прежде таблица делила на видимые 10 каналов, презентация — на все, а
-+    # доля лидера в фактах — на сумму после слияния, и один слайд показывал
-+    # «88%» в заголовке при «87.5» в строке. Результат без contribution_pct
-+    # получает долю по ВСЕМ каналам (channel_share_pcts, фолбэк).
-+    from utils.kpi_display import channel_share_pcts
-+    for ch, share in zip(channels, channel_share_pcts(channels)):
-+        ch["contribution_pct"] = share
-     # math-fix v1.0.14.1, B (2026-04-28): decorate с action structured data.
-     # Templates (HTML/PPTX) reads ch['action_label']/['action_reasoning'] вместо
-     # генерируя свои hardcoded строки → coherence between table + commentary.
++def _share_of_samples_ru(share: float) -> str:
++    """Доля выборок в клиентском тексте: «12%», но «менее 1%» и «более 99%».
++
++    s51 (аудит s50 L-6): `round(share * 100)` при 0 < share < 0.005 давал «у 0%
++    выборок» рядом с условием «доля больше нуля», а при 0.995 ≤ share < 1 –
++    «100%», хотя за границей максимум не у всех выборок.
++    """
++    pct = float(share) * 100.0
++    shown = round(pct)
++    # По итогу округления, а не по порогу: round() банковский, round(0.5) == 0.
++    if pct > 0.0 and shown == 0:
++        return 'менее 1%'
++    if pct < 100.0 and shown == 100:
++        return 'более 99%'
++    return f'{shown}%'
++
++
+ def _ru_periods(n: int) -> str:
+     """«31 период» / «2 периода» / «15 периодов» — согласование в клиентском тексте."""
+     n = abs(int(n))
+@@ -1118,14 +1135,14 @@ def _posterior_maximum_interval(
+                 edge_text.append(
+                     'сверху диапазон упирается в верхнюю границу расчёта '
+                     f'({_money_ru(hi_edge)} ₽), за неё расчёт не заходил'
+-                    + (f'; у {round(share_ceiling * 100)}% выборок максимум лежит '
++                    + (f'; у {_share_of_samples_ru(share_ceiling)} выборок максимум лежит '
+                        'за этой границей' if share_ceiling > 0 else '')
+                 )
+             if low_at_grid:
+                 edge_text.append(
+                     'снизу диапазон упирается в нижнюю границу расчёта '
+                     f'({_money_ru(lo_edge)} ₽), ниже расчёт не заходил'
+-                    + (f'; у {round(share_floor * 100)}% выборок максимум лежит '
++                    + (f'; у {_share_of_samples_ru(share_floor)} выборок максимум лежит '
+                        'ниже этой границы' if share_floor > 0 else '')
+                 )
+             interval['caveat'] = (
+@@ -1138,7 +1155,7 @@ def _posterior_maximum_interval(
+         elif censored:
+             interval['caveat'] = (
+                 'У части выборок максимум пришёлся на край расчёта '
+-                f'({round((share_floor + share_ceiling) * 100)}%), поэтому разброс '
++                f'({_share_of_samples_ru(share_floor + share_ceiling)}), поэтому разброс '
+                 'положения максимума может быть шире рассчитанного.'
+             )
+         return interval
 diff --git a/sidecar/econometrica/tests/test_channel_share_single_source.py b/sidecar/econometrica/tests/test_channel_share_single_source.py
-new file mode 100644
-index 00000000..d4cd9cf3
---- /dev/null
+index d4cd9cf3..deecc748 100644
+--- a/sidecar/econometrica/tests/test_channel_share_single_source.py
 +++ b/sidecar/econometrica/tests/test_channel_share_single_source.py
-@@ -0,0 +1,347 @@
-+"""Доля канала в медиа-вкладе — одно число из одного источника на всех
-+поверхностях отчёта (s50, 27.09.2026, INV-50: число на экране равно расчёту).
+@@ -180,7 +180,7 @@ def test_leader_share_same_visible_number_everywhere_875():
+     web_phrases = _SHARE_PHRASE.findall(plain)
+     assert web_phrases, "в веб-отчёте не нашлось ни одной фразы с долей лидера"
+     assert set(web_phrases) == {"87.5"}, f"доля лидера в тексте веб-отчёта: {web_phrases!r}"
+-    assert "Один канал даёт 87.5% продаж" in plain, "заголовок S7 веб-отчёта"
++    assert "Один канал даёт 87.5% медиа-вклада" in plain, "заголовок S7 веб-отчёта"
+     big = re.search(r'<div class="big-number" data-counter-end="([^"]*)">([^<]*)</div>', html)
+     assert big and big.group(2) == "87.5%" and big.group(1) == "87.5", \
+         f"крупное число доли лидера: {big.groups() if big else None!r}"
+@@ -191,7 +191,7 @@ def test_leader_share_same_visible_number_everywhere_875():
+     pptx_phrases = _SHARE_PHRASE.findall(text)
+     assert pptx_phrases, "в презентации не нашлось ни одной фразы с долей лидера"
+     assert set(pptx_phrases) == {"87.5"}, f"доля лидера в тексте презентации: {pptx_phrases!r}"
+-    assert "он даёт 87.5% продаж" in text, "заголовок S7 презентации"
++    assert "он даёт 87.5% медиа-вклада" in text, "заголовок S7 презентации"
+     assert "88%" not in text
+ 
+ 
+@@ -219,7 +219,7 @@ def test_builders_without_field_use_all_channels():
+ 
+ 
+ def _top_n_pct(text: str) -> str:
+-    m = re.search(r"(?:дают|обеспечивают) (\d+(?:\.\d+)?)% продаж", text)
++    m = re.search(r"(?:дают|обеспечивают) (\d+(?:\.\d+)?)% медиа-вклада", text)
+     assert m, f"заголовок «топ-N дают X%» не найден: {text[:300]!r}"
+     return m.group(1)
+ 
+@@ -263,13 +263,7 @@ def _deck_two_channels(leader_pct, out):
+     return prs
+ 
+ 
+-@pytest.mark.parametrize("leader_pct", [
+-    87.5,
+-    pytest.param(100.0, marks=pytest.mark.xfail(strict=True, reason=(
+-        "Открыто (s50): «100.0%» – 6 знаков, проверка переполнения не считает его "
+-        "декором (DECOR_MAX_LEN = 5) и видит наезд оценки высоты строки на подпись "
+-        "под числом на 0.2\". Сторож не ослабляется, решение – за ведущим."))),
+-])
++@pytest.mark.parametrize("leader_pct", [87.5, 100.0])
+ def test_pptx_big_number_with_decimal_fits(leader_pct, tmp_path):
+     """Крупное число доли лидера с одной десятой («87.5%», крайний «100.0%»)
+     шире целого и при кегле 140 уходило второй строкой за низ слайда. Проверка
+diff --git a/sidecar/econometrica/tests/test_channels_declension_agrees.py b/sidecar/econometrica/tests/test_channels_declension_agrees.py
+index 2f6f545f..afc50cc8 100644
+--- a/sidecar/econometrica/tests/test_channels_declension_agrees.py
++++ b/sidecar/econometrica/tests/test_channels_declension_agrees.py
+@@ -264,7 +264,7 @@ def _channels_with_top_n(top_n: int):
+ 
+ @pytest.mark.parametrize("top_n", [2, 5, 11])
+ def test_html_s07_top_n_title_agrees(top_n):
+-    """«Топ-N каналов дают X% продаж» (render_action_table) — N=2..4 требует
++    """«Топ-N каналов дают X% медиа-вклада» (render_action_table) — N=2..4 требует
+     «канала», не «каналов» (родительный ед.ч. при числительном 2-4)."""
+     with open(_STRINGS_PATH, encoding="utf-8") as fh:
+         strings = json.load(fh)
+diff --git a/sidecar/econometrica/tests/test_frontier_share_of_samples_text.py b/sidecar/econometrica/tests/test_frontier_share_of_samples_text.py
+new file mode 100644
+index 00000000..272429ab
+--- /dev/null
++++ b/sidecar/econometrica/tests/test_frontier_share_of_samples_text.py
+@@ -0,0 +1,49 @@
++"""s51 (аудит s50 L-6): доля выборок в пояснении к диапазону максимума.
 +
-+Дефект (аудит s50, H-1 и M-1): после перевода столбца «Доля» таблицы каналов
-+на одну десятую (af8c2015) на ОДНОМ слайде стояли заголовок «Один канал даёт
-+88% продаж» и строка таблицы «87.5». Доля лидера в тексте отчёта тоже шла
-+целым («88% медиа-вклада»). Знаменатели разъехались: веб-таблица делила на
-+видимые 10 каналов, презентация — на все, факты адаптера — на сумму после
-+слияния; на 12 каналах веб показывал 30.3, презентация 30.0. В браузере
-+счётчик крупного числа вдобавок переписывал «87.5%» в «88%».
-+
-+Правило-источник: utils.kpi_display.channel_share_pcts — готовое
-+`contribution_pct` канала из движка (decomposer.py, знаменатель — весь
-+медиа-вклад), фолбэк для результата без поля — по ВСЕМ каналам. Заголовок
-+«топ-N дают X%» — сумма УЖЕ ОКРУГЛЁННЫХ долей строк.
-+
-+Сторож читает ВИДИМОЕ число: текст ячейки веб-таблицы (не `data-sort`),
-+текст слайдов собранной презентации, счётчик крупного числа — исполнением
-+отгружаемого JS в Node.
++`round(share * 100)` при 0 < share < 0.005 печатал «у 0% выборок» рядом с условием
++«доля больше нуля», а при 0.995 ≤ share < 1 – «100%», хотя за границей максимум
++не у всех выборок. Входы выбраны так, чтобы прежний и новый код давали РАЗНЫЙ
++текст: 0.004 («0%» против «менее 1%») и 0.996 («100%» против «более 99%»).
 +"""
 +from __future__ import annotations
 +
-+import json
-+import os
 +import re
-+import shutil
-+import subprocess
 +import sys
-+import tempfile
++from pathlib import Path
 +
 +import pytest
 +
-+_HERE = os.path.dirname(os.path.abspath(__file__))
-+sys.path.insert(0, os.path.dirname(_HERE))
++sys.path.insert(0, str(Path(__file__).parent.parent))
 +
-+from engines.narrative_adapter import _map_pipeline_to_builder_data  # noqa: E402
-+from utils.kpi_display import channel_share_pcts  # noqa: E402
++from optimize.frontier import _share_of_samples_ru  # noqa: E402
 +
-+LEADER = "Канал A"
++_FRONTIER_SRC = Path(__file__).parent.parent / 'optimize' / 'frontier.py'
 +
 +
-+def _dec_875():
-+    """87.5 / 7.5 / 5.0 — целое округление даёт 88+8+5 = 101."""
-+    return {"channels": [
-+        {"name": LEADER, "spend": 1_000_000.0, "contribution": 875.0,
-+         "contribution_pct": 87.5, "roi": 1.5},
-+        {"name": "Канал B", "spend": 200_000.0, "contribution": 75.0,
-+         "contribution_pct": 7.5, "roi": 1.2},
-+        {"name": "Канал C", "spend": 100_000.0, "contribution": 50.0,
-+         "contribution_pct": 5.0, "roi": 0.8},
-+    ]}
-+
-+
-+def _dec_12(with_pct: bool):
-+    """12 каналов, видимых в таблице 10: лидер 300 из 1000 = 30.0%.
-+    Делитель по видимым (970) дал бы 30.9 — расхождение M-1."""
-+    contribs = [300, 150, 100, 90, 80, 70, 60, 50, 40, 30, 20, 10]
-+    chs = []
-+    for i, v in enumerate(contribs):
-+        ch = {"name": f"Канал {i + 1:02d}", "spend": 100_000.0 * (12 - i),
-+              "contribution": float(v), "roi": 1.0 + i / 10}
-+        if with_pct:
-+            ch["contribution_pct"] = round(v / 1000 * 100, 1)
-+        chs.append(ch)
-+    return {"channels": chs}
-+
-+
-+def _dec_rounding_edge():
-+    """50.14 + 35.34 = 85.48: округление накопления дало бы 85.5 (прежде —
-+    целое 85), а сумма видимых строк 50.1 + 35.3 = 85.4. Поля contribution_pct
-+    нет — заодно проверяется фолбэк сохранённых результатов без поля."""
-+    return {"channels": [
-+        {"name": "Канал X", "spend": 500_000.0, "contribution": 5014.0, "roi": 1.4},
-+        {"name": "Канал Y", "spend": 400_000.0, "contribution": 3534.0, "roi": 1.1},
-+        {"name": "Канал Z", "spend": 300_000.0, "contribution": 1452.0, "roi": 0.9},
-+    ]}
-+
-+
-+def _payload(dec):
-+    return _map_pipeline_to_builder_data(
-+        model_data={}, decompose_data=dec, optimize_data={}, scenarios=[], project_id="t",
-+    )
-+
-+
-+def _html(dec) -> str:
-+    from engines.html_export import build_html
-+    with tempfile.TemporaryDirectory() as d:
-+        out = os.path.join(d, "report.html")
-+        res = build_html(model_data={}, decompose_data=dec, optimize_data={},
-+                         output_path=out, project_id="t")
-+        assert res.get("status") == "ok", res
-+        with open(out, encoding="utf-8") as fh:
-+            return fh.read()
-+
-+
-+def _plain(html: str) -> str:
-+    """Видимый текст: без тегов и без тел <script>/<style>."""
-+    html = re.sub(r"<(script|style)\b[^>]*>.*?</\1>", " ", html, flags=re.S | re.I)
-+    return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", html)).strip()
-+
-+
-+def _html_visible_shares(html: str) -> dict[str, str]:
-+    """Видимый текст ячейки «Доля» каждой строки таблицы каналов — НЕ атрибут
-+    data-sort (аудит s50, M-3: тест по data-sort не видел, что читает клиент).
-+    Строка: канал, бюджет, вклад, метрика, доля, вердикт — доля = 4-я num-ячейка."""
-+    out = {}
-+    for name, row in re.findall(r'<tr data-channel="([^"]*)">(.*?)</tr>', html, re.S):
-+        nums = re.findall(r'<td class="num"[^>]*>(.*?)</td>', row, re.S)
-+        assert len(nums) == 4, f"строка {name!r}: ожидали 4 числовые ячейки, нашли {len(nums)}"
-+        out[name] = re.sub(r"<[^>]+>", "", nums[3]).strip()
-+    return out
-+
-+
-+def _pptx(payload):
-+    try:
-+        from aurora_pptx.builder import AuroraPPTXBuilder
-+    except ImportError as e:  # pragma: no cover
-+        pytest.skip(f"AuroraPPTXBuilder недоступен: {e}")
-+    b = AuroraPPTXBuilder(payload)
-+    prs = b.build()
-+    texts = []
-+    for slide in prs.slides:
-+        for sh in slide.shapes:
-+            if sh.has_text_frame:
-+                texts.append(sh.text_frame.text.replace("\n", " "))
-+    rows = {r[0]: r[4] for r in b._build_action_table_rows(b.channels)}
-+    return " | ".join(texts), rows
-+
-+
-+# Фразы, где число — доля канала в эффекте: «87.5% медиа-вклада»,
-+# «даёт 87.5% продаж», «даёт 87.5% эффекта».
-+_SHARE_PHRASE = re.compile(r"(\d+(?:\.\d+)?)%\s*(?:медиа-вклада|продаж|эффекта)")
-+
-+
-+# ─── Правило-источник ────────────────────────────────────────────────────────
-+
-+def test_source_is_engine_contribution_pct_not_recount():
-+    """Поле движка — источник: даже если пересчёт от вкладов дал бы другое
-+    (канал выпал при слиянии имён), показывается contribution_pct."""
-+    chs = [
-+        {"name": "A", "contribution": 875.0, "contribution_pct": 87.4},
-+        {"name": "B", "contribution": 125.0, "contribution_pct": 12.6},
-+    ]
-+    assert channel_share_pcts(chs) == [87.4, 12.6]
-+
-+
-+def test_fallback_without_field_uses_all_channels():
-+    """Старый результат без contribution_pct: знаменатель — ВСЕ каналы,
-+    а не видимые строки."""
-+    chs = _dec_12(with_pct=False)["channels"]
-+    shares = channel_share_pcts(chs)
-+    assert shares[0] == 30.0
-+    assert shares[:10] != [round(v / 970 * 100, 1) for v in (300, 150, 100, 90, 80, 70, 60, 50, 40, 30)]
-+
-+
-+def test_partial_field_falls_back_for_all_channels():
-+    """Смешанный список (у части каналов поля нет) не смешивает знаменатели."""
-+    chs = [
-+        {"name": "A", "contribution": 600.0, "contribution_pct": 99.0},
-+        {"name": "B", "contribution": 400.0},
-+    ]
-+    assert channel_share_pcts(chs) == [60.0, 40.0]
-+
-+
-+def test_adapter_carries_engine_field_to_payload():
-+    p = _payload(_dec_875())
-+    assert [c["contribution_pct"] for c in p["channels"]] == [87.5, 7.5, 5.0]
-+    assert p["narrative_facts"]["leader_share_contrib_pct"] == 87.5
-+
-+
-+# ─── Видимое число лидера одинаково на всех поверхностях ─────────────────────
-+
-+def test_leader_share_same_visible_number_everywhere_875():
-+    dec = _dec_875()
-+    html = _html(dec)
-+    web_rows = _html_visible_shares(html)
-+    assert web_rows[LEADER] == "87.5", f"строка лидера веб-таблицы: {web_rows!r}"
-+
-+    plain = _plain(html)
-+    web_phrases = _SHARE_PHRASE.findall(plain)
-+    assert web_phrases, "в веб-отчёте не нашлось ни одной фразы с долей лидера"
-+    assert set(web_phrases) == {"87.5"}, f"доля лидера в тексте веб-отчёта: {web_phrases!r}"
-+    assert "Один канал даёт 87.5% продаж" in plain, "заголовок S7 веб-отчёта"
-+    big = re.search(r'<div class="big-number" data-counter-end="([^"]*)">([^<]*)</div>', html)
-+    assert big and big.group(2) == "87.5%" and big.group(1) == "87.5", \
-+        f"крупное число доли лидера: {big.groups() if big else None!r}"
-+    assert "88%" not in plain
-+
-+    text, pptx_rows = _pptx(_payload(dec))
-+    assert pptx_rows[LEADER] == "87.5", f"строка лидера презентации: {pptx_rows!r}"
-+    pptx_phrases = _SHARE_PHRASE.findall(text)
-+    assert pptx_phrases, "в презентации не нашлось ни одной фразы с долей лидера"
-+    assert set(pptx_phrases) == {"87.5"}, f"доля лидера в тексте презентации: {pptx_phrases!r}"
-+    assert "он даёт 87.5% продаж" in text, "заголовок S7 презентации"
-+    assert "88%" not in text
-+
-+
-+@pytest.mark.parametrize("with_pct", [True, False], ids=["поле движка", "фолбэк без поля"])
-+def test_12_channels_web_and_pptx_agree(with_pct):
-+    """M-1: веб делил на видимые 10 каналов (30.9), презентация — на все (30.0)."""
-+    dec = _dec_12(with_pct)
-+    web_rows = _html_visible_shares(_html(dec))
-+    assert len(web_rows) == 10
-+    _, pptx_rows = _pptx(_payload(dec))
-+    assert web_rows["Канал 01"] == pptx_rows["Канал 01"] == "30.0", (web_rows, pptx_rows)
-+    assert web_rows == pptx_rows
-+
-+
-+def test_builders_without_field_use_all_channels():
-+    """Построители, получившие каналы БЕЗ contribution_pct (данные собраны мимо
-+    адаптера), считают долю по ВСЕМ каналам, а не по видимым 10 строкам."""
-+    payload = _payload(_dec_12(with_pct=False))
-+    for c in payload["channels"]:
-+        c.pop("contribution_pct", None)
-+    from aurora_html import build_html as build_html_from_payload
-+    web_rows = _html_visible_shares(build_html_from_payload(payload))
-+    _, pptx_rows = _pptx(payload)
-+    assert web_rows["Канал 01"] == pptx_rows["Канал 01"] == "30.0", (web_rows, pptx_rows)
-+
-+
-+def _top_n_pct(text: str) -> str:
-+    m = re.search(r"(?:дают|обеспечивают) (\d+(?:\.\d+)?)% продаж", text)
-+    assert m, f"заголовок «топ-N дают X%» не найден: {text[:300]!r}"
-+    return m.group(1)
-+
-+
-+def test_top_n_title_equals_sum_of_visible_rows():
-+    """Заголовок топ-N = сумма ВИДИМЫХ строк топ-N, а не округлённое накопление."""
-+    dec = _dec_rounding_edge()
-+    html = _html(dec)
-+    web_rows = _html_visible_shares(html)
-+    assert list(web_rows.values()) == ["50.1", "35.3", "14.5"]
-+    top2 = f"{float(web_rows['Канал X']) + float(web_rows['Канал Y']):.1f}"
-+    assert top2 == "85.4"
-+    assert _top_n_pct(_plain(html)) == top2, "заголовок S7 веб-отчёта ≠ сумме строк топ-2"
-+
-+    text, pptx_rows = _pptx(_payload(dec))
-+    assert pptx_rows == web_rows
-+    assert _top_n_pct(text) == top2, "заголовок S7 презентации ≠ сумме строк топ-2"
-+
-+
-+def test_12_channels_top_n_title_equals_sum_of_visible_rows():
-+    dec = _dec_12(with_pct=True)
-+    html = _html(dec)
-+    web_rows = list(_html_visible_shares(html).values())
-+    # накопление до 85%: 300+150+100+90+80+70+60 = 850 → топ-7
-+    top7 = f"{sum(float(v) for v in web_rows[:7]):.1f}"
-+    assert top7 == "85.0"
-+    assert _top_n_pct(_plain(html)) == top7
-+
-+
-+def _deck_two_channels(leader_pct, out):
-+    from aurora_pptx.builder import AuroraPPTXBuilder
-+    rest = round(100.0 - leader_pct, 1)
-+    dec = {"channels": [
-+        {"name": LEADER, "spend": 1_000_000.0, "contribution": leader_pct * 10,
-+         "contribution_pct": leader_pct, "roi": 1.5},
-+        {"name": "Канал B", "spend": 300_000.0, "contribution": rest * 10,
-+         "contribution_pct": rest, "roi": 0.5},
-+    ]}
-+    prs = AuroraPPTXBuilder(_payload(dec)).build()
-+    prs.save(out)
-+    return prs
-+
-+
-+@pytest.mark.parametrize("leader_pct", [
-+    87.5,
-+    pytest.param(100.0, marks=pytest.mark.xfail(strict=True, reason=(
-+        "Открыто (s50): «100.0%» – 6 знаков, проверка переполнения не считает его "
-+        "декором (DECOR_MAX_LEN = 5) и видит наезд оценки высоты строки на подпись "
-+        "под числом на 0.2\". Сторож не ослабляется, решение – за ведущим."))),
++@pytest.mark.parametrize('share, expected', [
++    (0.004, 'менее 1%'),
++    (0.0001, 'менее 1%'),
++    (0.005, 'менее 1%'),  # round(0.5) == 0 – банковское округление
++    (0.12, '12%'),
++    (0.5, '50%'),
++    (0.994, '99%'),
++    (0.996, 'более 99%'),
++    (1.0, '100%'),
 +])
-+def test_pptx_big_number_with_decimal_fits(leader_pct, tmp_path):
-+    """Крупное число доли лидера с одной десятой («87.5%», крайний «100.0%»)
-+    шире целого и при кегле 140 уходило второй строкой за низ слайда. Проверка
-+    переполнения – целиком, без фильтров."""
-+    from aurora_pptx.check_overflow import check
-+    out = str(tmp_path / "deck.pptx")
-+    _deck_two_channels(leader_pct, out)
-+    issues, _ = check(out)
-+    assert issues == [], "\n".join(f"слайд {s}: [{k}] {d}" for s, k, d in issues)
++def test_share_of_samples_text(share, expected):
++    assert _share_of_samples_ru(share) == expected
 +
 +
-+def test_pptx_big_number_100_stays_one_line(tmp_path):
-+    """Крайний случай «100.0%»: само число – в одну строку своего бокса (кегль
-+    ужимается), а не переносом за низ слайда. Мерка – та же, что у проверки
-+    переполнения (text_metrics)."""
-+    from aurora_pptx import text_metrics as TM
-+    prs = _deck_two_channels(100.0, str(tmp_path / "deck.pptx"))
-+    shapes = [sh for slide in prs.slides for sh in slide.shapes
-+              if sh.has_text_frame and sh.text_frame.text.strip() == "100.0%"]
-+    assert shapes, "крупное число «100.0%» не найдено в колоде"
-+    for sh in shapes:
-+        run = sh.text_frame.paragraphs[0].runs[0]
-+        size_pt = run.font.size.pt
-+        lines = TM.wrap_lines("100.0%", int(sh.width), size_pt, font_name=run.font.name or "Georgia")
-+        assert lines == 1, f"«100.0%» кеглем {size_pt} в боксе {sh.width / 914400:.2f}\" – строк {lines}"
++def test_nonzero_share_never_printed_as_zero_or_full():
++    """Ни одна доля строго между 0 и 1 не печатается как «0%» или «100%»."""
++    for i in range(1, 1000):
++        text = _share_of_samples_ru(i / 1000)
++        assert text not in ('0%', '100%'), f'{i / 1000} → {text!r}'
 +
 +
-+# ─── Счётчик крупного числа в браузере ────────────────────────────────────────
++def test_frontier_client_text_has_no_bare_share_rounding():
++    """Сторож по исходнику: в тексте пояснения доля выборок идёт только через
++    `_share_of_samples_ru`, а не голым `round(share… * 100)`."""
++    src = _FRONTIER_SRC.read_text(encoding='utf-8')
++    bare = re.findall(r'round\(\(?share_\w+[^)]*\*\s*100\)', src)
++    assert bare == [], f'голое округление доли выборок в frontier.py: {bare}'
+diff --git a/sidecar/econometrica/tests/test_pptx_methodology_slide_fit.py b/sidecar/econometrica/tests/test_pptx_methodology_slide_fit.py
+new file mode 100644
+index 00000000..3ed0beb3
+--- /dev/null
++++ b/sidecar/econometrica/tests/test_pptx_methodology_slide_fit.py
+@@ -0,0 +1,131 @@
++"""Слайд «Методология»: полный список диагностики с сертификатом помещается.
 +
-+def _extract_js_function(js: str, name: str) -> str:
-+    start = js.index(f"function {name}(")
-+    i = js.index("{", start)
-+    depth = 0
-+    while i < len(js):
-+        if js[i] == "{":
-+            depth += 1
-+        elif js[i] == "}":
-+            depth -= 1
-+            if depth == 0:
-+                return js[start:i + 1]
-+        i += 1
-+    raise AssertionError(f"не нашёл конец функции {name!r}")
++s51: на образце для покупателя (16 слайдов, слайд 13) фраза критерия
++совпадения «проверка стороннего – ветвь «другое зерно при полном расчёте»:
++расхождение до 5 %» шла в колонке значений в три строки и уходила за линию
++подвала (+0.22") поверх сноски о приорах. Общий гейт `test_pptx_overflow.py`
++этого не видел: фикстура Кагоцела собрана без сертификата, и список
++диагностики на ней – четыре метрики вместо девяти строк.
++
++Здесь та же фикстура получает сертификат с содержимым образца s51 (значения
++перенесены из данных проекта `_demo_samples_s51/_project`, длины строк как в
++переданной презентации) – это наибольший список, какой строит
++`строки_сертификата`: четыре метрики + отпечаток, зерно, отпечаток данных,
++перенос эффекта, совпадение расчётов. Проверка – `check()` по всей
++презентации, без фильтров.
++"""
++import copy
++import json
++import os
++
++import pytest
++
++from aurora_pptx.builder import AuroraPPTXBuilder
++from aurora_pptx.check_overflow import check
++
++_HERE = os.path.dirname(os.path.abspath(__file__))
++_FIXTURE = os.path.join(_HERE, "fixtures", "kagocel_builder_payload.json")
++
++# Сертификат образца s51 (results/model-diagnostics.json → builder payload),
++# без полей, которые слайд не читает.
++_CERT_S51 = {
++    "status": "issued",
++    "hash": "3836a805c4dc2ea3965d12af19d2e5c87a3b02bbdba2e863fd5a37bb8d2e3fc3",
++    "reproducibility": {"status": "recorded", "seed": 42, "seed_source": "default"},
++    "data_fingerprint": {
++        "status": "recorded",
++        "content": {
++            "algo": "aurora-frame-v1",
++            "sha256": "2d90df7243c8ee6fb6e0cf66aaef4b527966413b1f4e0916206c45dbba7f7e33",
++            "n_rows": 136, "n_cols": 13,
++        },
++        "file": {
++            "algo": "sha256-full-file",
++            "sha256": "d11c2f4bada7a2c018c1d7eb505b1d30ef8934414986340a77d6b4c84b034a9b",
++            "size_bytes": 17114, "file_name": "synth_fmcg_brand_planning.xlsx",
++        },
++    },
++    "adstock_protocol": {
++        "status": "recorded",
++        "channels": [
++            {"name": n, "requested": None, "resolved": "geometric", "by": "default"}
++            for n in ("ТВ бюджет", "Онлайн-видео бюджет",
++                      "Наружная реклама бюджет", "Performance бюджет")
++        ],
++    },
++    "repro_tolerance": {
++        "status": "declared",
++        "applicable": {
++            "mode": "other_seed_full",
++            "title": "другое зерно при полном расчёте",
++            "tolerances": {"roi": 5.0, "contribution_pct": 1.5},
++        },
++    },
++}
++
++# Самая длинная ветвь критерия – та же фраза на слайде длиннее образца.
++_BRANCH_WIDE = {
++    "mode": "reduced_or_other_env",
++    "title": "сокращённый расчёт, другая среда или другие настройки",
++    "tolerances": {"roi": 10.0, "contribution_pct": 3.0},
++}
 +
 +
-+@pytest.mark.parametrize("reduced_motion", [True, False], ids=["без анимации", "с анимацией"])
-+def test_big_number_counter_keeps_one_decimal(reduced_motion):
-+    """Отгружаемый JS счётчика (setupCounters → animateCounter) исполняется в
-+    Node на элементе с data-counter-end="87.5": на экране остаётся «87.5%»,
-+    а не «88%». Целое значение остаётся целым."""
-+    node = shutil.which("node")
-+    if not node:
-+        pytest.skip("node не найден в PATH — нечем исполнить отгружаемый JS")
-+    from aurora_html.interactive import bootstrap_js
-+    js = bootstrap_js("light", "{}", "{}", {"ui": {}, "empty_states": {}, "verdicts": {}})
-+    funcs = "\n".join(_extract_js_function(js, n) for n in (
-+        "counterDecimals", "counterText", "animateCounter", "formatCounterValue", "setupCounters",
-+    ))
-+    script = (
-+        f"var PREFERS_REDUCED_MOTION = {'true' if reduced_motion else 'false'};\n"
-+        "var t = 0; global.requestAnimationFrame = function(f) { t += 5000; f(t); };\n"
-+        "function IO(cb) { this.observe = function(n) { cb([{isIntersecting: true, target: n}]); };"
-+        " this.unobserve = function() {}; }\n"
-+        "global.IntersectionObserver = IO; global.window = { IntersectionObserver: IO };\n"
-+        "function El(end, text) { this.textContent = text;"
-+        " this.getAttribute = function() { return end; }; }\n"
-+        "var els = [new El('87.5', '87.5%'), new El('42', '42%')];\n"
-+        "global.document = { querySelectorAll: function() { return els; } };\n"
-+        f"{funcs}\n"
-+        "setupCounters();\n"
-+        "console.log(JSON.stringify(els.map(function(e) { return e.textContent; })));\n"
-+    )
-+    proc = subprocess.run([node, "-e", script], capture_output=True, text=True,
-+                          timeout=15, encoding="utf-8")
-+    assert proc.returncode == 0, proc.stderr
-+    assert json.loads(proc.stdout) == ["87.5%", "42%"]
-diff --git a/sidecar/econometrica/tests/test_kpi_display_registry.py b/sidecar/econometrica/tests/test_kpi_display_registry.py
-index f4610298..98476ed8 100644
---- a/sidecar/econometrica/tests/test_kpi_display_registry.py
-+++ b/sidecar/econometrica/tests/test_kpi_display_registry.py
-@@ -105,3 +105,10 @@ class TestSharePctValueRounding:
-         # Одна десятая — общий принцип с fmt_share_pct (уже готовый процент).
-         value = share_pct_value(87.5, 100.0)
-         assert fmt_share_pct(value) == "87.5%"
++def _variant(name):
++    cert = copy.deepcopy(_CERT_S51)
++    diag_patch = {}
++    if name == "wide_branch":
++        cert["repro_tolerance"]["applicable"] = copy.deepcopy(_BRANCH_WIDE)
++    elif name == "hierarchical":
++        diag_patch["hierarchical"] = {
++            "enabled": True,
++            "channel_categories": {"ТВ бюджет": "brand", "Performance бюджет": "performance"},
++        }
++    elif name == "ols_deterministic":
++        diag_patch["engine"] = "ols"
++        cert["reproducibility"] = {"status": "deterministic"}
++        cert["repro_tolerance"] = {"status": "deterministic"}
++    elif name == "absent_criterion":
++        cert["repro_tolerance"] = {"status": "absent"}
++    return cert, diag_patch
 +
-+    def test_sum_may_differ_from_100_by_a_tenth(self):
-+        # Аудит s50, L-3: одна десятая не обещает ровно 100.0 — три равных
-+        # канала дают 33.3×3 = 99.9 (докстрока share_pct_value говорит честно).
-+        shares = [share_pct_value(1, 3) for _ in range(3)]
-+        assert shares == [33.3, 33.3, 33.3]
-+        assert round(sum(shares), 1) == 99.9
-diff --git a/sidecar/econometrica/tests/test_report_text_kpi_aware.py b/sidecar/econometrica/tests/test_report_text_kpi_aware.py
-index 1c1f28ec..475fb382 100644
---- a/sidecar/econometrica/tests/test_report_text_kpi_aware.py
-+++ b/sidecar/econometrica/tests/test_report_text_kpi_aware.py
-@@ -526,9 +526,10 @@ def _share_payload():
++
++@pytest.fixture(scope="module")
++def payload():
++    with open(_FIXTURE, encoding="utf-8") as f:
++        return json.load(f)
++
++
++def _methodology_slide(prs):
++    for i, slide in enumerate(prs.slides, start=1):
++        texts = [sh.text_frame.text for sh in slide.shapes if sh.has_text_frame]
++        if "ДИАГНОСТИКА" in texts:
++            return i, texts
++    raise AssertionError("слайд методологии («ДИАГНОСТИКА») не найден")
++
++
++@pytest.mark.parametrize("variant", [
++    "s51_sample", "wide_branch", "hierarchical", "ols_deterministic", "absent_criterion",
++])
++def test_methodology_slide_with_full_certificate_fits(payload, tmp_path, variant):
++    data = copy.deepcopy(payload)
++    cert, diag_patch = _variant(variant)
++    data["certificate"] = cert
++    data.setdefault("diagnostics", {}).update(diag_patch)
++
++    prs = AuroraPPTXBuilder(data).build()
++    out = str(tmp_path / f"deck_{variant}.pptx")
++    prs.save(out)
++
++    # Анти-вакуумность: на слайде действительно наибольший список – девять
++    # строк диагностики, включая длинную фразу критерия совпадения.
++    _, texts = _methodology_slide(prs)
++    assert "Совпадение расчётов" in texts
++    assert texts.count("Совпадение расчётов") == 1
++    labels = {"Отпечаток", "Отпечаток данных (содержимое)", "Перенос эффекта"}
++    assert labels <= set(texts), f"сертификат не дошёл до слайда: {sorted(labels - set(texts))}"
++
++    issues, n_slides = check(out)
++    assert n_slides > 0
++    detail = "\n".join(f"  слайд {s}: [{k}] {d}" for s, k, d in issues)
++    assert issues == [], f"презентация получила overflow/overlap:\n{detail}"
+diff --git a/src-tauri/src/commands/report.rs b/src-tauri/src/commands/report.rs
+index e045fc32..a6545f2b 100644
+--- a/src-tauri/src/commands/report.rs
++++ b/src-tauri/src/commands/report.rs
+@@ -1646,7 +1646,7 @@ fn build_xlsx(
+         // Header row offset by 2 (brand header occupies rows 0+1).
+         ws.write_with_format(2, 0, "Категория",  &header_fmt).map_err(|e| format!("{e}"))?;
+         ws.write_with_format(2, 1, "Вклад, ₽",    &header_fmt).map_err(|e| format!("{e}"))?;
+-        ws.write_with_format(2, 2, "% от общего", &header_fmt).map_err(|e| format!("{e}"))?;
++        ws.write_with_format(2, 2, "% от продаж", &header_fmt).map_err(|e| format!("{e}"))?;
  
- class TestActionTableShareOneDecimal:
-     """sections.py:render_action_table и builder.py:_build_action_table_rows —
--    доля вклада канала (столбец «Доля», знак «%» уже в шапке) считается через
--    общую точку kpi_display.share_pct_value, одна десятая, сумма долей строк
--    сходится к 100.0.
-+    доля вклада канала (столбец «Доля», знак «%» уже в шапке) берётся из
-+    общей точки kpi_display.channel_share_pcts (s50; фолбэк без поля движка —
-+    share_pct_value по всем каналам), одна десятая; на этой фикстуре сумма
-+    долей строк сходится к 100.0.
-     """
+         // CPD-104 01.09: сумма всех вкладов — заранее, чтобы проставить кэш результата
+         // формул ниже (без него не-Excel читатели видят 0 вместо доли/итого).
+@@ -1811,7 +1811,14 @@ fn build_xlsx(
+             let spend = ch["spend"].as_f64().unwrap_or(0.0);
+             let contrib = ch["contribution"].as_f64().unwrap_or(0.0);
+             let spend_pct = if total_spend > 0.0 { spend / total_spend } else { 0.0 };
+-            let effect_pct = if total_contrib > 0.0 { contrib / total_contrib } else { 0.0 };
++            // s51 27.09: доля канала — ОДНО число на всех поверхностях (веб/презентация
++            // уже берут contribution_pct из движка, decomposer.py:1128-1132). Раньше здесь
++            // считалось заново от contrib/total_contrib — законная, но ДРУГАЯ величина.
++            // Запасная ветка (contrib/total_contrib) — только для старых JSON без поля.
++            let effect_pct = match ch["contribution_pct"].as_f64() {
++                Some(p) if p.is_finite() => p / 100.0,
++                _ => if total_contrib > 0.0 { contrib / total_contrib } else { 0.0 },
++            };
  
-     def test_html_action_table_shares_sum_to_100(self):
-@@ -540,15 +541,17 @@ class TestActionTableShareOneDecimal:
-         if ctx is None:
-             pytest.skip("strings_ru.json недоступен")
-         html = render_action_table(ctx)
--        # Строки таблицы: <tr data-channel="...">...</tr>, в каждой 4 атрибута
--        # data-sort (budget/contrib/mroas/share) — последний в строке = share.
-+        # Строки таблицы: <tr data-channel="...">...</tr>, в каждой 4 числовые
-+        # ячейки (budget/contrib/mroas/share) — последняя в строке = share.
-+        # Аудит s50, M-3: читаем ВИДИМЫЙ текст ячейки, а не атрибут data-sort
-+        # (сортировочный ключ мог совпадать с расчётом при расходящемся показе).
-         rows = re.findall(r'<tr data-channel="[^"]*">(.*?)</tr>', html, re.DOTALL)
-         assert len(rows) == 3, f"ожидали 3 строки канала, нашли {len(rows)}"
-         shares = []
-         for row in rows:
--            sorts = re.findall(r'data-sort="([^"]+)"', row)
--            assert sorts, f"строка без data-sort: {row!r}"
--            shares.append(float(sorts[-1]))
-+            cells = re.findall(r'<td class="num"[^>]*>(.*?)</td>', row, re.DOTALL)
-+            assert len(cells) == 4, f"строка без четырёх числовых ячеек: {row!r}"
-+            shares.append(float(re.sub(r"<[^>]+>", "", cells[-1]).strip()))
-         assert shares == [87.5, 7.5, 5.0], f"доли строк: {shares!r}"
-         assert sum(shares) == pytest.approx(100.0), \
-             f"сумма долей разъехалась со 100: {shares!r} → {sum(shares)}"
-diff --git a/sidecar/econometrica/utils/kpi_display.py b/sidecar/econometrica/utils/kpi_display.py
-index 72d6e93c..3727d17e 100644
---- a/sidecar/econometrica/utils/kpi_display.py
-+++ b/sidecar/econometrica/utils/kpi_display.py
-@@ -153,9 +153,11 @@ def fmt_share_pct(v: Any, fallback: str = "-") -> str:
+             // 5c (2026-05-04) FIX: same formula-result issue. rust_xlsxwriter
+             // does not evaluate Excel formulas → cached result=0 на open.
+@@ -3866,4 +3873,174 @@ mod tests {
+         );
+         let _ = std::fs::remove_file(&path);
+     }
++
++    /// s51 27.09: доля канала в медиа-вкладе должна быть ОДНИМ числом на всех
++    /// поверхностях (веб/презентация уже берут contribution_pct из движка,
++    /// decomposer.py:1128-1132). Лист «Spend vs Effect» раньше пересчитывал
++    /// долю заново от contrib/total_contrib — законная, но ДРУГАЯ величина,
++    /// расходящаяся с движком при неравномерном распределении вклада.
++    /// Каналы ниже намеренно НЕ согласованы: пересчёт от contribution дал бы
++    /// 500/1000=0.5 обоим каналам, а движок утверждает 87.5%/12.5%.
++    #[test]
++    fn xlsx_spend_vs_effect_uses_engine_contribution_pct_not_recomputed() {
++        // Читает XML ИМЕННО листа sheet_name (через workbook.xml → r:id →
++        // workbook.xml.rels → Target), а не весь архив - иначе совпадение
++        // числа на другом листе дало бы ложный зелёный.
++        fn xlsx_sheet_xml(path: &Path, sheet_name: &str) -> String {
++            let bytes = std::fs::read(path).expect("read xlsx");
++            let mut archive = zip::read::ZipArchive::new(Cursor::new(bytes)).expect("open xlsx zip");
++
++            let mut workbook_xml = String::new();
++            archive
++                .by_name("xl/workbook.xml")
++                .expect("xl/workbook.xml entry")
++                .read_to_string(&mut workbook_xml)
++                .expect("read xl/workbook.xml");
++            let marker = format!("name=\"{sheet_name}\"");
++            let start = workbook_xml
++                .find(&marker)
++                .unwrap_or_else(|| panic!("лист «{sheet_name}» не найден в workbook.xml: {workbook_xml}"));
++            let rid_start = workbook_xml[start..].find("r:id=\"").expect("r:id атрибут листа") + start + 6;
++            let rid_end = workbook_xml[rid_start..].find('"').expect("закрывающая кавычка r:id") + rid_start;
++            let rid = &workbook_xml[rid_start..rid_end];
++
++            let mut rels_xml = String::new();
++            archive
++                .by_name("xl/_rels/workbook.xml.rels")
++                .expect("xl/_rels/workbook.xml.rels entry")
++                .read_to_string(&mut rels_xml)
++                .expect("read workbook.xml.rels");
++            let rel_marker = format!("Id=\"{rid}\"");
++            let rel_start = rels_xml
++                .find(&rel_marker)
++                .unwrap_or_else(|| panic!("связь {rid} не найдена в workbook.xml.rels: {rels_xml}"));
++            let target_start = rels_xml[rel_start..].find("Target=\"").expect("Target атрибут связи") + rel_start + 8;
++            let target_end = rels_xml[target_start..].find('"').expect("закрывающая кавычка Target") + target_start;
++            let target = &rels_xml[target_start..target_end];
++
++            let sheet_path = format!("xl/{target}");
++            let mut sheet_xml = String::new();
++            archive
++                .by_name(&sheet_path)
++                .unwrap_or_else(|e| panic!("{sheet_path} entry не найден: {e}"))
++                .read_to_string(&mut sheet_xml)
++                .expect("read sheet xml");
++            sheet_xml
++        }
++
++        let decompose = json!({"channels": [
++            {"name": "A", "spend": 200.0, "contribution": 500.0, "contribution_pct": 87.5},
++            {"name": "B", "spend": 800.0, "contribution": 500.0, "contribution_pct": 12.5}
++        ]});
++        let path = std::env::temp_dir().join("aurora_s51_spend_vs_effect_pct_test.xlsx");
++        build_xlsx(&json!({}), &decompose, &json!({}), &[], None, "test", &path, None)
++            .expect("build_xlsx spend vs effect (contribution_pct)");
++
++        let sheet_xml = xlsx_sheet_xml(&path, "Spend vs Effect");
++        assert!(
++            sheet_xml.contains("0.875") && sheet_xml.contains("0.125"),
++            "доля эффекта обязана браться из contribution_pct движка (87.5% / \
++             12.5%), а не пересчитываться заново из contribution (что при \
++             равных contribution=500/500 дало бы 0.5/0.5)\nXML листа «Spend vs \
++             Effect»: {sheet_xml}"
++        );
++        // Точечная проверка именно колонки «% эффекта» (E, данные с Excel-строки
++        // 4) - широкая проверка "нет 0.5 нигде на листе" ложно красит тест:
++        // pageMargins по умолчанию несёт left="0.5" right="0.5" (см. дамп XML
++        // выше), это не относится к эффекту вообще.
++        assert!(
++            !sheet_xml.contains("r=\"E4\" s=\"16\"><v>0.5</v>"),
++            "ячейка E4 (доля эффекта канала A) не должна нести пересчитанные \
++             от contribution 0.5 - обязан победить contribution_pct движка \
++             (87.5%)\nXML листа «Spend vs Effect»: {sheet_xml}"
++        );
++        assert!(
++            !sheet_xml.contains("r=\"E5\" s=\"16\"><v>0.5</v>"),
++            "ячейка E5 (доля эффекта канала B) не должна нести пересчитанные \
++             от contribution 0.5 - обязан победить contribution_pct движка \
++             (12.5%)\nXML листа «Spend vs Effect»: {sheet_xml}"
++        );
++        let _ = std::fs::remove_file(&path);
++    }
++
++    /// s51 27.09: запасная ветка — старые JSON движка без поля contribution_pct
++    /// обязаны получить прежний пересчёт contrib/total_contrib, а не 0/поломку.
++    #[test]
++    fn xlsx_spend_vs_effect_falls_back_to_recompute_when_pct_absent() {
++        fn xlsx_all_text(path: &Path) -> String {
++            let bytes = std::fs::read(path).expect("read xlsx");
++            let mut archive = zip::read::ZipArchive::new(Cursor::new(bytes)).expect("open xlsx zip");
++            let mut all = String::new();
++            for i in 0..archive.len() {
++                let mut entry = archive.by_index(i).expect("zip entry");
++                let mut content = String::new();
++                if entry.read_to_string(&mut content).is_ok() {
++                    all.push_str(&content);
++                }
++            }
++            all
++        }
++
++        // Каналы БЕЗ contribution_pct - имитация старого JSON движка.
++        let decompose = json!({"channels": [
++            {"name": "A", "spend": 100.0, "contribution": 750.0},
++            {"name": "B", "spend": 900.0, "contribution": 250.0}
++        ]});
++        let path = std::env::temp_dir().join("aurora_s51_spend_vs_effect_fallback_test.xlsx");
++        build_xlsx(&json!({}), &decompose, &json!({}), &[], None, "test", &path, None)
++            .expect("build_xlsx spend vs effect (fallback)");
++
++        let text = xlsx_all_text(&path);
++        assert!(
++            text.contains("0.75") && text.contains("0.25"),
++            "без contribution_pct в JSON доля эффекта обязана откатиться на \
++             прежний пересчёт contribution/total_contribution (750/1000=0.75, \
++             250/1000=0.25)\nXML: {text}"
++        );
++        let _ = std::fs::remove_file(&path);
++    }
++
++    /// s51 27.09: заголовок колонки на листе «Декомпозиция» переименован в
++    /// «% от продаж» (честное название - там доля во ВСЕХ продажах:
++    /// база+каналы+контроли, формула не менялась). Старый заголовок «% от
++    /// общего» не должен остаться нигде в книге.
++    #[test]
++    fn xlsx_decomposition_header_renamed_to_percent_of_sales() {
++        fn xlsx_all_text(path: &Path) -> String {
++            let bytes = std::fs::read(path).expect("read xlsx");
++            let mut archive = zip::read::ZipArchive::new(Cursor::new(bytes)).expect("open xlsx zip");
++            let mut all = String::new();
++            for i in 0..archive.len() {
++                let mut entry = archive.by_index(i).expect("zip entry");
++                let mut content = String::new();
++                if entry.read_to_string(&mut content).is_ok() {
++                    all.push_str(&content);
++                }
++            }
++            all
++        }
++
++        let decompose = json!({"waterfall": {
++            "labels": ["Baseline", "TV"],
++            "values": [500.0, 500.0],
++            "types":  ["baseline", "channel"]
++        }});
++        let path = std::env::temp_dir().join("aurora_s51_decomposition_header_test.xlsx");
++        build_xlsx(&json!({}), &decompose, &json!({}), &[], None, "test", &path, None)
++            .expect("build_xlsx decomposition header");
++
++        let text = xlsx_all_text(&path);
++        assert!(
++            text.contains("% от продаж"),
++            "заголовок колонки на листе «Декомпозиция» обязан честно называть \
++             величину — «% от продаж» (доля во ВСЕХ продажах), не «% от \
++             общего»\nXML: {text}"
++        );
++        assert!(
++            !text.contains("% от общего"),
++            "старый заголовок «% от общего» не должен остаться нигде в книге \
++             после переименования\nXML: {text}"
++        );
++        let _ = std::fs::remove_file(&path);
++    }
+ }
+diff --git a/src/lib/__tests__/command-meta-filter-cabinets-unknown-product.test.js b/src/lib/__tests__/command-meta-filter-cabinets-unknown-product.test.js
+new file mode 100644
+index 00000000..b8e2ff5e
+--- /dev/null
++++ b/src/lib/__tests__/command-meta-filter-cabinets-unknown-product.test.js
+@@ -0,0 +1,71 @@
++/**
++ * CPD-84 (JS-класс дыры, зеркалит правку Rust 44961d01 в `cabinet.rs::filter_by_product`).
++ *
++ * До правки `filterCabinetsByProduct` для незнакомого/неопознанного ключа продукта
++ * (`_products[productType]` — `undefined`) отдавал `!allowed === true` → ВСЕ кабинеты —
++ * то же расширение прав, что было в Rust `_ => None` до записи 44961d01. Теперь
++ * умолчание — пустой список; «все кабинеты» — только для явно перечисленных
++ * unrestricted-ключей (agency/creative-hub/media, зеркалит `None` в Rust).
++ *
++ * Продукты и составы кабинетов — те же значения, что в `content-packs/command-meta-data.json`
++ * (проверено вручную 27.09.2026): agency/creative-hub → cabinets:null (без ограничения),
++ * media → cabinets:[...] в content-pack, но Rust и JS трактуют его как unrestricted
++ * (ловушка B — чужая линия ROSST_AI_Media/Insights Hub, см. PULSE_s51_phaseC.md),
++ * econometrica → cabinets:["econometrist"].
++ */
++import { describe, it, expect, beforeEach } from 'vitest';
++import { initCommandMeta, filterCabinetsByProduct } from '../command-meta.js';
++
++const ALL_CABINETS = [
++  { id: 'econometrist', name: 'Эконометрист' },
++  { id: 'lawyer-contracts', name: 'Юрист по договорам' },
++  { id: 'lawyer-claims', name: 'Юрист по претензиям' },
++  { id: 'creative-director', name: 'Креативный директор' },
++  { id: 'media-analyst', name: 'Медиааналитик' },
++];
++
++/** Фикстура products — состав как в content-packs/command-meta-data.json (27.09.2026). */
++function productsFixture() {
++  return {
++    agency: { name: 'Aurora AI - Agency', cabinets: null },
++    'creative-hub': { name: 'Aurora AI - Creative Hub', cabinets: null },
++    media: { name: 'Aurora AI - Insights Hub', cabinets: ['media-analyst', 'econometrist'] },
++    legal: { name: 'Aurora AI - Legal', cabinets: ['lawyer-contracts', 'lawyer-claims'] },
++    econometrica: { name: 'Aurora AI Econometrica', cabinets: ['econometrist'] },
++  };
++}
++
++beforeEach(() => {
++  initCommandMeta({ commands: {}, categories: [], products: productsFixture() });
++});
++
++describe('filterCabinetsByProduct — CPD-84 незнакомый продукт закрыт по умолчанию', () => {
++  it('"unknown" (значение по умолчанию до ответа get_product_type) → пустой список', () => {
++    expect(filterCabinetsByProduct(ALL_CABINETS, 'unknown')).toEqual([]);
++  });
++
++  it('выдуманный ключ, которого нет в content-pack → пустой список', () => {
++    expect(filterCabinetsByProduct(ALL_CABINETS, 'no-such-product-xyz')).toEqual([]);
++  });
++
++  it('"agency" — без ограничения, все кабинеты', () => {
++    expect(filterCabinetsByProduct(ALL_CABINETS, 'agency')).toEqual(ALL_CABINETS);
++  });
++
++  it('"creative-hub" — без ограничения, все кабинеты', () => {
++    expect(filterCabinetsByProduct(ALL_CABINETS, 'creative-hub')).toEqual(ALL_CABINETS);
++  });
++
++  it('"media" — ограничен своим списком из content-pack, как и до правки (не «все»)', () => {
++    expect(filterCabinetsByProduct(ALL_CABINETS, 'media')).toEqual([
++      { id: 'econometrist', name: 'Эконометрист' },
++      { id: 'media-analyst', name: 'Медиааналитик' },
++    ]);
++  });
++
++  it('"econometrica" — ровно её состав (["econometrist"])', () => {
++    expect(filterCabinetsByProduct(ALL_CABINETS, 'econometrica')).toEqual([
++      { id: 'econometrist', name: 'Эконометрист' },
++    ]);
++  });
++});
+diff --git a/src/lib/__tests__/creative-store-product-type-unknown.test.js b/src/lib/__tests__/creative-store-product-type-unknown.test.js
+new file mode 100644
+index 00000000..624fb102
+--- /dev/null
++++ b/src/lib/__tests__/creative-store-product-type-unknown.test.js
+@@ -0,0 +1,51 @@
++/**
++ * CPD-84 (JS-класс дыры, зеркалит правку Rust 44961d01 в `cabinet.rs::filter_by_product`).
++ *
++ * До правки: (1) начальное значение `productType` ДО ответа `get_product_type` было
++ * «agency» (без ограничения — все кабинеты видны, пока backend ещё не ответил);
++ * (2) отказ самого вызова `get_product_type` (invoke бросает) в `initCreativeStore()`
++ * тоже откатывал на «agency». Оба случая — расширение прав при неопределённости, тот же
++ * класс дыры, что был в Rust `_ => None` до записи 44961d01. Теперь и начальное значение,
++ * и результат отказа — «unknown» (пустой список кабинетов через `filterCabinetsByProduct`,
++ * см. `command-meta-filter-cabinets-unknown-product.test.js`). «agency» — легитимный
++ * продукт, не заглушка ошибки.
++ */
++import { describe, it, expect, vi, beforeEach } from 'vitest';
++import { get } from 'svelte/store';
++import { invoke } from '@tauri-apps/api/core';
++
++describe('creative-store productType — CPD-84 неопределённость закрыта по умолчанию', () => {
++  beforeEach(() => {
++    vi.resetModules();
++    vi.mocked(invoke).mockReset();
++  });
++
++  it('начальное значение стора (до любого invoke) — "unknown", не "agency"', async () => {
++    // Модуль импортируется заново (resetModules) — читаем значение writable('unknown')
++    // до вызова initCreativeStore().
++    const { productType } = await import('../creative-store.js');
++    expect(get(productType)).toBe('unknown');
++  });
++
++  it('initCreativeStore(): отказ get_product_type → productType становится "unknown"', async () => {
++    vi.mocked(invoke).mockImplementation((/** @type {string} */ cmd) => {
++      if (cmd === 'get_product_type') return Promise.reject(new Error('backend недоступен'));
++      // Прочие вызовы initCreativeStore (refreshBrands→brand_list, brand_get_active,
++      // ensure_default_brand) — молча резолвятся, как их собственные catch-ветки ожидают.
++      return Promise.resolve(null);
++    });
++    const { productType, initCreativeStore } = await import('../creative-store.js');
++    await initCreativeStore();
++    expect(get(productType)).toBe('unknown');
++  });
++
++  it('initCreativeStore(): успешный ответ get_product_type — не переопределяется на "unknown"', async () => {
++    vi.mocked(invoke).mockImplementation((/** @type {string} */ cmd) => {
++      if (cmd === 'get_product_type') return Promise.resolve('econometrica');
++      return Promise.resolve(null);
++    });
++    const { productType, initCreativeStore } = await import('../creative-store.js');
++    await initCreativeStore();
++    expect(get(productType)).toBe('econometrica');
++  });
++});
+diff --git a/src/lib/__tests__/insights-channel-share-one-decimal.test.js b/src/lib/__tests__/insights-channel-share-one-decimal.test.js
+new file mode 100644
+index 00000000..2d3ad45e
+--- /dev/null
++++ b/src/lib/__tests__/insights-channel-share-one-decimal.test.js
+@@ -0,0 +1,54 @@
++/**
++ * Аудит s50 (M-1): доля канала в медиа-вкладе на панели выводов показывала
++ * целое («88%») через `contribution_pct.toFixed(0)`, а столбец «Доля» шага
++ * «Декомпозиция» уже показывал одну десятую («87.5») — расхождение на
++ * соседних экранах одного продукта (INV-50: число на экране равно расчёту).
++ *
++ * Правка: decomposeInsights/reportInsights переведены на общий помощник
++ * format-numbers.js:formatChannelSharePct (тот же источник форматирования,
++ * что DecomposeStep.svelte и ReportStep.svelte).
++ *
++ * Фикстура — те же числа, что test_channel_share_single_source.py:_dec_875
++ * (87.5 / 7.5 / 5.0), для единой картины движок/фронт на одном примере.
++ */
++import { describe, it, expect } from 'vitest';
++import { decomposeInsights, reportInsights } from '../insights-rules.js';
++
++/** @returns {any[]} */
++function channelsFixture() {
++  return [
++    { name: 'Канал A', spend: 1_000_000, contribution: 875, contribution_pct: 87.5, roi: 1.5 },
++    { name: 'Канал B', spend: 200_000, contribution: 75, contribution_pct: 7.5, roi: 1.2 },
++    { name: 'Канал C', spend: 100_000, contribution: 50, contribution_pct: 5.0, roi: 0.8 },
++  ];
++}
++
++/** Собирает text+tip всех инсайтов в одну строку (см. insights-rules-shift-description.test.js).
++ * @param {any[]} insights
++ * @returns {string}
++ */
++function joinAll(insights) {
++  return insights.map((/** @type {any} */ i) => `${i.text}\n${i.tip || ''}`).join('\n');
++}
++
++describe('decomposeInsights — доля канала в медиа-вкладе с одной десятой (аудит s50 M-1)', () => {
++  it('заголовок, топ-3 и предупреждение о концентрации показывают 87.5%, не 88%', () => {
++    const insights = decomposeInsights({ baseline_pct: 40, channels: channelsFixture() });
++    const all = joinAll(insights);
++    expect(all).toContain('87.5%');
++    expect(all).not.toContain('88%');
++  });
++});
++
++describe('reportInsights — доля главного драйвера с одной десятой (аудит s50 M-1)', () => {
++  it('этап «Декомпозиция» показывает 87.5%, не 88%', () => {
++    const insights = reportInsights({
++      mod: { diagnostics: { mqs: { score: 82, tier: 'good' }, metrics: { r_squared: 0.9, mape_pct: 5.0, ratio: 5.0 } } },
++      dec: { baseline_pct: 40, channels: channelsFixture() },
++      opt: { expected_lift_pct: 3.0, total_budget_money: 1_000_000 },
++    });
++    const all = joinAll(insights);
++    expect(all).toContain('87.5%');
++    expect(all).not.toContain('88%');
++  });
++});
+diff --git a/src/lib/__tests__/insights-top3-driver-share-one-decimal.test.js b/src/lib/__tests__/insights-top3-driver-share-one-decimal.test.js
+new file mode 100644
+index 00000000..c86d2556
+--- /dev/null
++++ b/src/lib/__tests__/insights-top3-driver-share-one-decimal.test.js
+@@ -0,0 +1,36 @@
++/**
++ * decomposeInsights, блок «Топ-3 драйвера медиа-вклада» (insights-rules.js:~1692).
++ *
++ * До правки заголовок блока форматировал сумму долей топ-3 через `top3Sum.toFixed(0)`
++ * (целое число) вместо `formatChannelSharePct(top3Sum)` (десятая доля) — тот же класс
++ * расхождения формата, что `insights-channel-share-one-decimal.test.js` закрыл для доли
++ * главного драйвера (INV-50: число на экране равно расчёту, единый формат по программе).
++ *
++ * Фикстура подобрана так, чтобы топ-3 (сортировка по contribution_pct desc) давали сумму
++ * X.Y5-подобного вида, где `toFixed(0)` и `formatChannelSharePct`(`toFixed(1)`) дают РАЗНЫЕ
++ * строки: 50.14 + 35.34 + 12.46 = 97.94 → toFixed(0) = "98%", formatChannelSharePct = "97.9%".
++ * Четвёртый канал (2.06) вне топ-3 — суммарно доли дают ровно 100%, реалистичная картина.
++ */
++import { describe, it, expect } from 'vitest';
++import { decomposeInsights } from '../insights-rules.js';
++
++/** @returns {any[]} */
++function channelsFixture() {
++  return [
++    { name: 'Канал A', spend: 1_000_000, contribution: 5014, contribution_pct: 50.14, roi: 1.5 },
++    { name: 'Канал B', spend: 700_000, contribution: 3534, contribution_pct: 35.34, roi: 1.3 },
++    { name: 'Канал C', spend: 50_000, contribution: 206, contribution_pct: 2.06, roi: 0.9 },
++    { name: 'Канал D', spend: 300_000, contribution: 1246, contribution_pct: 12.46, roi: 1.1 },
++  ];
++}
++
++describe('decomposeInsights — доля топ-3 драйверов медиа-вклада с одной десятой', () => {
++  it('заголовок блока показывает "97.9%", не "98%"', () => {
++    const insights = decomposeInsights({ baseline_pct: 40, channels: channelsFixture() });
++    const top3Insight = insights.find((/** @type {any} */ i) => i.text.includes('Топ-3 драйверов'));
++    expect(top3Insight).toBeTruthy();
++    const text = top3Insight?.text ?? '';
++    expect(text).toContain('97.9%');
++    expect(text).not.toContain('98%');
++  });
++});
+diff --git a/src/lib/command-meta.js b/src/lib/command-meta.js
+index 2817e047..4b284522 100644
+--- a/src/lib/command-meta.js
++++ b/src/lib/command-meta.js
+@@ -142,13 +142,32 @@ export function getProductName(productType) {
+ }
  
- def share_pct_value(part: Any, total: Any) -> float:
-     """Доля `part` от `total` в процентах, округлённая до одной десятой —
--    тот же принцип, что `fmt_share_pct` (аудит s47, находка 5): сложенные
--    доли строк таблицы каналов должны читаться как 100.0, а не 101 из-за
--    независимого округления каждой строки до целого (87.5+7.5+5.0 → 88+8+5).
-+    тот же принцип, что `fmt_share_pct` (аудит s47, находка 5): одна десятая
-+    убирает грубое расхождение от округления каждой строки до целого
-+    (87.5+7.5+5.0 → 88+8+5 = 101). Точную сотню сумма строк при этом
-+    НЕ гарантирует: каждая доля округляется независимо, и сумма может
-+    отличаться от 100 на 0.1–0.2 (три равных канала: 33.3×3 = 99.9).
- 
-     Вынесена отдельно от `fmt_share_pct`, потому что там `v` — уже готовое
-     процентное число, а здесь на входе доля/итог (contribution/total_contrib),
-@@ -174,3 +176,38 @@ def share_pct_value(part: Any, total: Any) -> float:
-     if t == 0:
-         return 0.0
-     return round(p / t * 100, 1)
+ /**
+- * Filter cabinets by product type. Agency/Creative Hub → all, others → subset.
++ * Ключи продукта без ограничения — видят ВСЕ кабинеты. Зеркалит
++ * `cabinet.rs::filter_by_product()`: "agency" | "creative-hub" => None (все).
++ * "media" сюда НЕ входит: в Rust у него `None`, но интерфейс и до правки
++ * ограничивал его списком из content-pack (4 кабинета) — внесение в этот
++ * перечень расширило бы права Insights Hub до всех кабинетов (s51).
++ * @type {ReadonlySet<string>}
++ */
++const UNRESTRICTED_PRODUCT_KEYS = new Set(['agency', 'creative-hub']);
 +
-+
-+def channel_share_pcts(channels: Any) -> list[float]:
-+    """Доля каждого канала в медиа-вкладе, % с одной десятой — ЕДИНЫЙ
-+    источник числа для всех поверхностей отчёта (таблица каналов, заголовок
-+    «топ-N дают X%», доля лидера в тексте; веб и презентация).
-+
-+    Источник — готовое `contribution_pct` канала из движка
-+    (engines/decomposer.py: одна десятая, знаменатель — весь медиа-вклад,
-+    все каналы). Если хотя бы у одного канала поля нет (сохранённый результат
-+    без него, ручная сборка данных) — доля считается для ВСЕХ каналов через
-+    `share_pct_value` от суммы вкладов ВСЕХ переданных каналов, а не только
-+    видимых строк таблицы: одна договорённость о знаменателе на весь список.
-+
-+    Порядок результата совпадает с порядком `channels`.
-+    """
-+    chs = [c or {} for c in (channels or [])]
-+    ready: list[float] = []
-+    for c in chs:
-+        v = c.get("contribution_pct")
-+        if v is None:
-+            break
-+        try:
-+            ready.append(round(float(v), 1))
-+        except (TypeError, ValueError):
-+            break
-+    else:
-+        return ready
-+    total = 0.0
-+    for c in chs:
-+        try:
-+            total += float(c.get("contribution") or 0)
-+        except (TypeError, ValueError):
-+            pass
-+    return [share_pct_value(c.get("contribution"), total) for c in chs]
++/**
++ * Filter cabinets by product type. Agency/Creative Hub → all, others → subset,
++ * незнакомый ключ ("unknown" или любой не перечисленный явно) → пусто.
++ *
++ * CPD-84 (JS-класс дыры, зеркалит правку Rust 44961d01): раньше `_products[productType]`
++ * для незнакомого ключа был `undefined`, `?.cabinets` — `undefined`, `!allowed` — `true`,
++ * и функция отдавала ВСЕ кабинеты — то же расширение прав, что было в
++ * `filter_by_product`'s `_ => None` до правки. Теперь «все» — только для явно
++ * перечисленных ключей, умолчание — пустой список.
+  * @param {any[]} cabinets
+  * @param {string} productType
+  * @returns {any[]}
+  */
+ export function filterCabinetsByProduct(cabinets, productType) {
++  if (UNRESTRICTED_PRODUCT_KEYS.has(productType)) return cabinets;
+   const allowed = _products[productType]?.cabinets;
+-  if (!allowed) return cabinets;
+-  return cabinets.filter(c => allowed.includes(c.id));
++  if (Array.isArray(allowed)) return cabinets.filter(c => allowed.includes(c.id));
++  // CPD-84: незнакомый ключ продукта — пустой список, не «все».
++  return [];
+ }
 diff --git a/src/lib/components/pipeline/DecomposeStep.svelte b/src/lib/components/pipeline/DecomposeStep.svelte
-index 4a3cccad..b650ffc6 100644
+index b650ffc6..b31e902b 100644
 --- a/src/lib/components/pipeline/DecomposeStep.svelte
 +++ b/src/lib/components/pipeline/DecomposeStep.svelte
-@@ -101,7 +101,8 @@
-         return {
+@@ -34,7 +34,7 @@
+   import ChannelComparisonChart from '$lib/components/pipeline/ChannelComparisonChart.svelte';
+   import RecommendationCard from '$lib/components/pipeline/RecommendationCard.svelte';
+   import { pipelineCurrentStep } from '$lib/project-state.js';
+-  import { formatMoney, formatCount, formatEfficiencyGap } from '$lib/format-numbers.js';
++  import { formatMoney, formatCount, formatEfficiencyGap, formatChannelSharePct } from '$lib/format-numbers.js';
+   import ExpertDecomposePanel from '$lib/components/pipeline/ExpertDecomposePanel.svelte';
+   import ChannelTimeline from '$lib/components/pipeline/ChannelTimeline.svelte';
+   import TrustBanner from '$lib/components/pipeline/TrustBanner.svelte';
+@@ -102,7 +102,7 @@
            icon: Lightbulb,
            title: 'Что мы видим',
--          text: `${top.name} даёт ${(top.contribution_pct ?? 0).toFixed(0)}% медиа-вклада в продажи.`,
-+          // s50: доля с одной десятой – то же число, что строка канала в отчёте.
-+          text: `${top.name} даёт ${(top.contribution_pct ?? 0).toFixed(1)}% медиа-вклада в продажи.`,
+           // s50: доля с одной десятой – то же число, что строка канала в отчёте.
+-          text: `${top.name} даёт ${(top.contribution_pct ?? 0).toFixed(1)}% медиа-вклада в продажи.`,
++          text: `${top.name} даёт ${formatChannelSharePct(top.contribution_pct)} медиа-вклада в продажи.`,
            detail: 'Все каналы сбалансированы по эффективности (разрыв в пределах ±10 пп). Проверьте оптимизацию для прироста при тех же ресурсах.',
            tone: 'info',
          };
-@@ -209,13 +210,29 @@
+@@ -210,8 +210,7 @@
        return '-';
      }
      if (displayMetric === 'share') {
--      // Share % = ch.share_of_effect (если есть) или ch.contribution / total.
--      const share = ch.share_of_effect ?? (ch.contribution / (data?.total_contribution || 1));
--      return share != null ? `${(share * 100).toFixed(1)}%` : '-';
-+      const share = channelSharePct(ch);
-+      return share != null ? `${share.toFixed(1)}%` : '-';
+-      const share = channelSharePct(ch);
+-      return share != null ? `${share.toFixed(1)}%` : '-';
++      return formatChannelSharePct(channelSharePct(ch));
      }
      return '-';
    }
+diff --git a/src/lib/components/pipeline/ReportStep.svelte b/src/lib/components/pipeline/ReportStep.svelte
+index b4285eae..3dfcf171 100644
+--- a/src/lib/components/pipeline/ReportStep.svelte
++++ b/src/lib/components/pipeline/ReportStep.svelte
+@@ -35,6 +35,9 @@
+   import { TOOLTIPS } from '$lib/data/tooltip-texts.js';
+   import { TriangleAlert, ChartColumn, Globe, Check, ClipboardList } from 'lucide-svelte';
+   import { getAllTerms } from '$lib/glossary.js';
++  // s50 (аудит M-1): доля канала в медиа-вкладе — везде одна десятая, единый
++  // формат с DecomposeStep/InsightsPanel (не toFixed(0)).
++  import { formatChannelSharePct } from '$lib/format-numbers.js';
  
-+  /**
-+   * Доля канала в медиа-вкладе, % (s50) – то же число, что строка таблицы
-+   * каналов в отчёте. share_of_effect/contribution_pct движка УЖЕ в процентах
-+   * (decomposer.py: round(... * 100, 1)); прежде здесь умножали на 100 ещё
-+   * раз и показывали «8750.0%». Фолбэк – вклад от суммы вкладов ВСЕХ каналов,
-+   * переведённый в проценты здесь же (поля total_contribution движок не отдаёт).
-+   * @param {any} ch
-+   * @returns {number | null}
-+   */
-+  function channelSharePct(ch) {
-+    const ready = ch.share_of_effect ?? ch.contribution_pct;
-+    if (ready != null) return Number(ready);
-+    const total = (data?.channels ?? []).reduce(
-+      (/** @type {number} */ s, /** @type {any} */ c) => s + (Number(c.contribution) || 0), 0);
-+    return total > 0 ? (Number(ch.contribution) || 0) / total * 100 : null;
-+  }
-+
-   /**
-    * Determine cell color class based on metric value vs thresholds.
-    * @param {any} ch
-@@ -239,9 +256,10 @@
-       }
+   let showOnboarding = $state(false);
+   let onboardingChecked = false;
+@@ -277,7 +280,7 @@
+     const parts = [];
+     if (mqs != null) parts.push(`Качество модели: MQS ${mqs.toFixed(0)} (${mqsLabel})${rSq != null ? `, R² ${rSq.toFixed(3)}` : ''}${mape != null ? `, MAPE ${mape.toFixed(1)}%` : ''}.`);
+     if (basePct != null) parts.push(`Декомпозиция продаж: базовый спрос ${basePct.toFixed(0)}%, медиа-вклад ${(100 - basePct).toFixed(0)}%.`);
+-    if (topDriver) parts.push(`Главный драйвер - ${topDriver.name} (${topDriver.contribution_pct?.toFixed(0) ?? '-'}% от медиа-вклада, ROI ${topDriver.roi?.toFixed(2) ?? '-'}×).`);
++    if (topDriver) parts.push(`Главный драйвер - ${topDriver.name} (${formatChannelSharePct(topDriver.contribution_pct)} от медиа-вклада, ROI ${topDriver.roi?.toFixed(2) ?? '-'}×).`);
+     if (lift != null) {
+       if (lift > 5) parts.push(`Оптимизация обещает +${lift.toFixed(1)}% KPI при текущем бюджете.`);
+       else if (lift > 0.5) parts.push(`Оптимизация: +${lift.toFixed(1)}% - план близок к оптимальному.`);
+@@ -394,7 +397,7 @@
+     else if (basePct >= 40) parts.push(`**Бренд и медиа работают вместе.** База = ${basePct.toFixed(0)}%, медиа-вклад = ${(100 - basePct).toFixed(0)}%.`);
+     else parts.push(`**Продажи держатся на рекламе.** База всего ${basePct.toFixed(0)}% - если остановить медиа, продажи упадут на ${(100 - basePct).toFixed(0)}%. Это характерно для молодых брендов или категорий с короткой лояльностью.`);
+     if (topDriver) {
+-      parts.push(`**Главный медиа-драйвер - «${escapeHtml(dispName(topDriver))}»** (${topDriver.contribution_pct?.toFixed(0) ?? '-'}% от всего медиа-вклада${topDriver.roi != null ? `, ROI ${topDriver.roi.toFixed(2)}×` : ''}). Этот канал лучше всего генерирует продажи на текущем бюджете.`);
++      parts.push(`**Главный медиа-драйвер - «${escapeHtml(dispName(topDriver))}»** (${formatChannelSharePct(topDriver.contribution_pct)} от всего медиа-вклада${topDriver.roi != null ? `, ROI ${topDriver.roi.toFixed(2)}×` : ''}). Этот канал лучше всего генерирует продажи на текущем бюджете.`);
      }
-     if (displayMetric === 'share') {
--      const share = ch.share_of_effect ?? 0;
--      if (share > 0.20) return 'roi-good';
--      if (share > 0.05) return 'roi-mid';
-+      // Пороги – на процентной шкале (доля уже в процентах, см. channelSharePct).
-+      const share = channelSharePct(ch) ?? 0;
-+      if (share > 20) return 'roi-good';
-+      if (share > 5) return 'roi-mid';
-       return 'roi-bad';
+     return parts.join(' ');
+   });
+@@ -503,7 +506,7 @@
+     if (topDriver) {
+       items.push({
+         q: `Почему «${topDriver.name}» показал самый большой вклад?`,
+-        a: `У этого канала сочетание высокого бюджета и высокой эффективности (ROI ${topDriver.roi?.toFixed(2) ?? '-'}×). Он даёт ${topDriver.contribution_pct?.toFixed(0) ?? '-'}% всего медиа-вклада в продажи. Это не значит «лучший» - просто самый крупный. Смотрите ROI чтобы понять эффективность на рубль.`,
++        a: `У этого канала сочетание высокого бюджета и высокой эффективности (ROI ${topDriver.roi?.toFixed(2) ?? '-'}×). Он даёт ${formatChannelSharePct(topDriver.contribution_pct)} всего медиа-вклада в продажи. Это не значит «лучший» - просто самый крупный. Смотрите ROI чтобы понять эффективность на рубль.`,
+       });
      }
-     return '';
-diff --git a/src/tests/decompose-share-percent.test.js b/src/tests/decompose-share-percent.test.js
-new file mode 100644
-index 00000000..c3c1bba1
---- /dev/null
-+++ b/src/tests/decompose-share-percent.test.js
-@@ -0,0 +1,117 @@
+ 
+diff --git a/src/lib/creative-store.js b/src/lib/creative-store.js
+index 81694da0..e95b3cb5 100644
+--- a/src/lib/creative-store.js
++++ b/src/lib/creative-store.js
+@@ -9,8 +9,11 @@ import { createPersistentStore } from '$lib/store.js';
+ 
+ // ── Product Awareness ────────────────────────────────────
+ 
+-/** @type {import('svelte/store').Writable<string>} */
+-export const productType = writable('agency');
++/** CPD-84 (JS-класс дыры, зеркалит правку Rust 44961d01): начальное значение ДО ответа
++ * `get_product_type` — не «agency» (все кабинеты), а «unknown» (пустой список через
++ * filterCabinetsByProduct). «agency» — легитимный продукт, а не заглушка ошибки.
++ * @type {import('svelte/store').Writable<string>} */
++export const productType = writable('unknown');
+ 
+ /** @type {import('svelte/store').Readable<boolean>} */
+ export const isCreativeHub = derived(productType, $p => $p === 'creative-hub');
+@@ -66,7 +69,8 @@ export async function initCreativeStore() {
+     const type = /** @type {string} */ (await invoke('get_product_type'));
+     productType.set(type);
+   } catch {
+-    productType.set('agency');
++    // CPD-84: отказ определения продукта — «unknown» (пусто), не «agency» (все кабинеты).
++    productType.set('unknown');
+   }
+ 
+   // Load brands (filesystem-first - always works)
+diff --git a/src/lib/format-numbers.js b/src/lib/format-numbers.js
+index 4fbaefbf..6933306f 100644
+--- a/src/lib/format-numbers.js
++++ b/src/lib/format-numbers.js
+@@ -69,6 +69,30 @@ export function formatPct(n, opts = {}) {
+   return `${prefix}${pct.toFixed(decimals)}%`;
+ }
+ 
 +/**
-+ * s50 (27.09.2026): доля канала на экране «Декомпозиция» в режиме «Эффективность».
++ * Доля канала в медиа-вкладе, % — ЕДИНЫЙ формат на всю программу: фиксированная
++ * одна десятая, БЕЗ условной точности `formatPct` и без auto-detect доли/дроби
++ * (значение уже в процентах, `formatPct` иначе умножит малую долю на 100).
++ * Mirrors Python `utils/kpi_display.py:fmt_share_pct`.
 + *
-+ * share_of_effect от движка УЖЕ в процентах (decomposer.py: contribution_pct =
-+ * round(... * 100, 1), share_of_effect = contribution_pct). Экран умножал его на 100
-+ * ещё раз – «8750.0%» вместо «87.5%», – а пороги цвета (0.20 / 0.05) были рассчитаны
-+ * на долю, не на проценты: «хорошим» оказывался любой канал. Плюс карточка
-+ * «Что мы видим» печатала долю лидера целым («88%»), тогда как строка таблицы
-+ * и отчёт показывают 87.5.
++ * Аудит s50 (M-1): столбец «Доля» таблицы разложения показывал одну десятую
++ * («87.5»), а заголовок панели выводов и шага отчёта рядом округляли ТУ ЖЕ
++ * долю до целого («88%») через `contribution_pct.toFixed(0)` — расхождение
++ * видно на одном экране (INV-50: число на экране равно расчёту).
++ *
++ * Источник значения — готовое `contribution_pct`/`share_of_effect` канала из
++ * движка (decomposer.py: одна десятая, знаменатель — весь медиа-вклад); эта
++ * функция только форматирует, не пересчитывает.
++ *
++ * @param {number | null | undefined} n  доля канала в процентах (87.5, не 0.875)
++ * @param {string} [fallback]
++ * @returns {string}
++ */
++export function formatChannelSharePct(n, fallback = '-') {
++  if (n == null || !isFinite(n)) return fallback;
++  return `${Number(n).toFixed(1)}%`;
++}
++
+ /**
+  * Разрыв канала (`efficiency_gap`) — ЕДИНСТВЕННЫЙ формат на всю программу.
+  *
+diff --git a/src/lib/insights-rules.js b/src/lib/insights-rules.js
+index 0f2bd402..49f4f110 100644
+--- a/src/lib/insights-rules.js
++++ b/src/lib/insights-rules.js
+@@ -44,6 +44,10 @@ import {
+ // а не пугать «Мультиколлинеарностью» на встроенном примере.
+ import { declaredPairKeys, isDeclaredPair } from './channel-pairs.js';
+ import { DEFAULT_TRAINING_ESTIMATE } from './training-estimate.js';
++// s50 (аудит M-1): доля канала в медиа-вкладе — везде одна десятая, единый
++// формат с DecomposeStep/ReportStep (не toFixed(0) — расхождение со строкой
++// таблицы, см. format-numbers.js:formatChannelSharePct).
++import { formatChannelSharePct } from './format-numbers.js';
+ 
+ /**
+  * Resolve KPI view с default legacy fallback.
+@@ -1604,7 +1608,7 @@ export function decomposeInsights(data, kpiInput = null) {
+   if (top && totalEffectPct > 0) {
+     out.push({
+       severity: 'success',
+-      text: `Декомпозиция готова: ${basePctRounded}% продаж – базовые (без медиа), ${mediaPctRounded}% – вклад рекламы. Главный драйвер: ${top.name} (${top.contribution_pct?.toFixed(0)}% от медиа-вклада).`,
++      text: `Декомпозиция готова: ${basePctRounded}% продаж – базовые (без медиа), ${mediaPctRounded}% – вклад рекламы. Главный драйвер: ${top.name} (${formatChannelSharePct(top.contribution_pct)} от медиа-вклада).`,
+       tip: 'Базовые продажи – это то, что вы получили бы при нулевом медиа-бюджете (бренд, дистрибуция, лояльность). Медиа-вклад – что добавила реклама поверх базы.',
+     });
+   }
+@@ -1681,11 +1685,11 @@ export function decomposeInsights(data, kpiInput = null) {
+       // fix 2026-07-13 (INV-50): вклад без единицы («вклад 1 300 000») не давал
+       // понять — лиды это или рубли. Единица результата из паспорта.
+       const contribUnit = kpi?.targetUnit || '₽';
+-      return `${rank} ${c.name}: ${c.contribution_pct?.toFixed(0)}% от медиа-вклада, ROI ${roi}, бюджет ${spend} → вклад ${contrib} ${contribUnit}`;
++      return `${rank} ${c.name}: ${formatChannelSharePct(c.contribution_pct)} от медиа-вклада, ROI ${roi}, бюджет ${spend} → вклад ${contrib} ${contribUnit}`;
+     }).join('\n');
+     out.push({
+       severity: 'info',
+-      text: `Топ-${top3.length} драйверов медиа-вклада (${top3Sum.toFixed(0)}% от всего медиа-эффекта):`,
++      text: `Топ-${top3.length} драйверов медиа-вклада (${formatChannelSharePct(top3Sum)} от всего медиа-эффекта):`,
+       tip: lines,
+     });
+   }
+@@ -1827,7 +1831,7 @@ export function decomposeInsights(data, kpiInput = null) {
+   if (top && top.contribution_pct > 50) {
+     out.push({
+       severity: 'warning',
+-      text: `Высокая концентрация: ${top.name} даёт ${top.contribution_pct.toFixed(0)}% всего медиа-вклада.`,
++      text: `Высокая концентрация: ${top.name} даёт ${formatChannelSharePct(top.contribution_pct)} всего медиа-вклада.`,
+       tip: 'Зависимость от одного канала – риск. Если он перестанет работать (смена алгоритма, рост CPM, насыщение) – упадёт значительная часть продаж. Диверсифицируйте mix.',
+     });
+   }
+@@ -2752,7 +2756,7 @@ export function reportInsights(ctx = {}) {
+       const driverValue = kpi.isLegacy
+         ? (top.roi != null ? `${top.roi.toFixed(2)}×` : '-')
+         : _fmtMetric(top.roi, kpi);
+-      reco += `\n\nГлавный драйвер продаж: ${top.name} (${top.contribution_pct?.toFixed(0) ?? '-'}% от медиа-вклада, ${driverMetric} ${driverValue}).`;
++      reco += `\n\nГлавный драйвер продаж: ${top.name} (${formatChannelSharePct(top.contribution_pct)} от медиа-вклада, ${driverMetric} ${driverValue}).`;
+     }
+     if (suspicious.length > 0) {
+       const susMetric = kpi.isLegacy ? 'ROI' : kpi.metricShort;
+diff --git a/src/lib/program-help.js b/src/lib/program-help.js
+index 25d5b9e6..119f4098 100644
+--- a/src/lib/program-help.js
++++ b/src/lib/program-help.js
+@@ -91,7 +91,7 @@ export const PROGRAM_OVERVIEW = [
+   'Частые проблемы и решения:',
+   '- «Недостаточно данных» – менее 52 недель или много каналов при малой выборке;',
+   '  объединить похожие каналы либо убрать редко работавшие.',
+-  '- Один канал даёт 90%+ продаж – мультиколлинеарность (каналы всегда работали',
++  '- Один канал даёт 90%+ медиа-вклада – мультиколлинеарность (каналы всегда работали',
+   '  синхронно, модель не может их разделить); объединить синхронные каналы.',
+   '- R-hat > 1,1 (красный) – модель не сошлась; убрать каналы с менее чем 10',
+   '  ненулевыми неделями, при повторе – обратиться в поддержку.',
+diff --git a/src/tests/report-step-channel-share-one-decimal.test.js b/src/tests/report-step-channel-share-one-decimal.test.js
+new file mode 100644
+index 00000000..9a6e3002
+--- /dev/null
++++ b/src/tests/report-step-channel-share-one-decimal.test.js
+@@ -0,0 +1,80 @@
++/**
++ * Аудит s50 (M-1): доля лидера в медиа-вкладе на панели выводов и шаге «Отчёт»
++ * округлялась целым (`contribution_pct.toFixed(0)` → «88%») рядом со столбцом
++ * «Доля» шага «Декомпозиция», который уже показывал одну десятую («87.5») —
++ * расхождение на соседних экранах одного продукта (INV-50: число на экране
++ * равно расчёту, подпись – часть числа).
++ *
++ * Правка: ReportStep.svelte переведён на общий помощник
++ * format-numbers.js:formatChannelSharePct (тот же, что DecomposeStep/insights-rules).
++ * Три поверхности шага «Отчёт», показывающие ту же долю лидера (87.5%):
++ * сопроводительный текст письма (resultsSummary), блок интерпретации
++ * (interpretationDecomposition), FAQ (faqItems).
 + */
 +import { describe, it, expect, vi, beforeEach } from 'vitest';
-+import { render, waitFor } from '@testing-library/svelte';
++import { render, screen, fireEvent } from '@testing-library/svelte';
 +import { invoke } from '@tauri-apps/api/core';
-+import {
-+  decomposeData, modelData, pipelineStepMeta, expertMode, derivedMode, kpiKind,
-+} from '$lib/project-state.js';
-+import DecomposeStep from '$lib/components/pipeline/DecomposeStep.svelte';
++import { modelData, decomposeData, optimizeData, activeProjectId } from '$lib/project-state.js';
++import ReportStep from '$lib/components/pipeline/ReportStep.svelte';
 +
 +vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
-+
++vi.mock('@tauri-apps/api/event', () => ({ listen: vi.fn().mockResolvedValue(() => {}) }));
++vi.mock('@tauri-apps/plugin-opener', () => ({ openPath: vi.fn() }));
 +vi.mock('$lib/components/charts/EChartBase.svelte', async () => {
 +  const { default: MockEChartBase } = await import('./__mocks__/MockEChartBase.svelte');
 +  return { default: MockEChartBase };
 +});
 +
-+/** Разбор в форме results/decomposition.json: доли 87.5 / 7.5 / 5.0, разрывы в пределах ±10 пп. */
-+function decompositionFixture() {
-+  const ch = (/** @type {string} */ name, /** @type {number} */ contribution, /** @type {number} */ pct) => ({
-+    name, spend: 100_000_000, contribution, contribution_pct: pct, share_of_effect: pct,
-+    share_of_spend: pct, efficiency_gap: 0, roi: 1.2, category: 'mixed',
-+    verdict: 'Эффективен', verdict_tone: 'good',
-+  });
-+  return {
-+    status: 'ok',
-+    baseline_pct: 40.0,
-+    channels: [
-+      ch('Канал A', 875_000_000, 87.5),
-+      ch('Канал B', 75_000_000, 7.5),
-+      ch('Канал C', 50_000_000, 5.0),
-+    ],
-+    waterfall: {
-+      labels: ['База', 'Канал A', 'Канал B', 'Канал C', 'Итого'],
-+      values: [700_000_000, 875_000_000, 75_000_000, 50_000_000, 1_700_000_000],
-+      types: ['total', 'positive', 'positive', 'positive', 'total'],
-+    },
-+    time_series: { dates: ['2025-01-31', '2025-02-28'], baseline: [1, 2], channels: {} },
-+  };
++/** Три канала: 87.5 / 7.5 / 5.0 — те же числа, что в фикстуре движка
++ * (test_channel_share_single_source.py:_dec_875), для единой картины
++ * фронт/движок на одном примере. */
++function channelsFixture() {
++  return [
++    { name: 'Канал A', spend: 1_000_000, contribution: 875, contribution_pct: 87.5, roi: 1.5, efficiency_gap: 0 },
++    { name: 'Канал B', spend: 200_000, contribution: 75, contribution_pct: 7.5, roi: 1.2, efficiency_gap: 0 },
++    { name: 'Канал C', spend: 100_000, contribution: 50, contribution_pct: 5.0, roi: 0.8, efficiency_gap: 0 },
++  ];
 +}
 +
 +beforeEach(() => {
-+  vi.clearAllMocks();
++  vi.mocked(invoke).mockReset();
 +  vi.mocked(invoke).mockResolvedValue(null);
-+  expertMode.set(false);
-+  kpiKind.set('monetary');
-+  derivedMode.set('effectiveness');
-+  pipelineStepMeta.set([
-+    { status: 'complete', errorMessage: null },
-+    { status: 'complete', errorMessage: null },
-+    { status: 'complete', errorMessage: null },
-+    { status: 'complete', errorMessage: null },
-+    { status: 'ready', errorMessage: null },
-+    { status: 'locked', errorMessage: null },
-+    { status: 'ready', errorMessage: null },
-+  ]);
-+  modelData.set({ diagnostics: { mqs: { score: 70 } }, channelParams: {}, picklePath: 'x', normalization: null });
-+  decomposeData.set(decompositionFixture());
++  activeProjectId.set(null); // onMount reload/recompute пропускается — данные уже в store
++  modelData.set({
++    diagnostics: {
++      mqs: { score: 82, tier: 'good' },
++      metrics: { r_squared: 0.9, mape_pct: 5.0, r_hat_max: 1.01, divergences: 0, ratio: 5.0 },
++    },
++    channelParams: { 'Канал A': {} },
++    picklePath: 'x',
++    normalization: null,
++  });
++  decomposeData.set({ baseline_pct: 40, channels: channelsFixture() });
++  optimizeData.set({ expected_lift_pct: 3.0, total_budget_money: 1_000_000 });
 +});
 +
-+/** Ячейка метрики строки канала (4-й столбец таблицы: «Доля %» в режиме «Эффективность»). */
-+function metricCell(/** @type {HTMLElement} */ container, /** @type {string} */ name) {
-+  const row = [...container.querySelectorAll('tbody tr')]
-+    .find((tr) => tr.querySelector('.ch-name')?.textContent?.includes(name));
-+  expect(row, `строка канала ${name} не найдена`).toBeTruthy();
-+  return /** @type {HTMLElement} */ (/** @type {HTMLElement} */ (row).querySelectorAll('td')[3]);
-+}
-+
-+describe('доля канала на экране «Декомпозиция» (s50)', () => {
-+  it('share_of_effect 87.5 показывается как «87.5%», а не «8750.0%»', async () => {
-+    const { container } = render(DecomposeStep);
-+    await waitFor(() => expect(container.querySelector('tbody tr')).toBeTruthy());
-+
-+    expect(metricCell(container, 'Канал A').textContent?.trim()).toBe('87.5%');
-+    expect(metricCell(container, 'Канал B').textContent?.trim()).toBe('7.5%');
-+    expect(metricCell(container, 'Канал C').textContent?.trim()).toBe('5.0%');
-+    expect(container.textContent).not.toContain('8750');
++describe('ReportStep — доля лидера в медиа-вкладе с одной десятой (аудит s50 M-1)', () => {
++  it('сопроводительный текст письма показывает 87.5%, не 88%', async () => {
++    render(ReportStep);
++    await fireEvent.click(screen.getByRole('button', { name: /Сопроводительный текст для письма/ }));
++    const text = screen.getByText(/Главный драйвер/).closest('.cover-content')?.textContent ?? '';
++    expect(text).toContain('87.5%');
++    expect(text).not.toContain('88%');
 +  });
 +
-+  it('цвет «хороший» только при доле выше 20%, «средний» – выше 5%', async () => {
-+    const { container } = render(DecomposeStep);
-+    await waitFor(() => expect(container.querySelector('tbody tr')).toBeTruthy());
-+
-+    expect(metricCell(container, 'Канал A').classList.contains('roi-good')).toBe(true);
-+    const b = metricCell(container, 'Канал B');
-+    expect(b.classList.contains('roi-good'), '7.5% – не «хороший»').toBe(false);
-+    expect(b.classList.contains('roi-mid')).toBe(true);
-+    expect(metricCell(container, 'Канал C').classList.contains('roi-bad')).toBe(true);
++  it('блок «Как интерпретировать» показывает 87.5%, не 88%', async () => {
++    render(ReportStep);
++    await fireEvent.click(screen.getByRole('button', { name: /Как интерпретировать модель и результаты/ }));
++    const text = screen.getByText(/Главный медиа-драйвер/).closest('.info-body')?.textContent ?? '';
++    expect(text).toContain('87.5%');
++    expect(text).not.toContain('88%');
 +  });
 +
-+  it('фолбэк без готовой доли: вклад от суммы ВСЕХ каналов, в процентах', async () => {
-+    const fx = decompositionFixture();
-+    for (const c of fx.channels) {
-+      delete (/** @type {any} */ (c)).share_of_effect;
-+      delete (/** @type {any} */ (c)).contribution_pct;
-+    }
-+    decomposeData.set(fx);
-+    const { container } = render(DecomposeStep);
-+    await waitFor(() => expect(container.querySelector('tbody tr')).toBeTruthy());
-+
-+    expect(metricCell(container, 'Канал A').textContent?.trim()).toBe('87.5%');
-+    expect(metricCell(container, 'Канал A').classList.contains('roi-good')).toBe(true);
-+  });
-+
-+  it('карточка «Что мы видим» называет долю лидера с одной десятой – как строка таблицы', async () => {
-+    const { findByText } = render(DecomposeStep);
-+    expect(await findByText(/Канал A даёт 87\.5% медиа-вклада/)).toBeTruthy();
++  it('FAQ «Почему топ-канал показал самый большой вклад» показывает 87.5%, не 88%', async () => {
++    render(ReportStep);
++    await fireEvent.click(screen.getByRole('button', { name: /Часто задаваемые вопросы по этой модели/ }));
++    const text = screen.getByText(/самый большой вклад/).closest('.faq-item')?.textContent ?? '';
++    expect(text).toContain('87.5%');
++    expect(text).not.toContain('88%');
 +  });
 +});
