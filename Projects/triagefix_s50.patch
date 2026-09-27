@@ -1,0 +1,417 @@
+diff --git a/sidecar/econometrica/aurora_html/strings_ru.json b/sidecar/econometrica/aurora_html/strings_ru.json
+index 3ef6206b..b0b757ce 100644
+--- a/sidecar/econometrica/aurora_html/strings_ru.json
++++ b/sidecar/econometrica/aurora_html/strings_ru.json
+@@ -152,10 +152,10 @@
+     "s04_takeaway": "{leader} даёт {contrib_pct_fmt} медиа-вклада при {spend_pct_fmt} бюджета – основная точка оптимизации",
+     "s05_default": "{leader} остаётся драйвером, но эффективность требует проверки насыщения",
+     "s06_hero": "{hero} – наиболее эффективный канал, сигнал к пересмотру аллокации",
+-    "s07_dominant": "Один канал даёт {pct_fmt} продаж – остальные рекомендованы к консолидации",
+-    "s07_top_n": "Топ-{channels_phrase} дают {pct_fmt} продаж – остальные рекомендованы к консолидации",
++    "s07_dominant": "Один канал даёт {pct_fmt} медиа-вклада – остальные рекомендованы к консолидации",
++    "s07_top_n": "Топ-{channels_phrase} дают {pct_fmt} медиа-вклада – остальные рекомендованы к консолидации",
+     "s07_balanced": "Все каналы портфеля активно работают – консолидация не требуется",
+-    "s07_single": "Один канал портфеля обеспечивает 100% продаж",
++    "s07_single": "Один канал портфеля обеспечивает 100% медиа-вклада",
+     "s07_zero": "Вклад каналов требует пересчёта – проверьте входные данные",
+     "s08_leader": "{leader}-всплески выделяются на устойчивой базе – медиа-активность видна во времени",
+     "s09_scale_hero": "Aurora рекомендует нарастить {hero} и пересмотреть позицию {leader}",
+diff --git a/sidecar/econometrica/aurora_pptx/builder.py b/sidecar/econometrica/aurora_pptx/builder.py
+index 3dc8fbc4..d31e016b 100644
+--- a/sidecar/econometrica/aurora_pptx/builder.py
++++ b/sidecar/econometrica/aurora_pptx/builder.py
+@@ -1590,7 +1590,7 @@ class AuroraPPTXBuilder:
+             else:
+                 takeaway = f"{leader} - основной драйвер портфеля и точка оптимизации"
+         else:
+-            takeaway = "TV генерирует 42% продаж при 28% бюджета - основная точка оптимизации портфеля"
++            takeaway = "TV генерирует 42% медиа-вклада при 28% бюджета - основная точка оптимизации портфеля"
+         self._render_section_divider(
+             slide_num=6,
+             takeaway=takeaway,
+@@ -2248,7 +2248,7 @@ class AuroraPPTXBuilder:
+         # Covers all edge cases (all-zero / single-channel / consolidate / balanced).
+         s07_title = (
+             derive_action_headline(self.channels, self.facts, "portfolio")
+-            or "Консолидировать до топ-5 каналов - они обеспечивают 87% продаж"
++            or "Консолидировать до топ-5 каналов - они обеспечивают 87% медиа-вклада"
+         )
+         self._action_title(
+             slide, s07_title,
+diff --git a/sidecar/econometrica/engines/narrative_adapter.py b/sidecar/econometrica/engines/narrative_adapter.py
+index 65139aa3..48c96782 100644
+--- a/sidecar/econometrica/engines/narrative_adapter.py
++++ b/sidecar/econometrica/engines/narrative_adapter.py
+@@ -601,8 +601,8 @@ def derive_action_headline(
+         if other_n == 0:
+             return "Все каналы работают - консолидация не требуется"
+         if top_n == 1:
+-            return f"Сфокусировать бюджет на одном канале - он даёт {fmt_share_pct(pct)} продаж"
+-        return f"Консолидировать до топ-{top_n} каналов - они обеспечивают {fmt_share_pct(pct)} продаж"
++            return f"Сфокусировать бюджет на одном канале - он даёт {fmt_share_pct(pct)} медиа-вклада"
++        return f"Консолидировать до топ-{top_n} каналов - они обеспечивают {fmt_share_pct(pct)} медиа-вклада"
+ 
+     if slide_hint == "timeline":
+         # B1-fix R-09 (2026-07-03): прежний заголовок «Перейти на пульсирующее
+diff --git a/sidecar/econometrica/tests/test_channel_share_single_source.py b/sidecar/econometrica/tests/test_channel_share_single_source.py
+index d4cd9cf3..8ea1976b 100644
+--- a/sidecar/econometrica/tests/test_channel_share_single_source.py
++++ b/sidecar/econometrica/tests/test_channel_share_single_source.py
+@@ -180,7 +180,7 @@ def test_leader_share_same_visible_number_everywhere_875():
+     web_phrases = _SHARE_PHRASE.findall(plain)
+     assert web_phrases, "в веб-отчёте не нашлось ни одной фразы с долей лидера"
+     assert set(web_phrases) == {"87.5"}, f"доля лидера в тексте веб-отчёта: {web_phrases!r}"
+-    assert "Один канал даёт 87.5% продаж" in plain, "заголовок S7 веб-отчёта"
++    assert "Один канал даёт 87.5% медиа-вклада" in plain, "заголовок S7 веб-отчёта"
+     big = re.search(r'<div class="big-number" data-counter-end="([^"]*)">([^<]*)</div>', html)
+     assert big and big.group(2) == "87.5%" and big.group(1) == "87.5", \
+         f"крупное число доли лидера: {big.groups() if big else None!r}"
+@@ -191,7 +191,7 @@ def test_leader_share_same_visible_number_everywhere_875():
+     pptx_phrases = _SHARE_PHRASE.findall(text)
+     assert pptx_phrases, "в презентации не нашлось ни одной фразы с долей лидера"
+     assert set(pptx_phrases) == {"87.5"}, f"доля лидера в тексте презентации: {pptx_phrases!r}"
+-    assert "он даёт 87.5% продаж" in text, "заголовок S7 презентации"
++    assert "он даёт 87.5% медиа-вклада" in text, "заголовок S7 презентации"
+     assert "88%" not in text
+ 
+ 
+@@ -219,7 +219,7 @@ def test_builders_without_field_use_all_channels():
+ 
+ 
+ def _top_n_pct(text: str) -> str:
+-    m = re.search(r"(?:дают|обеспечивают) (\d+(?:\.\d+)?)% продаж", text)
++    m = re.search(r"(?:дают|обеспечивают) (\d+(?:\.\d+)?)% медиа-вклада", text)
+     assert m, f"заголовок «топ-N дают X%» не найден: {text[:300]!r}"
+     return m.group(1)
+ 
+diff --git a/sidecar/econometrica/tests/test_channels_declension_agrees.py b/sidecar/econometrica/tests/test_channels_declension_agrees.py
+index 2f6f545f..afc50cc8 100644
+--- a/sidecar/econometrica/tests/test_channels_declension_agrees.py
++++ b/sidecar/econometrica/tests/test_channels_declension_agrees.py
+@@ -264,7 +264,7 @@ def _channels_with_top_n(top_n: int):
+ 
+ @pytest.mark.parametrize("top_n", [2, 5, 11])
+ def test_html_s07_top_n_title_agrees(top_n):
+-    """«Топ-N каналов дают X% продаж» (render_action_table) — N=2..4 требует
++    """«Топ-N каналов дают X% медиа-вклада» (render_action_table) — N=2..4 требует
+     «канала», не «каналов» (родительный ед.ч. при числительном 2-4)."""
+     with open(_STRINGS_PATH, encoding="utf-8") as fh:
+         strings = json.load(fh)
+diff --git a/src/lib/components/pipeline/DecomposeStep.svelte b/src/lib/components/pipeline/DecomposeStep.svelte
+index b650ffc6..b31e902b 100644
+--- a/src/lib/components/pipeline/DecomposeStep.svelte
++++ b/src/lib/components/pipeline/DecomposeStep.svelte
+@@ -34,7 +34,7 @@
+   import ChannelComparisonChart from '$lib/components/pipeline/ChannelComparisonChart.svelte';
+   import RecommendationCard from '$lib/components/pipeline/RecommendationCard.svelte';
+   import { pipelineCurrentStep } from '$lib/project-state.js';
+-  import { formatMoney, formatCount, formatEfficiencyGap } from '$lib/format-numbers.js';
++  import { formatMoney, formatCount, formatEfficiencyGap, formatChannelSharePct } from '$lib/format-numbers.js';
+   import ExpertDecomposePanel from '$lib/components/pipeline/ExpertDecomposePanel.svelte';
+   import ChannelTimeline from '$lib/components/pipeline/ChannelTimeline.svelte';
+   import TrustBanner from '$lib/components/pipeline/TrustBanner.svelte';
+@@ -102,7 +102,7 @@
+           icon: Lightbulb,
+           title: 'Что мы видим',
+           // s50: доля с одной десятой – то же число, что строка канала в отчёте.
+-          text: `${top.name} даёт ${(top.contribution_pct ?? 0).toFixed(1)}% медиа-вклада в продажи.`,
++          text: `${top.name} даёт ${formatChannelSharePct(top.contribution_pct)} медиа-вклада в продажи.`,
+           detail: 'Все каналы сбалансированы по эффективности (разрыв в пределах ±10 пп). Проверьте оптимизацию для прироста при тех же ресурсах.',
+           tone: 'info',
+         };
+@@ -210,8 +210,7 @@
+       return '-';
+     }
+     if (displayMetric === 'share') {
+-      const share = channelSharePct(ch);
+-      return share != null ? `${share.toFixed(1)}%` : '-';
++      return formatChannelSharePct(channelSharePct(ch));
+     }
+     return '-';
+   }
+diff --git a/src/lib/components/pipeline/ReportStep.svelte b/src/lib/components/pipeline/ReportStep.svelte
+index b4285eae..3dfcf171 100644
+--- a/src/lib/components/pipeline/ReportStep.svelte
++++ b/src/lib/components/pipeline/ReportStep.svelte
+@@ -35,6 +35,9 @@
+   import { TOOLTIPS } from '$lib/data/tooltip-texts.js';
+   import { TriangleAlert, ChartColumn, Globe, Check, ClipboardList } from 'lucide-svelte';
+   import { getAllTerms } from '$lib/glossary.js';
++  // s50 (аудит M-1): доля канала в медиа-вкладе — везде одна десятая, единый
++  // формат с DecomposeStep/InsightsPanel (не toFixed(0)).
++  import { formatChannelSharePct } from '$lib/format-numbers.js';
+ 
+   let showOnboarding = $state(false);
+   let onboardingChecked = false;
+@@ -277,7 +280,7 @@
+     const parts = [];
+     if (mqs != null) parts.push(`Качество модели: MQS ${mqs.toFixed(0)} (${mqsLabel})${rSq != null ? `, R² ${rSq.toFixed(3)}` : ''}${mape != null ? `, MAPE ${mape.toFixed(1)}%` : ''}.`);
+     if (basePct != null) parts.push(`Декомпозиция продаж: базовый спрос ${basePct.toFixed(0)}%, медиа-вклад ${(100 - basePct).toFixed(0)}%.`);
+-    if (topDriver) parts.push(`Главный драйвер - ${topDriver.name} (${topDriver.contribution_pct?.toFixed(0) ?? '-'}% от медиа-вклада, ROI ${topDriver.roi?.toFixed(2) ?? '-'}×).`);
++    if (topDriver) parts.push(`Главный драйвер - ${topDriver.name} (${formatChannelSharePct(topDriver.contribution_pct)} от медиа-вклада, ROI ${topDriver.roi?.toFixed(2) ?? '-'}×).`);
+     if (lift != null) {
+       if (lift > 5) parts.push(`Оптимизация обещает +${lift.toFixed(1)}% KPI при текущем бюджете.`);
+       else if (lift > 0.5) parts.push(`Оптимизация: +${lift.toFixed(1)}% - план близок к оптимальному.`);
+@@ -394,7 +397,7 @@
+     else if (basePct >= 40) parts.push(`**Бренд и медиа работают вместе.** База = ${basePct.toFixed(0)}%, медиа-вклад = ${(100 - basePct).toFixed(0)}%.`);
+     else parts.push(`**Продажи держатся на рекламе.** База всего ${basePct.toFixed(0)}% - если остановить медиа, продажи упадут на ${(100 - basePct).toFixed(0)}%. Это характерно для молодых брендов или категорий с короткой лояльностью.`);
+     if (topDriver) {
+-      parts.push(`**Главный медиа-драйвер - «${escapeHtml(dispName(topDriver))}»** (${topDriver.contribution_pct?.toFixed(0) ?? '-'}% от всего медиа-вклада${topDriver.roi != null ? `, ROI ${topDriver.roi.toFixed(2)}×` : ''}). Этот канал лучше всего генерирует продажи на текущем бюджете.`);
++      parts.push(`**Главный медиа-драйвер - «${escapeHtml(dispName(topDriver))}»** (${formatChannelSharePct(topDriver.contribution_pct)} от всего медиа-вклада${topDriver.roi != null ? `, ROI ${topDriver.roi.toFixed(2)}×` : ''}). Этот канал лучше всего генерирует продажи на текущем бюджете.`);
+     }
+     return parts.join(' ');
+   });
+@@ -503,7 +506,7 @@
+     if (topDriver) {
+       items.push({
+         q: `Почему «${topDriver.name}» показал самый большой вклад?`,
+-        a: `У этого канала сочетание высокого бюджета и высокой эффективности (ROI ${topDriver.roi?.toFixed(2) ?? '-'}×). Он даёт ${topDriver.contribution_pct?.toFixed(0) ?? '-'}% всего медиа-вклада в продажи. Это не значит «лучший» - просто самый крупный. Смотрите ROI чтобы понять эффективность на рубль.`,
++        a: `У этого канала сочетание высокого бюджета и высокой эффективности (ROI ${topDriver.roi?.toFixed(2) ?? '-'}×). Он даёт ${formatChannelSharePct(topDriver.contribution_pct)} всего медиа-вклада в продажи. Это не значит «лучший» - просто самый крупный. Смотрите ROI чтобы понять эффективность на рубль.`,
+       });
+     }
+ 
+diff --git a/src/lib/format-numbers.js b/src/lib/format-numbers.js
+index 4fbaefbf..6933306f 100644
+--- a/src/lib/format-numbers.js
++++ b/src/lib/format-numbers.js
+@@ -69,6 +69,30 @@ export function formatPct(n, opts = {}) {
+   return `${prefix}${pct.toFixed(decimals)}%`;
+ }
+ 
++/**
++ * Доля канала в медиа-вкладе, % — ЕДИНЫЙ формат на всю программу: фиксированная
++ * одна десятая, БЕЗ условной точности `formatPct` и без auto-detect доли/дроби
++ * (значение уже в процентах, `formatPct` иначе умножит малую долю на 100).
++ * Mirrors Python `utils/kpi_display.py:fmt_share_pct`.
++ *
++ * Аудит s50 (M-1): столбец «Доля» таблицы разложения показывал одну десятую
++ * («87.5»), а заголовок панели выводов и шага отчёта рядом округляли ТУ ЖЕ
++ * долю до целого («88%») через `contribution_pct.toFixed(0)` — расхождение
++ * видно на одном экране (INV-50: число на экране равно расчёту).
++ *
++ * Источник значения — готовое `contribution_pct`/`share_of_effect` канала из
++ * движка (decomposer.py: одна десятая, знаменатель — весь медиа-вклад); эта
++ * функция только форматирует, не пересчитывает.
++ *
++ * @param {number | null | undefined} n  доля канала в процентах (87.5, не 0.875)
++ * @param {string} [fallback]
++ * @returns {string}
++ */
++export function formatChannelSharePct(n, fallback = '-') {
++  if (n == null || !isFinite(n)) return fallback;
++  return `${Number(n).toFixed(1)}%`;
++}
++
+ /**
+  * Разрыв канала (`efficiency_gap`) — ЕДИНСТВЕННЫЙ формат на всю программу.
+  *
+diff --git a/src/lib/insights-rules.js b/src/lib/insights-rules.js
+index 0f2bd402..95c3f098 100644
+--- a/src/lib/insights-rules.js
++++ b/src/lib/insights-rules.js
+@@ -44,6 +44,10 @@ import {
+ // а не пугать «Мультиколлинеарностью» на встроенном примере.
+ import { declaredPairKeys, isDeclaredPair } from './channel-pairs.js';
+ import { DEFAULT_TRAINING_ESTIMATE } from './training-estimate.js';
++// s50 (аудит M-1): доля канала в медиа-вкладе — везде одна десятая, единый
++// формат с DecomposeStep/ReportStep (не toFixed(0) — расхождение со строкой
++// таблицы, см. format-numbers.js:formatChannelSharePct).
++import { formatChannelSharePct } from './format-numbers.js';
+ 
+ /**
+  * Resolve KPI view с default legacy fallback.
+@@ -1604,7 +1608,7 @@ export function decomposeInsights(data, kpiInput = null) {
+   if (top && totalEffectPct > 0) {
+     out.push({
+       severity: 'success',
+-      text: `Декомпозиция готова: ${basePctRounded}% продаж – базовые (без медиа), ${mediaPctRounded}% – вклад рекламы. Главный драйвер: ${top.name} (${top.contribution_pct?.toFixed(0)}% от медиа-вклада).`,
++      text: `Декомпозиция готова: ${basePctRounded}% продаж – базовые (без медиа), ${mediaPctRounded}% – вклад рекламы. Главный драйвер: ${top.name} (${formatChannelSharePct(top.contribution_pct)} от медиа-вклада).`,
+       tip: 'Базовые продажи – это то, что вы получили бы при нулевом медиа-бюджете (бренд, дистрибуция, лояльность). Медиа-вклад – что добавила реклама поверх базы.',
+     });
+   }
+@@ -1681,7 +1685,7 @@ export function decomposeInsights(data, kpiInput = null) {
+       // fix 2026-07-13 (INV-50): вклад без единицы («вклад 1 300 000») не давал
+       // понять — лиды это или рубли. Единица результата из паспорта.
+       const contribUnit = kpi?.targetUnit || '₽';
+-      return `${rank} ${c.name}: ${c.contribution_pct?.toFixed(0)}% от медиа-вклада, ROI ${roi}, бюджет ${spend} → вклад ${contrib} ${contribUnit}`;
++      return `${rank} ${c.name}: ${formatChannelSharePct(c.contribution_pct)} от медиа-вклада, ROI ${roi}, бюджет ${spend} → вклад ${contrib} ${contribUnit}`;
+     }).join('\n');
+     out.push({
+       severity: 'info',
+@@ -1827,7 +1831,7 @@ export function decomposeInsights(data, kpiInput = null) {
+   if (top && top.contribution_pct > 50) {
+     out.push({
+       severity: 'warning',
+-      text: `Высокая концентрация: ${top.name} даёт ${top.contribution_pct.toFixed(0)}% всего медиа-вклада.`,
++      text: `Высокая концентрация: ${top.name} даёт ${formatChannelSharePct(top.contribution_pct)} всего медиа-вклада.`,
+       tip: 'Зависимость от одного канала – риск. Если он перестанет работать (смена алгоритма, рост CPM, насыщение) – упадёт значительная часть продаж. Диверсифицируйте mix.',
+     });
+   }
+@@ -2752,7 +2756,7 @@ export function reportInsights(ctx = {}) {
+       const driverValue = kpi.isLegacy
+         ? (top.roi != null ? `${top.roi.toFixed(2)}×` : '-')
+         : _fmtMetric(top.roi, kpi);
+-      reco += `\n\nГлавный драйвер продаж: ${top.name} (${top.contribution_pct?.toFixed(0) ?? '-'}% от медиа-вклада, ${driverMetric} ${driverValue}).`;
++      reco += `\n\nГлавный драйвер продаж: ${top.name} (${formatChannelSharePct(top.contribution_pct)} от медиа-вклада, ${driverMetric} ${driverValue}).`;
+     }
+     if (suspicious.length > 0) {
+       const susMetric = kpi.isLegacy ? 'ROI' : kpi.metricShort;
+diff --git a/src/lib/program-help.js b/src/lib/program-help.js
+index 25d5b9e6..119f4098 100644
+--- a/src/lib/program-help.js
++++ b/src/lib/program-help.js
+@@ -91,7 +91,7 @@ export const PROGRAM_OVERVIEW = [
+   'Частые проблемы и решения:',
+   '- «Недостаточно данных» – менее 52 недель или много каналов при малой выборке;',
+   '  объединить похожие каналы либо убрать редко работавшие.',
+-  '- Один канал даёт 90%+ продаж – мультиколлинеарность (каналы всегда работали',
++  '- Один канал даёт 90%+ медиа-вклада – мультиколлинеарность (каналы всегда работали',
+   '  синхронно, модель не может их разделить); объединить синхронные каналы.',
+   '- R-hat > 1,1 (красный) – модель не сошлась; убрать каналы с менее чем 10',
+   '  ненулевыми неделями, при повторе – обратиться в поддержку.',
+diff --git a/src/lib/__tests__/insights-channel-share-one-decimal.test.js b/src/lib/__tests__/insights-channel-share-one-decimal.test.js
+new file mode 100644
+index 00000000..2d3ad45e
+--- /dev/null
++++ b/src/lib/__tests__/insights-channel-share-one-decimal.test.js
+@@ -0,0 +1,54 @@
++/**
++ * Аудит s50 (M-1): доля канала в медиа-вкладе на панели выводов показывала
++ * целое («88%») через `contribution_pct.toFixed(0)`, а столбец «Доля» шага
++ * «Декомпозиция» уже показывал одну десятую («87.5») — расхождение на
++ * соседних экранах одного продукта (INV-50: число на экране равно расчёту).
++ *
++ * Правка: decomposeInsights/reportInsights переведены на общий помощник
++ * format-numbers.js:formatChannelSharePct (тот же источник форматирования,
++ * что DecomposeStep.svelte и ReportStep.svelte).
++ *
++ * Фикстура — те же числа, что test_channel_share_single_source.py:_dec_875
++ * (87.5 / 7.5 / 5.0), для единой картины движок/фронт на одном примере.
++ */
++import { describe, it, expect } from 'vitest';
++import { decomposeInsights, reportInsights } from '../insights-rules.js';
++
++/** @returns {any[]} */
++function channelsFixture() {
++  return [
++    { name: 'Канал A', spend: 1_000_000, contribution: 875, contribution_pct: 87.5, roi: 1.5 },
++    { name: 'Канал B', spend: 200_000, contribution: 75, contribution_pct: 7.5, roi: 1.2 },
++    { name: 'Канал C', spend: 100_000, contribution: 50, contribution_pct: 5.0, roi: 0.8 },
++  ];
++}
++
++/** Собирает text+tip всех инсайтов в одну строку (см. insights-rules-shift-description.test.js).
++ * @param {any[]} insights
++ * @returns {string}
++ */
++function joinAll(insights) {
++  return insights.map((/** @type {any} */ i) => `${i.text}\n${i.tip || ''}`).join('\n');
++}
++
++describe('decomposeInsights — доля канала в медиа-вкладе с одной десятой (аудит s50 M-1)', () => {
++  it('заголовок, топ-3 и предупреждение о концентрации показывают 87.5%, не 88%', () => {
++    const insights = decomposeInsights({ baseline_pct: 40, channels: channelsFixture() });
++    const all = joinAll(insights);
++    expect(all).toContain('87.5%');
++    expect(all).not.toContain('88%');
++  });
++});
++
++describe('reportInsights — доля главного драйвера с одной десятой (аудит s50 M-1)', () => {
++  it('этап «Декомпозиция» показывает 87.5%, не 88%', () => {
++    const insights = reportInsights({
++      mod: { diagnostics: { mqs: { score: 82, tier: 'good' }, metrics: { r_squared: 0.9, mape_pct: 5.0, ratio: 5.0 } } },
++      dec: { baseline_pct: 40, channels: channelsFixture() },
++      opt: { expected_lift_pct: 3.0, total_budget_money: 1_000_000 },
++    });
++    const all = joinAll(insights);
++    expect(all).toContain('87.5%');
++    expect(all).not.toContain('88%');
++  });
++});
+diff --git a/src/tests/report-step-channel-share-one-decimal.test.js b/src/tests/report-step-channel-share-one-decimal.test.js
+new file mode 100644
+index 00000000..9a6e3002
+--- /dev/null
++++ b/src/tests/report-step-channel-share-one-decimal.test.js
+@@ -0,0 +1,80 @@
++/**
++ * Аудит s50 (M-1): доля лидера в медиа-вкладе на панели выводов и шаге «Отчёт»
++ * округлялась целым (`contribution_pct.toFixed(0)` → «88%») рядом со столбцом
++ * «Доля» шага «Декомпозиция», который уже показывал одну десятую («87.5») —
++ * расхождение на соседних экранах одного продукта (INV-50: число на экране
++ * равно расчёту, подпись – часть числа).
++ *
++ * Правка: ReportStep.svelte переведён на общий помощник
++ * format-numbers.js:formatChannelSharePct (тот же, что DecomposeStep/insights-rules).
++ * Три поверхности шага «Отчёт», показывающие ту же долю лидера (87.5%):
++ * сопроводительный текст письма (resultsSummary), блок интерпретации
++ * (interpretationDecomposition), FAQ (faqItems).
++ */
++import { describe, it, expect, vi, beforeEach } from 'vitest';
++import { render, screen, fireEvent } from '@testing-library/svelte';
++import { invoke } from '@tauri-apps/api/core';
++import { modelData, decomposeData, optimizeData, activeProjectId } from '$lib/project-state.js';
++import ReportStep from '$lib/components/pipeline/ReportStep.svelte';
++
++vi.mock('@tauri-apps/api/core', () => ({ invoke: vi.fn() }));
++vi.mock('@tauri-apps/api/event', () => ({ listen: vi.fn().mockResolvedValue(() => {}) }));
++vi.mock('@tauri-apps/plugin-opener', () => ({ openPath: vi.fn() }));
++vi.mock('$lib/components/charts/EChartBase.svelte', async () => {
++  const { default: MockEChartBase } = await import('./__mocks__/MockEChartBase.svelte');
++  return { default: MockEChartBase };
++});
++
++/** Три канала: 87.5 / 7.5 / 5.0 — те же числа, что в фикстуре движка
++ * (test_channel_share_single_source.py:_dec_875), для единой картины
++ * фронт/движок на одном примере. */
++function channelsFixture() {
++  return [
++    { name: 'Канал A', spend: 1_000_000, contribution: 875, contribution_pct: 87.5, roi: 1.5, efficiency_gap: 0 },
++    { name: 'Канал B', spend: 200_000, contribution: 75, contribution_pct: 7.5, roi: 1.2, efficiency_gap: 0 },
++    { name: 'Канал C', spend: 100_000, contribution: 50, contribution_pct: 5.0, roi: 0.8, efficiency_gap: 0 },
++  ];
++}
++
++beforeEach(() => {
++  vi.mocked(invoke).mockReset();
++  vi.mocked(invoke).mockResolvedValue(null);
++  activeProjectId.set(null); // onMount reload/recompute пропускается — данные уже в store
++  modelData.set({
++    diagnostics: {
++      mqs: { score: 82, tier: 'good' },
++      metrics: { r_squared: 0.9, mape_pct: 5.0, r_hat_max: 1.01, divergences: 0, ratio: 5.0 },
++    },
++    channelParams: { 'Канал A': {} },
++    picklePath: 'x',
++    normalization: null,
++  });
++  decomposeData.set({ baseline_pct: 40, channels: channelsFixture() });
++  optimizeData.set({ expected_lift_pct: 3.0, total_budget_money: 1_000_000 });
++});
++
++describe('ReportStep — доля лидера в медиа-вкладе с одной десятой (аудит s50 M-1)', () => {
++  it('сопроводительный текст письма показывает 87.5%, не 88%', async () => {
++    render(ReportStep);
++    await fireEvent.click(screen.getByRole('button', { name: /Сопроводительный текст для письма/ }));
++    const text = screen.getByText(/Главный драйвер/).closest('.cover-content')?.textContent ?? '';
++    expect(text).toContain('87.5%');
++    expect(text).not.toContain('88%');
++  });
++
++  it('блок «Как интерпретировать» показывает 87.5%, не 88%', async () => {
++    render(ReportStep);
++    await fireEvent.click(screen.getByRole('button', { name: /Как интерпретировать модель и результаты/ }));
++    const text = screen.getByText(/Главный медиа-драйвер/).closest('.info-body')?.textContent ?? '';
++    expect(text).toContain('87.5%');
++    expect(text).not.toContain('88%');
++  });
++
++  it('FAQ «Почему топ-канал показал самый большой вклад» показывает 87.5%, не 88%', async () => {
++    render(ReportStep);
++    await fireEvent.click(screen.getByRole('button', { name: /Часто задаваемые вопросы по этой модели/ }));
++    const text = screen.getByText(/самый большой вклад/).closest('.faq-item')?.textContent ?? '';
++    expect(text).toContain('87.5%');
++    expect(text).not.toContain('88%');
++  });
++});

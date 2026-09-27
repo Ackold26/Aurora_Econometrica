@@ -7,24 +7,30 @@
 
 ---
 
-## 🔴 ЗАДАЧА №1 – принять работу `triagefix` по внешнему аудиту s50
+## 🔴 ЗАДАЧА №1 – принять НЕЗАПИСАННУЮ работу `triagefix` по внешнему аудиту s50
 
-Внешний аудит wrap-up (Opus, `21526770..473f4967`, вход `Projects/audit.diff` + `Projects/handoff.md`) – вердикт
-**«требует исправлений»**: 0 Critical, 0 High, 3 Medium (`Projects/audit_findings_live.md`). Два Medium отданы
-исполнителю `triagefix` в конце s50 (сессию закрыли по контексту, он дорабатывал в фоне):
-- M-2: подпись S7 «даёт X% продаж» при числе = доля МЕДИА-вклада (класс R-12, `strings_ru.json:155-156`,
-  `narrative_adapter.py`, тест `test_channel_share_single_source.py` закреплял неверную подпись);
-- M-1: доля лидера целым на панели выводов и шаге отчёта (`insights-rules.js:1684,1830,2755`,
-  `ReportStep.svelte:280,397`) при одной десятой на экране разложения.
-🔴 На момент закрытия s50 (≈03:55) у `triagefix` была ВНЕСЕНА мутация `src/lib/format-numbers.js:formatChannelSharePct`
-`toFixed(1)` → `toFixed(0)` (положительный контроль). Первым делом: `git diff src/lib/format-numbers.js` и
-`git show HEAD:src/lib/format-numbers.js | grep -n toFixed` – в функции доли должно быть `toFixed(1)`.
-Порядок: (1) `Projects/PULSE_s50_triagefix.md` – дошёл ли до конца, есть ли незакрытая «МУТАЦИЯ ВНЕСЕНА»;
-(2) `git log origin/master..master` – ждём 2 записи «fix(отчёт): доля канала подписана…» и «fix(экран): доля
-лидера…»; (3) лично: `git show` – сторожа переполнения и их пороги не тронуты, в тестах нет фильтров/мягких
-xfail, подпись «продаж» осталась только там, где число – доля продаж; (4) приёмка движок/интерфейс/типы;
-(5) отправка продукта (владелец разрешил «только продукт»). Нет записей или дерево грязное – доделать по
-`audit_findings_live.md` свежим исполнителем. Третий Medium – «100.0%» – это долг №0 ниже.
+Внешний аудит wrap-up (Opus, `21526770..473f4967`, `Projects/audit.diff` + `Projects/handoff.md`): **«требует
+исправлений»**, 0 Critical / 0 High / 3 Medium (`Projects/audit_findings_live.md`). Два Medium исправлял
+`triagefix` – сессию закрыли, пока он шёл к записям; остановлен ведущей в ≈04:05 27.09.
+
+**Состояние на закрытии (проверено):**
+- Мутация `format-numbers.js` ОТКАЧЕНА (в функции доли `toFixed(1)`); после отката оба новых vitest-файла –
+  5/5 зелёные, код 0. На мутации все 5 краснели (положительный контроль пройден).
+- Правки **НЕ ЗАПИСАНЫ**, лежат в рабочем дереве: `strings_ru.json`, `aurora_pptx/builder.py`,
+  `narrative_adapter.py`, `test_channel_share_single_source.py`, `test_channels_declension_agrees.py`,
+  `DecomposeStep.svelte`, `ReportStep.svelte`, `format-numbers.js`, `insights-rules.js`, `program-help.js` +
+  новые `src/lib/__tests__/insights-channel-share-one-decimal.test.js`, `src/tests/report-step-channel-share-one-decimal.test.js`.
+- 🔴 Страховка: вся эта работа сохранена патчем `Projects/triagefix_s50.patch` (12 файлов) – в дереве
+  параллельно работала другая сессия; если файлы изменились/пропали – восстановить `git apply`.
+- Движок после правки 1 (подпись): 1775 passed / 2 skipped / 1 xfailed, код 0 (по маячку, до правки 2).
+- Решения по местам «% продаж» – в `Projects/PULSE_s50_triagefix.md` (что правил и что оставил, и почему).
+
+**Порядок:** (1) `git diff --stat` – правки на месте и совпадают с патчем; (2) лично прочитать дифф: подпись
+«медиа-вклада» только там, где число – доля канала в медиа-вкладе; сторожа переполнения и пороги не тронуты,
+в тестах нет фильтров/мягких xfail; `formatChannelSharePct` – единственная точка, `DecomposeStep` на ней же;
+(3) полная приёмка: движок, `npx vitest run`, `npm run check`; (4) две записи своими путями
+(«fix(отчёт): доля канала подписана как доля медиа-вклада…», «fix(экран): доля лидера с одной десятой…»);
+(5) отправка продукта (владелец разрешил «только продукт»); патч – в корзину. Третий Medium – долг №0.
 
 ## 🔴 ПЕРВОЕ ДЕЙСТВИЕ – решения владельца – все закрыты 27.09
 
