@@ -87,7 +87,7 @@ tools/ship-log.jsonl
 # без этих строк проверка «дерево» падает на каждом прогоне; aurora-fix V80, s52)
 src-tauri/.cloud-build-running
 src-tauri/Cargo.toml.pre-cloud
-src-tauri/Cargo.lock.pre-cloud
+Cargo.lock.pre-cloud
 # Рабочие журналы и коды возврата прогонов сессий; каталоги образцов, стендов и
 # передаточного пакета (крупные двоичные файлы, в историю не идут). PULSE_*.md – идут.
 Projects/*.log
