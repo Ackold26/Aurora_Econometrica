@@ -263,13 +263,7 @@ def _deck_two_channels(leader_pct, out):
     return prs
 
 
-@pytest.mark.parametrize("leader_pct", [
-    87.5,
-    pytest.param(100.0, marks=pytest.mark.xfail(strict=True, reason=(
-        "Открыто (s50): «100.0%» – 6 знаков, проверка переполнения не считает его "
-        "декором (DECOR_MAX_LEN = 5) и видит наезд оценки высоты строки на подпись "
-        "под числом на 0.2\". Сторож не ослабляется, решение – за ведущим."))),
-])
+@pytest.mark.parametrize("leader_pct", [87.5, 100.0])
 def test_pptx_big_number_with_decimal_fits(leader_pct, tmp_path):
     """Крупное число доли лидера с одной десятой («87.5%», крайний «100.0%»)
     шире целого и при кегле 140 уходило второй строкой за низ слайда. Проверка

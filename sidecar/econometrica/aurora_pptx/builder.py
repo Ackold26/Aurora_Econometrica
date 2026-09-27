@@ -906,13 +906,20 @@ class AuroraPPTXBuilder:
             font=self.sans, size=8, bold=True, color=self.gold,
         )
         self._hairline(slide, x, y - 0.05, 1.2, weight=0.75, color=self.gold)
+        # s51: высота числа – измеренная (text_metrics, та же мерка и тот же
+        # межстрочный по умолчанию, что у check_overflow), а не доля кегля:
+        # подпись на `y + size / 55` лежала выше низа строки числа и у «100.0%»
+        # наезжала на 0.2". Подпись – под измеренным низом с зазором.
+        number_h = TM.text_height_emu(
+            str(number), int(Inches(number_width)), size, font_name=self.serif,
+        ) / 914400.0
         self._text(
-            slide, x, y, number_width, size / 50,
+            slide, x, y, number_width, number_h,
             number, font=self.serif, size=size, color=self.deep_100,
         )
         if support:
             self._text(
-                slide, x, y + size / 55, 5.0, 0.3, support,
+                slide, x, y + number_h + 0.06, 5.0, 0.3, support,
                 font=self.sans, size=10, italic=True, color=self.deep_60,
             )
 
