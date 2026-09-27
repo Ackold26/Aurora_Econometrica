@@ -3212,6 +3212,91 @@ class AuroraPPTXBuilder:
         left_y = 1.85
         left_w = (self.w - 2 * self.safe) * 0.48
 
+        # B1-fix R-01: метрики через _mstr (None → «н/д», не wireframe-числа);
+        # ESS может прийти дробным (min bulk/tail из arviz) — показываем целым.
+        _ess_str = self._mstr(
+            int(round(self.ess_min)) if isinstance(self.ess_min, (int, float)) else None,
+            "{:,}").replace(",", " ")
+        if self.is_ols:
+            # OLS не имеет MCMC diagnostics. Показываем frequentist метрики.
+            diag = [
+                ("R²",                self._mstr(self.r_squared, "{:.3f}")),
+                ("MAPE",              self._mstr(self.mape_pct, "{:.1f}%")),
+                ("Метод",             "closed-form OLS"),
+                ("Диапазон",          "bootstrap n=200"),  # факт ols_bootstrap.py (был n=1000)
+            ]
+        else:
+            diag = [
+                ("R²",                self._mstr(self.r_squared, "{:.3f}")),
+                ("MAPE",              self._mstr(self.mape_pct, "{:.1f}%")),
+                ("R-hat (max)",       self._mstr(self.r_hat_max, "{:.3f}")),
+                ("ESS (min)",         _ess_str),
+            ]
+
+        # P0.7 шаг 15: воспроизводимость и сертификат.
+        diag.extend(строки_сертификата(self.data.get("certificate")))
+
+        # s51: список диагностики и сноски считаются ДО карточки спецификации –
+        # от их измеренной высоты зависит, сколько места остаётся карточке.
+        # Прежде высота ряда была задана под одну строку, а значение «Совпадение
+        # расчётов» – фраза из сертификата в 80–100 знаков: в колонке 45 % она
+        # шла в три строки и на образце для покупателя уходила за линию подвала
+        # (+0.22") поверх сноски о приорах. Мерка – text_metrics, та же, что у
+        # check_overflow.
+        from . import text_metrics as TM
+        строка_диаг = TM.line_height_emu(10, 1.2, self.sans, True) / 914400.0
+        ряды = []
+        for label, val in diag:
+            доля_подписи = 0.55
+            отступ_знач, ширина_знач = left_w * 0.55, left_w * 0.45
+            if TM.wrap_lines(val, int(Inches(ширина_знач)), 10, self.sans, True) > 1:
+                # Длинное значение забирает место у подписи: колонка подписи
+                # сужается до длины самой подписи (в одну строку).
+                for доля in (0.30, 0.35, 0.40, 0.45):
+                    if TM.wrap_lines(label, int(Inches(left_w * доля)), 10, self.sans) == 1:
+                        доля_подписи = доля
+                        break
+                отступ_знач = left_w * доля_подписи + 0.15
+                ширина_знач = left_w - отступ_знач
+            доп = max(0.0, TM.text_height_emu(
+                val, int(Inches(ширина_знач)), 10, font_name=self.sans, bold=True,
+            ) / 914400.0 - строка_диаг)
+            ряды.append((label, val, доля_подписи, отступ_знач, ширина_знач, доп))
+        доп_всего = sum(ряд[-1] for ряд in ряды)
+
+        # Сноски кладутся снизу вверх от одного низа: «Приоры» – всегда на 6.87
+        # (с 6.97 в ветке иерархических приоров она уходила за линию подвала),
+        # строка v1.1.0 – над ней по измеренной высоте.
+        # Trust Level 3 (v1.1.0): brand vs performance disclosure если активен.
+        # Speaker note + bottom note - minimal disclosure без layout disruption.
+        # HTML report имеет full block в methodology; здесь kompakt single-line note.
+        hier = (self.data.get('diagnostics') or {}).get('hierarchical') or {}
+        t3_text = None
+        if hier.get('enabled'):
+            cats = hier.get('channel_categories') or {}
+            n_brand = sum(1 for v in cats.values() if v == 'brand')
+            n_perf = sum(1 for v in cats.values() if v == 'performance')
+            t3_text = (
+                f"v1.1.0: Brand vs Performance split - {n_brand} brand, {n_perf} performance каналов. "
+                f"Hierarchical priors разделяют long-decay (бренд ~12 нед) и short-decay (perf ~1-2 нед)."
+            )
+        y_сноски = 6.87
+        if t3_text:
+            t3_y = y_сноски - 0.02 - TM.text_height_emu(
+                t3_text, int(Inches(8.3)), 7, font_name=self.sans,
+            ) / 914400.0
+            ВЕРХ_СНОСКИ = t3_y - 0.02
+        else:
+            ВЕРХ_СНОСКИ = y_сноски - 0.02
+
+        # Если рядам не хватает места даже при нижнем пределе шага, карточка
+        # спецификации ужимается ровно на нехватку: уменьшается кегль ПУСТЫХ
+        # строк-разделителей формул (сами формулы не меняются), блок
+        # диагностики поднимается на столько же. Когда всё помещается,
+        # геометрия слайда прежняя.
+        ПОЛ_ШАГА = 0.18
+        нехватка = (len(ряды) * ПОЛ_ШАГА + доп_всего) - (ВЕРХ_СНОСКИ - (left_y + 3.4))
+
         # LEFT: Formula card
         self._text(
             slide, left_x, left_y, left_w, 0.25, "СПЕЦИФИКАЦИЯ",
@@ -3219,7 +3304,6 @@ class AuroraPPTXBuilder:
         )
         self._hairline(slide, left_x, left_y + 0.28, 1.0, weight=0.75, color=self.gold)
 
-        self._rect(slide, left_x, left_y + 0.45, left_w, 2.3, fill=self.bg_quiet)
         if self.is_ols:
             formulas = [
                 "y_t = baseline_t + Σ β_i · sat(adstock(x_i,t)) + ε_t",
@@ -3252,67 +3336,63 @@ class AuroraPPTXBuilder:
                 "β_i ~ HalfNormal (слабоинформативный) · CPP-normalized",
                 "ε_t ~ Normal(0, σ)",
             ]
+
+        def _высота_формул(кегль_пустой):
+            return sum(
+                TM.line_height_emu(10 if line.strip() else кегль_пустой, 1.25, self.mono)
+                for line in formulas
+            ) / 914400.0
+
+        кегль_пустой = 10
+        подъём = 0.0
+        if нехватка > 0:
+            полная = _высота_формул(10)
+            for кегль in range(9, 1, -1):
+                кегль_пустой = кегль
+                if полная - _высота_формул(кегль) >= нехватка:
+                    break
+            подъём = min(нехватка, полная - _высота_формул(кегль_пустой))
+
+        self._rect(slide, left_x, left_y + 0.45, left_w, 2.3 - подъём, fill=self.bg_quiet)
         self._paragraphs(
-            slide, left_x + 0.25, left_y + 0.6, left_w - 0.5, 2.1,
+            slide, left_x + 0.25, left_y + 0.6, left_w - 0.5, 2.1 - подъём,
             [(line, {
-                "font": self.mono, "size": 10,
+                "font": self.mono, "size": 10 if line.strip() else кегль_пустой,
                 "color": self.deep_100 if line.strip() else self.deep_60,
             }) for line in formulas],
             line_spacing=1.25,
         )
 
         # LEFT bottom: diagnostics mini
-        diag_y = left_y + 3.0
+        diag_y = left_y + 3.0 - подъём
         self._text(
             slide, left_x, diag_y, left_w, 0.25, "ДИАГНОСТИКА",
             font=self.sans, size=9, bold=True, color=self.gold,
         )
         self._hairline(slide, left_x, diag_y + 0.28, 1.0, weight=0.75, color=self.gold)
 
-        # B1-fix R-01: метрики через _mstr (None → «н/д», не wireframe-числа);
-        # ESS может прийти дробным (min bulk/tail из arviz) — показываем целым.
-        _ess_str = self._mstr(
-            int(round(self.ess_min)) if isinstance(self.ess_min, (int, float)) else None,
-            "{:,}").replace(",", " ")
-        if self.is_ols:
-            # OLS не имеет MCMC diagnostics. Показываем frequentist метрики.
-            diag = [
-                ("R²",                self._mstr(self.r_squared, "{:.3f}")),
-                ("MAPE",              self._mstr(self.mape_pct, "{:.1f}%")),
-                ("Метод",             "closed-form OLS"),
-                ("Диапазон",          "bootstrap n=200"),  # факт ols_bootstrap.py (был n=1000)
-            ]
-        else:
-            diag = [
-                ("R²",                self._mstr(self.r_squared, "{:.3f}")),
-                ("MAPE",              self._mstr(self.mape_pct, "{:.1f}%")),
-                ("R-hat (max)",       self._mstr(self.r_hat_max, "{:.3f}")),
-                ("ESS (min)",         _ess_str),
-            ]
-
-        # P0.7 шаг 15: воспроизводимость и сертификат.
-        diag.extend(строки_сертификата(self.data.get("certificate")))
         dy = diag_y + 0.4
         # Шаг строки сжимается ровно настолько, чтобы список кончился выше
         # сноски слайда. Прежний шаг 0.3 сохраняется везде, где список в него
         # укладывается (без сертификата – четыре метрики). Отпечаток данных и
         # перенос эффекта доводят список до восьми строк, и при 0.3 последние
         # две легли бы поверх сноски о приорах и под линию подвала.
-        ВЕРХ_СНОСКИ = 6.85
-        шаг = min(0.3, max((ВЕРХ_СНОСКИ - dy) / max(len(diag), 1), 0.18))
+        # Многострочное значение добавляет к своему ряду измеренный избыток
+        # высоты (`доп`) – он вычитается из места до деления на шаги.
+        шаг = min(0.3, max((ВЕРХ_СНОСКИ - dy - доп_всего) / max(len(ряды), 1), ПОЛ_ШАГА))
         высота_строки = min(0.25, шаг - 0.02)
-        for label, val in diag:
+        for label, val, доля_подписи, отступ_знач, ширина_знач, доп in ряды:
             self._text(
-                slide, left_x, dy, left_w * 0.55, высота_строки, label,
+                slide, left_x, dy, left_w * доля_подписи, высота_строки, label,
                 font=self.sans, size=10, color=self.deep_60,
             )
             self._text(
-                slide, left_x + left_w * 0.55, dy, left_w * 0.45, высота_строки, val,
+                slide, left_x + отступ_знач, dy, ширина_знач, высота_строки + доп, val,
                 font=self.sans, size=10, bold=True, color=self.deep_100,
                 align=PP_ALIGN.RIGHT,
             )
-            self._hairline(slide, left_x, dy + высота_строки + 0.02, left_w, weight=0.25)
-            dy += шаг
+            self._hairline(slide, left_x, dy + высота_строки + доп + 0.02, left_w, weight=0.25)
+            dy += шаг + доп
 
         # RIGHT: Limitations (tier-1 differentiator)
         right_x = left_x + left_w + 0.5
@@ -3352,19 +3432,10 @@ class AuroraPPTXBuilder:
             self._rect(slide, right_x, ly + 0.07, 0.08, 0.08, fill=self.deep_60)
             ly += 0.80
 
-        # Trust Level 3 (v1.1.0): brand vs performance disclosure если активен.
-        # Speaker note + bottom note - minimal disclosure без layout disruption.
-        # HTML report имеет full block в methodology; здесь kompakt single-line note.
-        hier = (self.data.get('diagnostics') or {}).get('hierarchical') or {}
-        if hier.get('enabled'):
-            cats = hier.get('channel_categories') or {}
-            n_brand = sum(1 for v in cats.values() if v == 'brand')
-            n_perf = sum(1 for v in cats.values() if v == 'performance')
-            t3_text = (
-                f"v1.1.0: Brand vs Performance split - {n_brand} brand, {n_perf} performance каналов. "
-                f"Hierarchical priors разделяют long-decay (бренд ~12 нед) и short-decay (perf ~1-2 нед)."
-            )
-            self._source(slide, 6.65, text=t3_text)
+        # Trust Level 3 (v1.1.0): текст сноски и её место посчитаны выше, до
+        # карточки спецификации.
+        if t3_text:
+            self._source(slide, t3_y, text=t3_text)
             # B1-fix R-06: «12+ FMCG-проектов Aurora» — недоказуемое заявление
             # (INV-50); честная формулировка о слабоинформативных приорах.
             _bottom_note = (
@@ -3372,7 +3443,7 @@ class AuroraPPTXBuilder:
                 if self.is_ols
                 else "Приоры: слабоинформативные, на основе индустриальных бенчмарков Bayesian MMM."
             )
-            self._source(slide, 6.97, text=_bottom_note)
+            self._source(slide, y_сноски, text=_bottom_note)
         else:
             # Bottom note (concise: ≤100 chars fits 1 line at 7pt in 8.3" column)
             _bottom_note2 = (
@@ -3380,7 +3451,7 @@ class AuroraPPTXBuilder:
                 if self.is_ols
                 else "Приоры: слабоинформативные, на основе индустриальных бенчмарков Bayesian MMM."
             )
-            self._source(slide, 6.87, text=_bottom_note2)
+            self._source(slide, y_сноски, text=_bottom_note2)
 
         self._footer(slide, 9 + self._page_shift)
 
