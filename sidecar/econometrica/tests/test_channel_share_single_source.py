@@ -180,7 +180,7 @@ def test_leader_share_same_visible_number_everywhere_875():
     web_phrases = _SHARE_PHRASE.findall(plain)
     assert web_phrases, "в веб-отчёте не нашлось ни одной фразы с долей лидера"
     assert set(web_phrases) == {"87.5"}, f"доля лидера в тексте веб-отчёта: {web_phrases!r}"
-    assert "Один канал даёт 87.5% продаж" in plain, "заголовок S7 веб-отчёта"
+    assert "Один канал даёт 87.5% медиа-вклада" in plain, "заголовок S7 веб-отчёта"
     big = re.search(r'<div class="big-number" data-counter-end="([^"]*)">([^<]*)</div>', html)
     assert big and big.group(2) == "87.5%" and big.group(1) == "87.5", \
         f"крупное число доли лидера: {big.groups() if big else None!r}"
@@ -191,7 +191,7 @@ def test_leader_share_same_visible_number_everywhere_875():
     pptx_phrases = _SHARE_PHRASE.findall(text)
     assert pptx_phrases, "в презентации не нашлось ни одной фразы с долей лидера"
     assert set(pptx_phrases) == {"87.5"}, f"доля лидера в тексте презентации: {pptx_phrases!r}"
-    assert "он даёт 87.5% продаж" in text, "заголовок S7 презентации"
+    assert "он даёт 87.5% медиа-вклада" in text, "заголовок S7 презентации"
     assert "88%" not in text
 
 
@@ -219,7 +219,7 @@ def test_builders_without_field_use_all_channels():
 
 
 def _top_n_pct(text: str) -> str:
-    m = re.search(r"(?:дают|обеспечивают) (\d+(?:\.\d+)?)% продаж", text)
+    m = re.search(r"(?:дают|обеспечивают) (\d+(?:\.\d+)?)% медиа-вклада", text)
     assert m, f"заголовок «топ-N дают X%» не найден: {text[:300]!r}"
     return m.group(1)
 

@@ -264,7 +264,7 @@ def _channels_with_top_n(top_n: int):
 
 @pytest.mark.parametrize("top_n", [2, 5, 11])
 def test_html_s07_top_n_title_agrees(top_n):
-    """«Топ-N каналов дают X% продаж» (render_action_table) — N=2..4 требует
+    """«Топ-N каналов дают X% медиа-вклада» (render_action_table) — N=2..4 требует
     «канала», не «каналов» (родительный ед.ч. при числительном 2-4)."""
     with open(_STRINGS_PATH, encoding="utf-8") as fh:
         strings = json.load(fh)

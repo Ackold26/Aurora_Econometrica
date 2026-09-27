@@ -1590,7 +1590,7 @@ class AuroraPPTXBuilder:
             else:
                 takeaway = f"{leader} - основной драйвер портфеля и точка оптимизации"
         else:
-            takeaway = "TV генерирует 42% продаж при 28% бюджета - основная точка оптимизации портфеля"
+            takeaway = "TV генерирует 42% медиа-вклада при 28% бюджета - основная точка оптимизации портфеля"
         self._render_section_divider(
             slide_num=6,
             takeaway=takeaway,
@@ -2248,7 +2248,7 @@ class AuroraPPTXBuilder:
         # Covers all edge cases (all-zero / single-channel / consolidate / balanced).
         s07_title = (
             derive_action_headline(self.channels, self.facts, "portfolio")
-            or "Консолидировать до топ-5 каналов - они обеспечивают 87% продаж"
+            or "Консолидировать до топ-5 каналов - они обеспечивают 87% медиа-вклада"
         )
         self._action_title(
             slide, s07_title,
