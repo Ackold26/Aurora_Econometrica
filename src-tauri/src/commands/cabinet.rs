@@ -634,6 +634,30 @@ mod tests {
         assert!(visible.is_empty(), "Локальная редакция не должна показывать ни одного advisor-кабинета");
     }
 
+    // L-1 (Low, аудит s50): тест выше проверял только "econometrica" — ветка `"unknown" =>
+    // Some(&[])` в локальной редакции не была проверена НИГДЕ рядом с самой функцией, и по
+    // одному лишь совпадению итогового пустого списка от неё нельзя было отличить «unknown
+    // законно пуст по своей ветке» от «unknown случайно получил чужой непустой список». Тест
+    // фиксирует обе половины отдельно: econometrica получает свой (для локальной редакции —
+    // пустой) набор, unknown получает пустой набор нулём кабинетов — сам по себе, не потому что
+    // совпал с econometrica.
+    #[cfg(not(feature = "cloud_advisors"))]
+    #[test]
+    fn local_edition_unknown_product_gets_zero_cabinets() {
+        let unknown_cabinets = filter_by_product("unknown", get_cabinet_definitions());
+        assert!(
+            unknown_cabinets.is_empty(),
+            "🔴 unknown получил {} кабинет(ов) в локальной редакции — не должен получать ничего",
+            unknown_cabinets.len()
+        );
+
+        let econometrica_cabinets = filter_by_product("econometrica", get_cabinet_definitions());
+        assert!(
+            econometrica_cabinets.is_empty(),
+            "локальная редакция Эконометрики не должна показывать advisor-кабинеты"
+        );
+    }
+
     #[test]
     fn cloud_advisors_const_matches_build_feature() {
         // Egress-флаг claude.rs должен совпадать с feature-конфигурацией сборки.

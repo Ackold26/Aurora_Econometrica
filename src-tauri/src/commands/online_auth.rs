@@ -48,19 +48,35 @@ const REQUEST_TIMEOUT_SECS: u64 = 15;
 
 /// Map CARGO_PKG_NAME to product identifier for the server.
 pub fn detect_product() -> &'static str {
+    // L-5 (Low, аудит s50): `detect_product()` дёргается на каждый чих (heartbeat, список
+    // кабинетов, диагностика, feedback — см. call-сайты в lib.rs/diagnostics.rs/feedback.rs),
+    // а раньше предупреждение об unknown писалось безусловно на каждый такой вызов и заливало
+    // журнал одинаковыми строками. `Once` печатает его максимум один раз за жизнь процесса,
+    // поведение фильтра (`map_pkg_to_product`/`filter_by_product`) не меняется.
+    static WARNED_UNKNOWN_PRODUCT: std::sync::Once = std::sync::Once::new();
     let pkg = env!("CARGO_PKG_NAME");
     let product = map_pkg_to_product(pkg);
     // CPD-84: незнакомое имя пакета — первое, что будет искать поддержка при жалобе «не вижу
     // свои кабинеты». Пишем в журнал здесь, а не внутри `map_pkg_to_product`: та остаётся
     // чистой функцией без побочных действий, и её удобно дёргать в тестах десятками вызовов.
     if product == "unknown" {
-        log::error!(
-            "CPD-84: незнакомое имя пакета лицензии «{}» — продукт не опознан, кабинеты будут \
-             скрыты (пустой список), а не выданы по умолчанию",
-            pkg
-        );
+        warn_unknown_product_once(&WARNED_UNKNOWN_PRODUCT, pkg, |pkg| {
+            log::error!(
+                "CPD-84: незнакомое имя пакета лицензии «{}» — продукт не опознан, кабинеты будут \
+                 скрыты (пустой список), а не выданы по умолчанию",
+                pkg
+            );
+        });
     }
     product
+}
+
+/// Вызывает `emit` не чаще одного раза за время жизни переданного `once` — вынесена из
+/// [`detect_product`] отдельной функцией, чтобы гарантию «максимум один раз» можно было
+/// проверить тестом напрямую (через инъекцию считающего замыкания вместо `log::error!`),
+/// не завися от CARGO_PKG_NAME этого дерева (у Эконометрики он никогда не «unknown»).
+fn warn_unknown_product_once(once: &std::sync::Once, pkg: &str, emit: impl FnOnce(&str)) {
+    once.call_once(|| emit(pkg));
 }
 
 /// Pure mapping used by [`detect_product`]; extracted so it is unit-testable
@@ -1234,6 +1250,31 @@ mod tests {
             "получил {} кабинет(ов) из {}",
             cabinets.len(),
             total
+        );
+    }
+
+    // L-5 (Low, аудит s50): раньше `detect_product()` писал `log::error!` безусловно на КАЖДЫЙ
+    // вызов при product == "unknown", а вызывается она на каждый heartbeat/список кабинетов/
+    // diagnostics/feedback — журнал заливало одинаковыми строками. Тестируем сам механизм
+    // `warn_unknown_product_once`, вызываемый из `detect_product()`, а не сквозь него: у этого
+    // дерева CARGO_PKG_NAME фиксирован на этапе сборки и никогда не «unknown», поэтому напрямую
+    // через `detect_product()` ветку не воспроизвести. Замыкание-счётчик стоит на месте
+    // `log::error!` — проверяем именно факт «не чаще одного раза», не текст сообщения.
+    #[test]
+    fn unknown_product_warning_fires_at_most_once_per_once_lifetime() {
+        let once = std::sync::Once::new();
+        let calls = std::cell::Cell::new(0u32);
+        for _ in 0..5 {
+            warn_unknown_product_once(&once, "test-unknown-pkg", |_pkg| {
+                calls.set(calls.get() + 1);
+            });
+        }
+        assert_eq!(
+            calls.get(),
+            1,
+            "🔴 предупреждение об unknown-продукте сработало {} раз(а) за 5 вызовов — должно \
+             срабатывать максимум один раз за жизнь процесса, а не на каждый вызов detect_product()",
+            calls.get()
         );
     }
 
