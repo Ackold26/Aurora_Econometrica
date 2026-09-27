@@ -1646,7 +1646,7 @@ fn build_xlsx(
         // Header row offset by 2 (brand header occupies rows 0+1).
         ws.write_with_format(2, 0, "Категория",  &header_fmt).map_err(|e| format!("{e}"))?;
         ws.write_with_format(2, 1, "Вклад, ₽",    &header_fmt).map_err(|e| format!("{e}"))?;
-        ws.write_with_format(2, 2, "% от общего", &header_fmt).map_err(|e| format!("{e}"))?;
+        ws.write_with_format(2, 2, "% от продаж", &header_fmt).map_err(|e| format!("{e}"))?;
 
         // CPD-104 01.09: сумма всех вкладов — заранее, чтобы проставить кэш результата
         // формул ниже (без него не-Excel читатели видят 0 вместо доли/итого).
@@ -1811,7 +1811,14 @@ fn build_xlsx(
             let spend = ch["spend"].as_f64().unwrap_or(0.0);
             let contrib = ch["contribution"].as_f64().unwrap_or(0.0);
             let spend_pct = if total_spend > 0.0 { spend / total_spend } else { 0.0 };
-            let effect_pct = if total_contrib > 0.0 { contrib / total_contrib } else { 0.0 };
+            // s51 27.09: доля канала — ОДНО число на всех поверхностях (веб/презентация
+            // уже берут contribution_pct из движка, decomposer.py:1128-1132). Раньше здесь
+            // считалось заново от contrib/total_contrib — законная, но ДРУГАЯ величина.
+            // Запасная ветка (contrib/total_contrib) — только для старых JSON без поля.
+            let effect_pct = match ch["contribution_pct"].as_f64() {
+                Some(p) if p.is_finite() => p / 100.0,
+                _ => if total_contrib > 0.0 { contrib / total_contrib } else { 0.0 },
+            };
 
             // 5c (2026-05-04) FIX: same formula-result issue. rust_xlsxwriter
             // does not evaluate Excel formulas → cached result=0 на open.
@@ -3863,6 +3870,176 @@ mod tests {
             text.contains("<f>SUM(B4:B6)</f><v>1000</v>"),
             "итоговая сумма (500+300+200=1000, БЕЗ повторного учёта элемента total) \
              обязана нести сохранённый результат в кэше формулы\nXML: {text}"
+        );
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// s51 27.09: доля канала в медиа-вкладе должна быть ОДНИМ числом на всех
+    /// поверхностях (веб/презентация уже берут contribution_pct из движка,
+    /// decomposer.py:1128-1132). Лист «Spend vs Effect» раньше пересчитывал
+    /// долю заново от contrib/total_contrib — законная, но ДРУГАЯ величина,
+    /// расходящаяся с движком при неравномерном распределении вклада.
+    /// Каналы ниже намеренно НЕ согласованы: пересчёт от contribution дал бы
+    /// 500/1000=0.5 обоим каналам, а движок утверждает 87.5%/12.5%.
+    #[test]
+    fn xlsx_spend_vs_effect_uses_engine_contribution_pct_not_recomputed() {
+        // Читает XML ИМЕННО листа sheet_name (через workbook.xml → r:id →
+        // workbook.xml.rels → Target), а не весь архив - иначе совпадение
+        // числа на другом листе дало бы ложный зелёный.
+        fn xlsx_sheet_xml(path: &Path, sheet_name: &str) -> String {
+            let bytes = std::fs::read(path).expect("read xlsx");
+            let mut archive = zip::read::ZipArchive::new(Cursor::new(bytes)).expect("open xlsx zip");
+
+            let mut workbook_xml = String::new();
+            archive
+                .by_name("xl/workbook.xml")
+                .expect("xl/workbook.xml entry")
+                .read_to_string(&mut workbook_xml)
+                .expect("read xl/workbook.xml");
+            let marker = format!("name=\"{sheet_name}\"");
+            let start = workbook_xml
+                .find(&marker)
+                .unwrap_or_else(|| panic!("лист «{sheet_name}» не найден в workbook.xml: {workbook_xml}"));
+            let rid_start = workbook_xml[start..].find("r:id=\"").expect("r:id атрибут листа") + start + 6;
+            let rid_end = workbook_xml[rid_start..].find('"').expect("закрывающая кавычка r:id") + rid_start;
+            let rid = &workbook_xml[rid_start..rid_end];
+
+            let mut rels_xml = String::new();
+            archive
+                .by_name("xl/_rels/workbook.xml.rels")
+                .expect("xl/_rels/workbook.xml.rels entry")
+                .read_to_string(&mut rels_xml)
+                .expect("read workbook.xml.rels");
+            let rel_marker = format!("Id=\"{rid}\"");
+            let rel_start = rels_xml
+                .find(&rel_marker)
+                .unwrap_or_else(|| panic!("связь {rid} не найдена в workbook.xml.rels: {rels_xml}"));
+            let target_start = rels_xml[rel_start..].find("Target=\"").expect("Target атрибут связи") + rel_start + 8;
+            let target_end = rels_xml[target_start..].find('"').expect("закрывающая кавычка Target") + target_start;
+            let target = &rels_xml[target_start..target_end];
+
+            let sheet_path = format!("xl/{target}");
+            let mut sheet_xml = String::new();
+            archive
+                .by_name(&sheet_path)
+                .unwrap_or_else(|e| panic!("{sheet_path} entry не найден: {e}"))
+                .read_to_string(&mut sheet_xml)
+                .expect("read sheet xml");
+            sheet_xml
+        }
+
+        let decompose = json!({"channels": [
+            {"name": "A", "spend": 200.0, "contribution": 500.0, "contribution_pct": 87.5},
+            {"name": "B", "spend": 800.0, "contribution": 500.0, "contribution_pct": 12.5}
+        ]});
+        let path = std::env::temp_dir().join("aurora_s51_spend_vs_effect_pct_test.xlsx");
+        build_xlsx(&json!({}), &decompose, &json!({}), &[], None, "test", &path, None)
+            .expect("build_xlsx spend vs effect (contribution_pct)");
+
+        let sheet_xml = xlsx_sheet_xml(&path, "Spend vs Effect");
+        assert!(
+            sheet_xml.contains("0.875") && sheet_xml.contains("0.125"),
+            "доля эффекта обязана браться из contribution_pct движка (87.5% / \
+             12.5%), а не пересчитываться заново из contribution (что при \
+             равных contribution=500/500 дало бы 0.5/0.5)\nXML листа «Spend vs \
+             Effect»: {sheet_xml}"
+        );
+        // Точечная проверка именно колонки «% эффекта» (E, данные с Excel-строки
+        // 4) - широкая проверка "нет 0.5 нигде на листе" ложно красит тест:
+        // pageMargins по умолчанию несёт left="0.5" right="0.5" (см. дамп XML
+        // выше), это не относится к эффекту вообще.
+        assert!(
+            !sheet_xml.contains("r=\"E4\" s=\"16\"><v>0.5</v>"),
+            "ячейка E4 (доля эффекта канала A) не должна нести пересчитанные \
+             от contribution 0.5 - обязан победить contribution_pct движка \
+             (87.5%)\nXML листа «Spend vs Effect»: {sheet_xml}"
+        );
+        assert!(
+            !sheet_xml.contains("r=\"E5\" s=\"16\"><v>0.5</v>"),
+            "ячейка E5 (доля эффекта канала B) не должна нести пересчитанные \
+             от contribution 0.5 - обязан победить contribution_pct движка \
+             (12.5%)\nXML листа «Spend vs Effect»: {sheet_xml}"
+        );
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// s51 27.09: запасная ветка — старые JSON движка без поля contribution_pct
+    /// обязаны получить прежний пересчёт contrib/total_contrib, а не 0/поломку.
+    #[test]
+    fn xlsx_spend_vs_effect_falls_back_to_recompute_when_pct_absent() {
+        fn xlsx_all_text(path: &Path) -> String {
+            let bytes = std::fs::read(path).expect("read xlsx");
+            let mut archive = zip::read::ZipArchive::new(Cursor::new(bytes)).expect("open xlsx zip");
+            let mut all = String::new();
+            for i in 0..archive.len() {
+                let mut entry = archive.by_index(i).expect("zip entry");
+                let mut content = String::new();
+                if entry.read_to_string(&mut content).is_ok() {
+                    all.push_str(&content);
+                }
+            }
+            all
+        }
+
+        // Каналы БЕЗ contribution_pct - имитация старого JSON движка.
+        let decompose = json!({"channels": [
+            {"name": "A", "spend": 100.0, "contribution": 750.0},
+            {"name": "B", "spend": 900.0, "contribution": 250.0}
+        ]});
+        let path = std::env::temp_dir().join("aurora_s51_spend_vs_effect_fallback_test.xlsx");
+        build_xlsx(&json!({}), &decompose, &json!({}), &[], None, "test", &path, None)
+            .expect("build_xlsx spend vs effect (fallback)");
+
+        let text = xlsx_all_text(&path);
+        assert!(
+            text.contains("0.75") && text.contains("0.25"),
+            "без contribution_pct в JSON доля эффекта обязана откатиться на \
+             прежний пересчёт contribution/total_contribution (750/1000=0.75, \
+             250/1000=0.25)\nXML: {text}"
+        );
+        let _ = std::fs::remove_file(&path);
+    }
+
+    /// s51 27.09: заголовок колонки на листе «Декомпозиция» переименован в
+    /// «% от продаж» (честное название - там доля во ВСЕХ продажах:
+    /// база+каналы+контроли, формула не менялась). Старый заголовок «% от
+    /// общего» не должен остаться нигде в книге.
+    #[test]
+    fn xlsx_decomposition_header_renamed_to_percent_of_sales() {
+        fn xlsx_all_text(path: &Path) -> String {
+            let bytes = std::fs::read(path).expect("read xlsx");
+            let mut archive = zip::read::ZipArchive::new(Cursor::new(bytes)).expect("open xlsx zip");
+            let mut all = String::new();
+            for i in 0..archive.len() {
+                let mut entry = archive.by_index(i).expect("zip entry");
+                let mut content = String::new();
+                if entry.read_to_string(&mut content).is_ok() {
+                    all.push_str(&content);
+                }
+            }
+            all
+        }
+
+        let decompose = json!({"waterfall": {
+            "labels": ["Baseline", "TV"],
+            "values": [500.0, 500.0],
+            "types":  ["baseline", "channel"]
+        }});
+        let path = std::env::temp_dir().join("aurora_s51_decomposition_header_test.xlsx");
+        build_xlsx(&json!({}), &decompose, &json!({}), &[], None, "test", &path, None)
+            .expect("build_xlsx decomposition header");
+
+        let text = xlsx_all_text(&path);
+        assert!(
+            text.contains("% от продаж"),
+            "заголовок колонки на листе «Декомпозиция» обязан честно называть \
+             величину — «% от продаж» (доля во ВСЕХ продажах), не «% от \
+             общего»\nXML: {text}"
+        );
+        assert!(
+            !text.contains("% от общего"),
+            "старый заголовок «% от общего» не должен остаться нигде в книге \
+             после переименования\nXML: {text}"
         );
         let _ = std::fs::remove_file(&path);
     }
