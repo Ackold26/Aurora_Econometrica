@@ -63,6 +63,13 @@ describe('filterCabinetsByProduct — CPD-84 незнакомый продукт
     ]);
   });
 
+  it('пакет продуктов не пришёл — список первого слоя без изменений (аудит s51 M-1)', () => {
+    // Отказ подписи manifest / битый JSON: initCommandMeta без products.
+    initCommandMeta({ commands: {}, categories: [] });
+    expect(filterCabinetsByProduct(ALL_CABINETS, 'econometrica')).toEqual(ALL_CABINETS);
+    expect(filterCabinetsByProduct(ALL_CABINETS, 'unknown')).toEqual(ALL_CABINETS);
+  });
+
   it('"econometrica" — ровно её состав (["econometrist"])', () => {
     expect(filterCabinetsByProduct(ALL_CABINETS, 'econometrica')).toEqual([
       { id: 'econometrist', name: 'Эконометрист' },

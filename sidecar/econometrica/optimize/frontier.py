@@ -969,7 +969,7 @@ def _withhold_interval_when_maximum_not_reportable(
     tail = ''
     if isinstance(share_beyond, (int, float)) and share_beyond > 0:
         tail = (' По апостериорным выборкам максимум оказывается за границей '
-                f'наблюдавшихся трат у {round(float(share_beyond) * 100)}% выборок.')
+                f'наблюдавшихся трат у {_share_of_samples_ru(float(share_beyond))} выборок.')
     withheld: Dict[str, Any] = {
         'available': False,
         'status': 'withheld',

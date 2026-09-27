@@ -45,6 +45,11 @@ let _categories = [];
 let _products = {};
 /** @type {Record<string, string>} */
 let _productNames = {};
+/** Пакет с перечнем продуктов пришёл (initCommandMeta с `products`). Без него
+ * JS-фильтр не решает за первый слой – список уже ограничен выдачей по
+ * лицензии / Rust `filter_by_product` (аудит s51 M-1).
+ * @type {boolean} */
+let _productsLoaded = false;
 
 /**
  * Initialize command metadata from content pack JSON.
@@ -56,6 +61,7 @@ export function initCommandMeta(data) {
     _commands = data.commands || {};
     _categories = data.categories || [];
     _products = data.products || {};
+    _productsLoaded = !!data.products && typeof data.products === 'object';
     _productNames = Object.fromEntries(
       Object.entries(data.products || {}).map(([k, v]) => [k, v.name])
     );
@@ -166,6 +172,11 @@ const UNRESTRICTED_PRODUCT_KEYS = new Set(['agency', 'creative-hub']);
  */
 export function filterCabinetsByProduct(cabinets, productType) {
   if (UNRESTRICTED_PRODUCT_KEYS.has(productType)) return cabinets;
+  // Аудит s51 M-1: пакет не пришёл (отказ подписи manifest, битый JSON) –
+  // «ключа нет в пакете» здесь не значит «продукт незнаком». Список уже
+  // ограничен первым слоем; закрыть его целиком – спрятать кабинеты у своего
+  // же продукта без объяснения.
+  if (!_productsLoaded) return cabinets;
   const allowed = _products[productType]?.cabinets;
   if (Array.isArray(allowed)) return cabinets.filter(c => allowed.includes(c.id));
   // CPD-84: незнакомый ключ продукта — пустой список, не «все».

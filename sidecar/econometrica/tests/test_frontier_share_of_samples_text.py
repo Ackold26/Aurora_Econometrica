@@ -45,5 +45,7 @@ def test_frontier_client_text_has_no_bare_share_rounding():
     """Сторож по исходнику: в тексте пояснения доля выборок идёт только через
     `_share_of_samples_ru`, а не голым `round(share… * 100)`."""
     src = _FRONTIER_SRC.read_text(encoding='utf-8')
-    bare = re.findall(r'round\(\(?share_\w+[^)]*\*\s*100\)', src)
+    # Аудит s51 M-2: прежнее выражение `round\(\(?share_\w+[^)]*\*\s*100\)`
+    # упиралось во внутреннюю скобку и не видело `round((a + b) * 100)`.
+    bare = re.findall(r'round\([^\n]*?share_[^\n]*?\*\s*100\)', src)
     assert bare == [], f'голое округление доли выборок в frontier.py: {bare}'
