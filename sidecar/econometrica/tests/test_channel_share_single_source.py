@@ -249,12 +249,8 @@ def test_12_channels_top_n_title_equals_sum_of_visible_rows():
     assert _top_n_pct(_plain(html)) == top7
 
 
-@pytest.mark.parametrize("leader_pct", [87.5, 100.0])
-def test_pptx_big_number_with_decimal_fits(leader_pct, tmp_path):
-    """Крупное число доли лидера с одной десятой («87.5%», крайний «100.0%»)
-    шире целого и при кегле 140 уходило второй строкой за низ слайда."""
+def _deck_two_channels(leader_pct, out):
     from aurora_pptx.builder import AuroraPPTXBuilder
-    from aurora_pptx.check_overflow import check
     rest = round(100.0 - leader_pct, 1)
     dec = {"channels": [
         {"name": LEADER, "spend": 1_000_000.0, "contribution": leader_pct * 10,
@@ -262,17 +258,43 @@ def test_pptx_big_number_with_decimal_fits(leader_pct, tmp_path):
         {"name": "Канал B", "spend": 300_000.0, "contribution": rest * 10,
          "contribution_pct": rest, "roi": 0.5},
     ]}
+    prs = AuroraPPTXBuilder(_payload(dec)).build()
+    prs.save(out)
+    return prs
+
+
+@pytest.mark.parametrize("leader_pct", [
+    87.5,
+    pytest.param(100.0, marks=pytest.mark.xfail(strict=True, reason=(
+        "Открыто (s50): «100.0%» – 6 знаков, проверка переполнения не считает его "
+        "декором (DECOR_MAX_LEN = 5) и видит наезд оценки высоты строки на подпись "
+        "под числом на 0.2\". Сторож не ослабляется, решение – за ведущим."))),
+])
+def test_pptx_big_number_with_decimal_fits(leader_pct, tmp_path):
+    """Крупное число доли лидера с одной десятой («87.5%», крайний «100.0%»)
+    шире целого и при кегле 140 уходило второй строкой за низ слайда. Проверка
+    переполнения – целиком, без фильтров."""
+    from aurora_pptx.check_overflow import check
     out = str(tmp_path / "deck.pptx")
-    AuroraPPTXBuilder(_payload(dec)).build().save(out)
+    _deck_two_channels(leader_pct, out)
     issues, _ = check(out)
-    if len(f"{leader_pct:.1f}%") > 5:
-        # Проверка считает крупное число до 5 знаков декором (DECOR_MAX_LEN) и не
-        # сверяет его с подписью под ним; «100.0%» — 6 знаков, и её оценка высоты
-        # строки (с межстрочным запасом) задевает подпись на 0.2" при любом кегле —
-        # та же геометрия, что у всех крупных чисел колоды. Здесь важен перенос
-        # числа за низ слайда — его и сверяем.
-        issues = [i for i in issues if i[1] == "OVERFLOW"]
     assert issues == [], "\n".join(f"слайд {s}: [{k}] {d}" for s, k, d in issues)
+
+
+def test_pptx_big_number_100_stays_one_line(tmp_path):
+    """Крайний случай «100.0%»: само число – в одну строку своего бокса (кегль
+    ужимается), а не переносом за низ слайда. Мерка – та же, что у проверки
+    переполнения (text_metrics)."""
+    from aurora_pptx import text_metrics as TM
+    prs = _deck_two_channels(100.0, str(tmp_path / "deck.pptx"))
+    shapes = [sh for slide in prs.slides for sh in slide.shapes
+              if sh.has_text_frame and sh.text_frame.text.strip() == "100.0%"]
+    assert shapes, "крупное число «100.0%» не найдено в колоде"
+    for sh in shapes:
+        run = sh.text_frame.paragraphs[0].runs[0]
+        size_pt = run.font.size.pt
+        lines = TM.wrap_lines("100.0%", int(sh.width), size_pt, font_name=run.font.name or "Georgia")
+        assert lines == 1, f"«100.0%» кеглем {size_pt} в боксе {sh.width / 914400:.2f}\" – строк {lines}"
 
 
 # ─── Счётчик крупного числа в браузере ────────────────────────────────────────
