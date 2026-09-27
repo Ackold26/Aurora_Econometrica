@@ -1,0 +1,2546 @@
+diff --git a/sidecar/econometrica/aurora_html/interactive.py b/sidecar/econometrica/aurora_html/interactive.py
+index 963ac396..0ea7595b 100644
+--- a/sidecar/econometrica/aurora_html/interactive.py
++++ b/sidecar/econometrica/aurora_html/interactive.py
+@@ -1048,19 +1048,41 @@ def bootstrap_js(
+         var chartId = btn.getAttribute('data-copy-chart');
+         var chart = AURORA_CHARTS[chartId];
+         if (!chart) {{ toast('График не готов'); return; }}
+-        // Хосты инициализированы renderer:'svg' (initChart/initChartFromHost
+-        // выше) - у SVG-рендерера getDataURL() ЦЕЛИКОМ игнорирует свои же
+-        // опции (getSvgDataURL() внутри echarts.common не принимает
+-        // аргументов вовсе - проверено на собранном отчёте: backgroundColor,
+-        // переданный сюда, не попадал в SVG, корневой rect оставался
+-        // fill="none"). Фон нужно на секунду вписать в OPTION самого
+-        // графика - тогда echarts нарисует его реальным <rect> внутри SVG -
+-        // и вернуть обратно сразу после экспорта, не оставляя графику
+-        // постоянного backgroundColor.
+-        var prevBg = chart.getOption().backgroundColor;
+-        chart.setOption({{ backgroundColor: currentSurfaceColor() }}, false);
+-        var url = chart.getDataURL({{ type: 'png', pixelRatio: 2 }});
+-        chart.setOption({{ backgroundColor: prevBg || 'transparent' }}, false);
++        // 🔴 s48 (аудит, доказано первыми байтами файла): хосты инициализированы
++        // renderer:'svg' (initChart/initChartFromHost выше), а у SVG-рендерера
++        // echarts 5.5.1 getDataURL() ЦЕЛИКОМ игнорирует свои опции - вызывает
++        // getSvgDataURL(), который параметров не принимает вовсе. Кнопка
++        // обещает PNG, а отдавала файл `<chart>-aurora.png`, внутри которого
++        // лежал `<svg …>` - открыть штатным просмотрщиком или вставить в
++        // PowerPoint/Word как картинку было нельзя.
++        //
++        // Растровый экспорт живого SVG-графика не переключаем: renderer:'svg'
++        // у хоста в отчёте оставлен нарочно (чёткость подписей при печати
++        // HTML в PDF и при любом зуме) - трогать его означало бы менять то,
++        // что видит клиент в самом отчёте, ради кнопки экспорта. Вместо этого
++        // ТОЛЬКО для выгрузки поднимаем офф-скрин canvas-инстанс той же
++        // option/размера - у canvas-рендерера getDataURL() честно рисует
++        // растр и уважает type/pixelRatio/backgroundColor. Живой SVG-график
++        // не трогается и не мигает.
++        var host = chart.getDom();
++        var w = host.clientWidth || host.offsetWidth || 600;
++        var h = host.clientHeight || host.offsetHeight || 400;
++        var offscreen = document.createElement('div');
++        offscreen.style.cssText = 'position:fixed;left:-99999px;top:0;width:' + w + 'px;height:' + h + 'px;pointer-events:none;';
++        document.body.appendChild(offscreen);
++        var exportChart = null;
++        var url = null;
++        try {{
++          exportChart = echarts.init(offscreen, null, {{ renderer: 'canvas', width: w, height: h }});
++          var opt = chart.getOption();
++          opt.backgroundColor = currentSurfaceColor();
++          exportChart.setOption(opt, true);
++          url = exportChart.getDataURL({{ type: 'png', pixelRatio: 2, backgroundColor: currentSurfaceColor() }});
++        }} finally {{
++          if (exportChart) exportChart.dispose();
++          document.body.removeChild(offscreen);
++        }}
++        if (!url) {{ toast('Не удалось собрать PNG'); return; }}
+         // Download via anchor
+         var a = document.createElement('a');
+         a.href = url;
+diff --git a/sidecar/econometrica/aurora_html/sections.py b/sidecar/econometrica/aurora_html/sections.py
+index a00b388e..df04296d 100644
+--- a/sidecar/econometrica/aurora_html/sections.py
++++ b/sidecar/econometrica/aurora_html/sections.py
+@@ -638,7 +638,7 @@ def render_executive_summary(ctx: dict) -> str:
+         bd_contrib_pct = facts.get("budget_dominator_contrib_pct") or 0.0
+         # s47: стороны переброски — только через общее правило (см. сводку и
+         # рекомендацию: три места одного отчёта обязаны называть один источник).
+-        from utils.optimizer_honesty import reallocation_subjects
++        from utils.optimizer_honesty import reallocation_subjects, format_realloc_mln
+         subjects = reallocation_subjects(facts)
+         cut_source = subjects["cut_source"]
+         scale_dest = subjects["scale_destination"]
+@@ -730,22 +730,22 @@ def render_executive_summary(ctx: dict) -> str:
+             if cut_source and scale_dest:
+                 if has_extra_underperf:
+                     answer = scqar["answer"]["template"].format(
+-                        realloc=realloc, cut_source=cut_source,
++                        realloc=format_realloc_mln(realloc), cut_source=cut_source,
+                         scale_destination=scale_dest, underperf=underperf,
+                     )
+                 else:
+                     # Без underperf clause - основная часть только
+                     answer = (
+-                        f"Перебалансировать {realloc:.0f} млн ₽ из {cut_source} "
++                        f"Перебалансировать {format_realloc_mln(realloc)} млн ₽ из {cut_source} "
+                         f"в {scale_dest}."
+                     )
+             elif scale_dest:  # no Cut signal but Scale opportunity exists
+                 answer = scqar.get("answer_no_cut", {}).get("template", scqar["answer"]["template"]).format(
+-                    realloc=realloc, scale_destination=scale_dest,
++                    realloc=format_realloc_mln(realloc), scale_destination=scale_dest,
+                 )
+             else:  # cut_source present but no Scale destination
+                 answer = scqar.get("answer_no_scale", {}).get("template", scqar["answer"]["template"]).format(
+-                    realloc=realloc, cut_source=cut_source,
++                    realloc=format_realloc_mln(realloc), cut_source=cut_source,
+                 )
+             # v1.3.2 audit fix (M2): scqar.recommendation template = «Ожидаемый
+             # прирост ROAS: +N пп». Для non-monetary modes слово «ROAS» leak.
+@@ -895,7 +895,7 @@ def render_at_a_glance(ctx: dict) -> str:
+         lift = facts.get("expected_lift_pct") or 0
+         binding = bool(facts.get("binding_constraints"))
+         # s47: стороны переброски — из общего правила, не из локальной эвристики.
+-        from utils.optimizer_honesty import reallocation_subjects
++        from utils.optimizer_honesty import reallocation_subjects, format_realloc_mln
+         subjects = reallocation_subjects(facts)
+         # v1.3.2 audit fix (M1): для effectiveness mode «all below breakeven»
+         # семантически unapplicable (shares always sum to 100%, threshold
+@@ -932,16 +932,16 @@ def render_at_a_glance(ctx: dict) -> str:
+             tpl = strings["findings_templates"]
+             if subjects["kind"] == "rebalance":
+                 f3 = tpl["f3_realloc"].format(
+-                    realloc=subjects["amount_mln"],
++                    realloc=format_realloc_mln(subjects["amount_mln"]),
+                     cut_source=subjects["cut_source"],
+                     scale_destination=subjects["scale_destination"])
+             elif subjects["kind"] == "scale_only":
+                 f3 = tpl["f3_realloc_no_cut"].format(
+-                    realloc=subjects["amount_mln"],
++                    realloc=format_realloc_mln(subjects["amount_mln"]),
+                     scale_destination=subjects["scale_destination"])
+             else:  # cut_only
+                 f3 = tpl["f3_realloc_no_scale"].format(
+-                    realloc=subjects["amount_mln"],
++                    realloc=format_realloc_mln(subjects["amount_mln"]),
+                     cut_source=subjects["cut_source"])
+             # Пласт 2 (2026-07-11): KPI-aware — для count/effectiveness «ROAS» не применим.
+             if kpi["is_legacy"]:
+@@ -1569,7 +1569,7 @@ def render_recommendation(ctx: dict) -> str:
+         lift = facts.get("expected_lift_pct")
+         underperf = [c.get("name") for c in channels if c.get("verdict") == "Cut"]
+         # s47: те же стороны переброски, что у сводки и резюме — одно правило.
+-        from utils.optimizer_honesty import reallocation_subjects
++        from utils.optimizer_honesty import reallocation_subjects, format_realloc_mln
+         subjects = reallocation_subjects(facts)
+         binding = bool(facts.get("binding_constraints"))
+         converged = facts.get("optimization_converged", True)
+@@ -1615,7 +1615,7 @@ def render_recommendation(ctx: dict) -> str:
+             # = biggest grow recommendation. Avoids «из Performance в Social»
+             # когда Performance - small-budget сhannel.
+             action_01_text = (
+-                f"{subjects['amount_mln']:.0f} млн ₽ из {subjects['cut_source']} "
++                f"{format_realloc_mln(subjects['amount_mln'])} млн ₽ из {subjects['cut_source']} "
+                 f"в {subjects['scale_destination']}. "
+                 "Остаточный эффект компенсирует краткосрочный спад охвата."
+             )
+@@ -1626,12 +1626,12 @@ def render_recommendation(ctx: dict) -> str:
+             # трогал, — и спорила с резюме того же отчёта. Промолчать про «из»
+             # честнее, чем назвать неверный канал: говорим только про получателя.
+             action_01_text = (
+-                f"Нарастить {subjects['scale_destination']} на ~{subjects['amount_mln']:.0f} млн ₽ – "
++                f"Нарастить {subjects['scale_destination']} на ~{format_realloc_mln(subjects['amount_mln'])} млн ₽ – "
+                 "за счёт переноса бюджета или дополнительных средств."
+             )
+         elif subjects["kind"] == "cut_only":
+             action_01_text = (
+-                f"Сократить {subjects['cut_source']} ({subjects['amount_mln']:.0f} млн ₽) – "
++                f"Сократить {subjects['cut_source']} ({format_realloc_mln(subjects['amount_mln'])} млн ₽) – "
+                 "текущая аллокация неэффективна. Явного канала для роста нет – "
+                 "рассмотрите расширение медиа-микса."
+             )
+diff --git a/sidecar/econometrica/aurora_html/strings_ru.json b/sidecar/econometrica/aurora_html/strings_ru.json
+index 390e6442..a4765460 100644
+--- a/sidecar/econometrica/aurora_html/strings_ru.json
++++ b/sidecar/econometrica/aurora_html/strings_ru.json
+@@ -102,15 +102,15 @@
+     },
+     "answer": {
+       "label": "ОТВЕТ",
+-      "template": "Перебалансировать {realloc:.0f} млн ₽ из {cut_source} в {scale_destination}; сократить или остановить {underperf}."
++      "template": "Перебалансировать {realloc} млн ₽ из {cut_source} в {scale_destination}; сократить или остановить {underperf}."
+     },
+     "answer_no_cut": {
+       "label": "ОТВЕТ",
+-      "template": "Нарастить {scale_destination} на ~{realloc:.0f} млн ₽ за счёт переноса бюджета или дополнительных средств."
++      "template": "Нарастить {scale_destination} на ~{realloc} млн ₽ за счёт переноса бюджета или дополнительных средств."
+     },
+     "answer_no_scale": {
+       "label": "ОТВЕТ",
+-      "template": "Сократить {cut_source} ({realloc:.0f} млн ₽) – текущая аллокация неэффективна. Нет явного канала для роста – рассмотрите расширение медиа-микса."
++      "template": "Сократить {cut_source} ({realloc} млн ₽) – текущая аллокация неэффективна. Нет явного канала для роста – рассмотрите расширение медиа-микса."
+     },
+     "answer_all_hold": {
+       "label": "ОТВЕТ",
+@@ -130,9 +130,9 @@
+     "f1_leader_support": "ROI {weighted_roi:.1f}× средневзвешенный по каналам",
+     "f2_hero": "{hero} – самый эффективный канал с mROAS {hero_mroas:.1f}×",
+     "f2_hero_support": "Текущий бюджет на нём {hero_spend_pct_fmt}",
+-    "f3_realloc": "Рекомендация: перераспределить {realloc:.0f} млн ₽ из {cut_source} в {scale_destination}",
+-    "f3_realloc_no_cut": "Рекомендация: нарастить {scale_destination} на ~{realloc:.0f} млн ₽",
+-    "f3_realloc_no_scale": "Рекомендация: сократить {cut_source} ({realloc:.0f} млн ₽) – текущая аллокация неэффективна",
++    "f3_realloc": "Рекомендация: перераспределить {realloc} млн ₽ из {cut_source} в {scale_destination}",
++    "f3_realloc_no_cut": "Рекомендация: нарастить {scale_destination} на ~{realloc} млн ₽",
++    "f3_realloc_no_scale": "Рекомендация: сократить {cut_source} ({realloc} млн ₽) – текущая аллокация неэффективна",
+     "f3_realloc_support": "Ожидаемый прирост ROAS: +{lift:.1f} пп",
+     "f3_keep": "Рекомендация: сохранить текущую аллокацию по лидеру портфеля",
+     "f3_keep_support": "Портфель близок к оптимуму по текущим данным",
+diff --git a/sidecar/econometrica/aurora_pptx/builder.py b/sidecar/econometrica/aurora_pptx/builder.py
+index 4d9a31ba..690a3a1f 100644
+--- a/sidecar/econometrica/aurora_pptx/builder.py
++++ b/sidecar/econometrica/aurora_pptx/builder.py
+@@ -2872,7 +2872,7 @@ class AuroraPPTXBuilder:
+             # колоды на суммах 0,5-1 млн (Projects/THRESHOLDS_s48.md). Вызов
+             # поднят выше «B1-fix R-13» ниже — она тоже читает эту же оценку
+             # значимости вместо своего отдельного литерала.
+-            from utils.optimizer_honesty import reallocation_subjects
++            from utils.optimizer_honesty import reallocation_subjects, format_realloc_mln
+             _scqar_subjects = reallocation_subjects(f)
+             cut_source = _scqar_subjects["cut_source"]
+             scale_dest = _scqar_subjects["scale_destination"]
+@@ -2911,11 +2911,11 @@ class AuroraPPTXBuilder:
+                 # что уже проверена reallocation_subjects выше; раньше здесь
+                 # стояло отдельное сравнение `realloc >= 1` тремя литералами.
+                 if _scqar_subjects["kind"] == "rebalance":
+-                    answer_parts.append(f"Перераспределить {realloc:.0f} млн ₽ из {cut_source} в {scale_dest}")
++                    answer_parts.append(f"Перераспределить {format_realloc_mln(realloc)} млн ₽ из {cut_source} в {scale_dest}")
+                 elif _scqar_subjects["kind"] == "scale_only":
+-                    answer_parts.append(f"Нарастить {scale_dest} на ~{realloc:.0f} млн ₽")
++                    answer_parts.append(f"Нарастить {scale_dest} на ~{format_realloc_mln(realloc)} млн ₽")
+                 elif _scqar_subjects["kind"] == "cut_only":
+-                    answer_parts.append(f"Сократить {cut_source} ({realloc:.0f} млн ₽)")
++                    answer_parts.append(f"Сократить {cut_source} ({format_realloc_mln(realloc)} млн ₽)")
+                 if underperf:
+                     answer_parts.append(f"остановить {underperf_str}")
+                 answer_body = "; ".join(answer_parts) + "." if answer_parts else f"Сохранить текущую аллокацию по {leader} с контролем насыщения."
+@@ -2999,19 +2999,19 @@ class AuroraPPTXBuilder:
+                     # s47: тот же узел выбора сторон, что у сводки и SCQAR.
+                     # s48: и тот же порог значимости суммы (был свой, 1 млн —
+                     # см. Projects/THRESHOLDS_s48.md).
+-                    from utils.optimizer_honesty import reallocation_subjects
++                    from utils.optimizer_honesty import reallocation_subjects, format_realloc_mln
+                     _rec_subjects = reallocation_subjects(f)
+                     cut_source = _rec_subjects["cut_source"]
+                     scale_dest = _rec_subjects["scale_destination"]
+ 
+                     if _rec_subjects["kind"] == "rebalance":
+                         action_01_body = (
+-                            f" {realloc:.0f} млн ₽ из {cut_source} в {scale_dest}. "
++                            f" {format_realloc_mln(realloc)} млн ₽ из {cut_source} в {scale_dest}. "
+                             "Отложенный эффект (adstock) компенсирует краткосрочный спад охвата."
+                         )
+                     elif _rec_subjects["kind"] == "scale_only":
+                         action_01_body = (
+-                            f" Нарастить {scale_dest} на ~{realloc:.0f} млн ₽ – "  # П8-1
++                            f" Нарастить {scale_dest} на ~{format_realloc_mln(realloc)} млн ₽ – "  # П8-1
+                             "за счёт roll-over бюджета или дополнительных средств."
+                         )
+                     elif _rec_subjects["kind"] == "cut_only":
+@@ -3020,7 +3020,7 @@ class AuroraPPTXBuilder:
+                         # которого оптимизатор не режет. Убрана: когда сторон нет,
+                         # колода молчит про переброску, а не выдумывает источник.
+                         action_01_body = (
+-                            f" Сократить {cut_source} ({realloc:.0f} млн ₽) – "  # П8-1
++                            f" Сократить {cut_source} ({format_realloc_mln(realloc)} млн ₽) – "  # П8-1
+                             "текущая аллокация неэффективна."
+                         )
+                     else:
+diff --git a/sidecar/econometrica/engines/narrative_adapter.py b/sidecar/econometrica/engines/narrative_adapter.py
+index fe99d9ba..2cfc4cf6 100644
+--- a/sidecar/econometrica/engines/narrative_adapter.py
++++ b/sidecar/econometrica/engines/narrative_adapter.py
+@@ -534,7 +534,7 @@ def derive_action_headline(
+     # `reallocation_subjects` с порогом 0,5 — на сумме 0,5-1 млн заголовок слайда
+     # молчал о переброске, которую другой слайд той же колоды уже назвал. Порог
+     # значимости суммы теперь один на всю программу — `SIGNIFICANT_REALLOCATION_MLN`.
+-    from utils.optimizer_honesty import reallocation_subjects
++    from utils.optimizer_honesty import reallocation_subjects, format_realloc_mln
+     subjects = reallocation_subjects(facts)
+     cut_source = subjects["cut_source"]
+     scale_dest = subjects["scale_destination"]
+@@ -627,15 +627,15 @@ def derive_action_headline(
+             if subjects["kind"] == "rebalance":
+                 if has_lift:
+                     # Rebalance scenario - quantified reallocation
+-                    return f"Перераспределить {realloc:.0f} млн руб в {scale_dest} - {lift_txt}"
++                    return f"Перераспределить {format_realloc_mln(realloc)} млн руб в {scale_dest} - {lift_txt}"
+                 # Rebalance без верного lift - action без числа прироста
+-                return f"Перераспределить {realloc:.0f} млн руб из {cut_source} в {scale_dest}"
++                return f"Перераспределить {format_realloc_mln(realloc)} млн руб из {cut_source} в {scale_dest}"
+             if subjects["kind"] == "scale_only":
+                 # Источник не определён — про «из» молчим, обещаем только рост.
+                 _tail = f" - {lift_txt}" if has_lift else ""
+-                return f"Перераспределить {realloc:.0f} млн руб в {scale_dest}{_tail}"
++                return f"Перераспределить {format_realloc_mln(realloc)} млн руб в {scale_dest}{_tail}"
+             _tail = f" - {lift_txt}" if has_lift else ""
+-            return f"Сократить {cut_source} ({realloc:.0f} млн руб){_tail}"
++            return f"Сократить {cut_source} ({format_realloc_mln(realloc)} млн руб){_tail}"
+         # B1-fix R-14: «сбалансирован» при неопределённых вердиктах — не то же
+         # самое; сначала снять неопределённость, потом перераспределять.
+         _uncertain_n = sum(1 for c in channels if c.get("verdict") == "Uncertain")
+diff --git a/sidecar/econometrica/tests/test_html_chart_export_contrast.py b/sidecar/econometrica/tests/test_html_chart_export_contrast.py
+index 951d1271..b4ed0028 100644
+--- a/sidecar/econometrica/tests/test_html_chart_export_contrast.py
++++ b/sidecar/econometrica/tests/test_html_chart_export_contrast.py
+@@ -114,21 +114,36 @@ def test_export_png_регрессия_белый_фон_константой_н
+     )
+ 
+ 
+-def test_export_png_фон_идёт_через_setoption_а_не_через_getdataurl_опцию():
+-    """Регрессия на конкретную граблю: хосты инициализированы renderer:'svg'
+-    (initChart/initChartFromHost), а у SVG-рендерера getDataURL() полностью
+-    игнорирует свои опции (проверено на живом отчёте: backgroundColor в
+-    getDataURL() не долетал до SVG). Фон обязан идти через chart.setOption()
+-    ДО getDataURL(), иначе фикс контраста молча ничего не чинит."""
++def test_export_png_рисует_растр_офф_скрин_canvas_а_не_мутирует_живой_svg_график():
++    """s48, вторая находка (14.09.2026, аудит): у SVG-рендерера getDataURL()
++    ЦЕЛИКОМ игнорирует свои опции — `type:'png'` тоже, не только backgroundColor
++    (`getSvgDataURL()` внутри echarts.common параметров не принимает вовсе).
++    Кнопка «Сохранить PNG» отдавала файл `<chart>-aurora.png`, внутри которого
++    лежал `<svg …>` (доказано первыми байтами файла на живом отчёте — не
++    открывается штатным просмотрщиком и не вставляется в PowerPoint/Word).
++
++    Правка не переключает renderer живых хостов на canvas (renderer:'svg'
++    оставлен нарочно — чёткость подписей при печати HTML в PDF/зуме, тот же
++    выбор, что и раньше). ТОЛЬКО для выгрузки поднимается офф-скрин
++    canvas-инстанс той же option/размера — у canvas-рендерера getDataURL()
++    честно рисует растр и уважает свои опции (type/pixelRatio/backgroundColor).
++    Живой SVG-график `chart` при этом НЕ мутируется (setOption не зовётся на
++    самом `chart` — раньше именно так временно навязывался фон и была
++    возможность гонки/мигания при повторном клике)."""
+     js = _js()
+     assert "renderer: 'svg'" in js, "хосты уже не renderer:'svg' - проверка выше устарела"
+     fn = js.split("function setupCopyPng", 1)[1].split("function ", 1)[0]
+-    assert re.search(r"setOption\(\{\s*backgroundColor:\s*currentSurfaceColor\(\)", fn), (
+-        "фон экспорта не выставлен через chart.setOption() перед getDataURL()"
++    assert re.search(r"renderer:\s*'canvas'", fn), (
++        "выгрузка не поднимает офф-скрин canvas-инстанс - у svg-рендерера getDataURL() не даст растра"
+     )
+-    assert not re.search(r"getDataURL\(\{[^}]*backgroundColor", fn), (
+-        "backgroundColor передан аргументом в getDataURL() - у svg-рендерера он там молча игнорируется"
++    assert re.search(r"type:\s*'png'", fn), "экспорт не просит PNG у офф-скрин инстанса"
++    assert not re.search(r"\bchart\.setOption\(", fn), (
++        "живой SVG-график мутируется ради экспорта - фон должен идти через отдельный canvas-инстанс"
+     )
++    assert re.search(r"backgroundColor:\s*currentSurfaceColor\(\)", fn), (
++        "фон экспорта не читает --surface текущей темы"
++    )
++    assert re.search(r"\.dispose\(\)", fn), "офф-скрин canvas-инстанс не освобождается после экспорта"
+ 
+ 
+ def test_currentsurfacecolor_читает_css_переменную_surface():
+diff --git a/sidecar/econometrica/tests/test_html_datalabel_contrast.py b/sidecar/econometrica/tests/test_html_datalabel_contrast.py
+index 104b8a39..9622c991 100644
+--- a/sidecar/econometrica/tests/test_html_datalabel_contrast.py
++++ b/sidecar/econometrica/tests/test_html_datalabel_contrast.py
+@@ -22,11 +22,26 @@ Projects/PULSE_s48_datalabels.md) держал цвет подписи внут
+ файла токенов (aurora_html_tokens.js — тот же файл, что подключает браузер),
+ поэтому тест ловит и будущий ребрендинг палитры, если новый hero/muted-бар
+ снова окажется недостаточно контрастным с выбранным полюсом чёрный/белый.
++
++🔴 Аудит s48 (14.09.2026): до этой правки проверка порога считала выбор цвета
++питон-портом `_label_color_for_fill()` — переписанной вручную копией логики
++`labelColorForFill()`, а не самим отгружаемым JS. Мутация «тело
++`labelColorForFill()` в interactive.py заменено на `return '#FFFFFF';`»
++(имя функции, `relLuminance`, порог 0.179 в комментарии остались нетронуты)
++оставляла все 17 тестов этого файла зелёными — порт продолжал считать
++правильно, а клиенту уехал бы код, всегда возвращающий белый. Теперь
++`_label_color_for_fill_real()` вырезает ТЕКСТ функций `relLuminance` и
++`labelColorForFill` из реально сгенерированного бандла (`bootstrap_js()`,
++тот же вызов, что кладёт HTML в отчёт клиента) и исполняет его в Node —
++мутация тела функции меняет то, что видит проверка (доказано мутацией,
++см. отчёт: без Node тест skip, не false-green).
+ """
+ from __future__ import annotations
+ 
+ import json
+ import re
++import shutil
++import subprocess
+ from pathlib import Path
+ 
+ import pytest
+@@ -70,22 +85,65 @@ def _contrast(hex_a: str, hex_b: str) -> float:
+     return (lighter + 0.05) / (darker + 0.05)
+ 
+ 
+-def _label_color_for_fill(fill_hex: str, dark_ink: str) -> str:
+-    """Портирует ровно ту же логику выбора, что labelColorForFill() в JS."""
+-    return dark_ink if _rel_luminance(fill_hex) > _LUMINANCE_THRESHOLD else "#FFFFFF"
++def _extract_js_function(js: str, name: str) -> str:
++    """Вырезает ТЕКСТ функции `name` из реально сгенерированного бандла —
++    от `function name(` до закрывающей фигурной скобки тела (баланс скобок,
++    не regex до первого `}`, тело содержит вложенные `{}`)."""
++    marker = f"function {name}("
++    start = js.index(marker)
++    brace_start = js.index("{", start)
++    depth = 0
++    i = brace_start
++    while i < len(js):
++        if js[i] == "{":
++            depth += 1
++        elif js[i] == "}":
++            depth -= 1
++            if depth == 0:
++                return js[start:i + 1]
++        i += 1
++    raise AssertionError(f"не нашёл закрывающую скобку функции {name!r}")
++
++
++def _label_color_for_fill_real(fill_hexes: list[str]) -> list[str]:
++    """Зовёт РЕАЛЬНЫЙ отгружаемый JS (`relLuminance`/`labelColorForFill`,
++    вырезанные из bootstrap_js() — того же вызова, что кладёт HTML в отчёт
++    клиента), а не питон-переписку его логики. Мутация тела функции меняет
++    то, что видит эта проверка — питон-порт был бы слеп к ней (доказано
++    аудитом s48: подмена тела на `return '#FFFFFF';` оставляла порт зелёным).
++    """
++    node = shutil.which("node")
++    if not node:
++        pytest.skip("node не найден в PATH - нечем исполнить отгружаемый JS напрямую")
++    js = _js()
++    real_rel_luminance = _extract_js_function(js, "relLuminance")
++    real_label_color_for_fill = _extract_js_function(js, "labelColorForFill")
++    script = (
++        f"{real_rel_luminance}\n{real_label_color_for_fill}\n"
++        f"global.window = {{ AURORA_THEMES: {json.dumps(PALETTES)} }};\n"
++        f"var fills = {json.dumps(fill_hexes)};\n"
++        "console.log(JSON.stringify(fills.map(labelColorForFill)));\n"
++    )
++    proc = subprocess.run(
++        [node, "-e", script], capture_output=True, text=True, timeout=15,
++    )
++    assert proc.returncode == 0, f"node упал при исполнении отгружаемого JS: {proc.stderr}"
++    return json.loads(proc.stdout)
+ 
+ 
+ PALETTES = _load_theme_palettes()
+-DARK_INK = PALETTES["light"]["textColor"]
+ 
+ 
+ @pytest.mark.parametrize("theme", sorted(PALETTES.keys()))
+ @pytest.mark.parametrize("fill_key", ["heroColor", "mutedColor"])
+ def test_inside_bar_label_color_проходит_wcag_4_5_на_реальной_заливке(theme, fill_key):
+     """Подпись ВНУТРИ заливки серии (insideBottom, buildForecastCompareOption)
+-    должна читаться поверх фактического hero/muted-бара своей темы."""
++    должна читаться поверх фактического hero/muted-бара своей темы.
++
++    Цвет берёт не питон-порт, а реально отгружаемый JS (`_label_color_for_fill_real`) —
++    иначе подмена тела `labelColorForFill()` в бандле проходит незамеченной."""
+     fill = PALETTES[theme][fill_key]
+-    chosen = _label_color_for_fill(fill, DARK_INK)
++    chosen = _label_color_for_fill_real([fill])[0]
+     contrast = _contrast(chosen, fill)
+     assert contrast >= _MIN_CONTRAST, (
+         f"тема={theme} заливка={fill_key}={fill} выбран текст={chosen} "
+diff --git a/sidecar/econometrica/tests/test_reallocation_threshold_single_source.py b/sidecar/econometrica/tests/test_reallocation_threshold_single_source.py
+index 8640d964..03529732 100644
+--- a/sidecar/econometrica/tests/test_reallocation_threshold_single_source.py
++++ b/sidecar/econometrica/tests/test_reallocation_threshold_single_source.py
+@@ -157,6 +157,26 @@ def _pptx_slide_text(prs, index: int) -> str:
+     return re.sub(r"\s+", " ", "\n".join(parts))
+ 
+ 
++# 🔴 Аудит s48 (14.09.2026): слайд SCQAR печатает пять независимых блоков
++# (СИТУАЦИЯ/ПРОБЛЕМА/ВОПРОС/ОТВЕТ/РЕКОМЕНДАЦИИ) как отдельные текст-шейпы —
++# label и тело у каждого блока свой шейп (проверено зондом: builder.py кладёт
++# их `self._text(...)` по одному). Мутация «вернуть гейт `and realloc >= 1` в
++# ветку ОТВЕТА» откатывает именно блок ОТВЕТ на «Сохранить аллокацию», но блок
++# РЕКОМЕНДАЦИИ считает значимость ОТДЕЛЬНЫМ вызовом `reallocation_subjects`
++# (`_rec_subjects`, не задетым этой мутацией) и продолжает называть cut_source.
++# `_pptx_slide_text` склеивал оба блока в одну строку, поэтому находка
++# «упомянут cut_source» из РЕКОМЕНДАЦИЙ маскировала молчание ОТВЕТА. Читаем
++# ТОЛЬКО блок ОТВЕТ — тело text-шейпа, идущего сразу за шейпом с текстом-меткой.
++def _pptx_block_body(prs, index: int, label: str) -> str:
++    texts = [shape.text_frame.text for shape in prs.slides[index].shapes if shape.has_text_frame]
++    for i, t in enumerate(texts):
++        if t.strip() == label:
++            if i + 1 < len(texts):
++                return texts[i + 1]
++            raise AssertionError(f"у блока {label!r} на слайде {index} нет тела")
++    raise AssertionError(f"блок {label!r} не найден на слайде {index} (шейпы: {texts})")
++
++
+ # 🔴 Уточнение разведки s48 (по факту первого прогона этого теста): из четырёх
+ # заголовков `derive_action_headline` порог значимости переброски реально влияет
+ # на ТЕКСТ только двух — "mroas" (называет cut_source, только если он есть) и
+@@ -201,8 +221,14 @@ def test_reallocation_significance_agrees_everywhere_in_the_gap_zone():
+             _names_cut_source(_plain(render_recommendation(ctx))),
+         "PPTX: слайд «Главное», Finding 3":
+             _names_cut_source(_pptx_slide_text(prs, _SLIDE_AT_A_GLANCE)),
+-        "PPTX: слайд SCQAR (ПРОБЛЕМА/ОТВЕТ/РЕКОМЕНДАЦИИ)":
+-            _names_cut_source(_pptx_slide_text(prs, _SLIDE_SCQAR)),
++        # 🔴 s48: было — весь слайд SCQAR целиком (ПРОБЛЕМА/ОТВЕТ/РЕКОМЕНДАЦИИ
++        # склеены в одну строку). Блок РЕКОМЕНДАЦИИ считает значимость своим
++        # отдельным вызовом `reallocation_subjects` и продолжает называть
++        # cut_source даже когда регрессия откатила ИМЕННО блок ОТВЕТ на «Сохранить
++        # аллокацию» — слайд целиком маскировал это молчание. Читаем только тело
++        # блока ОТВЕТ, который и обязан отвечать на вопрос значимости.
++        "PPTX: слайд SCQAR, блок ОТВЕТ":
++            _names_cut_source(_pptx_block_body(prs, _SLIDE_SCQAR, "ОТВЕТ")),
+     }
+     for hint in _SIGNIFICANCE_HINTS:
+         headline = derive_action_headline(_channels(), _facts(), hint) or ""
+@@ -215,6 +241,30 @@ def test_reallocation_significance_agrees_everywhere_in_the_gap_zone():
+         + "\n".join(f"  {'значима' if v else 'НЕ значима':<12} — {k}"
+                      for k, v in places.items())
+     )
++    # 🔴 s48: прежняя версия теста стерегла только СОГЛАСОВАННОСТЬ мест между
++    # собой, не саму величину порога — мутация `SIGNIFICANT_REALLOCATION_MLN =
++    # 100.0` оставляла все места согласны молчать про переброску (0,7 < 100
++    # везде), `len(verdicts) == 1` был доволен. 0,7 млн ₽ выше действующего
++    # порога значимости (0,5) — документ ОБЯЗАН называть переброску значимой
++    # everywhere, не просто одинаково.
++    assert all(places.values()), (
++        f"На сумме {GAP_AMOUNT_MLN} млн ₽ (выше порога значимости 0,5 млн) "
++        f"документ обязан ВЕЗДЕ называть переброску значимой — молчит здесь:\n"
++        + "\n".join(f"  {'значима' if v else 'НЕ значима':<12} — {k}"
++                     for k, v in places.items())
++    )
++
++
++def test_significant_reallocation_mln_constant_is_half_million():
++    """Прямой якорь на величину порога — не только на его согласованность.
++
++    Поведенческий тест выше доказывает СОГЛАСОВАННОСТЬ порога между местами
++    печати; этот — что сама величина не уехала (мутация константы на 100.0
++    прошла бы поведенческий тест незамеченной, если бы не строка выше, но
++    два независимых сторожа на одну и ту же величину дешевле одного хрупкого).
++    """
++    from utils.optimizer_honesty import SIGNIFICANT_REALLOCATION_MLN
++    assert SIGNIFICANT_REALLOCATION_MLN == 0.5
+ 
+ 
+ # ─── Сторож против возврата литерала мимо единого источника ──────────────────
+@@ -229,8 +279,14 @@ _GUARDED_FILES = (
+ # в обход `_scqar_subjects`/`_rec_subjects`). Разрешённое сравнение —
+ # только внутри самой функции reallocation_subjects (её файл сюда не входит) и
+ # только с именованной константой (не с числовым литералом).
++# 🔴 s48: прежняя версия ловила только `>=` буквально — `realloc > 1` (или
++# `<`, `<=`, `==`, литерал слева: `1 <= realloc`) была эквивалентной записью
++# того же порога в обход общего источника и проходила мимо сторожа зелёной
++# (доказано мутацией). Ловим весь класс операторов сравнения, в обоих
++# порядках операндов.
+ _INLINE_THRESHOLD_RE = re.compile(
+-    r"(?:reallocation_mln|\brealloc\b).{0,20}?>=\s*\d+(?:\.\d+)?"
++    r"(?:reallocation_mln|\brealloc\b).{0,20}?(?:>=|<=|==|>|<)\s*\d+(?:\.\d+)?"
++    r"|\d+(?:\.\d+)?\s*(?:>=|<=|==|>|<).{0,20}?(?:reallocation_mln|\brealloc\b)"
+ )
+ 
+ 
+diff --git a/sidecar/econometrica/utils/optimizer_honesty.py b/sidecar/econometrica/utils/optimizer_honesty.py
+index 0165ec37..042c119c 100644
+--- a/sidecar/econometrica/utils/optimizer_honesty.py
++++ b/sidecar/econometrica/utils/optimizer_honesty.py
+@@ -436,6 +436,37 @@ def stamp_reliability(diagnostics: dict[str, Any]) -> dict[str, Any]:
+ SIGNIFICANT_REALLOCATION_MLN = 0.5
+ 
+ 
++# ─── Формат суммы переброски: единственная функция на всю программу ───────────
++# Дефект s48 (14.09.2026, Projects/AUDIT_s48_external.md): порог значимости
++# свели к 0,5 млн, а все места печати суммы остались с округлением `:.0f` —
++# зона 0,5-1,0 млн, которую раньше отсекал старый порог 1,0 и туда попросту
++# не доходило, теперь печатается абсурдом: 0,5 -> «0 млн» (совет переложить
++# ноль), 0,6 и 0,7 -> «1 млн» (завышение расчёта на 67 %). Один источник
++# формата рядом с порогом значимости — чтобы оба менялись согласованно и
++# новое место печати не смогло завести свой `:.0f`.
++def format_realloc_mln(amount_mln: float) -> str:
++    """Сумма переброски для клиентского текста — без слова «млн» и валюты.
++
++    Правило: до 10 млн — один знак после запятой, но только если он после
++    округления не нулевой (0.5 -> «0,5», 1.4 -> «1,4», но 1.0 -> «1», а не
++    «1,0» — целая сумма переброски встречается чаще дробной, и «1,0» на
++    клиентском экране читается как след округления машины, а не как
++    рекомендация; правка 2026-09-14 по замечанию владельца). От 10 и выше —
++    целое (десятые не читаемы на фоне крупной суммы). Разделитель — запятая
++    (текст русский), не точка.
++    """
++    try:
++        amount = float(amount_mln)
++    except (TypeError, ValueError):
++        amount = 0.0
++    if amount < 10:
++        rounded = round(amount, 1)
++        if rounded == int(rounded):
++            return f"{int(rounded)}"
++        return f"{rounded:.1f}".replace('.', ',')
++    return f"{amount:.0f}"
++
++
+ # ─── Стороны переброски бюджета: единственное правило на всю программу ────────
+ # Дефект s47 (14.09.2026): одна и та же сумма 878 млн ₽ уезжала клиенту трижды с
+ # РАЗНЫМИ источниками — сводка первой страницы говорила «из Онлайн-видео» (лидер
+diff --git a/sidecar/econometrica/version_info.txt b/sidecar/econometrica/version_info.txt
+index 23222a94..0dc53b16 100644
+--- a/sidecar/econometrica/version_info.txt
++++ b/sidecar/econometrica/version_info.txt
+@@ -28,8 +28,8 @@
+ # те же числа в десятичном виде.
+ VSVersionInfo(
+   ffi=FixedFileInfo(
+-    filevers=(2, 5, 3, 0),
+-    prodvers=(2, 5, 3, 0),
++    filevers=(2, 5, 4, 0),
++    prodvers=(2, 5, 4, 0),
+     mask=0x3f,
+     flags=0x0,
+     OS=0x40004,       # VOS_NT_WINDOWS32
+@@ -45,12 +45,12 @@ VSVersionInfo(
+           [
+             StringStruct('CompanyName', 'Aurora Platform LLC'),
+             StringStruct('FileDescription', 'Aurora AI Econometrica — расчётный движок (Marketing Mix Modeling)'),
+-            StringStruct('FileVersion', '2.5.3.0'),
++            StringStruct('FileVersion', '2.5.4.0'),
+             StringStruct('InternalName', 'econometrica-sidecar'),
+             StringStruct('LegalCopyright', '© 2026 Aurora Platform LLC'),
+             StringStruct('OriginalFilename', 'econometrica-sidecar.exe'),
+             StringStruct('ProductName', 'Aurora AI Econometrica Optimizer MMM'),
+-            StringStruct('ProductVersion', '2.5.3.0'),
++            StringStruct('ProductVersion', '2.5.4.0'),
+           ],
+         )
+       ]
+diff --git a/src-tauri/help-econometrica/error-codes.html b/src-tauri/help-econometrica/error-codes.html
+index 7bbc8be2..f6bda0d8 100644
+--- a/src-tauri/help-econometrica/error-codes.html
++++ b/src-tauri/help-econometrica/error-codes.html
+@@ -96,6 +96,7 @@
+ <table class="error-table">
+ <tr><th>Код</th><th>Описание</th><th>Решение</th></tr>
+ <tr><td><code>FB-001</code></td><td>Не удалось отправить отзыв</td><td>Проверьте интернет и попробуйте позже</td></tr>
++<tr><td><code>FB-002</code></td><td>Превышен лимит отправки</td><td>Подождите минуту перед повторной отправкой</td></tr>
+ </table>
+ 
+ <h2>Обращение в поддержку</h2>
+diff --git a/src-tauri/src/commands/brand.rs b/src-tauri/src/commands/brand.rs
+index efaa954e..d70ba0c7 100644
+--- a/src-tauri/src/commands/brand.rs
++++ b/src-tauri/src/commands/brand.rs
+@@ -530,7 +530,11 @@ pub async fn brand_delete(
+         return Err(format!("Brand '{}' not found", brand_id));
+     }
+ 
+-    std::fs::remove_dir_all(&brand_dir).map_err(|e| e.to_string())?;
++    // 🔴 В папке бренда лежат документы, которые загрузил человек, — его материалы, а не
++    // наши служебные файлы. Папка уходит в корзину целиком; отказ возвращается человеку
++    // текстом, и при отказе бренд НЕ считается удалённым (указатель активного не трогаем).
++    crate::soft_delete::soft_delete(&brand_dir)
++        .map_err(|e| format!("Бренд «{brand_id}» не удалён: {e}"))?;
+ 
+     // Clear active if deleted brand was active
+     let active_path = active_brand_file(&dir);
+@@ -610,7 +614,11 @@ pub async fn brand_delete_doc(
+         return Err(format!("Document not found: {}", filename));
+     }
+ 
+-    std::fs::remove_file(&file_path).map_err(|e| e.to_string())?;
++    // 🔴 Документ загрузил человек — уходит в корзину, а не стирается насовсем.
++    // Отказ возвращается ему текстом: при отказе документ остался на месте, и сообщать
++    // о нём в нормативный поиск ниже (как об удалённом) было бы враньём.
++    crate::soft_delete::soft_delete(&file_path)
++        .map_err(|e| format!("Документ «{filename}» не удалён: {e}"))?;
+     info!("Document deleted from brand {}: {}", brand_id, filename);
+ 
+     if rag_available().await {
+diff --git a/src-tauri/src/commands/campaign.rs b/src-tauri/src/commands/campaign.rs
+index c652de65..93770228 100644
+--- a/src-tauri/src/commands/campaign.rs
++++ b/src-tauri/src/commands/campaign.rs
+@@ -339,8 +339,10 @@ pub fn workflow_save(brand_id: String, campaign: Campaign) -> Result<(), String>
+ pub fn workflow_delete(brand_id: String, workflow_id: String) -> Result<(), String> {
+     let brand = if brand_id.is_empty() { "default".to_string() } else { brand_id };
+     let path = campaigns_dir(&brand).join(format!("{workflow_id}.json"));
++    // 🔴 Сценарий кампании собрал человек в окне программы — это его работа, а не
++    // служебный файл. В корзину; отказ возвращается ему текстом.
+     if path.exists() {
+-        std::fs::remove_file(&path).map_err(|e| e.to_string())?;
++        crate::soft_delete::soft_delete(&path).map_err(|e| format!("Сценарий не удалён: {e}"))?;
+     }
+     Ok(())
+ }
+diff --git a/src-tauri/src/commands/user_config.rs b/src-tauri/src/commands/user_config.rs
+index aeeb88ee..998ed672 100644
+--- a/src-tauri/src/commands/user_config.rs
++++ b/src-tauri/src/commands/user_config.rs
+@@ -61,14 +61,26 @@ pub struct UserConfig {
+ }
+ 
+ /// Редакция «Условий ознакомительного использования». Bump (при изменении формулировок
+-/// правовым блоком) → согласие запрашивается повторно. Формат ISO ГГГГ-ММ-ДД — сортируется
+-/// лексикографически, поэтому сравнение строк ниже даёт верный хронологический порядок.
++/// правовым блоком) → согласие запрашивается повторно. Формат ГГГГ-ММ-ДД.НН — дата
++/// правки + двузначный номер редакции ЭТОГО дня, сортируется лексикографически, поэтому
++/// сравнение строк ниже даёт верный хронологический порядок.
+ ///
+-/// 🔴 Дата в тексте чекбокса `TrialConsentOverlay.svelte` (юридически согласованный текст,
+-/// менять нельзя) обязана совпадать с этой константой — расхождение ловит тест
+-/// `trial_terms_revision_matches_frontend_checkbox_text` ниже (в родственном продукте
+-/// линейки разошедшиеся константы фронта и Rust уже были проблемой).
+-pub const TRIAL_TERMS_REVISION: &str = "2026-09-14";
++/// 🔴 s48, 14.09.2026 (второй бамп за сутки): раньше редакция опознавалась ГОЛОЙ датой
++/// (`ГГГГ-ММ-ДД`), а номер в документе не стоял вовсе. Правовой блок поднял в документе
++/// номер до 2, но текст изменился СУЩЕСТВЕННО (срок ознакомления 30→15 дней и другие
++/// пункты) в течение одних тех же суток — голая дата не различает такие версии, и человек,
++/// принявший редакцию 1, остался бы с согласием на документ, которого больше нет, а окно
++/// не поднялось бы никогда (`"2026-09-14" < "2026-09-14"` — ложь). Отсюда номер редакции
++/// ВНУТРИ константы, а не только в тексте для человека. Номер — ИМЕННО двузначный: при
++/// однозначной записи `".10" < ".2"` лексикографически (де­сятая правка read как меньшая
++/// второй) — та же ловушка на новом уровне.
++///
++/// 🔴 Текст чекбокса `TrialConsentOverlay.svelte` (юридически согласованный, менять нельзя)
++/// обязан называть И номер, И дату редакции — этого требует п.10.1 самого документа.
++/// Расхождение с этой константой ловит тест `trial_terms_revision_matches_frontend_checkbox_text`
++/// ниже (в родственном продукте линейки разошедшиеся константы фронта и Rust уже были
++/// проблемой).
++pub const TRIAL_TERMS_REVISION: &str = "2026-09-14.02";
+ 
+ /// Имя PDF-файла условий, поставляемого бандлом рядом со справкой продукта
+ /// (`src-tauri/help-econometrica/`, см. `tauri.conf.json` → `bundle.resources`,
+@@ -76,13 +88,16 @@ pub const TRIAL_TERMS_REVISION: &str = "2026-09-14";
+ /// чтобы имя не разъехалось между ними.
+ pub const TRIAL_TERMS_PDF_FILENAME: &str = "Условия ознакомительного использования.pdf";
+ 
+-/// Имя PDF-файла «Порядок обработки данных — Econometrica», второго обязательного
++/// Имя PDF-файла «Порядок обработки данных - Aurora AI Econometrica», второго обязательного
+ /// документа правового комплекта (см. Business/Projects/СИГНАЛ_сессиям_правовой_комплект_
+ /// 2026-09-14.md). На него ссылаются пункты 6.2, 6.5, 6.8 «Условий»: без него эти пункты
+ /// ведут в пустоту. Поставляется тем же бандлом, что и `TRIAL_TERMS_PDF_FILENAME` —
+ /// `help-econometrica/*` в `tauri.conf.json` уже включает весь каталог маской, отдельная
+ /// строка ресурса не нужна.
+-pub const DATA_PROCESSING_PDF_FILENAME: &str = "Порядок обработки данных — Econometrica.pdf";
++/// 🔴 s48 (2026-09-14): правовой блок переименовал файл (убрал длинное тире из имени -
++/// имя файла - контракт с кодом) - было «... — Econometrica.pdf», стало «... - Aurora AI
++/// Econometrica.pdf» (короткое тире). Синхронизировано с sync_trial_terms.py и манифестом.
++pub const DATA_PROCESSING_PDF_FILENAME: &str = "Порядок обработки данных - Aurora AI Econometrica.pdf";
+ 
+ /// Ключи документов в `tools/trial_terms_manifest.json` (объект `documents`). Общие для
+ /// Rust-сторожа и `tools/sync_trial_terms.py` — расхождение ключа сторож ловит тем же
+@@ -650,6 +665,46 @@ mod tests {
+         let cfg: UserConfig = serde_json::from_str(r#"{"model":"opus"}"#).unwrap();
+         assert!(cfg.trial_consent.is_none());
+     }
++
++    /// 🔴 Сторож монотонности (s48, 14.09.2026, второй бамп за сутки): суть находки этой
++    /// задачи. Прежний формат `TRIAL_TERMS_REVISION` был голой датой - редакция 1 и редакция 2
++    /// поднялись в ОДИН день, и голая дата не различила бы их (человек, принявший прежний
++    /// текст, остался бы согласившимся на документ, которого больше нет). Наивный переход
++    /// на голый номер редакции ("2" вместо даты) воспроизвёл бы ту же дыру зеркально: "2" -
++    /// префикс строки "2026-09-14", а более короткая строка при совпадающем начале МЕНЬШЕ,
++    /// то есть `"2026-09-14" < "2"` дало бы ЛОЖЬ и окно не поднялось бы уже для старого
++    /// боевого значения. Список ниже перебирает несколько прошлых значений - не одно, как
++    /// раньше `trial_consent_shows_again_when_saved_revision_is_outdated` - потому что именно
++    /// перечень доказывает монотонность, а не единичный частный случай.
++    ///
++    /// Ось мутации: заменить `TRIAL_TERMS_REVISION` на голый номер ("2") без даты, или на
++    /// дату без номера ("2026-09-14") - оба варианта красят этот тест (первый - на прежнем
++    /// боевом значении "2026-09-14" в списке, второй - тем, что сравнение снова не различает
++    /// редакции одного дня).
++    #[test]
++    fn trial_consent_revision_monotonicity_across_past_values() {
++        let past_revisions = ["2026-09-14", "2025-01-01", ""];
++        for past in past_revisions {
++            let c = Some(TrialConsent { revision: past.to_string(), accepted_at: 1 });
++            assert!(
++                trial_consent_outdated(&c),
++                "согласие на прошлую редакцию {past:?} обязано считаться устаревшим против \
++                 текущей TRIAL_TERMS_REVISION = {TRIAL_TERMS_REVISION} - иначе принявшие её \
++                 люди никогда не увидят новое окно"
++            );
++        }
++
++        // Обратное: согласие на ТЕКУЩУЮ редакцию не должно снова поднимать окно.
++        let current = Some(TrialConsent {
++            revision: TRIAL_TERMS_REVISION.to_string(),
++            accepted_at: 1,
++        });
++        assert!(
++            !trial_consent_outdated(&current),
++            "согласие на текущую редакцию TRIAL_TERMS_REVISION = {TRIAL_TERMS_REVISION} не \
++             должно снова требовать окна"
++        );
++    }
+ }
+ 
+ /// 🔴 Сторож расхождения констант фронта/Rust (s48, 2026-09-14): дата в юридически
+@@ -667,18 +722,44 @@ mod trial_terms_frontend_consistency_guard {
+     fn trial_terms_revision_matches_frontend_checkbox_text() {
+         const OVERLAY: &str =
+             include_str!("../../../src/lib/components/TrialConsentOverlay.svelte");
+-        let parts: Vec<&str> = TRIAL_TERMS_REVISION.split('-').collect();
++
++        // Формат ГГГГ-ММ-ДД.НН: дата + двузначный номер редакции этого дня (см. докстринг
++        // TRIAL_TERMS_REVISION). Разбираем ОБЕ части - п.10.1 документа требует, чтобы текст
++        // чекбокса называл И номер, И дату, поэтому сторож обязан проверить обе, а не только
++        // дату, как раньше (когда номера в константе не было вовсе).
++        let (date_part, number_part) = TRIAL_TERMS_REVISION.split_once('.').unwrap_or_else(|| {
++            panic!(
++                "TRIAL_TERMS_REVISION обязана быть в формате ГГГГ-ММ-ДД.НН (дата + номер \
++                 редакции дня), получено {TRIAL_TERMS_REVISION}"
++            )
++        });
++        let date_parts: Vec<&str> = date_part.split('-').collect();
+         assert_eq!(
+-            parts.len(),
++            date_parts.len(),
+             3,
+-            "TRIAL_TERMS_REVISION обязана быть в формате ГГГГ-ММ-ДД, получено {TRIAL_TERMS_REVISION}"
++            "дата в TRIAL_TERMS_REVISION обязана быть в формате ГГГГ-ММ-ДД, получено {date_part} \
++             (TRIAL_TERMS_REVISION = {TRIAL_TERMS_REVISION})"
+         );
+-        let ru_date = format!("{}.{}.{}", parts[2], parts[1], parts[0]);
++        let ru_date = format!("{}.{}.{}", date_parts[2], date_parts[1], date_parts[0]);
++        let revision_number: u32 = number_part.parse().unwrap_or_else(|_| {
++            panic!(
++                "номер редакции в TRIAL_TERMS_REVISION не разобрался как число: {number_part} \
++                 (TRIAL_TERMS_REVISION = {TRIAL_TERMS_REVISION})"
++            )
++        });
++
+         assert!(
+             OVERLAY.contains(&ru_date),
+             "текст чекбокса в TrialConsentOverlay.svelte не содержит дату редакции {ru_date} \
+              (TRIAL_TERMS_REVISION = {TRIAL_TERMS_REVISION}) - константы разошлись"
+         );
++        let ru_number = revision_number.to_string();
++        assert!(
++            OVERLAY.contains(&format!("редакция {ru_number} от")),
++            "текст чекбокса в TrialConsentOverlay.svelte не содержит номер редакции \
++             {ru_number} (TRIAL_TERMS_REVISION = {TRIAL_TERMS_REVISION}) - п.10.1 документа \
++             требует называть номер, не только дату"
++        );
+     }
+ }
+ 
+diff --git a/src-tauri/src/errors.rs b/src-tauri/src/errors.rs
+index ddb2d3d0..c20a76bc 100644
+--- a/src-tauri/src/errors.rs
++++ b/src-tauri/src/errors.rs
+@@ -46,12 +46,38 @@ mod core_contract_tests {
+     /// (кроме этого файла — здесь код только цитируется ради проверки формата в
+     /// `coded_keeps_the_bracketed_format_documented_to_clients`, а не конструируется
+     /// как ошибка пользователю), тем же приёмом обхода дерева (`walkdir`), каким уже
+-    /// пользуются другие сторожи продукта. Ручного списка больше нет — ему негде
+-    /// протухнуть, потому что он не существует отдельно от кода.
++    /// пользуются другие сторожи продукта.
++    ///
++    /// 🔴 s48-audit (2026-09-14, вторая волна): модель «эталон = только `src-tauri/src`»
++    /// оказалась НЕПОЛНОЙ — она выбросила `FB-002`, потому что код, реально его строящий,
++    /// живёт не здесь, а в общем крейте (`aurora_core::feedback::submit`, feedback.rs:73
++    /// на закреплённой ревизии, см. `PINNED_AURORA_CORE_REV` ниже), а продукт лишь вызывает
++    /// эту функцию из `commands/feedback.rs::submit_feedback` — команда с `#[tauri::command]`,
++    /// реально зарегистрированная в `generate_handler!` (лицо клиента может вызвать её через
++    /// `invoke` напрямую, даже если разметка фронтенда её больше не зовёт — см. докстринг
++    /// `commands/feedback.rs`). Обход `walkdir` по `aurora_core` здесь не работает: крейт —
++    /// git-зависимость вне этого репозитория, и `cargo metadata` для поиска её исходников на
++    /// диске ненадёжен КАК ПРОВЕРКА ТЕСТА (офлайн-окружение валит его сетевой ошибкой —
++    /// проверено фактом 14.09.2026, `getaddrinfo() thread failed to start`). Поэтому для кодов
++    /// из `aurora_core` — явный список `AURORA_CORE_FEEDBACK_CODES`, но не свободный: он
++    /// подключается к `reachable_codes` ТОЛЬКО если этот же обход находит реальный вызов
++    /// `aurora_core::feedback::submit` в `src-tauri/src` (значит функция правда используется
++    /// продуктом, не гипотеза), и список привязан к конкретной ревизии крейта — если
++    /// `Cargo.lock` укажет другую ревизию `aurora_core`, тест падает ДО того, как список
++    /// молча устареет, требуя пересверки с `feedback.rs` на новой ревизии.
+     #[test]
+     fn help_error_codes_page_matches_error_code_enum_both_ways() {
+         use std::collections::HashSet;
+ 
++        /// Ревизия `aurora_core`, на которой сверен `AURORA_CORE_FEEDBACK_CODES` ниже
++        /// (см. `Cargo.lock`: `source = "git+.../aurora-platform-core.git?tag=aurora_core-v0.1.0#<rev>"`).
++        const PINNED_AURORA_CORE_REV: &str = "35d8345c4f20f66efc1012be4190b90f620f1ddb";
++        /// Коды, которые на ревизии `PINNED_AURORA_CORE_REV` строит
++        /// `aurora_core::feedback::submit` (сверено вручную по исходнику функции: FB-001 —
++        /// нераспознанная категория / отказ формы, FB-002 — вызов раньше минимального
++        /// интервала между отправками).
++        const AURORA_CORE_FEEDBACK_CODES: &[&str] = &["FB-001", "FB-002"];
++
+         // "ErrorCode::XX000" в исходнике компилируется только если XX000 — настоящий
+         // вариант enum'а; значит каждое совпадение — подлинное использование кода
+         // где-то в продукте, а не гипотеза о нём.
+@@ -59,6 +85,7 @@ mod core_contract_tests {
+             regex::Regex::new(r"ErrorCode::([A-Z]{2})([0-9]{3})").expect("valid regex");
+         let src_root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("src");
+         let mut reachable_codes: HashSet<String> = HashSet::new();
++        let mut calls_aurora_core_feedback = false;
+         for entry in walkdir::WalkDir::new(&src_root)
+             .into_iter()
+             .filter_map(|e| e.ok())
+@@ -75,6 +102,9 @@ mod core_contract_tests {
+             for caps in usage_re.captures_iter(&src) {
+                 reachable_codes.insert(format!("{}-{}", &caps[1], &caps[2]));
+             }
++            if src.contains("aurora_core::feedback::submit") {
++                calls_aurora_core_feedback = true;
++            }
+         }
+         assert!(
+             !reachable_codes.is_empty(),
+@@ -82,6 +112,37 @@ mod core_contract_tests {
+              проверка ничего не сторожит"
+         );
+ 
++        if calls_aurora_core_feedback {
++            let cargo_lock_path =
++                std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("..").join("Cargo.lock");
++            let cargo_lock = std::fs::read_to_string(&cargo_lock_path).unwrap_or_else(|e| {
++                panic!("не удалось прочитать {}: {e}", cargo_lock_path.display())
++            });
++            let rev_re = regex::Regex::new(r#"name = "aurora_core"\nversion = "[^"]+"\nsource = "git\+[^"]*#([0-9a-f]{40})""#)
++                .expect("valid regex");
++            let actual_rev = rev_re
++                .captures(&cargo_lock)
++                .unwrap_or_else(|| {
++                    panic!(
++                        "{}: не нашёл строку 'aurora_core' с git-ревизией — формат Cargo.lock изменился?",
++                        cargo_lock_path.display()
++                    )
++                })
++                .get(1)
++                .expect("regex захватывает ревизию")
++                .as_str();
++            assert_eq!(
++                actual_rev, PINNED_AURORA_CORE_REV,
++                "aurora_core в Cargo.lock указывает на ревизию {actual_rev}, а \
++                 AURORA_CORE_FEEDBACK_CODES сверен с {PINNED_AURORA_CORE_REV} — пересверь \
++                 список кодов с aurora_core::feedback::submit на новой ревизии и обнови обе \
++                 константы, иначе список молча устареет"
++            );
++            for code in AURORA_CORE_FEEDBACK_CODES {
++                reachable_codes.insert((*code).to_string());
++            }
++        }
++
+         let html_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+             .join("help-econometrica")
+             .join("error-codes.html");
+diff --git a/src-tauri/src/lib.rs b/src-tauri/src/lib.rs
+index ce883d17..ef7a7623 100644
+--- a/src-tauri/src/lib.rs
++++ b/src-tauri/src/lib.rs
+@@ -6,6 +6,7 @@ pub mod errors;
+ pub mod metrics;
+ pub mod session;
+ pub mod sidecar_runtime;
++pub mod soft_delete;
+ pub mod win_acl;
+ 
+ use commands::{brand, cabinet, claude, content_pack, content_updater, feedback, license, online_auth, parser, rag_client, updater, user_config, vault};
+@@ -1740,7 +1741,10 @@ fn delete_inbox_file(cabinet_id: String, filename: String, app_handle: tauri::Ap
+         return Err(format!("File not found: {}", filename));
+     }
+ 
+-    std::fs::remove_file(&file_path).map_err(|e| e.to_string())
++    // 🔴 Файл человека: он сам положил его в папку приёма. Уходит в корзину, откуда его
++    // можно вернуть, а не стирается насовсем. Отказ корзины показываем человеку текстом —
++    // он нажал «удалить» и обязан знать, что файл остался на месте.
++    soft_delete::soft_delete(&file_path).map_err(|e| format!("{filename}: {e}"))
+ }
+ 
+ #[tauri::command]
+@@ -1894,7 +1898,9 @@ fn delete_export_file(cabinet_id: String, filename: String, app_handle: tauri::A
+     }
+ 
+     info!("Deleting export file: {}", file_path.display());
+-    std::fs::remove_file(&file_path).map_err(|e| e.to_string())
++    // 🔴 Папка выдачи — готовые документы клиента, самый ценный результат его работы.
++    // Только в корзину; отказ возвращается человеку текстом, а не глотается.
++    soft_delete::soft_delete(&file_path).map_err(|e| format!("{filename}: {e}"))
+ }
+ 
+ #[tauri::command]
+@@ -1930,22 +1936,40 @@ fn clear_chat_history(cabinet_id: String) -> Result<(), String> {
+ /// стирались файлы клиента мимо корзины при каждом старте).
+ const WORKSPACE_DIRS_CLEARED_ON_START: &[&str] = &["inbox"];
+ 
+-/// Удаляет все файлы из перечисленных подкаталогов workspace. Возвращает число удалённых
++/// Убирает в корзину всё из перечисленных подкаталогов workspace. Возвращает число убранных
+ /// файлов. Без AppHandle — чтобы поведение можно было проверить тестом на временном каталоге.
++///
++/// 🔴 Вторая половина CPD-69. Тогда из списка очистки убрали `exports` — и на том
++/// остановились, а `inbox` продолжал стираться мимо корзины при КАЖДОМ запуске программы.
++/// Файлы там кладёт человек, копии у программы нет; теперь они уходят в корзину, откуда их
++/// можно вернуть. Отказ корзины оставляет файл на месте и пишется в журнал внутри
++/// `soft_delete` — в счёт убранных такой файл не идёт.
+ fn clear_workspace_dirs(workspace: &std::path::Path, dir_names: &[&str]) -> usize {
+     let mut removed = 0;
++    let mut ostalos = 0usize;
+     for dir_name in dir_names {
+         let dir = workspace.join(dir_name);
+         if dir.exists() {
+             if let Ok(entries) = std::fs::read_dir(&dir) {
+                 for entry in entries.flatten() {
+-                    if std::fs::remove_file(entry.path()).is_ok() {
++                    if soft_delete::soft_delete(&entry.path()).is_ok() {
+                         removed += 1;
++                    } else {
++                        ostalos += 1;
+                     }
+                 }
+             }
+         }
+     }
++    // 🔴 Число убранных без числа оставшихся врёт молчанием о несделанном: соседняя
++    // запись в журнале говорит «Inbox cleared: N file(s)», и читатель (мы сами при
++    // разборе жалобы клиента) понимает её как «папка чиста». Оба числа стоят рядом.
++    if ostalos > 0 {
++        warn!(
++            "Очистка при запуске: убрано {removed} файл(ов), ОСТАЛИСЬ на месте {ostalos} \
++             (причины по каждому — в предупреждениях выше)"
++        );
++    }
+     removed
+ }
+ 
+diff --git a/src-tauri/src/session/manager.rs b/src-tauri/src/session/manager.rs
+index 54b04b2c..9d6e2932 100644
+--- a/src-tauri/src/session/manager.rs
++++ b/src-tauri/src/session/manager.rs
+@@ -586,16 +586,33 @@ impl SessionManager {
+     }
+ }
+ 
+-/// Remove all files from inbox in user workspace.
++/// Убрать в корзину всё, что лежит в папке приёма на Рабочем столе клиента.
++///
++/// 🔴 Файлы здесь принадлежат человеку: он сам положил их сюда, и никакой копии у
++/// программы нет. Прежнее `remove_file` стирало их насовсем при каждом закрытии сессии —
++/// вопреки правовому документу поставки, который обещает клиенту, что программа сама
++/// ничего не удаляет. Теперь удаление мягкое, а отказ корзины не глушится: он уходит в
++/// журнал с путём и причиной внутри `soft_delete`, файл при этом остаётся на месте.
++/// Проход не прерывается — один занятый файл не имеет права оставить папку неубранной.
+ fn clear_inbox(workspace: &Path) {
+     let inbox = workspace.join("inbox");
++    let mut ostalos = 0usize;
+     if let Ok(entries) = std::fs::read_dir(&inbox) {
+         for entry in entries.flatten() {
+-            if entry.file_type().is_ok_and(|ft| ft.is_file()) {
+-                let _ = std::fs::remove_file(entry.path());
++            if entry.file_type().is_ok_and(|ft| ft.is_file())
++                && crate::soft_delete::soft_delete(&entry.path()).is_err()
++            {
++                ostalos += 1;
+             }
+         }
+     }
++    if ostalos > 0 {
++        warn!(
++            "Папка приёма {} убрана не полностью: {ostalos} файл(ов) остались на месте \
++             (причины по каждому — в предупреждениях выше)",
++            inbox.display()
++        );
++    }
+ }
+ 
+ /// Копирование файлов src → dst (один уровень, без рекурсии) **без удаления** лишнего в приёмнике.
+diff --git a/src-tauri/src/soft_delete.rs b/src-tauri/src/soft_delete.rs
+new file mode 100644
+index 00000000..78348dbc
+--- /dev/null
++++ b/src-tauri/src/soft_delete.rs
+@@ -0,0 +1,284 @@
++//! Мягкое удаление того, что принадлежит человеку: в корзину операционной системы,
++//! а не насовсем.
++//!
++//! 🔴 Зачем отдельный модуль. Правовой документ поставки обещает клиенту, что программа
++//! сама ничего не стирает. Обещание было ложным: папка приёма на Рабочем столе чистилась
++//! обычным `remove_file` при каждом запуске и при каждом закрытии сессии, а вместе с ней
++//! уходили файлы, которые человек положил туда сам. Восстановить их было неоткуда.
++//!
++//! 🔴 Что сюда НЕ относится. Затирание расшифрованных файлов кабинета
++//! (`session::manager::secure_delete_dir`, `session::cleanup`) обязано оставаться
++//! безвозвратным: там персональные данные, и перевод их в корзину — не починка, а утечка.
++//! То же для служебных временных файлов программы (промежуточные `.tmp`, недокачанные
++//! `.part`, каталоги сборки): человек их не создавал, и засорять ими его корзину незачем.
++//! Граница между двумя видами удаления проверяется сторожем в конце файла.
++//!
++//! 🔴 Что делаем, если корзина недоступна (сетевой диск, съёмный носитель, файловая
++//! система без корзины). Молчаливого отката на безвозвратное стирание здесь НЕТ, и это
++//! решение, а не упущение. Цена «файл остался лежать» — мелкое неудобство: человек уберёт
++//! его сам, папка и так его. Цена «файл стёрт насовсем» — невосполнимая потеря его работы
++//! и ровно то ложное обещание, ради которого написан этот модуль. Асимметрия однозначная,
++//! поэтому при отказе корзины файл остаётся на месте, а причина уходит в журнал с полным
++//! путём; в местах, где удаление заказал сам человек, отказ возвращается ему текстом.
++
++use log::{info, warn};
++use std::path::Path;
++
++/// Убрать в корзину файл или папку, принадлежащие человеку.
++///
++/// Отсутствующий путь — не ошибка: удалять нечего, значит цель достигнута.
++/// Отказ не глушится никогда: предупреждение с путём и причиной пишется здесь, внутри,
++/// поэтому вызывающему остаётся решить лишь одно — сообщать ли о нём человеку.
++pub fn soft_delete(path: &Path) -> Result<(), String> {
++    if !path.exists() {
++        return Ok(());
++    }
++    match trash::delete(path) {
++        Ok(()) => {
++            info!("В корзину: {}", path.display());
++            Ok(())
++        }
++        Err(e) => {
++            warn!(
++                "Не удалось переместить в корзину {} — {e}. Файл ОСТАВЛЕН на месте: \
++                 стирать его насовсем программа не станет",
++                path.display()
++            );
++            Err(format!(
++                "не удалось переместить в корзину: {e}. Файл остался на месте – \
++                 уберите его вручную, если он больше не нужен"
++            ))
++        }
++    }
++}
++
++#[cfg(test)]
++mod trash_availability_probe {
++    use super::*;
++
++    /// Зонд среды, а не проверка нашей логики: корзина — это служба системы, и без неё
++    /// все остальные проверки этого модуля недоказательны. Если он покраснел на машине
++    /// сборки — красный здесь означает «корзина недоступна в этой среде», и разбираться
++    /// нужно со средой, а не с кодом.
++    #[test]
++    fn korzina_dostupna_v_srede_sborki() {
++        let dir = tempfile::tempdir().unwrap();
++        let f = dir.path().join("проба.txt");
++        std::fs::write(&f, b"proba").unwrap();
++        soft_delete(&f).expect("корзина недоступна в этой среде");
++        assert!(!f.exists(), "файл обязан исчезнуть из папки");
++    }
++
++    /// Отсутствующий путь — не отказ.
++    #[test]
++    fn otsutstvuyushchiy_put_ne_oshibka() {
++        let dir = tempfile::tempdir().unwrap();
++        soft_delete(&dir.path().join("нет-такого.txt")).unwrap();
++    }
++}
++
++// ── Сторож границы: что в корзину, а что насовсем ────────────────────────────
++//
++// 🔴 Сторож намеренно читает ИСХОДНЫЙ ТЕКСТ отгружаемых файлов через `include_str!`,
++// а не свою копию правил и не поведение на временной папке. Причина ровно одна: дефект,
++// против которого он поставлен, возвращается правкой одной строки в чужой функции, и
++// поймать это можно только глядя на ту самую строку. Приём в доме уже принят —
++// `durable_store.rs` сторожит свой запрет тем же способом.
++//
++// Сторож обязан краснеть в ОБЕ стороны:
++//   · клиентское удаление вернули на безвозвратное → `klientskie_udaleniya_...`;
++//   · затирание персональных данных перевели в корзину → `zatiranie_pdn_...`.
++
++#[cfg(test)]
++mod guard_soft_delete_boundary {
++    const MANAGER_RS: &str = include_str!("session/manager.rs");
++    const CLEANUP_RS: &str = include_str!("session/cleanup.rs");
++    const LIB_RS: &str = include_str!("lib.rs");
++    const BRAND_RS: &str = include_str!("commands/brand.rs");
++    const CAMPAIGN_RS: &str = include_str!("commands/campaign.rs");
++
++    /// Имена безвозвратного удаления. Сторож ищет ИМЯ ФУНКЦИИ как отдельное слово, а не
++    /// написание `fs::имя`.
++    ///
++    /// 🔴 Выстрадано мутацией: сторож, искавший подстроку `fs::remove_file`, слеп к
++    /// `use std::fs::remove_file;` в шапке и короткому `remove_file(path)` в теле —
++    /// поведение при этом ровно то, которое мы чиним. Заплата под конкретный синоним
++    /// закрыла бы носитель вместо класса, поэтому правило переписано по существу:
++    /// запрещено ИМЯ, в любом написании, плюс запрещён его ввоз в шапку файла (это
++    /// ловит и переименование при ввозе — `use std::fs::remove_file as unlink`).
++    const BEZVOZVRATNYE: &[&str] = &["remove_file", "remove_dir_all", "remove_dir"];
++
++    /// Встречается ли `name` в `code` как отдельное слово (а не куском другого имени).
++    /// Без внешних зависимостей: соседние символы не должны годиться для имени.
++    fn est_slovo(code: &str, name: &str) -> bool {
++        fn chast_imeni(c: char) -> bool {
++            c.is_alphanumeric() || c == '_'
++        }
++        let mut ot = 0usize;
++        while let Some(i) = code[ot..].find(name) {
++            let start = ot + i;
++            let end = start + name.len();
++            let levo_ok = code[..start].chars().next_back().is_none_or(|c| !chast_imeni(c));
++            let pravo_ok = code[end..].chars().next().is_none_or(|c| !chast_imeni(c));
++            // `remove_dir` как слово не должно ловиться внутри `remove_dir_all`: правое
++            // соседство `_` отсекает это само.
++            if levo_ok && pravo_ok {
++                return true;
++            }
++            ot = start + 1;
++        }
++        false
++    }
++
++    /// Строки тела, в которых встречается запрещённое имя, — чтобы сообщение сторожа
++    /// показывало ту самую строку, а не только факт.
++    fn stroki_s_imenem<'a>(body: &'a str, name: &str) -> Vec<&'a str> {
++        body.lines().filter(|l| est_slovo(l, name)).collect()
++    }
++
++    /// Тело функции от её сигнатуры до парной закрывающей скобки.
++    /// Искать запрет по всему файлу нельзя: в тех же файлах законных безвозвратных
++    /// удалений служебных файлов десятки, и сторож на весь файл краснел бы всегда.
++    fn telo<'a>(code: &'a str, signature: &str) -> &'a str {
++        let start = code
++            .find(signature)
++            .unwrap_or_else(|| panic!("сигнатура не найдена: {signature}"));
++        let tail = &code[start..];
++        let open = tail
++            .find('{')
++            .unwrap_or_else(|| panic!("у {signature} нет тела"));
++        let mut depth = 0usize;
++        for (i, c) in tail[open..].char_indices() {
++            match c {
++                '{' => depth += 1,
++                '}' => {
++                    depth -= 1;
++                    if depth == 0 {
++                        return &tail[open..=open + i];
++                    }
++                }
++                _ => {}
++            }
++        }
++        panic!("не закрыто тело {signature}");
++    }
++
++    /// Семь мест, где удаляется то, что принадлежит человеку. Проверяется ДВА свойства,
++    /// и оба обязательны — по отдельности каждое обходится:
++    ///
++    /// * «что должно быть» — удаление идёт через единственную функцию `soft_delete`.
++    ///   Устойчиво к синонимам: перечень разрешённых путей держим мы сами;
++    /// * «чего не должно быть» — ни одного вызова безвозвратного удаления по ИМЕНИ, в
++    ///   любом написании. Без этой половины мимо проходит откат «не вышло в корзину —
++    ///   сотру насовсем» рядом с исправным вызовом: `soft_delete` в теле есть, значит
++    ///   первая половина зелёная, а дефект вернулся целиком. Случай не выдуманный —
++    ///   ровно так написан `commands/project.rs:508`.
++    ///
++    /// Исключение ровно одно и названо поимённо: в `brand_delete` рядом с удалением папки
++    /// бренда законно стирается насовсем служебный указатель «какой бренд выбран»
++    /// (`active_brand.json`) — он не данные человека. Разрешение выдано не имени функции,
++    /// а конкретной строке: безвозвратное удаление там обязано стоять в одной строке с
++    /// `active_path`, иначе сторож краснеет.
++    #[test]
++    fn klientskie_udaleniya_tolko_v_korzinu() {
++        let mesta: &[(&str, &str, &str, Option<&str>)] = &[
++            (MANAGER_RS, "fn clear_inbox(", "очистка папки приёма на Рабочем столе", None),
++            (LIB_RS, "fn delete_inbox_file(", "удаление файла из папки приёма", None),
++            (LIB_RS, "fn delete_export_file(", "удаление файла из папки выдачи", None),
++            (LIB_RS, "fn clear_workspace_dirs(", "очистка папки приёма при запуске", None),
++            (
++                BRAND_RS,
++                "pub async fn brand_delete(",
++                "удаление бренда с документами",
++                Some("active_path"),
++            ),
++            (BRAND_RS, "pub async fn brand_delete_doc(", "удаление документа бренда", None),
++            (CAMPAIGN_RS, "pub fn workflow_delete(", "удаление сценария кампании", None),
++        ];
++
++        for (code, signature, chto, isklyuchenie) in mesta {
++            let body = telo(code, signature);
++
++            for imya in BEZVOZVRATNYE {
++                for stroka in stroki_s_imenem(body, imya) {
++                    let razresheno = isklyuchenie.is_some_and(|marker| stroka.contains(marker));
++                    assert!(
++                        razresheno,
++                        "{signature} ({chto}): безвозвратное «{imya}» в строке\n    {}\n\
++                         Файлы человека уходят ТОЛЬКО в корзину — \
++                         crate::soft_delete::soft_delete. Отката на безвозвратное стирание \
++                         здесь нет намеренно: при отказе корзины файл остаётся на месте.",
++                        stroka.trim()
++                    );
++                }
++            }
++
++            assert!(
++                body.contains("soft_delete::soft_delete("),
++                "{signature} ({chto}): удаление есть, а вызова мягкого удаления нет"
++            );
++        }
++    }
++
++    /// Вторая половина того же правила, на уровне файла: безвозвратное удаление в
++    /// клиентских файлах зовётся только полным путём `std::fs::…` и никогда не ввозится
++    /// в шапку. Тогда короткое имя в теле не может оказаться удалением из стандартной
++    /// библиотеки, и проверка тел выше становится полной.
++    ///
++    /// Это же правило ловит переименование при ввозе (`use std::fs::remove_file as unlink`),
++    /// от которого проверка по имени сама по себе слепа.
++    #[test]
++    fn bezvozvratnoe_udalenie_ne_vvozitsya_v_shapku() {
++        let fayly: &[(&str, &str)] = &[
++            (MANAGER_RS, "session/manager.rs"),
++            (LIB_RS, "lib.rs"),
++            (BRAND_RS, "commands/brand.rs"),
++            (CAMPAIGN_RS, "commands/campaign.rs"),
++        ];
++
++        for (code, imya_fayla) in fayly {
++            for stroka in code.lines() {
++                let s = stroka.trim();
++                if !s.starts_with("use ") {
++                    continue;
++                }
++                for imya in BEZVOZVRATNYE {
++                    assert!(
++                        !est_slovo(s, imya),
++                        "{imya_fayla}: ввоз безвозвратного удаления в шапку — «{s}». \
++                         В этом файле есть удаления файлов человека; безвозвратное удаление \
++                         служебных файлов здесь зовётся только полным путём std::fs::…, \
++                         иначе короткое имя в теле не отличить от него."
++                    );
++                }
++            }
++        }
++    }
++
++    /// Обратная сторона границы: затирание персональных данных обязано остаться
++    /// безвозвратным. Корзина хранит содержимое файла целиком и доступна кому угодно за
++    /// этим столом — перевод затирания в корзину не починка, а утечка (INV-38).
++    #[test]
++    fn zatiranie_pdn_nikogda_ne_v_korzinu() {
++        let mesta: &[(&str, &str, &str)] = &[
++            (MANAGER_RS, "pub(crate) fn secure_delete_dir(", "затирание каталога сессии"),
++            (MANAGER_RS, "pub(crate) fn secure_delete_file(", "затирание файла кабинета"),
++            (MANAGER_RS, "fn sync_dir_to(", "зеркало во временный каталог сессии"),
++        ];
++
++        for (code, signature, chto) in mesta {
++            let body = telo(code, signature);
++            assert!(
++                !body.contains("trash::") && !body.contains("soft_delete"),
++                "{signature} ({chto}): здесь корзина запрещена — расшифрованные данные \
++                 клиента обязаны стираться безвозвратно (INV-38)"
++            );
++        }
++
++        assert!(
++            !CLEANUP_RS.contains("trash::") && !CLEANUP_RS.contains("soft_delete"),
++            "session/cleanup.rs: уборка осиротевших каталогов сессий обязана затирать \
++             данные, а не складывать их в корзину (INV-38)"
++        );
++    }
++}
+diff --git a/src/lib/components/TrialConsentOverlay.svelte b/src/lib/components/TrialConsentOverlay.svelte
+index 37800a9a..d7ceb1d4 100644
+--- a/src/lib/components/TrialConsentOverlay.svelte
++++ b/src/lib/components/TrialConsentOverlay.svelte
+@@ -1,8 +1,9 @@
+ <script>
+   import { invoke } from '@tauri-apps/api/core';
+   import { getCurrentWindow } from '@tauri-apps/api/window';
+-  import { trialConsentPromptOpen } from '$lib/store.js';
++  import { trialConsentPromptOpen, trialConsentBlocking } from '$lib/store.js';
+   import { SHOW_CLOUD_PROCESSING_PARAGRAPH } from '$lib/trial-terms-config.js';
++  import { isKeydownOutsideBlockingOverlay } from '$lib/global-shortcuts.js';
+ 
+   // Экран «Условия ознакомительного использования» (s48, 2026-09-14). Пробный период выведен
+   // правовым блоком из лицензионного договора в отдельный документ, единый для всей линейки
+@@ -14,8 +15,8 @@
+   // «Отказаться» закрывает программу целиком, «Принимаю» доступно только с поставленной
+   // отметкой. Текст ниже согласован правовым блоком дословно - не редактировать формулировки.
+   //
+-  // 🔴 Дата в тексте отметки ниже ОБЯЗАНА совпадать с TRIAL_TERMS_REVISION в
+-  // src-tauri/src/commands/user_config.rs - сторож расхождения:
++  // 🔴 Номер И дата в тексте отметки ниже ОБЯЗАНЫ совпадать с TRIAL_TERMS_REVISION в
++  // src-tauri/src/commands/user_config.rs (формат ГГГГ-ММ-ДД.НН) - сторож расхождения:
+   // trial_terms_revision_matches_frontend_checkbox_text (там же).
+   //
+   // Средний абзац - условный (см. $lib/trial-terms-config.js): зависит от отдельной проверки,
+@@ -31,9 +32,52 @@
+   let declining = $state(false);
+   let errorMsg = $state('');
+   let openError = $state('');
++  /** @type {HTMLElement | null} */
++  let overlayEl = $state(null);
+ 
++  // `visible` управляет ТОЛЬКО разметкой ({#if} ниже) - модаль не обязана мигать у
++  // человека, который уже согласился давно, пока Rust ещё не ответил. Для решения
++  // «активен ли перехватчик» это значение НЕПРИГОДНО - см. `blockingActive` ниже.
+   const visible = $derived($trialConsentPromptOpen);
+ 
++  // Второй, независимый от проверок в отдельных обработчиках слой защиты - см. докстринг
++  // isKeydownOutsideBlockingOverlay в $lib/global-shortcuts.js (s48, аудит второй волны,
++  // 2026-09-14). Пока условия не подтверждены - слушатель в ФАЗЕ ПЕРЕХВАТА на `window`
++  // гасит ЛЮБОЕ нажатие клавиши вне дерева этого оверлея ДО того, как оно дойдёт до цели
++  // и всплывёт до какого-либо обработчика продукта - не важно, проверяет тот
++  // `trialConsentOpen` сам или ещё не написан.
++  //
++  // 🔴 s48 (2026-09-14, третья волна аудита - находка front-gate-s48): раньше этот
++  // `$effect` был завязан на `visible` (то есть на сыром `trialConsentPromptOpen`) - той
++  // же величине, что и починенные обработчики клавиш ИЗБЕГАЮТ читать напрямую. В первые
++  // миллисекунды после запуска, пока Rust ещё не ответил, `trialConsentPromptOpen` = false,
++  // разметка ({#if visible}) не смонтирована - и этот, второй, слой защиты вообще не
++  // слушал, хотя именно на этот случай (обработчик, который забудет проверить гейт сам)
++  // его и заводили. Теперь монтирование листенера читает `trialConsentBlocking` -
++  // производную, которая по умолчанию блокирует (истинна), пока ответа нет.
++  const blockingActive = $derived($trialConsentBlocking);
++
++  $effect(() => {
++    if (!blockingActive) return;
++
++    /** @param {KeyboardEvent} e */
++    function blockKeydownOutsideOverlay(e) {
++      // `overlayEl` здесь может быть `null` - в окне гонки (блокировка уже активна,
++      // а `{#if visible}` ещё не смонтировал разметку, т.к. Rust не ответил и решение
++      // «показывать ли модаль» ещё не принято) `isKeydownOutsideBlockingOverlay(null, ...)`
++      // возвращает `true` («цель снаружи») - и гасит нажатие. Это ПРАВИЛЬНОЕ поведение,
++      // а не недосмотр: раз окна ещё нет, внутри него быть не может ничто, значит гасить
++      // надо всё - см. тест "второй слой активен ДО монтирования разметки окна" в
++      // src/tests/trial-consent-overlay.test.js.
++      if (!isKeydownOutsideBlockingOverlay(overlayEl, e.target)) return;
++      e.preventDefault();
++      e.stopPropagation();
++    }
++
++    window.addEventListener('keydown', blockKeydownOutsideOverlay, true);
++    return () => window.removeEventListener('keydown', blockKeydownOutsideOverlay, true);
++  });
++
+   async function openTerms() {
+     openError = '';
+     try {
+@@ -105,6 +149,7 @@
+     aria-labelledby="trial-consent-title"
+     tabindex="-1"
+     onkeydown={handleKeydown}
++    bind:this={overlayEl}
+   >
+     <div class="card">
+       <div class="gradient-line"></div>
+@@ -138,7 +183,7 @@
+ 
+       <label class="consent-check">
+         <input type="checkbox" bind:checked={agreed} />
+-        <span>Я принимаю Условия ознакомительного использования (редакция от 14.09.2026)</span>
++        <span>Я принимаю Условия ознакомительного использования (редакция 2 от 14.09.2026)</span>
+       </label>
+ 
+       {#if errorMsg}
+diff --git a/src/lib/global-shortcuts.js b/src/lib/global-shortcuts.js
+index d03d48f2..5312fe78 100644
+--- a/src/lib/global-shortcuts.js
++++ b/src/lib/global-shortcuts.js
+@@ -1,19 +1,26 @@
+ /**
+- * Обработчик глобальных сочетаний клавиш шапки приложения (Ctrl+K/Cmd+K — командная
+- * палитра, Ctrl+G/Cmd+G — глоссарий). Вынесен из `+layout.svelte::onMount` в отдельный
+- * модуль (s48, 2026-09-14), чтобы ПРАВИЛО «пока окно условий ознакомительного использования
+- * открыто — сочетания клавиш не работают вовсе» проверялось прямым вызовом функции, а не
+- * монтированием всего layout (тяжёлые зависимости — ни один существующий тест в продукте
+- * так не делает).
+- *
+- * 🔴 НАХОДКА (внешняя проверка s48, 2026-09-14): раньше это была локальная функция внутри
+- * onMount, которая не проверяла состояние TrialConsentOverlay вовсе. `CommandPalette.svelte`
+- * при открытии программно ставит фокус в своё поле ввода (`$effect` → `inputEl?.focus()`) —
+- * фокус - это DOM-состояние, а не z-index, и более высокий слой блокирующего оверлея НИКАК
+- * не мешал печатать команду и выполнить её (открыть кабинет, перейти в Настройки), пока
+- * условия стояли непринятыми. Ровно в точке, где по правовой конструкции фиксируется
+- * согласие («начало использования Программы означает согласие»), проверки не было.
+- * Правило теперь: пока `trialConsentOpen` истинно — обработчик не делает ничего.
++ * Единый источник правды для правила «пока окно условий ознакомительного использования
++ * открыто — НИ ОДИН обработчик клавиш в приложении не исполняет действие» (s48,
++ * 2026-09-14). Три носителя window-level `keydown` в продукте — `+layout.svelte`
++ * (шапка, этот модуль изначально), `routes/+page.svelte` (главная страница — ровно та,
++ * где TrialConsentOverlay появляется первым) и `routes/cabinet/+page.svelte` (кабинет,
++ * достижим сразу после обхода с главной) — обязаны звать свою функцию отсюда и НЕ
++ * дублировать проверку `trialConsentOpen` инлайн у себя: находка внешнего аудита s48
++ * закрыла только шапку (`handleGlobalShortcut`), два других носителя вообще не смотрели
++ * на состояние окна условий.
++ *
++ * 🔴 НАХОДКА (внешняя проверка s48, 2026-09-14, первая волна): раньше `handleGlobalShortcut`
++ * была локальной функцией внутри onMount `+layout.svelte`, не проверявшей состояние
++ * TrialConsentOverlay вовсе. `CommandPalette.svelte` при открытии программно ставит фокус
++ * в своё поле ввода (`$effect` → `inputEl?.focus()`) — фокус - это DOM-состояние, а не
++ * z-index, и более высокий слой блокирующего оверлея НИКАК не мешал печатать команду и
++ * выполнить её (открыть кабинет, перейти в Настройки), пока условия стояли непринятыми.
++ *
++ * Каждая функция этого модуля принимает `trialConsentOpen` явным параметром (DI, не
++ * читает store сама) — так тест подделывает `KeyboardEvent` и булево значение напрямую,
++ * без монтирования тяжёлого layout/страницы и без мока svelte-стора (см.
++ * src/tests/global-shortcuts.test.js). Правило одно и то же во всех трёх: пока
++ * `trialConsentOpen` истинно — функция не делает ничего, первой строкой `return`.
+  *
+  * @param {object} params
+  * @param {boolean} params.trialConsentOpen - открыто ли блокирующее окно условий.
+@@ -39,3 +46,102 @@ export function handleGlobalShortcut({ trialConsentOpen, paletteOpen, setPalette
+     toggleGlossary();
+   }
+ }
++
++/**
++ * Обработчик клавиш главной страницы (`routes/+page.svelte`) — Ctrl+, → Настройки,
++ * цифры 1-9 → открыть кабинет по индексу. Найдено внешним аудитом s48 (вторая волна):
++ * это ровно та страница, на которой TrialConsentOverlay появляется первым, а обработчик
++ * не смотрел на его состояние вовсе — цифра 1-9 открывала кабинет мимо непринятых условий.
++ *
++ * @param {object} params
++ * @param {boolean} params.trialConsentOpen - открыто ли блокирующее окно условий.
++ * @param {KeyboardEvent} params.event
++ * @param {Array<unknown>} params.layoutCabinets - текущий список кабинетов ($layoutCabinets).
++ * @param {() => void} params.gotoSettings
++ * @param {(index: number) => void} params.openCabinetByIndex
++ */
++export function handleHomeShortcut({ trialConsentOpen, event, layoutCabinets, gotoSettings, openCabinetByIndex }) {
++  if (trialConsentOpen) return;
++
++  if (event.ctrlKey && event.key === ',') {
++    event.preventDefault();
++    gotoSettings();
++    return;
++  }
++
++  const targetTag = /** @type {HTMLElement} */ (event.target)?.tagName;
++  if (!event.ctrlKey && !event.altKey && !event.metaKey && /^[1-9]$/.test(event.key) && !['INPUT', 'TEXTAREA'].includes(targetTag)) {
++    const idx = parseInt(event.key, 10) - 1;
++    if (layoutCabinets[idx]) {
++      openCabinetByIndex(idx);
++    }
++  }
++}
++
++/**
++ * Обработчик клавиш кабинета (`routes/cabinet/+page.svelte`) — Ctrl+Shift+Z → дзен-режим,
++ * Escape → выход (бриф → режим выполнения → дзен → назад на главную). Достижим сразу после
++ * обхода блокирующего экрана с главной страницы (тот же аудит s48, вторая волна) — обработчик
++ * тоже не смотрел на состояние окна условий.
++ *
++ * @param {object} params
++ * @param {boolean} params.trialConsentOpen - открыто ли блокирующее окно условий.
++ * @param {KeyboardEvent} params.event
++ * @param {boolean} params.zenMode
++ * @param {(value: boolean) => void} params.setZenMode
++ * @param {unknown} params.pendingBriefCommand
++ * @param {() => void} params.cancelBrief
++ * @param {'selection' | 'execution'} params.workspaceMode
++ * @param {(value: 'selection' | 'execution') => void} params.setWorkspaceMode
++ * @param {() => void} params.goBack
++ */
++export function handleCabinetShortcut({ trialConsentOpen, event, zenMode, setZenMode, pendingBriefCommand, cancelBrief, workspaceMode, setWorkspaceMode, goBack }) {
++  if (trialConsentOpen) return;
++
++  if (event.ctrlKey && event.shiftKey && event.key.toLowerCase() === 'z') {
++    event.preventDefault();
++    setZenMode(!zenMode);
++    return;
++  }
++
++  const targetTag = /** @type {HTMLElement} */ (event.target)?.tagName;
++  if (event.key === 'Escape' && !['INPUT', 'TEXTAREA'].includes(targetTag)) {
++    if (pendingBriefCommand) { cancelBrief(); return; }
++    if (workspaceMode === 'execution') { setWorkspaceMode('selection'); return; }
++    if (zenMode) { setZenMode(false); return; }
++    goBack();
++  }
++}
++
++/**
++ * Второй, независимый от проверок в конкретных обработчиках слой защиты (s48, аудит
++ * второй волны, 2026-09-14). `handleHomeShortcut`/`handleCabinetShortcut`/
++ * `handleGlobalShortcut` выше проверяют `trialConsentOpen` каждый у себя — работает для
++ * известных на сегодня носителей, но каждый НОВЫЙ обработчик клавиш, который кто-то допишет
++ * позже, рискует забыть эту проверку (класс регрессии, который уже случался дважды).
++ *
++ * Разбор аудита, почему обход вообще был возможен: `.overlay` гасит по Tab только СВОЙ
++ * focus-trap, всплытие остальных клавиш не останавливает; маршрут главной страницы
++ * рендерится ПОД оверлеем (Svelte не размонтирует фон) и продолжает слушать `window`; фокус
++ * при появлении оверлея НЕ переносится внутрь него (в оверлее нет текстового поля для
++ * автофокуса) — значит клавиатурный фокус мог остаться на фоновом элементе, и keydown уходил
++ * прямиком в фоновый обработчик, если тот не проверял состояние сам.
++ *
++ * Эта функция — чистый предикат для страховки на уровне САМОГО гейта (`TrialConsentOverlay.
++ * svelte`): пока окно условий открыто, компонент вешает СВОЙ слушатель `keydown` на `window`
++ * в ФАЗЕ ПЕРЕХВАТА (`capture: true`) — первый узел на пути события, до цели и до всплытия. Для
++ * каждого нажатия он спрашивает эту функцию: цель события лежит ВНУТРИ дерева оверлея (тогда
++ * ничего не делает — Tab-trap, чекбокс, кнопки должны работать как обычно) или СНАРУЖИ (тогда
++ * `stopPropagation()` останавливает весь дальнейший путь события целиком — ни один обработчик
++ * продукта, старый или ещё не написанный, физически не получит это нажатие, проверяет он
++ * `trialConsentOpen` сам или нет).
++ *
++ * @param {Node | null | undefined} overlayEl - корневой DOM-узел оверлея (`bind:this`).
++ * @param {EventTarget | null} eventTarget - `event.target` нажатия клавиши.
++ * @returns {boolean} true, если нажатие пришло СНАРУЖИ оверлея и должно быть погашено.
++ */
++export function isKeydownOutsideBlockingOverlay(overlayEl, eventTarget) {
++  if (!overlayEl) return true; // оверлей ещё не смонтирован - блокируем на всякий случай
++  if (!(eventTarget instanceof Node)) return true;
++  return !overlayEl.contains(eventTarget);
++}
+diff --git a/src/lib/store.js b/src/lib/store.js
+index 0e8a6e6c..55160c29 100644
+--- a/src/lib/store.js
++++ b/src/lib/store.js
+@@ -1,4 +1,4 @@
+-import { writable, get } from 'svelte/store';
++import { writable, get, derived } from 'svelte/store';
+ 
+ /** @type {import('svelte/store').Writable<{id: string, name: string, description: string, icon: string, color: string}|null>} */
+ export const activeCabinet = writable(null);
+@@ -198,12 +198,53 @@ export const cloudConsentPromptOpen = writable(false);
+ /** Открыт ли блокирующий экран «Условия ознакомительного использования» (пробный период,
+  * вынесенный из лицензионного договора в отдельный документ, п.5 ст.1286 ГК РФ). В отличие
+  * от `cloudConsentPromptOpen` — не graceful: без согласия работа с программой невозможна
+- * («Отказаться» закрывает программу). Ставится в true в `+layout.svelte` по ответу
+- * Rust-команды `get_trial_consent_status` (согласие отсутствует или дано на устаревшую
+- * редакцию документа).
++ * («Отказаться» закрывает программу). Ставится в true в `+layout.svelte` (через
++ * `$lib/trial-consent-gate.js::resolveTrialConsentGate`) по ответу Rust-команды
++ * `get_trial_consent_status` (согласие отсутствует или дано на устаревшую редакцию документа).
++ *
++ * 🔴 Умолчание `false` НАМЕРЕННО означает «окна пока не показываем» (не «условия приняты») -
++ * держит эту семантику ради `TrialConsentOverlay`: сама МОДАЛЬ не обязана мигать на старте у
++ * человека, который уже согласился давно (Rust ещё не ответил, а мы уже нарисовали бы окно).
++ * Для ГЕЙТА (что можно/нельзя делать, пока согласие не подтверждено) эта переменная САМА ПО
++ * СЕБЕ непригодна — используй `trialConsentBlocking` ниже. Прямое чтение `trialConsentPromptOpen`
++ * для решения «разрешено ли действие» ЗАПРЕЩЕНО везде, кроме этого файла и самого компонента
++ * оверлея (видимость модали) — см. `trialConsentBlocking`.
+  * @type {import('svelte/store').Writable<boolean>} */
+ export const trialConsentPromptOpen = writable(false);
+ 
++/** Пришёл ли уже ответ Rust-команды `get_trial_consent_status` (успешный или неуспешный —
++ * важен сам факт разрешения промиса, не его исход). Ставится в true ОДИН раз, в `finally`
++ * `resolveTrialConsentGate` — см. докстринг `trialConsentBlocking` ниже.
++ * @type {import('svelte/store').Writable<boolean>} */
++export const trialConsentResolved = writable(false);
++
++/** 🔴 s48 (2026-09-14, третье уточнение внешнего аудита): ЕДИНСТВЕННОЕ значение, которое
++ * обязаны читать все обработчики клавиш и любая другая проверка «разрешено ли действие,
++ * пока согласие не подтверждено» (было: `get(trialConsentPromptOpen)` напрямую в трёх местах
++ * — `+layout.svelte`, `+page.svelte`, `cabinet/+page.svelte` — и в `TrialConsentOverlay`).
++ *
++ * Находка: `trialConsentPromptOpen` — `writable(false)` по умолчанию, и держит `false` до
++ * ответа Rust. Первые миллисекунды после запуска (тем дольше, чем медленнее машина клиента)
++ * ЛЮБОЙ читатель этого значения видел «условия приняты», хотя правда — «ещё не знаем». Умолчание
++ * обязано быть безопасным («закрыто, пока не доказано обратное»), а не совпадать с «условия не
++ * требуются» — отсюда отдельная величина `trialConsentResolved`: пока ответа Rust не было
++ * (`resolved === false`) — блокируем БЕЗУСЛОВНО, независимо от текущего (ещё дефолтного)
++ * значения `trialConsentPromptOpen`.
++ *
++ * Проверено `src/tests/trial-consent-gate-race.test.js` двумя проверками разной природы
++ * (переписан 2026-09-14 после находки front-gate-s48 — прежняя версия хардкодила старое
++ * выражение внутри себя и не краснела ни на какой правке продукта): (а) поведенческая —
++ * вызывает `resolveTrialConsentGate` с поддельным `invoke` и проверяет саму эту производную
++ * (краснеет, если убрать проверку `resolved` из формулы ниже); (б) текстовая — требует от
++ * всех известных потребителей (`+layout.svelte`, `+page.svelte`, `cabinet/+page.svelte`,
++ * `TrialConsentOverlay.svelte`) читать именно `trialConsentBlocking`, а не сырой
++ * `trialConsentPromptOpen` (краснеет на возврате прямого чтения в любом из них).
++ * @type {import('svelte/store').Readable<boolean>} */
++export const trialConsentBlocking = derived(
++    [trialConsentResolved, trialConsentPromptOpen],
++    ([resolved, open]) => !resolved || open,
++);
++
+ // ── Таймер сессии (Aurora design SSOT §11) ─────────────────────────────────
+ // Отсчёт с запуска приложения. Управление: стоп/пуск (одиночный клик) + сброс (двойной клик).
+ // Сбрасывается при перезапуске приложения. Эталон DocMaster.
+diff --git a/src/lib/trial-consent-gate.js b/src/lib/trial-consent-gate.js
+new file mode 100644
+index 00000000..1a1267ae
+--- /dev/null
++++ b/src/lib/trial-consent-gate.js
+@@ -0,0 +1,27 @@
++/**
++ * Разрешение гейта «Условия ознакомительного использования» (s48, 2026-09-14, третье
++ * уточнение внешнего аудита). Раньше это была локальная async IIFE внутри
++ * `+layout.svelte::onMount` — вынесена в отдельный модуль с DI на `invoke` (тот же приём,
++ * что и у `$lib/global-shortcuts.js`), чтобы гонку «состояние до ответа Rust» можно было
++ * воспроизвести прямым вызовом с поддельным, никогда не резолвящимся `invoke`, а не монтируя
++ * весь layout — см. `src/tests/trial-consent-gate-race.test.js`.
++ *
++ * Отказ проверки трактуется как «согласие не подтверждено» (fail-closed) — юридический гейт
++ * не должен молча пропускать из-за временной ошибки IPC.
++ */
++import { trialConsentPromptOpen, trialConsentResolved } from './store.js';
++
++/**
++ * @param {(cmd: string, args?: Record<string, unknown>) => Promise<unknown>} invoke - `@tauri-apps/api/core`
++ *   `invoke`, передаётся явным параметром ради теста с поддельным/подвешенным промисом.
++ */
++export async function resolveTrialConsentGate(invoke) {
++    try {
++        const status = /** @type {{required: boolean}} */ (await invoke('get_trial_consent_status'));
++        if (status?.required !== false) trialConsentPromptOpen.set(true);
++    } catch {
++        trialConsentPromptOpen.set(true);
++    } finally {
++        trialConsentResolved.set(true);
++    }
++}
+diff --git a/src/routes/+layout.svelte b/src/routes/+layout.svelte
+index 02cbd30c..58441bfa 100644
+--- a/src/routes/+layout.svelte
++++ b/src/routes/+layout.svelte
+@@ -5,7 +5,8 @@
+   import { get } from 'svelte/store';
+   import { page } from '$app/stores';
+   import { goto } from '$app/navigation';
+-  import { theme, updateRequired, layoutCabinets, cabinetsLoaded, activeCabinet, messages, navCollapsed, licenseError, cloudConsent, cloudConsentPromptOpen, trialConsentPromptOpen } from '$lib/store.js';
++  import { theme, updateRequired, layoutCabinets, cabinetsLoaded, activeCabinet, messages, navCollapsed, licenseError, cloudConsent, cloudConsentPromptOpen, trialConsentBlocking } from '$lib/store.js';
++  import { resolveTrialConsentGate } from '$lib/trial-consent-gate.js';
+   import { refreshAssistantRoute, pendingRouteChangeNotice, acknowledgeRouteChange } from '$lib/assistant-route.js';
+   import { initCreativeStore, productType } from '$lib/creative-store.js';
+   import { toasts, dismiss, toast } from '$lib/toast.js';
+@@ -125,7 +126,7 @@
+     /** @param {KeyboardEvent} e */
+     function handleGlobalKey(e) {
+       handleGlobalShortcut({
+-        trialConsentOpen: get(trialConsentPromptOpen),
++        trialConsentOpen: get(trialConsentBlocking),
+         paletteOpen,
+         setPaletteOpen: (open) => { paletteOpen = open; },
+         toggleGlossary: () => showGlossaryPanel.update((v) => !v),
+@@ -228,16 +229,11 @@
+ 
+     // Условия ознакомительного использования (s48, 2026-09-14): блокирующий гейт,
+     // независимый от cloud-consent ниже — не graceful, «Отказаться» закрывает программу.
+-    // Отказ проверки трактуется как «согласие не подтверждено» (fail-closed) - юридический
+-    // гейт не должен молча пропускать из-за временной ошибки IPC.
+-    (async () => {
+-      try {
+-        const status = /** @type {{required: boolean}} */ (await invoke('get_trial_consent_status'));
+-        if (status?.required !== false) trialConsentPromptOpen.set(true);
+-      } catch {
+-        trialConsentPromptOpen.set(true);
+-      }
+-    })();
++    // Тело вынесено в $lib/trial-consent-gate.js::resolveTrialConsentGate (третье уточнение
++    // аудита, 2026-09-14) - пока этот промис не разрешился, ЛЮБОЕ чтение состояния гейта
++    // (trialConsentBlocking) обязано читаться как «заблокировано» - см. докстринг
++    // trialConsentBlocking в $lib/store.js и src/tests/trial-consent-gate-race.test.js.
++    resolveTrialConsentGate(invoke);
+ 
+     // Cloud-consent (облачная редакция): получить статус и при необходимости показать
+     // экран согласия на first-run. Graceful — MMM доступен и без согласия; экран лишь
+diff --git a/src/routes/+page.svelte b/src/routes/+page.svelte
+index b332ed83..99288b1e 100644
+--- a/src/routes/+page.svelte
++++ b/src/routes/+page.svelte
+@@ -2,9 +2,11 @@
+   import { invoke } from '@tauri-apps/api/core';
+   import { goto } from '$app/navigation';
+   import { onMount } from 'svelte';
+-  import { activeCabinet, messages, errorMessage, theme, toggleTheme, updateRequired, layoutCabinets, cabinetsLoaded, lastCabinetId, licenseError as licenseErrorStore } from '$lib/store.js';
++  import { get } from 'svelte/store';
++  import { activeCabinet, messages, errorMessage, theme, toggleTheme, updateRequired, layoutCabinets, cabinetsLoaded, lastCabinetId, licenseError as licenseErrorStore, trialConsentBlocking } from '$lib/store.js';
+   import { isCreativeHub, isEconometrica, activeBrand, brands, refreshBrands, setActiveBrand, productType } from '$lib/creative-store.js';
+   import { toast } from '$lib/toast.js';
++  import { handleHomeShortcut } from '$lib/global-shortcuts.js';
+   import CabinetCard from '$lib/components/CabinetCard.svelte';
+   import BrandSelector from '$lib/components/BrandSelector.svelte';
+   import AetherLogo from '$lib/components/AetherLogo.svelte';
+@@ -148,19 +150,17 @@
+ 
+   /** @param {KeyboardEvent} e */
+   function handleHomeKeydown(e) {
+-    // Ctrl+, → Settings
+-    if (e.ctrlKey && e.key === ',') {
+-      e.preventDefault();
+-      goto('/settings');
+-      return;
+-    }
+-    // 1-9 → open cabinet by index (only when not in input)
+-    if (!e.ctrlKey && !e.altKey && !e.metaKey && /^[1-9]$/.test(e.key) && !['INPUT', 'TEXTAREA'].includes(/** @type {HTMLElement} */ (e.target)?.tagName)) {
+-      const idx = parseInt(e.key) - 1;
+-      if ($layoutCabinets[idx]) {
+-        openCabinet($layoutCabinets[idx]);
+-      }
+-    }
++    // Правило «пока окно условий открыто - сочетания клавиш не работают» - единый
++    // источник $lib/global-shortcuts.js (s48, 2026-09-14, вторая волна). См. докстринг
++    // handleHomeShortcut - это ГЛАВНАЯ страница, ровно та, где TrialConsentOverlay
++    // появляется первым.
++    handleHomeShortcut({
++      trialConsentOpen: get(trialConsentBlocking),
++      event: e,
++      layoutCabinets: $layoutCabinets,
++      gotoSettings: () => goto('/settings'),
++      openCabinetByIndex: (idx) => openCabinet($layoutCabinets[idx]),
++    });
+   }
+ 
+   onMount(() => {
+diff --git a/src/routes/cabinet/+page.svelte b/src/routes/cabinet/+page.svelte
+index 54bd9318..a9acb200 100644
+--- a/src/routes/cabinet/+page.svelte
++++ b/src/routes/cabinet/+page.svelte
+@@ -3,7 +3,8 @@
+   import { openUrl } from '@tauri-apps/plugin-opener';
+   import { goto } from '$app/navigation';
+   import { onMount } from 'svelte';
+-  import { activeCabinet, messages, isLoading, pendingCommand, lastCabinetId, recordRecentCommand, cabinetOnboarding, theme, toggleTheme, inboxFiles, cloudConsent, cloudConsentPromptOpen } from '$lib/store.js';
++  import { get } from 'svelte/store';
++  import { activeCabinet, messages, isLoading, pendingCommand, lastCabinetId, recordRecentCommand, cabinetOnboarding, theme, toggleTheme, inboxFiles, cloudConsent, cloudConsentPromptOpen, trialConsentBlocking } from '$lib/store.js';
+   import { ChartColumn } from 'lucide-svelte';
+   import { activeProject } from '$lib/project-state.js';
+   import { getProductName, getCommandBrief, getCommandMeta } from '$lib/command-meta.js';
+@@ -11,6 +12,7 @@
+   import { productType, activeBrand, isCreativeHub } from '$lib/creative-store.js';
+   import { toast } from '$lib/toast.js';
+   import { assistantRoute, refreshAssistantRoute } from '$lib/assistant-route.js';
++  import { handleCabinetShortcut } from '$lib/global-shortcuts.js';
+ 
+   /** Открыть страницу загрузки Python в браузере системы.
+    * Отдельная функция, потому что перехватывать надо и обычный клик, и средний: средняя кнопка
+@@ -231,19 +233,21 @@
+ 
+   /** @param {KeyboardEvent} e */
+   function handleCabinetKeydown(e) {
+-    // Ctrl+Shift+Z → toggle zen mode
+-    if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'z') {
+-      e.preventDefault();
+-      zenMode = !zenMode;
+-      return;
+-    }
+-    // Escape → execution→selection → zen off → back to home
+-    if (e.key === 'Escape' && !['INPUT', 'TEXTAREA'].includes(/** @type {HTMLElement} */ (e.target)?.tagName)) {
+-      if (pendingBriefCommand) { cancelBrief(); return; }
+-      if (workspaceMode === 'execution') { workspaceMode = 'selection'; return; }
+-      if (zenMode) { zenMode = false; return; }
+-      goBack();
+-    }
++    // Правило «пока окно условий открыто - сочетания клавиш не работают» - единый
++    // источник $lib/global-shortcuts.js (s48, 2026-09-14, вторая волна). См. докстринг
++    // handleCabinetShortcut - кабинет достижим сразу после обхода блокирующего экрана
++    // с главной страницы, обработчик здесь раньше не смотрел на состояние окна условий.
++    handleCabinetShortcut({
++      trialConsentOpen: get(trialConsentBlocking),
++      event: e,
++      zenMode,
++      setZenMode: (value) => { zenMode = value; },
++      pendingBriefCommand,
++      cancelBrief,
++      workspaceMode,
++      setWorkspaceMode: (value) => { workspaceMode = value; },
++      goBack,
++    });
+   }
+ 
+   // ── Dependency check for PPTX pipeline ──
+diff --git a/src/tests/global-shortcuts.test.js b/src/tests/global-shortcuts.test.js
+index 6c6860ef..4fcd3c88 100644
+--- a/src/tests/global-shortcuts.test.js
++++ b/src/tests/global-shortcuts.test.js
+@@ -11,7 +11,7 @@
+  * вызовом с поддельным KeyboardEvent.
+  */
+ import { describe, it, expect, vi } from 'vitest';
+-import { handleGlobalShortcut } from '$lib/global-shortcuts.js';
++import { handleGlobalShortcut, handleHomeShortcut, handleCabinetShortcut, isKeydownOutsideBlockingOverlay } from '$lib/global-shortcuts.js';
+ 
+ /** @param {Partial<KeyboardEvent> & {key: string}} overrides */
+ function fakeCtrlEvent(overrides) {
+@@ -128,3 +128,208 @@ describe('handleGlobalShortcut - блокировка при открытом о
+     expect(setPaletteOpen).not.toHaveBeenCalled();
+   });
+ });
++
++describe('handleHomeShortcut - блокировка при открытом окне условий (главная страница)', () => {
++  it('Ctrl+, НИЧЕГО не делает, пока окно условий открыто', () => {
++    const gotoSettings = vi.fn();
++    const openCabinetByIndex = vi.fn();
++    const event = /** @type {KeyboardEvent} */ ({ ctrlKey: true, key: ',', preventDefault: vi.fn() });
++
++    handleHomeShortcut({
++      trialConsentOpen: true,
++      event,
++      layoutCabinets: [{ id: 'a' }],
++      gotoSettings,
++      openCabinetByIndex,
++    });
++
++    expect(gotoSettings).not.toHaveBeenCalled();
++    expect(event.preventDefault).not.toHaveBeenCalled();
++  });
++
++  it('цифра 1 НИЧЕГО не делает (не открывает кабинет), пока окно условий открыто', () => {
++    const gotoSettings = vi.fn();
++    const openCabinetByIndex = vi.fn();
++    const event = /** @type {KeyboardEvent} */ ({ ctrlKey: false, altKey: false, metaKey: false, key: '1', target: { tagName: 'BODY' } });
++
++    handleHomeShortcut({
++      trialConsentOpen: true,
++      event,
++      layoutCabinets: [{ id: 'a' }],
++      gotoSettings,
++      openCabinetByIndex,
++    });
++
++    expect(openCabinetByIndex).not.toHaveBeenCalled();
++  });
++
++  it('после закрытия окна условий Ctrl+, снова ведёт в Настройки', () => {
++    const gotoSettings = vi.fn();
++    const openCabinetByIndex = vi.fn();
++    const event = /** @type {KeyboardEvent} */ ({ ctrlKey: true, key: ',', preventDefault: vi.fn() });
++
++    handleHomeShortcut({
++      trialConsentOpen: false,
++      event,
++      layoutCabinets: [{ id: 'a' }],
++      gotoSettings,
++      openCabinetByIndex,
++    });
++
++    expect(gotoSettings).toHaveBeenCalledTimes(1);
++    expect(event.preventDefault).toHaveBeenCalledTimes(1);
++  });
++
++  it('после закрытия окна условий цифра 1 открывает первый кабинет (регрессия не превратилась в "навсегда сломано")', () => {
++    const gotoSettings = vi.fn();
++    const openCabinetByIndex = vi.fn();
++    const event = /** @type {KeyboardEvent} */ ({ ctrlKey: false, altKey: false, metaKey: false, key: '1', target: { tagName: 'BODY' } });
++
++    handleHomeShortcut({
++      trialConsentOpen: false,
++      event,
++      layoutCabinets: [{ id: 'a' }],
++      gotoSettings,
++      openCabinetByIndex,
++    });
++
++    expect(openCabinetByIndex).toHaveBeenCalledWith(0);
++  });
++
++  it('цифра 1 не срабатывает внутри поля ввода (сохранённое поведение)', () => {
++    const gotoSettings = vi.fn();
++    const openCabinetByIndex = vi.fn();
++    const event = /** @type {KeyboardEvent} */ ({ ctrlKey: false, altKey: false, metaKey: false, key: '1', target: { tagName: 'INPUT' } });
++
++    handleHomeShortcut({
++      trialConsentOpen: false,
++      event,
++      layoutCabinets: [{ id: 'a' }],
++      gotoSettings,
++      openCabinetByIndex,
++    });
++
++    expect(openCabinetByIndex).not.toHaveBeenCalled();
++  });
++});
++
++describe('handleCabinetShortcut - блокировка при открытом окне условий (кабинет)', () => {
++  it('Ctrl+Shift+Z НИЧЕГО не делает, пока окно условий открыто', () => {
++    const setZenMode = vi.fn();
++    const cancelBrief = vi.fn();
++    const setWorkspaceMode = vi.fn();
++    const goBack = vi.fn();
++    const event = /** @type {KeyboardEvent} */ ({ ctrlKey: true, shiftKey: true, key: 'z', preventDefault: vi.fn() });
++
++    handleCabinetShortcut({
++      trialConsentOpen: true,
++      event,
++      zenMode: false,
++      setZenMode,
++      pendingBriefCommand: null,
++      cancelBrief,
++      workspaceMode: 'selection',
++      setWorkspaceMode,
++      goBack,
++    });
++
++    expect(setZenMode).not.toHaveBeenCalled();
++    expect(event.preventDefault).not.toHaveBeenCalled();
++  });
++
++  it('Escape НИЧЕГО не делает (не выходит назад), пока окно условий открыто', () => {
++    const setZenMode = vi.fn();
++    const cancelBrief = vi.fn();
++    const setWorkspaceMode = vi.fn();
++    const goBack = vi.fn();
++    const event = /** @type {KeyboardEvent} */ ({ key: 'Escape', target: { tagName: 'BODY' } });
++
++    handleCabinetShortcut({
++      trialConsentOpen: true,
++      event,
++      zenMode: false,
++      setZenMode,
++      pendingBriefCommand: null,
++      cancelBrief,
++      workspaceMode: 'execution',
++      setWorkspaceMode,
++      goBack,
++    });
++
++    expect(setWorkspaceMode).not.toHaveBeenCalled();
++    expect(goBack).not.toHaveBeenCalled();
++  });
++
++  it('после закрытия окна условий Ctrl+Shift+Z снова переключает дзен-режим', () => {
++    const setZenMode = vi.fn();
++    const cancelBrief = vi.fn();
++    const setWorkspaceMode = vi.fn();
++    const goBack = vi.fn();
++    const event = /** @type {KeyboardEvent} */ ({ ctrlKey: true, shiftKey: true, key: 'z', preventDefault: vi.fn() });
++
++    handleCabinetShortcut({
++      trialConsentOpen: false,
++      event,
++      zenMode: false,
++      setZenMode,
++      pendingBriefCommand: null,
++      cancelBrief,
++      workspaceMode: 'selection',
++      setWorkspaceMode,
++      goBack,
++    });
++
++    expect(setZenMode).toHaveBeenCalledWith(true);
++  });
++
++  it('после закрытия окна условий Escape снова ведёт назад (регрессия не превратилась в "навсегда сломано")', () => {
++    const setZenMode = vi.fn();
++    const cancelBrief = vi.fn();
++    const setWorkspaceMode = vi.fn();
++    const goBack = vi.fn();
++    const event = /** @type {KeyboardEvent} */ ({ key: 'Escape', target: { tagName: 'BODY' } });
++
++    handleCabinetShortcut({
++      trialConsentOpen: false,
++      event,
++      zenMode: false,
++      setZenMode,
++      pendingBriefCommand: null,
++      cancelBrief,
++      workspaceMode: 'selection',
++      setWorkspaceMode,
++      goBack,
++    });
++
++    expect(goBack).toHaveBeenCalledTimes(1);
++  });
++});
++
++describe('isKeydownOutsideBlockingOverlay - предикат второго слоя защиты', () => {
++  it('цель ВНУТРИ оверлея - не гасить (false)', () => {
++    const overlayEl = document.createElement('div');
++    const inner = document.createElement('button');
++    overlayEl.appendChild(inner);
++
++    expect(isKeydownOutsideBlockingOverlay(overlayEl, inner)).toBe(false);
++    expect(isKeydownOutsideBlockingOverlay(overlayEl, overlayEl)).toBe(false);
++  });
++
++  it('цель СНАРУЖИ оверлея - гасить (true)', () => {
++    const overlayEl = document.createElement('div');
++    const outside = document.createElement('button');
++
++    expect(isKeydownOutsideBlockingOverlay(overlayEl, outside)).toBe(true);
++  });
++
++  it('оверлей ещё не смонтирован (null) - гасить на всякий случай (true)', () => {
++    const outside = document.createElement('button');
++    expect(isKeydownOutsideBlockingOverlay(null, outside)).toBe(true);
++  });
++
++  it('цель не Node (null/undefined) - гасить на всякий случай (true)', () => {
++    const overlayEl = document.createElement('div');
++    expect(isKeydownOutsideBlockingOverlay(overlayEl, null)).toBe(true);
++    expect(isKeydownOutsideBlockingOverlay(overlayEl, undefined)).toBe(true);
++  });
++});
+diff --git a/src/tests/trial-consent-gate-race.test.js b/src/tests/trial-consent-gate-race.test.js
+new file mode 100644
+index 00000000..550f92dd
+--- /dev/null
++++ b/src/tests/trial-consent-gate-race.test.js
+@@ -0,0 +1,95 @@
++/**
++ * s48 (2026-09-14, четвёртое уточнение аудитора — переписан с нуля). Прежняя версия
++ * воспроизводила гонку, СОБИРАЯ входной объект вручную внутри себя
++ * (`{ trialConsentOpen: get(trialConsentPromptOpen) }`) и передавая его в чистую функцию
++ * `handleHomeShortcut` — то есть проверяла свою же копию старого выражения, а не код
++ * продукта: мутация настоящего потребителя (`src/routes/+page.svelte`) не меняла её
++ * результат ни на бит (доказано делом, отчёт front-gate-s48). Здесь — две проверки другой
++ * природы, обе действительно читают код продукта.
++ *
++ * (а) Поведенческая — вызывает `resolveTrialConsentGate` напрямую, с поддельным `invoke`,
++ * и проверяет саму производную `trialConsentBlocking`: блокирует, пока ответа нет, и
++ * снимает/держит блокировку по содержанию ответа (fail-closed на отказе IPC). Красная
++ * мутация: убрать проверку `resolved` из формулы в `$lib/store.js`
++ * (`([resolved, open]) => open` вместо `!resolved || open`) — тогда в состоянии «ответа ещё
++ * нет» (`open === false` по умолчанию) первый тест ожидает `true`, а формула даёт `false`.
++ *
++ * (б) Текстовая — читает исходники всех известных потребителей гейта и требует, чтобы
++ * решение о блокировке было завязано на `trialConsentBlocking`, а не на сыром
++ * `trialConsentPromptOpen`. Ловит именно то, что случилось: второй слой защиты в
++ * `TrialConsentOverlay.svelte` монтировал перехватчик по видимости модали (то есть по
++ * `trialConsentPromptOpen` напрямую) в обход починки трёх обработчиков клавиш. Красная
++ * мутация: вернуть в любом из четырёх файлов чтение `trialConsentPromptOpen` вместо
++ * `trialConsentBlocking` для решения о блокировке.
++ */
++import { describe, it, expect, vi, beforeEach } from 'vitest';
++import { readFileSync } from 'node:fs';
++import { get } from 'svelte/store';
++import { trialConsentPromptOpen, trialConsentResolved, trialConsentBlocking } from '$lib/store.js';
++import { resolveTrialConsentGate } from '$lib/trial-consent-gate.js';
++
++beforeEach(() => {
++  trialConsentPromptOpen.set(false);
++  trialConsentResolved.set(false);
++});
++
++describe('гейт условий - поведение производной trialConsentBlocking', () => {
++  it('пока ответ Rust не пришёл (промис подвешен) - блокировка включена', () => {
++    const neverResolves = vi.fn(() => new Promise(() => {})); // подвешенный промис - "Rust ещё не ответил"
++    resolveTrialConsentGate(neverResolves); // без await - смотрим на состояние ДО разрешения
++
++    expect(get(trialConsentResolved)).toBe(false);
++    expect(get(trialConsentBlocking)).toBe(true);
++  });
++
++  it('согласие уже дано (required: false) - блокировка снимается после ответа', async () => {
++    const invoke = vi.fn().mockResolvedValue({ required: false });
++    await resolveTrialConsentGate(invoke);
++
++    expect(get(trialConsentResolved)).toBe(true);
++    expect(get(trialConsentPromptOpen)).toBe(false);
++    expect(get(trialConsentBlocking)).toBe(false);
++  });
++
++  it('согласие требуется (required: true) - блокировка остаётся после ответа', async () => {
++    const invoke = vi.fn().mockResolvedValue({ required: true });
++    await resolveTrialConsentGate(invoke);
++
++    expect(get(trialConsentResolved)).toBe(true);
++    expect(get(trialConsentBlocking)).toBe(true);
++  });
++
++  it('отказ проверки (IPC упал) - fail-closed, блокировка остаётся', async () => {
++    const invoke = vi.fn().mockRejectedValue(new Error('IPC недоступен'));
++    await resolveTrialConsentGate(invoke);
++
++    expect(get(trialConsentResolved)).toBe(true);
++    expect(get(trialConsentPromptOpen)).toBe(true);
++    expect(get(trialConsentBlocking)).toBe(true);
++  });
++});
++
++describe('гейт условий - все известные потребители читают trialConsentBlocking, не сырой trialConsentPromptOpen', () => {
++  /** Три обработчика клавиш, передающие `trialConsentOpen` в `$lib/global-shortcuts.js`. */
++  const HANDLER_CONSUMERS = [
++    'src/routes/+layout.svelte',
++    'src/routes/+page.svelte',
++    'src/routes/cabinet/+page.svelte',
++  ];
++
++  it('обработчики клавиш решают вопрос блокировки через get(trialConsentBlocking)', () => {
++    for (const path of HANDLER_CONSUMERS) {
++      const src = readFileSync(path, 'utf-8');
++      expect(src, `${path}: не найдено get(trialConsentBlocking) - решение о блокировке потеряно`).toMatch(/get\(trialConsentBlocking\)/);
++      expect(src, `${path}: найдено прямое get(trialConsentPromptOpen) - вернулась гонка`).not.toMatch(/get\(trialConsentPromptOpen\)/);
++    }
++  });
++
++  it('второй слой защиты (TrialConsentOverlay) монтирует перехватчик по trialConsentBlocking, а не по видимости модали', () => {
++    const src = readFileSync('src/lib/components/TrialConsentOverlay.svelte', 'utf-8');
++    expect(src, 'не найден derived, читающий $trialConsentBlocking для гейта перехвата').toMatch(/\$derived\(\$trialConsentBlocking\)/);
++    // `visible` (= $trialConsentPromptOpen) допустим ТОЛЬКО для {#if} разметки - не для
++    // решения, слушать ли window.keydown.
++    expect(src, '$effect всё ещё гасит слушатель по видимости модали (визуальный признак, не гейтующий)').not.toMatch(/\$effect\(\(\) => \{\s*\n\s*if \(!visible\) return;/);
++  });
++});
+diff --git a/src/tests/trial-consent-overlay.test.js b/src/tests/trial-consent-overlay.test.js
+index 912afd09..b46e0c33 100644
+--- a/src/tests/trial-consent-overlay.test.js
++++ b/src/tests/trial-consent-overlay.test.js
+@@ -11,9 +11,10 @@
+  */
+ import { describe, it, expect, vi, beforeEach } from 'vitest';
+ import { render, screen, fireEvent, waitFor } from '@testing-library/svelte';
++import { tick } from 'svelte';
+ import { invoke } from '@tauri-apps/api/core';
+ import { getCurrentWindow } from '@tauri-apps/api/window';
+-import { trialConsentPromptOpen } from '$lib/store.js';
++import { trialConsentPromptOpen, trialConsentResolved } from '$lib/store.js';
+ import { SHOW_CLOUD_PROCESSING_PARAGRAPH } from '$lib/trial-terms-config.js';
+ import TrialConsentOverlay from '$lib/components/TrialConsentOverlay.svelte';
+ 
+@@ -28,6 +29,12 @@ beforeEach(() => {
+   vi.mocked(invoke).mockResolvedValue(null);
+   closeWindow.mockClear();
+   trialConsentPromptOpen.set(true);
++  // s48 (третья волна): в реальном потоке к моменту, когда окно вообще может стать видимым,
++  // Rust уже ответил (resolveTrialConsentGate ставит trialConsentResolved ПЕРЕД тем, как
++  // компонент показывается) - иначе trialConsentBlocking навсегда true независимо от того,
++  // что происходит с trialConsentPromptOpen, и тест "перехват снимается" ниже не имел бы
++  // смысла (проверял бы состояние, которого в бою не бывает).
++  trialConsentResolved.set(true);
+ });
+ 
+ describe('TrialConsentOverlay — отметка и кнопка «Принимаю»', () => {
+@@ -163,3 +170,90 @@ describe('TrialConsentOverlay — открытие условий', () => {
+     });
+   });
+ });
++
++describe('TrialConsentOverlay — второй слой защиты: перехват клавиш вне оверлея (s48, аудит второй волны)', () => {
++  it('нажатие клавиши на ФОНОВОМ элементе не доходит до window-обработчика продукта (bubble-фаза)', async () => {
++    const backgroundBtn = document.createElement('button');
++    document.body.appendChild(backgroundBtn);
++    render(TrialConsentOverlay);
++    await tick();
++
++    // Имитация обработчика продукта (handleHomeShortcut/handleCabinetShortcut/handleGlobalShortcut
++    // и любого будущего) - обычный window-слушатель без capture, ровно как они регистрируются.
++    const productHandlerSpy = vi.fn();
++    window.addEventListener('keydown', productHandlerSpy);
++
++    backgroundBtn.focus();
++    await fireEvent.keyDown(backgroundBtn, { key: '1' });
++
++    expect(productHandlerSpy).not.toHaveBeenCalled();
++
++    window.removeEventListener('keydown', productHandlerSpy);
++    backgroundBtn.remove();
++  });
++
++  it('нажатие клавиши ВНУТРИ оверлея (чекбокс) не гасится - работает как обычно', async () => {
++    render(TrialConsentOverlay);
++    await tick();
++
++    const productHandlerSpy = vi.fn();
++    window.addEventListener('keydown', productHandlerSpy);
++
++    const checkbox = screen.getByRole('checkbox');
++    await fireEvent.keyDown(checkbox, { key: ' ' });
++
++    expect(productHandlerSpy).toHaveBeenCalledTimes(1);
++
++    window.removeEventListener('keydown', productHandlerSpy);
++  });
++
++  it('после принятия условий (visible=false) перехват снимается - фон снова получает клавиши', async () => {
++    render(TrialConsentOverlay);
++    await tick();
++
++    trialConsentPromptOpen.set(false);
++    await tick();
++
++    const backgroundBtn = document.createElement('button');
++    document.body.appendChild(backgroundBtn);
++    const productHandlerSpy = vi.fn();
++    window.addEventListener('keydown', productHandlerSpy);
++
++    backgroundBtn.focus();
++    await fireEvent.keyDown(backgroundBtn, { key: '1' });
++
++    expect(productHandlerSpy).toHaveBeenCalledTimes(1);
++
++    window.removeEventListener('keydown', productHandlerSpy);
++    backgroundBtn.remove();
++  });
++
++  it('второй слой активен ДО монтирования разметки окна (Rust ещё не ответил - находка front-gate-s48)', async () => {
++    // Ровно момент между запуском приложения и разрешением промиса
++    // get_trial_consent_status: ответа ещё нет, поэтому решение «показывать ли модаль»
++    // ещё не принято (trialConsentPromptOpen = false, {#if visible} не смонтирован,
++    // overlayEl = null) - но заблокировано быть ОБЯЗАНО, потому что resolved = false.
++    trialConsentPromptOpen.set(false);
++    trialConsentResolved.set(false);
++    render(TrialConsentOverlay);
++    await tick();
++
++    expect(screen.queryByRole('checkbox')).not.toBeInTheDocument(); // разметки окна ещё нет
++
++    const backgroundBtn = document.createElement('button');
++    document.body.appendChild(backgroundBtn);
++    const productHandlerSpy = vi.fn();
++    window.addEventListener('keydown', productHandlerSpy);
++
++    backgroundBtn.focus();
++    await fireEvent.keyDown(backgroundBtn, { key: '1' });
++
++    // `overlayEl` = null → isKeydownOutsideBlockingOverlay возвращает true («цель
++    // снаружи») → нажатие гасится. Это правильное поведение: раз окна ещё нет, внутри
++    // него быть не может ничто, значит гасить надо всё.
++    expect(productHandlerSpy).not.toHaveBeenCalled();
++
++    window.removeEventListener('keydown', productHandlerSpy);
++    backgroundBtn.remove();
++  });
++});
+diff --git a/src/tokens.generated.css b/src/tokens.generated.css
+index e92a804c..11ffcd10 100644
+--- a/src/tokens.generated.css
++++ b/src/tokens.generated.css
+@@ -1,6 +1,6 @@
+ /* GENERATED FROM Standards/tokens/tokens.json — DO NOT EDIT
+  * Regenerate: python Standards/tokens/build.py --target css
+- * Last build: 2026-09-14T03:37:25 */
++ * Last build: 2026-09-14T08:24:17 */
+ 
+ :root {
+   --color-brand-deep-100: #0A1628;
+diff --git a/tools/build_help_pdf.py b/tools/build_help_pdf.py
+index 27445b2c..b0603d82 100644
+--- a/tools/build_help_pdf.py
++++ b/tools/build_help_pdf.py
+@@ -519,6 +519,41 @@ def extract_body(html: str) -> str:
+     return re.sub(r"<script\b[^>]*>.*?</script>", "", body, flags=re.S | re.I)
+ 
+ 
++_CROSS_PAGE_HREF_RE = re.compile(r'href="([a-zA-Z0-9_-]+)\.html(?:#([a-zA-Z0-9_-]+))?"')
++_SAME_PAGE_HREF_RE = re.compile(r'href="#(?!page-)([a-zA-Z0-9_-]+)"')
++_ANCHOR_ID_RE = re.compile(r'\bid="([a-zA-Z0-9_-]+)"')
++
++
++def namespace_internal_links(body: str, page_id: str) -> str:
++    """Печатный PDF - ОДИН склеенный документ (главы уже не отдельные HTML-
++    файлы на диске), а исходные help-страницы ссылаются друг на друга
++    относительными путями вида href="step-3-model.html#read" и якорями внутри
++    страницы href="#read". После извлечения body headless Edge печатает
++    merged.html из временного каталога сборки - относительный href резолвится
++    БРАУЗЕРОМ в file:///.../aurora-help-pdf-<rand>/step-3-model.html и
++    застывает в PDF как есть, вместе с именем пользователя и путём временного
++    каталога сборочной машины (найдено внешним аудитом s48, 140 таких
++    аннотаций). Правильная модель - раз все страницы уже в одном документе,
++    межстраничные и внутристраничные ссылки должны быть якорями ВНУТРИ этого
++    документа, а не путями на диск. Три прохода: 1) href="X.html[#Y]" ->
++    "#page-X[--Y]" (межстраничные), 2) href="#Y" -> "#page-{page_id}--Y"
++    (внутристраничные, до переименования id), 3) id="Y" -> "id=page-
++    {page_id}--Y" (несколько страниц-шагов делят один и тот же id="read" -
++    без неймспейса это были бы дублирующиеся id в одном DOM)."""
++
++    def cross_page_repl(match):
++        target_id, anchor = match.group(1), match.group(2)
++        frag = f"#page-{target_id}"
++        if anchor:
++            frag += f"--{anchor}"
++        return f'href="{frag}"'
++
++    body = _CROSS_PAGE_HREF_RE.sub(cross_page_repl, body)
++    body = _SAME_PAGE_HREF_RE.sub(lambda m: f'href="#page-{page_id}--{m.group(1)}"', body)
++    body = _ANCHOR_ID_RE.sub(lambda m: f'id="page-{page_id}--{m.group(1)}"', body)
++    return body
++
++
+ def inline_local_images(html_fragment: str, help_dir: Path) -> str:
+     def repl(match):
+         filename = match.group(1)
+@@ -530,6 +565,21 @@ def inline_local_images(html_fragment: str, help_dir: Path) -> str:
+     return re.sub(r'src="([\w.-]+\.png)"', repl, html_fragment)
+ 
+ 
++_DOWNLOAD_LINK_RE = re.compile(r'<a\s+[^>]*\bdownload\b[^>]*>(.*?)</a>', re.S)
++
++
++def strip_download_links(body: str) -> str:
++    """Ссылки на скачивание шаблонов (`<a href="template_fmcg.xlsx" download>`)
++    указывают на файлы рядом с HTML-страницей в приложении - в печатном PDF
++    такого соседа нет, и (та же механика, что чинит namespace_internal_links)
++    относительный href резолвится headless Edge в file:///.../aurora-help-
++    pdf-<rand>/template_fmcg.xlsx, снова протаскивая путь сборочной машины
++    в клиентский документ (найдено гейтом check_pdf_no_machine_paths после
++    первой правки). Скачивание в статичном PDF всё равно нефункционально -
++    снимаем ссылку-аннотацию целиком, текст подписи оставляем как есть."""
++    return _DOWNLOAD_LINK_RE.sub(lambda m: m.group(1), body)
++
++
+ def apply_brand_naming(html: str) -> str:
+     """Написание имени в прозе печатного руководства: "Aurora AI - Econometrica"
+     (короткое тире), вместо голой конкатенации, которой сейчас пользуются
+@@ -706,6 +756,8 @@ def build_merged_html(help_dir: Path, product: str, version: str, nav_titles: di
+         title = nav_titles.get(page_id) or extract_title(raw, page_id)
+         style = strip_dark_theme_leaks(extract_head_styles(raw))
+         body = extract_body(raw)
++        body = namespace_internal_links(body, page_id)
++        body = strip_download_links(body)
+         body = inline_local_images(body, help_dir)
+         body = force_details_open(body)
+         if page_id == "error-codes":
+@@ -724,7 +776,7 @@ def build_merged_html(help_dir: Path, product: str, version: str, nav_titles: di
+     ]
+     for i, p in enumerate(pages, start=1):
+         divider = build_section_divider_html(i, p["title"])
+-        sections.append(f'<section class="pdf-page">{divider}{p["body"]}</section>')
++        sections.append(f'<section class="pdf-page" id="page-{p["id"]}">{divider}{p["body"]}</section>')
+ 
+     html = f"""<!DOCTYPE html>
+ <html lang="ru">
+diff --git a/tools/check_help_pdf_consistency.py b/tools/check_help_pdf_consistency.py
+index 7c8b8c92..1d50d1f5 100644
+--- a/tools/check_help_pdf_consistency.py
++++ b/tools/check_help_pdf_consistency.py
+@@ -401,6 +401,60 @@ def check_pdf_freshness() -> tuple:
+     return fails, []
+ 
+ 
++# ── PDF: пути сборочной машины ────────────────────────────────────────
++
++_MACHINE_PATH_MARKERS = ("file:///", "file://localhost/", "C:/Users", r"C:\Users", "AppData", "\\Temp\\", "/Temp/")
++
++
++def check_pdf_no_machine_paths() -> tuple:
++    """Возвращает (fails, warns). Найдено внешним аудитом s48: build_help_pdf.py
++    печатает merged.html/appendix.html из tempfile.TemporaryDirectory() -
++    относительные межстраничные href (`href="step-3-model.html#read"`,
++    `href="#read"`) резолвятся headless Edge в file:///.../aurora-help-pdf-
++    <rand>/... и застывают в PDF как ссылки-аннотации с абсолютным путём
++    сборочной машины, включая имя пользователя (140 из 141 аннотации в
++    econometrica-help.pdf на момент находки). Правка - namespace_internal_links()
++    в build_help_pdf.py переписывает такие ссылки в якоря внутри самого
++    документа (#page-<id>[--<anchor>]) ДО печати - здесь проверяем результат
++    на собранном файле, а не веря источнику: гейт читает URI каждой ссылки-
++    аннотации через pypdf и валит сборку при первом же совпадении с маркером
++    пути сборочной машины."""
++    bundle_pdf = HELP_DIR / PDF_NAME
++    if not bundle_pdf.exists():
++        return [], [f"{relpath(bundle_pdf)} не найден — проверка путей сборочной машины пропущена (не блокирует)"]
++
++    try:
++        import pypdf
++    except ImportError:
++        return [], ["pypdf не установлен — проверка путей сборочной машины в PDF пропущена (не блокирует)"]
++
++    try:
++        reader = pypdf.PdfReader(str(bundle_pdf))
++    except Exception as exc:  # noqa: BLE001 - битый PDF тоже надо показать, не падать молча
++        return [f"{relpath(bundle_pdf)}: не удалось прочитать PDF ({exc})"], []
++
++    fails = []
++    for page_no, page in enumerate(reader.pages, start=1):
++        annots = page.get("/Annots")
++        if not annots:
++            continue
++        for annot_ref in annots:
++            annot = annot_ref.get_object()
++            action = annot.get("/A")
++            if not action:
++                continue
++            uri = action.get_object().get("/URI")
++            if not uri:
++                continue
++            for marker in _MACHINE_PATH_MARKERS:
++                if marker in uri:
++                    fails.append(
++                        f"{relpath(bundle_pdf)}: страница {page_no}: ссылка-аннотация содержит путь сборочной машины ({marker!r} в {uri!r})"
++                    )
++                    break
++    return fails, []
++
++
+ # ── Вывод ──────────────────────────────────────────────────────────────
+ 
+ def main() -> int:
+@@ -436,6 +490,10 @@ def main() -> int:
+     all_fails.extend(pdf_fails)
+     all_warns.extend(pdf_warns)
+ 
++    machine_path_fails, machine_path_warns = check_pdf_no_machine_paths()
++    all_fails.extend(machine_path_fails)
++    all_warns.extend(machine_path_warns)
++
+     print(f"Линтер PDF-инфраструктуры справки Aurora AI Econometrica: {len(all_html_files)} html-страниц, econ-nav.js, манифест PDF\n")
+ 
+     if all_warns:
+@@ -452,7 +510,7 @@ def main() -> int:
+ 
+     print("OK: econ-nav.js <-> файлы согласованы, U+2014 не найден, «доверительный интервал»/«ДИ»/«CI» "
+           "в клиентском тексте не найдены (INV-50), копирайт «Платформа Аврора» на месте, "
+-          "версия tauri.conf.json = package.json, PDF свежий.")
++          "версия tauri.conf.json = package.json, PDF свежий, ссылки-аннотации PDF без путей сборочной машины.")
+     return 0
+ 
+ 
+diff --git a/tools/help_pdf_manifest.json b/tools/help_pdf_manifest.json
+index d30504a7..737c0d9c 100644
+--- a/tools/help_pdf_manifest.json
++++ b/tools/help_pdf_manifest.json
+@@ -1,11 +1,11 @@
+ {
+   "version": "2.5.4",
+-  "generated": "2026-09-14T01:28:54Z",
++  "generated": "2026-09-14T04:01:34Z",
+   "sources": {
+     "about.html": "5314652083126bb30ce2afa460a20706a9c3b46a764aba44eb2e056918c2dadf",
+     "data-preparation.html": "a66230627bbb471593738cc6545101ec60ae0182cd962b940900ec93f44d13e0",
+     "econometrica.html": "1f12221ea8404492ca13b2921f87d98c9a45d9ea80291a892083b14b3370d40f",
+-    "error-codes.html": "ec9f6c568b08cf352333253b26e68d19cb0701c9250702cf470b6b0001f69b17",
++    "error-codes.html": "7720775ad8634b0b16c18f9706172426cc25d1a5536a1cf9ab0d3b18dfb3d137",
+     "faq.html": "1f6275e06bd38f97f545b301483f4a91e4ad85fe41d61aa3869657ac9b25fe46",
+     "features.html": "1e9a78245f09184d0ed7a16c1a731aa85c3359e5036df44e9987cbaeb58df986",
+     "glossary.html": "5ec08ee85925d113d55e84cd7dfddcbf2baf77b4ccdfa013e566001c38f870c7",
+diff --git a/tools/sync_trial_terms.py b/tools/sync_trial_terms.py
+index f6db3efd..c454499d 100644
+--- a/tools/sync_trial_terms.py
++++ b/tools/sync_trial_terms.py
+@@ -3,7 +3,7 @@
+ r"""
+ Воспроизводимый перенос правовых PDF из эталонного места правового блока в ресурсы
+ поставки Aurora AI Econometrica: «Условия ознакомительного использования» и «Порядок
+-обработки данных — Econometrica».
++обработки данных - Aurora AI Econometrica».
+ 
+ Область: s48 (2026-09-14). Файл условий менялся вручную трижды за один час правки
+ правовым блоком - разовое копирование "руками" по названным кем-то цифрам размера/суммы
+@@ -54,7 +54,7 @@ DEFAULT_TERMS_SOURCE = Path(
+     r"D:\Docs\Aurora_Ai\Business\Договора\Условия ознакомительного использования.pdf"
+ )
+ DEFAULT_DATA_PROCESSING_SOURCE = Path(
+-    r"D:\Docs\Aurora_Ai\Business\Договора\Порядок обработки данных — Econometrica.pdf"
++    r"D:\Docs\Aurora_Ai\Business\Договора\Порядок обработки данных - Aurora AI Econometrica.pdf"
+ )
+ 
+ # Имена файлов в ресурсах поставки. ОБЯЗАНЫ дословно совпадать с
+@@ -63,7 +63,7 @@ DEFAULT_DATA_PROCESSING_SOURCE = Path(
+ # `sync_script_filename_matches_rust_constant` (там же, читает этот файл через
+ # include_str! и ищет обе строки ниже).
+ TRIAL_TERMS_PDF_FILENAME = "Условия ознакомительного использования.pdf"
+-DATA_PROCESSING_PDF_FILENAME = "Порядок обработки данных — Econometrica.pdf"
++DATA_PROCESSING_PDF_FILENAME = "Порядок обработки данных - Aurora AI Econometrica.pdf"
+ 
+ # Ключи документов в манифесте (объект `documents`) - общие с Rust-константами
+ # `TRIAL_TERMS_MANIFEST_KEY`/`DATA_PROCESSING_MANIFEST_KEY`.
+@@ -78,7 +78,7 @@ MANIFEST_PATH = Path(__file__).resolve().parent / "trial_terms_manifest.json"
+ # в тексте чекбокса TrialConsentOverlay.svelte (свой сторож - trial_terms_revision_
+ # matches_frontend_checkbox_text). Здесь только для записи в манифест - справочно
+ # (текст сообщения об ошибке), сторож поставки сверяет СУММУ, а не эту строку.
+-TRIAL_TERMS_REVISION = "2026-09-14"
++TRIAL_TERMS_REVISION = "2026-09-14.02"
+ 
+ 
+ def sha256_of(path: Path) -> str:
+diff --git a/tools/trial_terms_manifest.json b/tools/trial_terms_manifest.json
+index 4ad3755a..3f8a8dfd 100644
+--- a/tools/trial_terms_manifest.json
++++ b/tools/trial_terms_manifest.json
+@@ -1,20 +1,20 @@
+ {
+   "documents": {
+     "terms": {
+-      "revision": "2026-09-14",
++      "revision": "2026-09-14.02",
+       "filename": "Условия ознакомительного использования.pdf",
+       "source_path": "D:\\Docs\\Aurora_Ai\\Business\\Договора\\Условия ознакомительного использования.pdf",
+-      "sha256": "40b04e6e3bee64de4281d93c3d6ee3a734bb92298312175130f2117a365937e5",
+-      "size_bytes": 192635,
+-      "synced_at": "2026-09-14T03:06:49+00:00"
++      "sha256": "10b04b07262c0301ebbd44ba0e0cf02eb108f399fe717e3dbf9584687eb1fc5b",
++      "size_bytes": 180729,
++      "synced_at": "2026-09-14T05:08:04+00:00"
+     },
+     "data_processing": {
+-      "revision": "2026-09-14",
+-      "filename": "Порядок обработки данных — Econometrica.pdf",
+-      "source_path": "D:\\Docs\\Aurora_Ai\\Business\\Договора\\Порядок обработки данных — Econometrica.pdf",
+-      "sha256": "524467505c0764827e6674e596a6cc71763bdcff09ad75a97266340f666a8cd2",
+-      "size_bytes": 186856,
+-      "synced_at": "2026-09-14T03:06:49+00:00"
++      "revision": "2026-09-14.02",
++      "filename": "Порядок обработки данных - Aurora AI Econometrica.pdf",
++      "source_path": "D:\\Docs\\Aurora_Ai\\Business\\Договора\\Порядок обработки данных - Aurora AI Econometrica.pdf",
++      "sha256": "d8cbefae5ed913d3c86c70ad4f722a495e5d3ebf8ec3c5c573d578a2639b67eb",
++      "size_bytes": 183502,
++      "synced_at": "2026-09-14T05:08:04+00:00"
+     }
+   }
+ }

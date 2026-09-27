@@ -82,3 +82,18 @@ sidecar/econometrica/aurora_html/templates/aurora_html_tokens.js
 # Служебный кэш Supabase CLI (версии, временные файлы) — не исходники
 supabase/.temp/
 tools/ship-log.jsonl
+
+# Служебные файлы облачной сборки (build-cloud.mjs пишет их ДО гейта поставки ship-gate –
+# без этих строк проверка «дерево» падает на каждом прогоне; aurora-fix V80, s52)
+src-tauri/.cloud-build-running
+src-tauri/Cargo.toml.pre-cloud
+src-tauri/Cargo.lock.pre-cloud
+# Рабочие журналы и коды возврата прогонов сессий; каталоги образцов, стендов и
+# передаточного пакета (крупные двоичные файлы, в историю не идут). PULSE_*.md – идут.
+Projects/*.log
+Projects/_*_rc.txt
+Projects/_*/
+Projects/build_s*/
+Projects/probe_s*/
+Projects/samples_s*/
+Projects/handoff_package/

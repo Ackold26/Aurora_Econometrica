@@ -1,0 +1,175 @@
+diff --git a/src/lib/components/ExpandableCard.svelte b/src/lib/components/ExpandableCard.svelte
+index c27d198b..0649ac1d 100644
+--- a/src/lib/components/ExpandableCard.svelte
++++ b/src/lib/components/ExpandableCard.svelte
+@@ -218,14 +218,28 @@
+     backdrop-filter: blur(6px);
+     -webkit-backdrop-filter: blur(6px);
+     display: flex;
+-    align-items: stretch;
+-    justify-content: stretch;
++    /* Владелец 12.09: окно разворота обязано быть изменяемого размера вручную,
++       а не всегда занимать весь экран. center вместо stretch - иначе flex
++       растянул бы .overlay-card назад до полного размера при каждом ре-рендере,
++       обнуляя ручное изменение (resize на .overlay-card ниже). */
++    align-items: center;
++    justify-content: center;
+     padding: 24px;
+     animation: fadeIn 0.12s ease-out;
+   }
+ 
+   .overlay-card {
+-    flex: 1;
++    /* Стартовый размер - крупный (~70% экрана), дальше меняет владелец, таща
++       за нижний правый угол (нативный CSS resize - без лишнего JS и рисков).
++       min - чтобы не схлопнулось до нечитаемого; max - чтобы не вылезло за
++       границы окна приложения. */
++    width: 70vw;
++    height: 70vh;
++    max-width: calc(100vw - 48px);
++    max-height: calc(100vh - 48px);
++    min-width: 420px;
++    min-height: 320px;
++    resize: both;
+     display: flex;
+     flex-direction: column;
+     gap: 16px;
+diff --git a/src/lib/components/pipeline/ConvergenceDashboard.svelte b/src/lib/components/pipeline/ConvergenceDashboard.svelte
+index 98849825..edca41c2 100644
+--- a/src/lib/components/pipeline/ConvergenceDashboard.svelte
++++ b/src/lib/components/pipeline/ConvergenceDashboard.svelte
+@@ -333,7 +333,7 @@
+       {#snippet children(expanded)}
+         <div class="chart-panel-body">
+           <span class="chart-title-help" title={HELP.rhatChart}>?</span>
+-          <EChartBase option={rhatOption} height={expanded ? '70vh' : rhatHeight} />
++          <EChartBase option={rhatOption} height={expanded ? '100%' : rhatHeight} />
+           <p class="chart-hint">
+             {rhatCount - rhatFailed} из {rhatCount} параметров сошлись (R-hat &lt; 1.05)
+           </p>
+@@ -370,7 +370,7 @@
+               {/if}
+             </div>
+           {/if}
+-          <EChartBase option={avpOption} height={expanded ? '70vh' : '260px'} />
++          <EChartBase option={avpOption} height={expanded ? '100%' : '260px'} />
+         </div>
+       {/snippet}
+     </ExpandableCard>
+diff --git a/src/lib/components/pipeline/PPCResidualsChart.svelte b/src/lib/components/pipeline/PPCResidualsChart.svelte
+index 0dd3295b..41b80411 100644
+--- a/src/lib/components/pipeline/PPCResidualsChart.svelte
++++ b/src/lib/components/pipeline/PPCResidualsChart.svelte
+@@ -29,8 +29,11 @@
+   const { ppcData = null, expanded = false } = $props();
+ 
+   /** Разворот на весь экран (ExpandableCard) - график занимает доступную высоту
+-   *  вместо фиксированных 240px. */
+-  const chartHeight = $derived(expanded ? '70vh' : '240px');
++   *  вместо фиксированных 240px. '100%' - сам EChartBase-контейнер в развороте
++   *  всё равно получает height:auto!important от ExpandableCard.svelte (глобальный
++   *  приём для ЛЮБОГО чата в оверлее) - реальный рост даёт flex:1 по всей цепочке
++   *  (см. .expanded в style ниже), это значение - согласованный fallback. */
++  const chartHeight = $derived(expanded ? '100%' : '240px');
+ 
+   // ── Derived statistics ───────────────────────────────────────────────────────
+ 
+@@ -179,7 +182,7 @@
+   );
+ </script>
+ 
+-<div class="ppc-residuals">
++<div class="ppc-residuals" class:expanded>
+   {#if !hasData}
+     <div class="empty-state" role="status">
+       <p>PPC данные недоступны</p>
+@@ -203,6 +206,22 @@
+     gap: 8px;
+   }
+ 
++  /* Разворот на весь экран (ExpandableCard) - тот же приём и то же измерение
++     живьём (2026-09-12), что и в PPCScatter.svelte - см. комментарий там. */
++  .ppc-residuals.expanded {
++    flex: 1;
++    min-height: 0;
++  }
++  .ppc-residuals.expanded .chart-cell {
++    display: flex;
++    flex-direction: column;
++    flex: 1;
++    min-height: 0;
++  }
++  .ppc-residuals.expanded .legend-row {
++    flex-shrink: 0;
++  }
++
+   .chart-cell {
+     background: color-mix(in srgb, var(--text-primary) 2%, transparent);
+     border-radius: 8px;
+diff --git a/src/lib/components/pipeline/PPCScatter.svelte b/src/lib/components/pipeline/PPCScatter.svelte
+index 52e656d6..299ed87b 100644
+--- a/src/lib/components/pipeline/PPCScatter.svelte
++++ b/src/lib/components/pipeline/PPCScatter.svelte
+@@ -30,8 +30,11 @@
+   const { ppcData = null, expanded = false } = $props();
+ 
+   /** Разворот на весь экран (ExpandableCard) - график занимает доступную высоту
+-   *  вместо фиксированных 240px. */
+-  const chartHeight = $derived(expanded ? '70vh' : '240px');
++   *  вместо фиксированных 240px. '100%' - сам EChartBase-контейнер в развороте
++   *  всё равно получает height:auto!important от ExpandableCard.svelte (глобальный
++   *  приём для ЛЮБОГО чата в оверлее) - реальный рост даёт flex:1 по всей цепочке
++   *  (см. .expanded в style ниже), это значение - согласованный fallback. */
++  const chartHeight = $derived(expanded ? '100%' : '240px');
+ 
+   const r2Label = $derived(
+     ppcData?.r2 != null ? `R² = ${Number(ppcData.r2).toFixed(3)}` : ''
+@@ -158,7 +161,7 @@
+   );
+ </script>
+ 
+-<div class="ppc-scatter">
++<div class="ppc-scatter" class:expanded>
+   {#if !hasData}
+     <div class="empty-state" role="status">
+       <p>PPC данные недоступны</p>
+@@ -188,6 +191,27 @@
+     gap: 8px;
+   }
+ 
++  /* Разворот на весь экран (ExpandableCard): живым измерением через мост
++     (webview_execute_js, 2026-09-12) подтверждено, что без этого блока график
++     застревал на 200px, хотя родитель .chart-panel-body уже растянут на всю
++     высоту оверлея - flex:1 на самом EChartBase-контейнере (ExpandableCard.svelte)
++     не имел эффекта, потому что НИ .ppc-scatter, НИ .chart-cell не участвовали
++     в flex-цепочке (первый не рос сам, второй вообще не был flex-контейнером).
++     Даём обоим расти вместе с .chart-panel-body; легенду не сжимаем. */
++  .ppc-scatter.expanded {
++    flex: 1;
++    min-height: 0;
++  }
++  .ppc-scatter.expanded .chart-cell {
++    display: flex;
++    flex-direction: column;
++    flex: 1;
++    min-height: 0;
++  }
++  .ppc-scatter.expanded .legend-row {
++    flex-shrink: 0;
++  }
++
+   .chart-cell {
+     background: color-mix(in srgb, var(--text-primary) 2%, transparent);
+     border-radius: 8px;
+diff --git a/src/tokens.generated.css b/src/tokens.generated.css
+index 8a456b3d..ea6010ce 100644
+--- a/src/tokens.generated.css
++++ b/src/tokens.generated.css
+@@ -1,6 +1,6 @@
+ /* GENERATED FROM Standards/tokens/tokens.json — DO NOT EDIT
+  * Regenerate: python Standards/tokens/build.py --target css
+- * Last build: 2026-09-08T05:03:14 */
++ * Last build: 2026-09-12T23:38:50 */
+ 
+ :root {
+   --color-brand-deep-100: #0A1628;
