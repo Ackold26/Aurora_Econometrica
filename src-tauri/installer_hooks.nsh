@@ -340,15 +340,15 @@ ${TAG}_done:
 
 !macro NSIS_HOOK_PREINSTALL
   ; P3.1 install-lock fix: освобождаем .pyd / .dll перед extract.
-  ; taskkill /IM matches by image name (idempotent – no-op если процесс уже мёртв).
-  ; /T убивает дерево, /F форсирует. Игнорируем exit code: 128 = "process not
-  ; found" – это OK, цель достигнута.
+  ; Снятие – в AURORA_KILL_AND_WAIT: свои PID из tasklist, затем taskkill /PID … /T /F
+  ; (с 2026-09-28, CPD-208: прежняя форма /IM + /FI USERNAME + /T висела без повышения).
+  ; /T убивает дерево, /F форсирует; итог проверяется по факту исчезновения процесса.
   ;
   ; ASCII-only DetailPrint (audit 2026-05-23): Cyrillic в Tauri 2 NSIS template
   ; не verified в production-tested Aurora products. Safer fallback на English.
   ;
-  ; USERNAME filter (audit 2026-05-23): на multi-user RDP server taskkill /IM
-  ; без USERNAME filter может убить процесс другого пользователя с похожим
+  ; USERNAME filter (audit 2026-05-23; с CPD-208 стоит в tasklist, не в taskkill):
+  ; на multi-user RDP server снятие без USERNAME filter может убить процесс другого пользователя с похожим
   ; именем. /FI "USERNAME eq %USERNAME%" scope kill только к current installer
   ; user context (даже если elevated – installer runs as invoking user). Фильтр
   ; работает только потому, что команда идёт через оболочку: она и разворачивает
