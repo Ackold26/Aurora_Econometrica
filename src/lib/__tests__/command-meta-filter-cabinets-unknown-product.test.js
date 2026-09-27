@@ -67,7 +67,14 @@ describe('filterCabinetsByProduct — CPD-84 незнакомый продукт
     // Отказ подписи manifest / битый JSON: initCommandMeta без products.
     initCommandMeta({ commands: {}, categories: [] });
     expect(filterCabinetsByProduct(ALL_CABINETS, 'econometrica')).toEqual(ALL_CABINETS);
-    expect(filterCabinetsByProduct(ALL_CABINETS, 'unknown')).toEqual(ALL_CABINETS);
+  });
+
+  it('пакет продуктов не пришёл, продукт "unknown" → пустой список (аудит s52 L-2)', () => {
+    // Первый слой в бою – только выдача по лицензии, Rust `filter_by_product` там не
+    // зовётся. Раньше проверка пакета стояла ДО проверки ключа, и неопознанный продукт
+    // при отказе пакета получал всю выдачу лицензии – то, что закрывал CPD-84.
+    initCommandMeta({ commands: {}, categories: [] });
+    expect(filterCabinetsByProduct(ALL_CABINETS, 'unknown')).toEqual([]);
   });
 
   it('"econometrica" — ровно её состав (["econometrist"])', () => {

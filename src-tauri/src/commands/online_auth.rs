@@ -60,15 +60,38 @@ pub fn detect_product() -> &'static str {
     // свои кабинеты». Пишем в журнал здесь, а не внутри `map_pkg_to_product`: та остаётся
     // чистой функцией без побочных действий, и её удобно дёргать в тестах десятками вызовов.
     if product == "unknown" {
-        warn_unknown_product_once(&WARNED_UNKNOWN_PRODUCT, pkg, |pkg| {
-            log::error!(
-                "CPD-84: незнакомое имя пакета лицензии «{}» — продукт не опознан, кабинеты будут \
-                 скрыты (пустой список), а не выданы по умолчанию",
-                pkg
-            );
-        });
+        warn_unknown_product_once_if_logging(
+            log::max_level(),
+            &WARNED_UNKNOWN_PRODUCT,
+            pkg,
+            |pkg| {
+                log::error!(
+                    "CPD-84: незнакомое имя пакета лицензии «{}» — продукт не опознан, кабинеты будут \
+                     скрыты (пустой список), а не выданы по умолчанию",
+                    pkg
+                );
+            },
+        );
     }
     product
+}
+
+/// M-3 (Medium, аудит s52): `lib.rs::run()` зовёт `detect_product()` (через `is_creative_hub()`)
+/// ДО `build_app()`, а журнал `tauri_plugin_log` подключается только внутри сборки приложения
+/// (`attach_logger` → `log::set_boxed_logger`). До этого `log::max_level()` — `Off`, и
+/// `log::error!` уходит в пустоту. Без проверки уровня первый ранний вызов расходовал `Once`
+/// впустую, и предупреждение CPD-84 не писалось НИКОГДА — ровно в сценарии «не вижу свои
+/// кабинеты», ради которого заведено. Поэтому `Once` расходуем только при живом журнале.
+/// Уровень — параметром, чтобы проверить условие тестом без глобального состояния `log`.
+fn warn_unknown_product_once_if_logging(
+    level: log::LevelFilter,
+    once: &std::sync::Once,
+    pkg: &str,
+    emit: impl FnOnce(&str),
+) {
+    if level >= log::LevelFilter::Error {
+        warn_unknown_product_once(once, pkg, emit);
+    }
 }
 
 /// Вызывает `emit` не чаще одного раза за время жизни переданного `once` — вынесена из
@@ -1276,6 +1299,36 @@ mod tests {
              срабатывать максимум один раз за жизнь процесса, а не на каждый вызов detect_product()",
             calls.get()
         );
+    }
+
+    // M-3 (Medium, аудит s52): ранний вызов `detect_product()` до подключения журнала
+    // (`log::max_level()` == Off) не должен расходовать `Once` — иначе предупреждение CPD-84
+    // не появится и тогда, когда журнал уже жив. Уровень подаём параметром: глобальный
+    // `log::max_level()` в тестах общий для всех потоков, трогать его нельзя.
+    #[test]
+    fn unknown_product_warning_waits_for_live_log_instead_of_burning_once() {
+        let once = std::sync::Once::new();
+        let calls = std::cell::Cell::new(0u32);
+        warn_unknown_product_once_if_logging(
+            log::LevelFilter::Off,
+            &once,
+            "test-unknown-pkg",
+            |_| calls.set(calls.get() + 1),
+        );
+        assert_eq!(calls.get(), 0, "при выключенном журнале писать некуда");
+        assert!(
+            !once.is_completed(),
+            "🔴 Once израсходован до подключения журнала — предупреждение CPD-84 не появится никогда"
+        );
+        for _ in 0..3 {
+            warn_unknown_product_once_if_logging(
+                log::LevelFilter::Info,
+                &once,
+                "test-unknown-pkg",
+                |_| calls.set(calls.get() + 1),
+            );
+        }
+        assert_eq!(calls.get(), 1, "при живом журнале — ровно один раз");
     }
 
     // CPD-84: своё имя пакета этого дерева должно опознаваться как "econometrica", а не

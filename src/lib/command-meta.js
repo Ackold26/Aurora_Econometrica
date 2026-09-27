@@ -47,7 +47,8 @@ let _products = {};
 let _productNames = {};
 /** Пакет с перечнем продуктов пришёл (initCommandMeta с `products`). Без него
  * JS-фильтр не решает за первый слой – список уже ограничен выдачей по
- * лицензии / Rust `filter_by_product` (аудит s51 M-1).
+ * лицензии (аудит s51 M-1). Только ею: боевой `get_cabinets` фильтрует по
+ * лицензии, Rust `filter_by_product` там зовётся лишь в DEV-ветке (аудит s52 L-2).
  * @type {boolean} */
 let _productsLoaded = false;
 
@@ -172,10 +173,15 @@ const UNRESTRICTED_PRODUCT_KEYS = new Set(['agency', 'creative-hub']);
  */
 export function filterCabinetsByProduct(cabinets, productType) {
   if (UNRESTRICTED_PRODUCT_KEYS.has(productType)) return cabinets;
+  // Аудит s52 L-2: "unknown" – продукт НЕ опознан (отказ `get_product_type`), и
+  // это известно без пакета. Проверяем ДО обхода ниже: иначе при неподгруженном
+  // пакете незнакомый продукт снова получал бы всё, что выдала лицензия (CPD-84).
+  if (productType === 'unknown') return [];
   // Аудит s51 M-1: пакет не пришёл (отказ подписи manifest, битый JSON) –
   // «ключа нет в пакете» здесь не значит «продукт незнаком». Список уже
-  // ограничен первым слоем; закрыть его целиком – спрятать кабинеты у своего
-  // же продукта без объяснения.
+  // ограничен первым слоем – выдачей по лицензии (Rust `filter_by_product`
+  // в боевом `get_cabinets` не зовётся, только в DEV); закрыть его целиком –
+  // спрятать кабинеты у своего же продукта без объяснения.
   if (!_productsLoaded) return cabinets;
   const allowed = _products[productType]?.cabinets;
   if (Array.isArray(allowed)) return cabinets.filter(c => allowed.includes(c.id));
