@@ -9,8 +9,11 @@ import { createPersistentStore } from '$lib/store.js';
 
 // ── Product Awareness ────────────────────────────────────
 
-/** @type {import('svelte/store').Writable<string>} */
-export const productType = writable('agency');
+/** CPD-84 (JS-класс дыры, зеркалит правку Rust 44961d01): начальное значение ДО ответа
+ * `get_product_type` — не «agency» (все кабинеты), а «unknown» (пустой список через
+ * filterCabinetsByProduct). «agency» — легитимный продукт, а не заглушка ошибки.
+ * @type {import('svelte/store').Writable<string>} */
+export const productType = writable('unknown');
 
 /** @type {import('svelte/store').Readable<boolean>} */
 export const isCreativeHub = derived(productType, $p => $p === 'creative-hub');
@@ -66,7 +69,8 @@ export async function initCreativeStore() {
     const type = /** @type {string} */ (await invoke('get_product_type'));
     productType.set(type);
   } catch {
-    productType.set('agency');
+    // CPD-84: отказ определения продукта — «unknown» (пусто), не «agency» (все кабинеты).
+    productType.set('unknown');
   }
 
   // Load brands (filesystem-first - always works)

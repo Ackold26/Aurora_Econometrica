@@ -1689,7 +1689,7 @@ export function decomposeInsights(data, kpiInput = null) {
     }).join('\n');
     out.push({
       severity: 'info',
-      text: `Топ-${top3.length} драйверов медиа-вклада (${top3Sum.toFixed(0)}% от всего медиа-эффекта):`,
+      text: `Топ-${top3.length} драйверов медиа-вклада (${formatChannelSharePct(top3Sum)} от всего медиа-эффекта):`,
       tip: lines,
     });
   }

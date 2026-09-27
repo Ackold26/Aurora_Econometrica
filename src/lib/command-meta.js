@@ -142,13 +142,32 @@ export function getProductName(productType) {
 }
 
 /**
- * Filter cabinets by product type. Agency/Creative Hub → all, others → subset.
+ * Ключи продукта без ограничения — видят ВСЕ кабинеты. Зеркалит
+ * `cabinet.rs::filter_by_product()`: "agency" | "creative-hub" => None (все).
+ * "media" сюда НЕ входит: в Rust у него `None`, но интерфейс и до правки
+ * ограничивал его списком из content-pack (4 кабинета) — внесение в этот
+ * перечень расширило бы права Insights Hub до всех кабинетов (s51).
+ * @type {ReadonlySet<string>}
+ */
+const UNRESTRICTED_PRODUCT_KEYS = new Set(['agency', 'creative-hub']);
+
+/**
+ * Filter cabinets by product type. Agency/Creative Hub → all, others → subset,
+ * незнакомый ключ ("unknown" или любой не перечисленный явно) → пусто.
+ *
+ * CPD-84 (JS-класс дыры, зеркалит правку Rust 44961d01): раньше `_products[productType]`
+ * для незнакомого ключа был `undefined`, `?.cabinets` — `undefined`, `!allowed` — `true`,
+ * и функция отдавала ВСЕ кабинеты — то же расширение прав, что было в
+ * `filter_by_product`'s `_ => None` до правки. Теперь «все» — только для явно
+ * перечисленных ключей, умолчание — пустой список.
  * @param {any[]} cabinets
  * @param {string} productType
  * @returns {any[]}
  */
 export function filterCabinetsByProduct(cabinets, productType) {
+  if (UNRESTRICTED_PRODUCT_KEYS.has(productType)) return cabinets;
   const allowed = _products[productType]?.cabinets;
-  if (!allowed) return cabinets;
-  return cabinets.filter(c => allowed.includes(c.id));
+  if (Array.isArray(allowed)) return cabinets.filter(c => allowed.includes(c.id));
+  // CPD-84: незнакомый ключ продукта — пустой список, не «все».
+  return [];
 }
