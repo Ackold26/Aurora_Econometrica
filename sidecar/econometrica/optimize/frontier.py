@@ -126,6 +126,23 @@ def _multiplier_ru(value: float) -> str:
     return text.replace('.', ',') + '×'
 
 
+def _share_of_samples_ru(share: float) -> str:
+    """Доля выборок в клиентском тексте: «12%», но «менее 1%» и «более 99%».
+
+    s51 (аудит s50 L-6): `round(share * 100)` при 0 < share < 0.005 давал «у 0%
+    выборок» рядом с условием «доля больше нуля», а при 0.995 ≤ share < 1 –
+    «100%», хотя за границей максимум не у всех выборок.
+    """
+    pct = float(share) * 100.0
+    shown = round(pct)
+    # По итогу округления, а не по порогу: round() банковский, round(0.5) == 0.
+    if pct > 0.0 and shown == 0:
+        return 'менее 1%'
+    if pct < 100.0 and shown == 100:
+        return 'более 99%'
+    return f'{shown}%'
+
+
 def _ru_periods(n: int) -> str:
     """«31 период» / «2 периода» / «15 периодов» — согласование в клиентском тексте."""
     n = abs(int(n))
@@ -1118,14 +1135,14 @@ def _posterior_maximum_interval(
                 edge_text.append(
                     'сверху диапазон упирается в верхнюю границу расчёта '
                     f'({_money_ru(hi_edge)} ₽), за неё расчёт не заходил'
-                    + (f'; у {round(share_ceiling * 100)}% выборок максимум лежит '
+                    + (f'; у {_share_of_samples_ru(share_ceiling)} выборок максимум лежит '
                        'за этой границей' if share_ceiling > 0 else '')
                 )
             if low_at_grid:
                 edge_text.append(
                     'снизу диапазон упирается в нижнюю границу расчёта '
                     f'({_money_ru(lo_edge)} ₽), ниже расчёт не заходил'
-                    + (f'; у {round(share_floor * 100)}% выборок максимум лежит '
+                    + (f'; у {_share_of_samples_ru(share_floor)} выборок максимум лежит '
                        'ниже этой границы' if share_floor > 0 else '')
                 )
             interval['caveat'] = (
@@ -1138,7 +1155,7 @@ def _posterior_maximum_interval(
         elif censored:
             interval['caveat'] = (
                 'У части выборок максимум пришёлся на край расчёта '
-                f'({round((share_floor + share_ceiling) * 100)}%), поэтому разброс '
+                f'({_share_of_samples_ru(share_floor + share_ceiling)}), поэтому разброс '
                 'положения максимума может быть шире рассчитанного.'
             )
         return interval
