@@ -173,8 +173,10 @@ def live_reports(tmp_path_factory):
     from engines.pptx_export import build_pptx
     res = build_pptx(model_data, dec, opt, out_pptx, scenarios=[], project_id='fidelity_test')
     assert res.get('status') == 'ok', res.get('message')
-    # B4-2 (стайлгайд §1): 12 слайдов — без отдельных полупустых дивайдеров.
-    assert res.get('slides') == 12, f"Ожидали 12-слайдовую деку, получили {res.get('slides')}"
+    # B4-2 (стайлгайд §1): 12 слайдов — без отдельных полупустых дивайдеров;
+    # +1 полноценный слайд «Декомпозиция продаж» при живом waterfall (05e745ff, 13.09).
+    assert res.get('slides') == 13, f"Ожидали 13-слайдовую деку, получили {res.get('slides')}"
+    assert 'Декомпозиция продаж' in _extract_all_text(out_pptx)
 
     out_html = str(tmp / 'report.html')
     from engines.html_export import build_html

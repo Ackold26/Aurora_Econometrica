@@ -45,9 +45,12 @@ def test_count_cpu_below_value_is_profitable():
 
 
 def test_count_high_efficiency_gap_promotes_to_high_perf():
-    """CPU = 50, value = 100, gap=0.15 → высокоэффективен."""
+    """CPU = 50, value = 100, gap=+15 пп → высокоэффективен.
+
+    Разрыв в процентных пунктах, как его отдаёт decomposer (ffdc2b7b, High-1
+    аудита 08.09): порог COUNT_GAP_HIGH_PP = 10 пп, прежние 0.15 были долей."""
     label, tone = compute_verdict_count_kpi(
-        cpu=50, value_per_count_unit=100, efficiency_gap=0.15
+        cpu=50, value_per_count_unit=100, efficiency_gap=15.0
     )
     assert tone == 'good'
     assert 'Высокоэффективен' in label

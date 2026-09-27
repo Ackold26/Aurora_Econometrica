@@ -146,7 +146,8 @@ class TestWeeklyDailyFraction:
         assert set(float(v) for v in frac.values.ravel()) <= {0.0, 1.0}
         # (б) События без date_range_v20 — идентичны между режимами.
         same_window = [h['name'] for h in HOLIDAY_DEFINITIONS if 'date_range_v20' not in h]
-        assert len(same_window) == 10  # все, кроме ЧП и Cyber Monday
+        # 11 = 12 исходных − ЧП − Cyber Monday + Пасха (caf9a354, 13.09: 13-е событие без v2.0-окна).
+        assert len(same_window) == 11  # все, кроме ЧП и Cyber Monday
         for col in same_window:
             assert (frac[col].values == binary[col].values.astype(float)).all(), col
 

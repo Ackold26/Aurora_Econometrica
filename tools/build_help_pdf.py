@@ -901,13 +901,19 @@ def merge_pdfs(
         writer.write(f)
 
 
+def _source_sha256(path: Path) -> str:
+    # CRLF -> LF до хеширования: хеш не должен зависеть от того, как checkout
+    # выложил переводы строк (см. sha256_file в check_help_pdf_consistency.py).
+    return hashlib.sha256(path.read_bytes().replace(b"\r\n", b"\n")).hexdigest()
+
+
 def build_manifest(help_dir: Path, version: str) -> dict:
     sources = {}
     for html_file in sorted(glob.glob(str(help_dir / "*.html"))):
         p = Path(html_file)
-        sources[p.name] = hashlib.sha256(p.read_bytes()).hexdigest()
+        sources[p.name] = _source_sha256(p)
     if NAV_JS.exists():
-        sources[NAV_JS.name] = hashlib.sha256(NAV_JS.read_bytes()).hexdigest()
+        sources[NAV_JS.name] = _source_sha256(NAV_JS)
     return {
         "version": version,
         "generated": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),

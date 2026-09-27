@@ -1,9 +1,14 @@
 """E1 (2026-07-03): слайд «Проверка на истории» в клиентской PPTX-деке.
 
-Контракт: витрина (models/backtest.json, status=ok) рождает 13-й слайд после
-методологии со сдвигом хвостовой нумерации; без витрины дека остаётся
-12-слайдовой и НЕ содержит следов витрины (wireframe-режима у слайда нет
+Контракт: витрина (models/backtest.json, status=ok) рождает дополнительный
+слайд (№6, П5) со сдвигом хвостовой нумерации; без витрины дека остаётся
+13-слайдовой и НЕ содержит следов витрины (wireframe-режима у слайда нет
 по построению — урок B1 «замаскированная дефолтом честность»).
+
+Базовая живая дека – 13, а не 12 (05e745ff, 13.09): при живом waterfall
+добавлен полноценный слайд «Декомпозиция продаж» (родная диаграмма «База +
+каждый канал = Итого», s06b_decomposition_chart), открывающий секцию
+«Декомпозиция вкладов». Полупустых дивайдеров (B4-2) это не возвращает.
 """
 from __future__ import annotations
 
@@ -86,7 +91,7 @@ def test_mapper_passes_only_ok_backtest():
         assert 'backtest' not in d, f'{bad} не должен рождать слайд'
 
 
-# ─── Дека: 13 слайдов с витриной / 12 без, содержимое слайда ─────────────────
+# ─── Дека: 14 слайдов с витриной / 13 без, содержимое слайда ─────────────────
 
 
 @pytest.fixture(scope='module')
@@ -128,8 +133,8 @@ def live_decks(tmp_path_factory):
     }
 
 
-def test_deck_with_backtest_has_13_slides(live_decks):
-    assert live_decks['with']['result']['slides'] == 13
+def test_deck_with_backtest_has_14_slides(live_decks):
+    assert live_decks['with']['result']['slides'] == 14
 
 
 def test_backtest_slide_position_in_main_section(live_decks):
@@ -145,9 +150,12 @@ def test_backtest_slide_position_in_main_section(live_decks):
     )
 
 
-def test_deck_without_backtest_stays_12_and_clean(live_decks):
-    assert live_decks['without']['result']['slides'] == 12
+def test_deck_without_backtest_stays_13_and_clean(live_decks):
+    assert live_decks['without']['result']['slides'] == 13
     text = live_decks['without']['text']
+    # Тринадцатый слайд – именно декомпозиция с живыми числами (05e745ff).
+    assert 'Декомпозиция продаж' in text
+    assert 'БАЗОВЫЙ СПРОС И ВКЛАД КАЖДОГО КАНАЛА' in text
     # Никаких следов витрины без живой проверки — у слайда нет wireframe-режима.
     assert 'Проверка на истории' not in text
     assert 'МОДЕЛЬ ПРОТИВ ФАКТА' not in text
@@ -208,8 +216,8 @@ def test_mapper_passes_only_ok_generation_compare():
         assert 'generation_compare' not in d
 
 
-def test_deck_with_both_inserts_14_slides_ordered(live_decks, tmp_path):
-    """E3: оба вставных артефакта → дека 14; №6 витрина, №7 «что изменилось»."""
+def test_deck_with_both_inserts_15_slides_ordered(live_decks, tmp_path):
+    """E3: оба вставных артефакта → дека 15; №6 витрина, №7 «что изменилось»."""
     from pptx import Presentation
     from engines.pptx_export import build_pptx
     p = live_decks['pipeline']
@@ -220,7 +228,7 @@ def test_deck_with_both_inserts_14_slides_ordered(live_decks, tmp_path):
         generation_compare=_gen_compare_fixture(),
     )
     assert res.get('status') == 'ok', res.get('message')
-    assert res['slides'] == 14
+    assert res['slides'] == 15
     prs = Presentation(out)
 
     def slide_text(i):
@@ -235,7 +243,7 @@ def test_deck_with_both_inserts_14_slides_ordered(live_decks, tmp_path):
     assert 'Резких сдвигов: 1' in s7
 
 
-def test_deck_with_only_gen_compare_13_slides(live_decks, tmp_path):
+def test_deck_with_only_gen_compare_14_slides(live_decks, tmp_path):
     from pptx import Presentation
     from engines.pptx_export import build_pptx
     p = live_decks['pipeline']
@@ -246,7 +254,7 @@ def test_deck_with_only_gen_compare_13_slides(live_decks, tmp_path):
         generation_compare=_gen_compare_fixture(),
     )
     assert res.get('status') == 'ok'
-    assert res['slides'] == 13
+    assert res['slides'] == 14
     prs = Presentation(out)
     s6 = '\n'.join(
         sh.text_frame.text for sh in prs.slides[5].shapes if sh.has_text_frame

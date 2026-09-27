@@ -162,8 +162,10 @@ def test_rolling_ok_structure(ols_backtest):
     assert res['mape_model'] > 0
     assert 'naive_last' in res['naive_mape']
     assert 'rolling_origin' in res['method']
-    # Даты окон из данных, не порядковые номера
-    assert '—' in res['windows'][0]['window']
+    # Даты окон из данных, не порядковые номера. Короткое тире с пробелами
+    # (80a1b8f2: клиентские тексты без длинного тире); запасная подпись
+    # «периоды 1–3» пишется без пробелов и сюда не проходит.
+    assert ' – ' in res['windows'][0]['window']
     assert res['windows'][0]['per_period'][0]['date'] is not None
 
 

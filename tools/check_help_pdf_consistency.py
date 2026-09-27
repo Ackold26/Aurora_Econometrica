@@ -353,8 +353,13 @@ def check_version_consistency(all_html_files) -> tuple:
 # ── PDF-свежесть ───────────────────────────────────────────────────────
 
 def sha256_file(path: Path) -> str:
+    # Переводы строк приводятся к LF до хеширования (та же нормализация – в
+    # build_help_pdf.build_manifest). Сырые байты зависят от checkout: в индексе
+    # LF, раннер windows-latest с autocrlf=true выкатывает CRLF, а часть файлов
+    # на машине сборки лежала в LF – манифест 14.09 сходился локально и падал в
+    # CI на 5 страницах при неизменном тексте. На вёрстку PDF перевод строк не влияет.
     h = hashlib.sha256()
-    h.update(path.read_bytes())
+    h.update(path.read_bytes().replace(b"\r\n", b"\n"))
     return h.hexdigest()
 
 

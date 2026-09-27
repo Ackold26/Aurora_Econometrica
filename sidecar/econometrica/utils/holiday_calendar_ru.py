@@ -521,6 +521,13 @@ _HOLIDAY_ALIASES: Dict[str, tuple] = {
     'holiday_school_breaks': (
         'schoolbreaks', 'школьныеканикулы', 'каникулы',
     ),
+    # ⚠️ НЕ голое 'easter': длина ≥5 даёт substring-матч, и колонка региона
+    # («tv_eastern», «northeastern_sales») ложно погасила бы контроль Пасхи –
+    # только составные английские формы. 'пасха' ловит и «пасхальн…».
+    'holiday_easter_orthodox': (
+        'пасха', 'orthodoxeaster', 'eastersunday', 'easterholiday', 'easterweek',
+        'светлаяседмица',
+    ),
 }
 
 
