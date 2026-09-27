@@ -224,6 +224,76 @@ ${TAG}_gone:
   Pop $0
 !macroend
 
+; Хвосты движка (s52, 2026-09-27; расследование – Projects/PROBE_s50_leftovers.md).
+; NSIS при обновлении только КЛАДЁТ свои файлы и ничего чужого не трогает, а деинсталлятор
+; снимает каталоги нерекурсивно. Сборки до 13.09.2026 брали ресурс движка широким шаблоном
+; `../sidecar/econometrica/**/*` – у обновившегося покупателя в `_up_\sidecar\econometrica`
+; лежит ~9 100 лишних файлов / ~1 ГБ (целый движок 2.5.0.0 в `dist\`, `tests`, `.hypothesis`,
+; `__pycache__`), и они переживают удаление программы. На поведение 2.5.5 они не влияют
+; (доказано там же), это диск и лишний исполняемый файл в профиле.
+;
+; Лечение – удалить каталог ЦЕЛИКОМ и дать установщику положить нагрузку заново (вариант A),
+; а при удалении программы – снять `_up_\sidecar` целиком (вариант D). Адресное удаление
+; известных хвостов (вариант B) отвергнуто: не ловит будущие неизвестные хвосты.
+;
+; 🔴 Рекурсивное удаление по пути от `$INSTDIR` опасно ровно настолько, насколько неверным
+; может оказаться `$INSTDIR`. Три защиты, каждая – отдельный переход:
+;   (а) `$INSTDIR` не пуст и не корень диска (длина ≤ 3: «C:\», «C:», «\», «»). Пустой
+;       `$INSTDIR` превратил бы путь в `\_up_\...` – от корня ТЕКУЩЕГО диска: `IfFileExists`
+;       по такому пути видит файлы (стенд s52), `RMDir /r` его, правда, сам отвергает – но
+;       полагаться на внутреннюю проверку NSIS вместо своей не стали. Корень диска NSIS
+;       через `/D=` не пускает, но `$INSTDIR` приходит и из реестра, и из кода шаблона;
+;   (б) в `$INSTDIR` лежит главный exe программы – значит, это наша установка, а не
+;       случайная папка с совпавшим подкаталогом. Имя – `aurora-econometrica-gui.exe`
+;       (`[package] name` в Cargo.toml → MAINBINARYNAME шаблона Tauri); сверка ниже
+;       ломает КОМПИЛЯЦИЮ, если имя разойдётся, – иначе защита молча выключила бы очистку;
+;   (в) удаляем, только если каталог существует (первая установка – тихий проход).
+;
+; 🔴 Частичный провал – НЕ провал установки. Если файл занят (процесс движка пережил
+; снятие, антивирус держит .pyd), `RMDir /r` удалит что сможет и поднимет флаг ошибок.
+; Тогда пишем строку в ход установки и идём дальше: установщик перезапишет файлы поверх,
+; как делал до этой правки. Прерывать тут нельзя – окно отказа уже есть в
+; AURORA_KILL_AND_WAIT и сработало бы раньше, если бы процесс был жив.
+;
+; 🔴 `/REBOOTOK` здесь НАМЕРЕННО НЕТ: он отложил бы удаление занятого файла до перезагрузки,
+; и после перезагрузки Windows удалила бы уже НОВЫЙ файл с тем же именем, который установщик
+; только что положил, – движок сломался бы у покупателя через день, без связи с обновлением.
+;
+; ${SUBDIR} – путь от `$INSTDIR`, ${TAG} – приставка меток (уникальны в функции).
+; $0 сохраняется и возвращается: макрос встраивается в чужую функцию шаблона Tauri.
+; Сверка имени стоит ВНУТРИ макроса, а не на уровне файла: шаблон подключает этот файл
+; раньше, чем определяет MAINBINARYNAME, и на уровне файла сверка не видела бы его никогда.
+!macro AURORA_PURGE_DIR SUBDIR TAG
+  !ifdef MAINBINARYNAME
+    !if "${MAINBINARYNAME}" != "aurora-econometrica-gui"
+      ; ASCII: консоль сборки выводит кириллицу makensis кракозябрами (проверено на стенде s52).
+      !error "installer_hooks.nsh: main binary renamed (MAINBINARYNAME=${MAINBINARYNAME}) - update guard (b) in AURORA_PURGE_DIR"
+    !endif
+  !endif
+  Push $0
+  ; (а) пустой или корень диска
+  StrCmp $INSTDIR "" ${TAG}_bad
+  StrLen $0 $INSTDIR
+  IntCmp $0 3 ${TAG}_bad ${TAG}_bad 0
+  ; (б) главный exe на месте
+  IfFileExists "$INSTDIR\aurora-econometrica-gui.exe" 0 ${TAG}_noexe
+  ; (в) есть что удалять
+  IfFileExists "$INSTDIR\${SUBDIR}\*.*" 0 ${TAG}_done
+  DetailPrint "Removing stale engine files: ${SUBDIR}"
+  ClearErrors
+  RMDir /r "$INSTDIR\${SUBDIR}"
+  IfErrors 0 ${TAG}_done
+  DetailPrint "WARNING: ${SUBDIR} removed only partially (files in use). Continuing; files will be overwritten in place."
+  Goto ${TAG}_done
+${TAG}_bad:
+  DetailPrint "SKIP cleanup of ${SUBDIR}: install folder is empty or a drive root."
+  Goto ${TAG}_done
+${TAG}_noexe:
+  DetailPrint "SKIP cleanup of ${SUBDIR}: main program file not found in install folder."
+${TAG}_done:
+  Pop $0
+!macroend
+
 !macro NSIS_HOOK_PREINSTALL
   ; P3.1 install-lock fix: освобождаем .pyd / .dll перед extract.
   ; taskkill /IM matches by image name (idempotent – no-op если процесс уже мёртв).
@@ -244,6 +314,8 @@ ${TAG}_gone:
   DetailPrint "Preparing for update: stopping background processes..."
   !insertmacro AURORA_KILL_AND_WAIT "econometrica-sidecar.exe" pre_sidecar
   !insertmacro AURORA_KILL_AND_WAIT "aurora-econometrica-gui.exe" pre_gui
+  ; Вариант A: хвосты прежних сборок – после снятия процессов, иначе .pyd заняты.
+  !insertmacro AURORA_PURGE_DIR "_up_\sidecar\econometrica" pre_purge
 !macroend
 
 !macro NSIS_HOOK_POSTINSTALL
@@ -264,4 +336,10 @@ ${TAG}_gone:
   DetailPrint "Stopping background processes before uninstall..."
   !insertmacro AURORA_KILL_AND_WAIT "econometrica-sidecar.exe" un_sidecar
   !insertmacro AURORA_KILL_AND_WAIT "aurora-econometrica-gui.exe" un_gui
+  ; Вариант D: снять `_up_\sidecar` целиком, с хвостами и кэшем numba, который движок пишет
+  ; во время работы. Именно ЗДЕСЬ, а не в POSTUNINSTALL: к POSTUNINSTALL шаблон Tauri уже
+  ; удалил главный exe (`Delete "$INSTDIR\${MAINBINARYNAME}.exe"` – первая строка после
+  ; хука), и защита (б) там всегда ложна – очистка молча не сработала бы никогда. Здесь
+  ; же процессы уже сняты макросами выше, а exe ещё на месте.
+  !insertmacro AURORA_PURGE_DIR "_up_\sidecar" un_purge
 !macroend
