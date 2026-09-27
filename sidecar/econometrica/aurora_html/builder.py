@@ -445,8 +445,10 @@ class AuroraHTMLBuilder:
         return [round(float(c.get("spend") or 0) / total * 100, 1) for c in self.channels]
 
     def _effect_pct_series(self) -> list[float]:
-        total = sum(float(c.get("contribution") or 0) for c in self.channels) or 1.0
-        return [round(float(c.get("contribution") or 0) / total * 100, 1) for c in self.channels]
+        # s50: подпись столбца «% эффекта» — то же число, что строка таблицы
+        # каналов (единый источник доли, contribution_pct движка).
+        from utils.kpi_display import channel_share_pcts
+        return channel_share_pcts(self.channels)
 
     def _model_context_json(self) -> str:
         """Model params for budget what-if slider.

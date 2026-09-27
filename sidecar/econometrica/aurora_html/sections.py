@@ -146,7 +146,7 @@ def _fmt_x_with_ci(mean: Any, ci_low: Any, ci_high: Any) -> str:
 # терялся заново при каждом новом документе. Алиас сохраняет имя для ~20 вызывающих ниже.
 from utils.kpi_display import fmt_pct as _fmt_pct
 from utils.kpi_display import fmt_share_pct as _fmt_share_pct
-from utils.kpi_display import share_pct_value as _share_pct_value
+from utils.kpi_display import channel_share_pcts as _channel_share_pcts
 from utils.kpi_display import active_channels_phrase as _active_channels_phrase
 
 
@@ -677,7 +677,7 @@ def render_executive_summary(ctx: dict) -> str:
             complication = scqar["complication"]["template"].format(
                 budget_dominator=budget_dom,
                 budget_dom_spend_pct_fmt=_fmt_pct(bd_spend_pct),
-                budget_dom_contrib_pct_fmt=_fmt_pct(bd_contrib_pct),
+                budget_dom_contrib_pct_fmt=_fmt_share_pct(bd_contrib_pct),
                 hero=hero, hero_mroas=hero_m,
             )
         else:
@@ -856,14 +856,14 @@ def render_at_a_glance(ctx: dict) -> str:
             )
             f1_sup = (
                 f"{leader} – лидер среди медиа "  # П8-1
-                f"({_fmt_pct(facts.get('leader_share_contrib_pct'))} медиа-вклада)"  # П8-2
+                f"({_fmt_share_pct(facts.get('leader_share_contrib_pct'))} медиа-вклада)"  # П8-2
             )
         else:
             # N1 (Phase 0.1): pre-format pct values to avoid {x:.0f} rounding
             # 0.4% to "0%" - see _fmt_pct conditional precision logic.
             f1 = strings["findings_templates"]["f1_leader"].format(
                 leader=leader,
-                contrib_pct_fmt=_fmt_pct(facts.get("leader_share_contrib_pct") or 0),
+                contrib_pct_fmt=_fmt_share_pct(facts.get("leader_share_contrib_pct") or 0),
                 spend_pct_fmt=_fmt_pct(facts.get("leader_share_spend_pct") or 0),
             )
             if kpi["is_legacy"]:
@@ -1103,7 +1103,7 @@ def render_section_divider(ctx: dict) -> str:
         spct = facts.get("leader_share_spend_pct") or 0
         takeaway = strings["action_titles"]["s04_takeaway"].format(
             leader=leader,
-            contrib_pct_fmt=_fmt_pct(cpct),
+            contrib_pct_fmt=_fmt_share_pct(cpct),
             spend_pct_fmt=_fmt_pct(spct))
     else:
         takeaway = "Декомпозиция покажет, какие каналы генерируют какой вклад"
@@ -1146,13 +1146,13 @@ def render_key_message(ctx: dict) -> str:
             big_label = "Медиа-вклад в продажи"
             big_support = f"Базовый спрос: {_fmt_pct(baseline_pct)} · {portfolio_phrase}"  # П8-2
             quote = (
-                f"{leader} – лидер среди медиа ({_fmt_pct(cpct)} медиа-вклада), "  # П8-2 П8-1
+                f"{leader} – лидер среди медиа ({_fmt_share_pct(cpct)} медиа-вклада), "  # П8-2 П8-1
                 f"но абсолютный медиа-эффект {_fmt_pct(media_pct)} от продаж. "  # П8-2
                 "Низкий вклад медиа – проверить отложенный эффект (adstock), насыщение, качество данных."  # П8-2 П8-1
             )
         else:
             title = strings["action_titles"]["s05_default"].format(leader=leader)
-            big = _fmt_pct(cpct)
+            big = _fmt_share_pct(cpct)
             big_label = f"Доля {leader} в инкрементальных продажах"
             big_support = f"При {_fmt_pct(spct)} доли бюджета · {portfolio_phrase}"
 
@@ -1327,9 +1327,20 @@ def render_action_table(ctx: dict) -> str:
     # _contrib_scale: единица и масштаб выбираются согласованно (fix 2026-07-13,
     # INV-50). budget всегда «₽ млн» (затраты — деньги для любого KPI).
 
+    # s50: доля канала в медиа-вкладе — одно число на весь отчёт
+    # (channel_share_pcts: contribution_pct движка, фолбэк — по ВСЕМ каналам).
+    # Прежде строки таблицы делили на видимые 10 каналов, а заголовок
+    # округлял накопленную сумму до целого («88%» над строкой «87.5»).
+    shares = _channel_share_pcts(channels)
+
     # Title branching (mirrors PPTX S7 post-audit logic)
     if channels:
-        contribs = sorted((float(c.get("contribution") or 0) for c in channels), reverse=True)
+        pairs = sorted(
+            zip((float(c.get("contribution") or 0) for c in channels), shares),
+            key=lambda p: p[0],
+            reverse=True,
+        )
+        contribs = [p[0] for p in pairs]
         total_real = sum(contribs)
         total_c = total_real or 1.0
         acc = 0.0
@@ -1339,17 +1350,18 @@ def render_action_table(ctx: dict) -> str:
             top_n += 1
             if acc / total_c >= 0.85:
                 break
-        pct = int(round(acc / total_c * 100))
+        # X в «топ-N дают X%» — сумма УЖЕ ОКРУГЛЁННЫХ долей строк таблицы.
+        pct = round(sum(p[1] for p in pairs[:top_n]), 1)
         other_n = len(channels) - top_n
         if total_real <= 0:
             title = strings["action_titles"]["s07_zero"]
         elif len(channels) == 1:
             title = strings["action_titles"]["s07_single"]
         elif top_n == 1:
-            title = strings["action_titles"]["s07_dominant"].format(pct_fmt=_fmt_pct(pct))
+            title = strings["action_titles"]["s07_dominant"].format(pct_fmt=_fmt_share_pct(pct))
         elif other_n > 0:
             title = strings["action_titles"]["s07_top_n"].format(
-                channels_phrase=_n_channels(top_n), pct_fmt=_fmt_pct(pct))
+                channels_phrase=_n_channels(top_n), pct_fmt=_fmt_share_pct(pct))
         else:
             title = strings["action_titles"]["s07_balanced"]
     else:
@@ -1360,8 +1372,6 @@ def render_action_table(ctx: dict) -> str:
     flagged = [c for c in visible if c.get("verdict") in ("Reduce", "Cut")][:3]
     fn_by_name = {c.get("name"): str(i + 1) for i, c in enumerate(flagged) if c.get("name")}
 
-    total_contrib = sum(float(c.get("contribution") or 0) for c in visible) or 1.0
-
     # Масштаб+единица столбца «Вклад» — согласованно (fix 2026-07-13, INV-50):
     # для count адаптивный масштаб (млн/тыс/ед) с единицей результата из паспорта,
     # для monetary — «₽ млн» как раньше.
@@ -1370,7 +1380,7 @@ def render_action_table(ctx: dict) -> str:
     )
 
     rows_html = []
-    for c in visible:
+    for c, share_pct in zip(visible, shares):
         name = c.get("name") or "-"
         spend_mln = float(c.get("spend") or 0) / 1_000_000.0
         mroas = c.get("mroas")
@@ -1385,7 +1395,7 @@ def render_action_table(ctx: dict) -> str:
         v_modality = c.get("verdict_modality") or "firm"
         # Аудит s47, находка 5 (та же точка класса, что fmt_share_pct): одна десятая
         # вместо целого, иначе сумма долей строк уезжает от 100 (87.5+7.5+5.0→88+8+5=101).
-        share_pct = _share_pct_value(c.get("contribution"), total_contrib)
+        # s50: share_pct — из общего списка shares (знаменатель — все каналы).
         fn = fn_by_name.get(name, "")
         fn_html = f'<sup class="fn-marker">{fn}</sup>' if fn else ''
 

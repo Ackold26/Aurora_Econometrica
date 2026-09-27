@@ -153,9 +153,11 @@ def fmt_share_pct(v: Any, fallback: str = "-") -> str:
 
 def share_pct_value(part: Any, total: Any) -> float:
     """Доля `part` от `total` в процентах, округлённая до одной десятой —
-    тот же принцип, что `fmt_share_pct` (аудит s47, находка 5): сложенные
-    доли строк таблицы каналов должны читаться как 100.0, а не 101 из-за
-    независимого округления каждой строки до целого (87.5+7.5+5.0 → 88+8+5).
+    тот же принцип, что `fmt_share_pct` (аудит s47, находка 5): одна десятая
+    убирает грубое расхождение от округления каждой строки до целого
+    (87.5+7.5+5.0 → 88+8+5 = 101). Точную сотню сумма строк при этом
+    НЕ гарантирует: каждая доля округляется независимо, и сумма может
+    отличаться от 100 на 0.1–0.2 (три равных канала: 33.3×3 = 99.9).
 
     Вынесена отдельно от `fmt_share_pct`, потому что там `v` — уже готовое
     процентное число, а здесь на входе доля/итог (contribution/total_contrib),
@@ -174,3 +176,38 @@ def share_pct_value(part: Any, total: Any) -> float:
     if t == 0:
         return 0.0
     return round(p / t * 100, 1)
+
+
+def channel_share_pcts(channels: Any) -> list[float]:
+    """Доля каждого канала в медиа-вкладе, % с одной десятой — ЕДИНЫЙ
+    источник числа для всех поверхностей отчёта (таблица каналов, заголовок
+    «топ-N дают X%», доля лидера в тексте; веб и презентация).
+
+    Источник — готовое `contribution_pct` канала из движка
+    (engines/decomposer.py: одна десятая, знаменатель — весь медиа-вклад,
+    все каналы). Если хотя бы у одного канала поля нет (сохранённый результат
+    без него, ручная сборка данных) — доля считается для ВСЕХ каналов через
+    `share_pct_value` от суммы вкладов ВСЕХ переданных каналов, а не только
+    видимых строк таблицы: одна договорённость о знаменателе на весь список.
+
+    Порядок результата совпадает с порядком `channels`.
+    """
+    chs = [c or {} for c in (channels or [])]
+    ready: list[float] = []
+    for c in chs:
+        v = c.get("contribution_pct")
+        if v is None:
+            break
+        try:
+            ready.append(round(float(v), 1))
+        except (TypeError, ValueError):
+            break
+    else:
+        return ready
+    total = 0.0
+    for c in chs:
+        try:
+            total += float(c.get("contribution") or 0)
+        except (TypeError, ValueError):
+            pass
+    return [share_pct_value(c.get("contribution"), total) for c in chs]

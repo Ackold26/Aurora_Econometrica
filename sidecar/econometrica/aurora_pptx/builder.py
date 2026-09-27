@@ -121,6 +121,16 @@ def _fmt_pct(v, fallback="-"):
     return f"{round(f)}%"
 
 
+def _fmt_share_pct(v, fallback="-"):
+    """s50: доля канала в медиа-вкладе — одна десятая, то же число, что в
+    строке таблицы каналов (столбец «Доля эффекта»). Не `_fmt_pct`: его
+    условная точность округляет 87.5 до «88%», и заголовок спорил со строкой.
+    Общий счётчик — utils.kpi_display.fmt_share_pct (тот же, что в веб-отчёте).
+    """
+    from utils.kpi_display import fmt_share_pct
+    return fmt_share_pct(v, fallback)
+
+
 # ─── KPI/mode-aware helpers (v1.3.2) ────────────────────────────────────────
 #
 # Helpers extracted to aurora_pptx.kpi_helpers - импортируются без aurora_tokens
@@ -881,14 +891,23 @@ class AuroraPPTXBuilder:
 
     # ---------- Big number (hero callout) ----------
 
-    def _big_number(self, slide, x, y, number, *, label, support=None, size=96):
+    def _big_number(self, slide, x, y, number, *, label, support=None, size=96, number_width=5.0):
+        # s50: доля с одной десятой («87.5%») шире целого («88%») и при кегле 140
+        # переносилась на вторую строку за низ слайда. Число всегда в одну строку:
+        # кегль ужимается, пока не встанет в ширину бокса (та же мерка PIL, что
+        # у check_overflow).
+        from . import text_metrics as TM
+        while size > 72 and TM.wrap_lines(
+            str(number), int(Inches(number_width)), size, font_name=self.serif,
+        ) > 1:
+            size -= 8
         self._text(
             slide, x, y - 0.3, 5.0, 0.25, label.upper(),
             font=self.sans, size=8, bold=True, color=self.gold,
         )
         self._hairline(slide, x, y - 0.05, 1.2, weight=0.75, color=self.gold)
         self._text(
-            slide, x, y, 5.0, size / 50,
+            slide, x, y, number_width, size / 50,
             number, font=self.serif, size=size, color=self.deep_100,
         )
         if support:
@@ -956,14 +975,14 @@ class AuroraPPTXBuilder:
         # leader's share-of-media (misleading "X% sales" phrasing).
         if honest and media_pct is not None and baseline_pct is not None:
             f1 = f"Медиа-вклад {_fmt_pct(media_pct)}, базовый спрос {_fmt_pct(baseline_pct)} – модель объясняет продажи через organic"  # П8-2
-            s1 = f"{leader} – лидер среди медиа ({_fmt_pct(leader_contrib_pct)} медиа-вклада)" if leader_contrib_pct is not None else f"{leader} – лидер среди медиа"  # П8-2
+            s1 = f"{leader} – лидер среди медиа ({_fmt_share_pct(leader_contrib_pct)} медиа-вклада)" if leader_contrib_pct is not None else f"{leader} – лидер среди медиа"  # П8-2
         else:
             if leader_contrib_pct is not None and leader_spend_pct is not None:
                 # B1-fix R-12 (2026-07-03): leader_share_contrib_pct — доля в
                 # МЕДИА-вкладе, не в продажах (Kagocel: «32% продаж» реально
                 # 32% медиа-вклада = 12% продаж при медиа 38%). Квалификатор
                 # обязателен — иначе клиент завышает роль канала втрое.
-                f1 = f"{leader} - {_fmt_pct(leader_contrib_pct)} медиа-вклада при {_fmt_pct(leader_spend_pct)} бюджета"
+                f1 = f"{leader} - {_fmt_share_pct(leader_contrib_pct)} медиа-вклада при {_fmt_pct(leader_spend_pct)} бюджета"
             else:
                 f1 = f"{leader} - максимальный медиа-вклад в продажи"
             # v1.3.2: KPI-aware portfolio metric (ROI×/CPU/доля).
@@ -1146,7 +1165,10 @@ class AuroraPPTXBuilder:
         Auto-generates footnote superscripts only for Reduce/Cut verdicts,
         keyed by order (max 3 footnotes to fit bottom-block layout).
         """
-        total_contrib = sum(float(c.get("contribution") or 0) for c in channels) or 1.0
+        # s50: доля строки — из единого источника (contribution_pct движка,
+        # фолбэк — по ВСЕМ каналам), тот же, что у веб-таблицы и заголовка S7.
+        from utils.kpi_display import channel_share_pcts
+        shares = channel_share_pcts(channels)
         # Assign footnote numbers to the first 3 flagged channels (Reduce/Cut).
         # Filter within channels[:10] (same slice the row loop uses) so the
         # bottom-block footnote text and the row superscript always pair up.
@@ -1162,7 +1184,7 @@ class AuroraPPTXBuilder:
         fn_by_name = {c["name"]: str(i + 1) for i, c in enumerate(flagged) if c.get("name")}
 
         rows = []
-        for c in channels[:10]:
+        for c, share_pct in zip(channels[:10], shares):
             name = c.get("name") or "-"
             spend = float(c.get("spend") or 0)
             contrib = float(c.get("contribution") or 0)
@@ -1194,8 +1216,6 @@ class AuroraPPTXBuilder:
             # Аудит s47, находка 5 (та же точка класса, что fmt_share_pct/kpi_display.py):
             # одна десятая вместо целого, иначе сумма долей строк расходится с 100
             # (87.5+7.5+5.0→88+8+5=101).
-            from utils.kpi_display import share_pct_value
-            share_pct = share_pct_value(contrib, total_contrib)
             share_str = f"{share_pct:.1f}" if share_pct > 0 else "0.0"
             footnote = fn_by_name.get(name, "")
 
@@ -1564,7 +1584,7 @@ class AuroraPPTXBuilder:
                 # B1-fix R-12: cpct — доля в МЕДИА-вкладе, не в продажах
                 # (без квалификатора клиент завышает роль канала кратно).
                 takeaway = (
-                    f"{leader} даёт {_fmt_pct(cpct)} медиа-вклада при {_fmt_pct(spct)} бюджета - "
+                    f"{leader} даёт {_fmt_share_pct(cpct)} медиа-вклада при {_fmt_pct(spct)} бюджета - "
                     "основная точка оптимизации портфеля"
                 )
             else:
@@ -1690,7 +1710,7 @@ class AuroraPPTXBuilder:
                     if portfolio_phrase else f"Базовый спрос: {_fmt_pct(baseline_pct)}."  # П8-2
                 )
                 quote_txt = (
-                    f"{leader} – лидер среди медиа ({_fmt_pct(cpct)} медиа-вклада), "  # П8-2 П8-1
+                    f"{leader} – лидер среди медиа ({_fmt_share_pct(cpct)} медиа-вклада), "  # П8-2 П8-1
                     f"но абсолютный медиа-эффект {_fmt_pct(media_pct)} от продаж. "  # П8-2
                     "Низкий вклад медиа – проверить отложенный эффект (adstock), насыщение, качество данных."  # П8-2 П8-1
                 )
@@ -1698,7 +1718,7 @@ class AuroraPPTXBuilder:
                 # Action title - leader's position statement
                 title = f"{leader} остаётся основным драйвером, но эффективность требует проверки насыщения"
                 # Big number - leader contribution share
-                big_number = _fmt_pct(cpct) if cpct is not None else "-"
+                big_number = _fmt_share_pct(cpct) if cpct is not None else "-"
                 big_label = f"Доля {leader} в инкрементальных продажах"
                 if spct is not None and portfolio_phrase:
                     big_support = f"При {_fmt_pct(spct)} доли бюджета. {portfolio_phrase}."
@@ -1740,6 +1760,8 @@ class AuroraPPTXBuilder:
             label=big_label,
             support=big_support,
             size=140,
+            # До цитаты справа (quote_x = 6.8) с зазором 0.2".
+            number_width=6.8 - self.safe - 0.2,
         )
 
         # Right: pull quote
@@ -1882,7 +1904,7 @@ class AuroraPPTXBuilder:
             _l = self.facts.get("leader_channel") or "Лидер"
             _c = self.facts.get("leader_share_contrib_pct")
             _s = self.facts.get("leader_share_spend_pct")
-            _tk = (f"{_l} даёт {_fmt_pct(_c)} медиа-вклада при {_fmt_pct(_s)} бюджета"
+            _tk = (f"{_l} даёт {_fmt_share_pct(_c)} медиа-вклада при {_fmt_pct(_s)} бюджета"
                    if _c is not None and _s is not None
                    else f"{_l} - основной драйвер портфеля")
         else:
@@ -2866,7 +2888,7 @@ class AuroraPPTXBuilder:
             if budget_dom and bd_spend_pct is not None and abs((bd_spend_pct or 0) - (bd_contrib_pct or 0)) >= 5.0:
                 complication_parts.append(
                     f"{budget_dom} занимает {_fmt_pct(bd_spend_pct)} бюджета, "
-                    f"но даёт {_fmt_pct(bd_contrib_pct)} эффекта"
+                    f"но даёт {_fmt_share_pct(bd_contrib_pct)} эффекта"
                 )
             if hero != leader and hero_m >= 1.0:
                 # v1.3.2: KPI-aware metric label в complication.

@@ -240,6 +240,9 @@ def _merge_channels(decomp_chs: list | None, opt_chs: list | None) -> list[dict]
             "name": clean_name,
             "spend": dc.get("spend") or oc.get("current_spend"),
             "contribution": dc.get("contribution"),
+            # Доля канала в медиа-вкладе из движка (decomposer.py) — единый
+            # источник числа доли для всех поверхностей отчёта (s50).
+            "contribution_pct": dc.get("contribution_pct"),
             "roi": dc.get("roi") or oc.get("current_roi"),
             "avg_roi": avg_roi,
             "mroas": marginal,
@@ -569,10 +572,18 @@ def derive_action_headline(
 
     if slide_hint == "portfolio":
         # s07: action = consolidation recommendation with quantified target share
-        contribs = sorted(
-            (float(c.get("contribution") or 0) for c in channels),
+        # s50: X в «топ-N дают X%» — сумма УЖЕ ОКРУГЛЁННЫХ долей строк таблицы
+        # (channel_share_pcts — тот же источник, что столбец «Доля эффекта»),
+        # а не округлённое накопление: иначе заголовок «88%» стоял над строкой
+        # «87.5», а на 50.14+35.34 дал бы 85.5 при сумме строк 85.4.
+        from utils.kpi_display import channel_share_pcts, fmt_share_pct
+        pairs = sorted(
+            zip((float(c.get("contribution") or 0) for c in channels),
+                channel_share_pcts(channels)),
+            key=lambda p: p[0],
             reverse=True,
         )
+        contribs = [p[0] for p in pairs]
         total = sum(contribs) or 1.0
         if total <= 0:
             return "Перепроверить входные данные - вклад каналов не рассчитывается"
@@ -583,15 +594,15 @@ def derive_action_headline(
             top_n += 1
             if acc / total >= 0.85:
                 break
-        pct = int(round(acc / total * 100))
+        pct = round(sum(p[1] for p in pairs[:top_n]), 1)
         other_n = max(0, len(channels) - top_n)
         if len(channels) == 1:
             return "Портфель состоит из одного канала - рекомендуется диверсификация"
         if other_n == 0:
             return "Все каналы работают - консолидация не требуется"
         if top_n == 1:
-            return f"Сфокусировать бюджет на одном канале - он даёт {pct}% продаж"
-        return f"Консолидировать до топ-{top_n} каналов - они обеспечивают {pct}% продаж"
+            return f"Сфокусировать бюджет на одном канале - он даёт {fmt_share_pct(pct)} продаж"
+        return f"Консолидировать до топ-{top_n} каналов - они обеспечивают {fmt_share_pct(pct)} продаж"
 
     if slide_hint == "timeline":
         # B1-fix R-09 (2026-07-03): прежний заголовок «Перейти на пульсирующее
@@ -600,7 +611,9 @@ def derive_action_headline(
         # строится из реального числа (доля лидера в медиа-вкладе) без обещаний.
         share = facts.get("leader_share_contrib_pct")
         if leader and share is not None:
-            return f"{leader} – {share:.0f}% медиа-вклада: контролировать динамику и признаки насыщения"  # П8-1
+            # s50: доля лидера — то же число, что в его строке таблицы (одна десятая).
+            from utils.kpi_display import fmt_share_pct
+            return f"{leader} – {fmt_share_pct(share)} медиа-вклада: контролировать динамику и признаки насыщения"  # П8-1
         if leader:
             return f"Контролировать динамику {leader} – опора медиа-вклада портфеля"  # П8-1
         return "Динамика вкладов: базовый уровень и медиа по периодам"
@@ -679,7 +692,12 @@ def _derive_narrative_facts(
     weighted_roi = (total_contrib / total_spend) if total_spend > 0 else None
 
     leader_spend = float(leader.get("spend") or 0)
-    leader_contrib = float(leader.get("contribution") or 0)
+    # s50: доля канала в медиа-вкладе — то же число, что в строке таблицы
+    # каналов (utils.kpi_display.channel_share_pcts), а не свой пересчёт от
+    # суммы после слияния: иначе «доля лидера» в тексте и строка лидера в
+    # таблице одного отчёта расходились.
+    from utils.kpi_display import channel_share_pcts
+    _share_by_id = {id(c): s for c, s in zip(channels, channel_share_pcts(channels))}
 
     top_2 = by_contrib[:2]
     top_2_contrib = sum(float(c.get("contribution") or 0) for c in top_2)
@@ -783,9 +801,9 @@ def _derive_narrative_facts(
     budget_dominator = by_spend[0] if by_spend else {}
     # Audit fix (2026-04-29): clamp negative spend к 0. Negative spend = data
     # corruption (validator should catch, но defensive guard protects narrative
-    # template от rendering negative percentages). Same для contribution.
+    # template от rendering negative percentages). Same для contribution
+    # (s50: clamp доли вклада — ниже, в budget_dominator_contrib_pct).
     bd_spend = max(float(budget_dominator.get("spend") or 0), 0.0)
-    bd_contrib = max(float(budget_dominator.get("contribution") or 0), 0.0)
 
     # L15 (math-fix v1.4 Section C, 2026-04-29): cut_source / scale_destination
     # for accurate reallocation narrative.
@@ -830,7 +848,7 @@ def _derive_narrative_facts(
         "total_contrib_mln": total_contrib / 1_000_000.0 if total_contrib else 0.0,
         "weighted_roi": weighted_roi,
         "leader_share_spend_pct": (leader_spend / total_spend * 100) if total_spend > 0 else None,
-        "leader_share_contrib_pct": (leader_contrib / total_contrib * 100) if total_contrib > 0 else None,
+        "leader_share_contrib_pct": _share_by_id.get(id(leader)) if total_contrib > 0 else None,
         "top_2_names": [c.get("name") for c in top_2],
         "top_2_contrib_pct": (top_2_contrib / total_contrib * 100) if total_contrib > 0 else None,
         "underperformer_names": underperformer_names_dedup,
@@ -863,7 +881,9 @@ def _derive_narrative_facts(
         # L14: budget_dominator separate from contribution leader
         "budget_dominator_channel": budget_dominator.get("name"),
         "budget_dominator_spend_pct": (bd_spend / total_spend * 100) if total_spend > 0 else None,
-        "budget_dominator_contrib_pct": (bd_contrib / total_contrib * 100) if total_contrib > 0 else None,
+        "budget_dominator_contrib_pct": (
+            max(_share_by_id.get(id(budget_dominator), 0.0), 0.0) if total_contrib > 0 else None
+        ),
         # L15: action-driven reallocation subjects
         "cut_source_channel": cut_source,
         "scale_destination_channel": scale_destination,
@@ -1269,6 +1289,15 @@ def _map_pipeline_to_builder_data(
     )
     # Canonical order: contribution desc - keeps tables and narrative consistent
     channels.sort(key=lambda c: float(c.get("contribution") or 0), reverse=True)
+    # s50: доля канала в медиа-вкладе — ОДНО число на все поверхности отчёта
+    # (строка таблицы, заголовок «топ-N дают X%», доля лидера в тексте).
+    # Прежде таблица делила на видимые 10 каналов, презентация — на все, а
+    # доля лидера в фактах — на сумму после слияния, и один слайд показывал
+    # «88%» в заголовке при «87.5» в строке. Результат без contribution_pct
+    # получает долю по ВСЕМ каналам (channel_share_pcts, фолбэк).
+    from utils.kpi_display import channel_share_pcts
+    for ch, share in zip(channels, channel_share_pcts(channels)):
+        ch["contribution_pct"] = share
     # math-fix v1.0.14.1, B (2026-04-28): decorate с action structured data.
     # Templates (HTML/PPTX) reads ch['action_label']/['action_reasoning'] вместо
     # генерируя свои hardcoded строки → coherence between table + commentary.

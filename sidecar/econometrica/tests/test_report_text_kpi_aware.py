@@ -526,9 +526,10 @@ def _share_payload():
 
 class TestActionTableShareOneDecimal:
     """sections.py:render_action_table и builder.py:_build_action_table_rows —
-    доля вклада канала (столбец «Доля», знак «%» уже в шапке) считается через
-    общую точку kpi_display.share_pct_value, одна десятая, сумма долей строк
-    сходится к 100.0.
+    доля вклада канала (столбец «Доля», знак «%» уже в шапке) берётся из
+    общей точки kpi_display.channel_share_pcts (s50; фолбэк без поля движка —
+    share_pct_value по всем каналам), одна десятая; на этой фикстуре сумма
+    долей строк сходится к 100.0.
     """
 
     def test_html_action_table_shares_sum_to_100(self):
@@ -540,15 +541,17 @@ class TestActionTableShareOneDecimal:
         if ctx is None:
             pytest.skip("strings_ru.json недоступен")
         html = render_action_table(ctx)
-        # Строки таблицы: <tr data-channel="...">...</tr>, в каждой 4 атрибута
-        # data-sort (budget/contrib/mroas/share) — последний в строке = share.
+        # Строки таблицы: <tr data-channel="...">...</tr>, в каждой 4 числовые
+        # ячейки (budget/contrib/mroas/share) — последняя в строке = share.
+        # Аудит s50, M-3: читаем ВИДИМЫЙ текст ячейки, а не атрибут data-sort
+        # (сортировочный ключ мог совпадать с расчётом при расходящемся показе).
         rows = re.findall(r'<tr data-channel="[^"]*">(.*?)</tr>', html, re.DOTALL)
         assert len(rows) == 3, f"ожидали 3 строки канала, нашли {len(rows)}"
         shares = []
         for row in rows:
-            sorts = re.findall(r'data-sort="([^"]+)"', row)
-            assert sorts, f"строка без data-sort: {row!r}"
-            shares.append(float(sorts[-1]))
+            cells = re.findall(r'<td class="num"[^>]*>(.*?)</td>', row, re.DOTALL)
+            assert len(cells) == 4, f"строка без четырёх числовых ячеек: {row!r}"
+            shares.append(float(re.sub(r"<[^>]+>", "", cells[-1]).strip()))
         assert shares == [87.5, 7.5, 5.0], f"доли строк: {shares!r}"
         assert sum(shares) == pytest.approx(100.0), \
             f"сумма долей разъехалась со 100: {shares!r} → {sum(shares)}"

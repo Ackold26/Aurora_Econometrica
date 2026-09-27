@@ -105,3 +105,10 @@ class TestSharePctValueRounding:
         # Одна десятая — общий принцип с fmt_share_pct (уже готовый процент).
         value = share_pct_value(87.5, 100.0)
         assert fmt_share_pct(value) == "87.5%"
+
+    def test_sum_may_differ_from_100_by_a_tenth(self):
+        # Аудит s50, L-3: одна десятая не обещает ровно 100.0 — три равных
+        # канала дают 33.3×3 = 99.9 (докстрока share_pct_value говорит честно).
+        shares = [share_pct_value(1, 3) for _ in range(3)]
+        assert shares == [33.3, 33.3, 33.3]
+        assert round(sum(shares), 1) == 99.9

@@ -1121,10 +1121,22 @@ def bootstrap_js(
   }}
 
   // ─── Animated number counters ─────────────────────────────────────
-  function animateCounter(el, target, duration) {{
+  // s50: число знаков после точки берётся из data-counter-end. Прежде счётчик
+  // всегда округлял до целого и переписывал отрисованную сервером долю лидера
+  // с одной десятой в целое – крупное число спорило со строкой таблицы каналов.
+  function counterDecimals(raw) {{
+    var s = String(raw == null ? '' : raw);
+    var i = s.indexOf('.');
+    return i < 0 ? 0 : s.length - i - 1;
+  }}
+  function counterText(v, decimals) {{
+    return decimals > 0 ? v.toFixed(decimals) : String(Math.round(v));
+  }}
+  function animateCounter(el, target, duration, decimals) {{
     duration = duration || 1200;
+    decimals = decimals || 0;
     if (PREFERS_REDUCED_MOTION) {{
-      el.textContent = formatCounterValue(target, el.textContent);
+      el.textContent = formatCounterValue(target, el.textContent, decimals);
       return;
     }}
     var suffix = '';
@@ -1143,18 +1155,18 @@ def bootstrap_js(
       // easeOutQuart
       pct = 1 - Math.pow(1 - pct, 4);
       var v = start + (target - start) * pct;
-      el.textContent = prefix + Math.round(v) + suffix;
+      el.textContent = prefix + counterText(v, decimals) + suffix;
       if (pct < 1) requestAnimationFrame(step);
-      else el.textContent = prefix + Math.round(target) + suffix;
+      else el.textContent = prefix + counterText(target, decimals) + suffix;
     }}
     requestAnimationFrame(step);
   }}
-  function formatCounterValue(target, orig) {{
+  function formatCounterValue(target, orig, decimals) {{
     var prefix = /^\\+/.test(orig) ? '+' : '';
     var suffix = '';
     var m = (orig || '').match(/[^0-9+\\-\\.,\\s].*$/);
     if (m) suffix = m[0];
-    return prefix + Math.round(target) + suffix;
+    return prefix + counterText(target, decimals || 0) + suffix;
   }}
   function setupCounters() {{
     var nodes = document.querySelectorAll('[data-counter-end]');
@@ -1163,8 +1175,9 @@ def bootstrap_js(
       entries.forEach(function(entry) {{
         if (entry.isIntersecting) {{
           var el = entry.target;
-          var target = parseFloat(el.getAttribute('data-counter-end'));
-          if (!isNaN(target)) animateCounter(el, target);
+          var raw = el.getAttribute('data-counter-end');
+          var target = parseFloat(raw);
+          if (!isNaN(target)) animateCounter(el, target, undefined, counterDecimals(raw));
           io.unobserve(el);
         }}
       }});
