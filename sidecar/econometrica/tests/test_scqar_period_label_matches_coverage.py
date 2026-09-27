@@ -29,6 +29,8 @@ import re
 import sys
 from datetime import datetime, timedelta
 
+import pytest
+
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from aurora_html.sections import render_executive_summary  # noqa: E402
@@ -172,3 +174,37 @@ def test_missing_data_window_label_falls_back_honestly():
     sentence = _situation_sentence(text)
     assert "квартал" not in sentence.lower()
     assert "за анализируемый период" in sentence
+
+
+def test_situation_legacy_kpi_says_weighted_roi_in_russian():
+    """Аудит s53 L5: шаблон `strings_ru.json` scqar/situation писал клиенту
+    «Weighted ROI»; в PPTX тот же абзац – «Средневзвешенный ROI»."""
+    ctx = _ctx(kpi=None)
+    text = _plain(render_executive_summary(ctx))
+    assert "Weighted ROI" not in text
+    assert "Средневзвешенный ROI 1.6×" in text
+
+
+@pytest.mark.parametrize("kpi, lead", [
+    (None, "поднять ROAS, не снижая охвата знания?"),
+    ({"kpi_kind": "monetary", "derived_mode": "effectiveness"},
+     "повысить долю эффекта, не снижая охвата знания?"),
+    ({"kpi_kind": "count", "derived_mode": "roi"},
+     "снизить стоимость единицы (CPU), не снижая охвата знания?"),
+])
+def test_question_says_awareness_in_russian_in_every_kpi_branch(kpi, lead):
+    """Аудит s53 L6: «ВОПРОС» SCQAR во всех трёх ветках KPI писал клиенту
+    «…не снижая awareness?» (а шаблон – ещё и без запятой перед оборотом);
+    в PPTX тот же вопрос – «без снижения охвата знания»."""
+    text = _plain(render_executive_summary(_ctx(kpi=kpi)))
+    assert "awareness" not in text
+    assert lead in text
+
+
+def test_glossary_names_weighted_roi_in_russian():
+    """Аудит s53 L7: после L5 текст говорит «Средневзвешенный ROI», а глоссарий
+    объяснял «Weighted ROI» – термин не находился по имени."""
+    from aurora_html.sections import render_glossary
+    html = render_glossary(_ctx())
+    assert "Weighted ROI" not in html
+    assert '<div class="glossary-term-name">Средневзвешенный ROI</div>' in html

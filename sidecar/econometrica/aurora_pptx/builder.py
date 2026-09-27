@@ -2563,7 +2563,8 @@ class AuroraPPTXBuilder:
         ts = self.time_series if isinstance(self.time_series, dict) else None
         if ts and ts.get("dates"):
             dates_list = list(ts["dates"])
-            period_label = f"{dates_list[0]} - {dates_list[-1]}" if dates_list else (self.data_window_label or "н/д")
+            from engines.narrative_adapter import format_period_span
+            period_label = format_period_span(dates_list[0], dates_list[-1]) if dates_list else (self.data_window_label or "н/д")
         else:
             period_label = self.data_window_label or "н/д"
 
@@ -4163,7 +4164,8 @@ class AuroraPPTXBuilder:
         if horizon:
             span = ""
             if summary.get("period_first") and summary.get("period_last"):
-                span = f" ({summary['period_first']} – {summary['period_last']})"
+                from engines.narrative_adapter import format_period_span
+                span = f" ({format_period_span(summary['period_first'], summary['period_last'])})"
             self._text(
                 slide, left_x, y, content_w, 0.22,
                 f"Срок плана: {horizon} {plural(int(horizon), ['период', 'периода', 'периодов'])}{span}",

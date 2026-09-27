@@ -662,3 +662,94 @@ def test_deck_decomposition_caption_does_not_claim_columns(base_payload, tmp_pat
     assert "Столбцы складываются в итог" not in text
     assert "самостоятельное значение" in text
     assert "полос" in text
+
+
+# ─── (l) s53: края срока плана – «мес год», а не сырые метки ISO ──────────────
+# Образцы покупателя: «Срок плана: 32 периода (2024-12-30T00:00:00 – 2025-08-04T00:00:00)».
+# В сохранённом прогнозе метки – `future_dates` из медиаплана (ISO со временем);
+# сами метки не меняются, форматирует только слой вывода (общая функция для
+# колоды и веб-отчёта, формат тот же, что у периода данных «янв 2023 – дек 2024»).
+
+_ISO_LABELS = ("2024-12-30T00:00:00", "2025-01-06T00:00:00", "2025-08-04T00:00:00")
+
+
+def _fc_iso(labels=_ISO_LABELS):
+    fc = copy.deepcopy(FC_TWO)
+    for sc in fc["scenarios"]:
+        sc["period_labels"] = list(labels)
+    return fc
+
+
+def test_format_period_span_iso_labels():
+    from engines.narrative_adapter import format_period_span
+    assert format_period_span("2024-12-30T00:00:00", "2025-08-04T00:00:00") == "дек 2024 – авг 2025"
+    assert format_period_span("2025-01-06", "2025-03-31") == "янв 2025 – мар 2025"
+
+
+def test_format_period_span_same_month_single_label():
+    from engines.narrative_adapter import format_period_span
+    assert format_period_span("2025-03-03T00:00:00", "2025-03-24T00:00:00") == "мар 2025"
+
+
+def test_format_period_span_unparsable_kept_as_is():
+    """Не дата (неделя, порядковая метка) – обе метки как есть, без падения
+    и без смешения форматов, даже если вторая разбирается."""
+    from engines.narrative_adapter import format_period_span
+    assert format_period_span("2025-W01", "2025-W32") == "2025-W01 – 2025-W32"
+    assert format_period_span("1", "2025-08-04T00:00:00") == "1 – 2025-08-04T00:00:00"
+    assert format_period_span(None, "x") == "None – x"
+
+
+def test_summary_keeps_raw_labels():
+    """Сохранённые данные не трогаем: сводка отдаёт метки как есть."""
+    s = summarize_forecast(_fc_iso())
+    assert s["period_first"] == "2024-12-30T00:00:00"
+    assert s["period_last"] == "2025-08-04T00:00:00"
+
+
+def test_html_plan_span_human_readable():
+    html = render_forecast_plan(_s({"forecast": _fc_iso()}))
+    assert "T00:00:00" not in html
+    assert "(дек 2024 – авг 2025)" in html
+
+
+def test_html_plan_span_unparsable_kept_as_is():
+    html = render_forecast_plan(_s({"forecast": _fc_iso(("2025-W01", "2025-W02", "2025-W32"))}))
+    assert "(2025-W01 – 2025-W32)" in html
+
+
+def test_deck_plan_span_human_readable(base_payload, tmp_path):
+    payload = copy.deepcopy(base_payload)
+    payload["forecast"] = _fc_iso()
+    _, text = _deck_text(payload, str(tmp_path / "deck_span_iso.pptx"))
+    assert "T00:00:00" not in text
+    assert "Срок плана: 3 периода (дек 2024 – авг 2025)" in text
+
+
+def test_deck_plan_span_unparsable_kept_as_is(base_payload, tmp_path):
+    payload = copy.deepcopy(base_payload)
+    payload["forecast"] = _fc_iso(("2025-W01", "2025-W02", "2025-W32"))
+    _, text = _deck_text(payload, str(tmp_path / "deck_span_weeks.pptx"))
+    assert "Срок плана: 3 периода (2025-W01 – 2025-W32)" in text
+
+
+def test_html_plan_span_is_escaped():
+    """Аудит s53 L3: край срока идёт в HTML только через escape – метка-разметка
+    выводится текстом, а не исполняется."""
+    html = render_forecast_plan(_s({"forecast": _fc_iso(
+        ("<script>alert(1)</script>", "2025-01-06T00:00:00", "2025-08-04T00:00:00"))}))
+    assert "<script>alert(1)</script>" not in html
+    assert "(&lt;script&gt;alert(1)&lt;/script&gt; – 2025-08-04T00:00:00)" in html
+
+
+def test_deck_decomposition_period_human_readable(base_payload, tmp_path):
+    """Аудит s53 M1: подзаголовок и строка «Источник» слайда декомпозиции
+    выводили «2023-01-01 - 2025-07-01» (сырые даты, дефис вместо тире).
+    Теперь – тот же «мес год – мес год», что у срока плана и периода данных."""
+    payload = copy.deepcopy(base_payload)
+    dates = payload["time_series"]["dates"]
+    assert (dates[0], dates[-1]) == ("2023-01-01", "2025-07-01")
+    _, text = _deck_text(payload, str(tmp_path / "deck_decomp_period.pptx"))
+    assert "2023-01-01 - 2025-07-01" not in text
+    assert "продажи за период янв 2023 – июл 2025;" in text
+    assert "· янв 2023 – июл 2025" in text

@@ -86,7 +86,7 @@
   "scqar": {
     "situation": {
       "label": "ПОЛОЖЕНИЕ ДЕЛ",
-      "template": "{client} размещает {budget_mln:.0f} млн ₽ {period_phrase} через {channels_phrase}. Weighted ROI {weighted_roi:.1f}×, MQS модели {mqs}/100."
+      "template": "{client} размещает {budget_mln:.0f} млн ₽ {period_phrase} через {channels_phrase}. Средневзвешенный ROI {weighted_roi:.1f}×, MQS модели {mqs}/100."
     },
     "complication": {
       "label": "ЗАТРУДНЕНИЕ",
@@ -98,7 +98,7 @@
     },
     "question": {
       "label": "ВОПРОС",
-      "template": "Как перераспределить бюджет, чтобы поднять ROAS не снижая awareness?"
+      "template": "Как перераспределить бюджет, чтобы поднять ROAS, не снижая охвата знания?"
     },
     "answer": {
       "label": "ОТВЕТ",
@@ -285,7 +285,7 @@
             "definition": "90% диапазон апостериорного распределения (HDI), содержащий истинное значение с указанной вероятностью."
           },
           {
-            "term": "Weighted ROI",
+            "term": "Средневзвешенный ROI",
             "definition": "ROI портфеля, взвешенный по объёму вложений каждого канала."
           }
         ]

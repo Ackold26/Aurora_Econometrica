@@ -898,6 +898,35 @@ _RU_MONTHS_SHORT = ['янв', 'фев', 'мар', 'апр', 'май', 'июн',
                     'июл', 'авг', 'сен', 'окт', 'ноя', 'дек']
 
 
+def _ru_month_year(dt: datetime) -> str:
+    return f'{_RU_MONTHS_SHORT[dt.month - 1]} {dt.year}'
+
+
+def _parse_period_label(label: Any) -> datetime | None:
+    """Метка периода → дата по тому же правилу, что `_derive_data_coverage`:
+    ISO-дата с временем или без; иначе None."""
+    try:
+        return datetime.strptime(str(label)[:10], '%Y-%m-%d')
+    except (ValueError, TypeError):
+        return None
+
+
+def format_period_span(first: Any, last: Any) -> str:
+    """Края срока плана для клиента: «дек 2024 – авг 2025».
+
+    s53: отчёты выводили сырые метки ISO («2024-12-30T00:00:00 – 2025-08-04T00:00:00»).
+    Формат тот же, что у периода данных (`_derive_data_coverage`). Если хоть одна
+    метка не разбирается как дата («2025-01», «2025-W01», порядковые) — обе как есть,
+    без смешения форматов. Оба края в одном месяце — один «мес год». Только слой
+    вывода: сохранённые метки не меняются.
+    """
+    a, b = _parse_period_label(first), _parse_period_label(last)
+    if a is None or b is None:
+        return f'{first} – {last}'
+    la, lb = _ru_month_year(a), _ru_month_year(b)
+    return la if la == lb else f'{la} – {lb}'
+
+
 def _derive_data_coverage(decompose_data: dict | None) -> dict | None:
     ts = (decompose_data or {}).get('time_series') or {}
     dates = ts.get('dates') or []
@@ -925,7 +954,7 @@ def _derive_data_coverage(decompose_data: dict | None) -> dict | None:
     date_gaps = sum(1 for d in deltas if d > med * 1.5) if med > 0 else 0
 
     def _lbl(dt: datetime) -> str:
-        return f'{_RU_MONTHS_SHORT[dt.month - 1]} {dt.year}'
+        return _ru_month_year(dt)
 
     return {
         'window_label': f'{_lbl(parsed[0])} – {_lbl(parsed[-1])}',

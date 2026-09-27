@@ -688,9 +688,9 @@ def render_executive_summary(ctx: dict) -> str:
         if kpi["is_legacy"]:
             question = scqar["question"]["template"]
         elif kpi["mode"] == "effectiveness":
-            question = "Как перераспределить бюджет, чтобы повысить долю эффекта, не снижая awareness?"
+            question = "Как перераспределить бюджет, чтобы повысить долю эффекта, не снижая охвата знания?"
         elif kpi["kpi_kind"] == "count":
-            question = "Как перераспределить бюджет, чтобы снизить стоимость единицы (CPU), не снижая awareness?"
+            question = "Как перераспределить бюджет, чтобы снизить стоимость единицы (CPU), не снижая охвата знания?"
         else:
             question = scqar["question"]["template"]
         # N3 (Phase 0.1): consistent answer logic with f3 + Action 01.
@@ -2684,9 +2684,9 @@ def render_forecast_plan(ctx: dict) -> str:
     if horizon:
         span = ""
         if summary.get("period_first") and summary.get("period_last"):
+            from engines.narrative_adapter import format_period_span
             span = (
-                f" ({escape(str(summary['period_first']))} – "
-                f"{escape(str(summary['period_last']))})"
+                f" ({escape(format_period_span(summary['period_first'], summary['period_last']))})"
             )
         blocks += f"""
 <p class="trust-sub"><strong>Срок плана:</strong> {horizon} {plural(int(horizon), ['период', 'периода', 'периодов'])}{span}.</p>"""
