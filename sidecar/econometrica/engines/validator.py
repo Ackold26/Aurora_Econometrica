@@ -222,6 +222,51 @@ def _is_numeric_parseable(series: 'pd.Series', threshold: float = 0.8) -> bool:
     return frac >= threshold
 
 
+def _column_role(col: Any, series: 'pd.Series') -> tuple[str, float, str | None]:
+    """Роль колонки так, как её отдаёт проверка данных: (роль, уверенность,
+    причина снятия роли или None). Единый источник для таблицы колонок и для
+    детекторов строк (в-1, аудит s56).
+    """
+    role, confidence = detect_column_role_with_confidence(col)
+    # У3 (2026-07-04): числовой гейт ролей. media/control входят в X численно –
+    # текстовый столбец-атрибут с именем-ловушкой («Категория А/Б», «Регион»)
+    # уронил бы обучение на astype(float). Понижаем до 'unused' с подсказкой;
+    # money-строки («3 836 962 ₽») парсятся → роль сохраняется.
+    if role in ('media', 'control') and not _is_numeric_parseable(series):
+        return 'unused', 0.0, 'non_numeric_role'
+    # Т3-плюс П1 (2026-07-04): суммарный бюджет как media задваивает вклад.
+    # Критерий ЕДИНЫЙ с фильтром таблицы каналов (_merge_channels): если после
+    # снятия медиа-токенов имени инструмента НЕ остаётся (_normalize_channel_name
+    # → None), это агрегатная колонка «Бюджет ДО НДС», а не отдельный канал.
+    # Как media она обучается отдельной серией (в MMX – 6.45% вклада) и рвёт
+    # согласованность timeline↔таблица. Понижаем до 'unused' (юзер вернёт вручную,
+    # как и в non_numeric_role) → новые модели её не обучают, состав серий сходится.
+    if role == 'media':
+        from engines.narrative_adapter import _normalize_channel_name
+        if _normalize_channel_name(col) is None:
+            return 'unused', 0.0, 'total_budget_as_media'
+    return role, confidence, None
+
+
+def _detected_date_and_value_columns(df: 'pd.DataFrame') -> tuple[Any, list]:
+    """Колонка даты и колонки модели (KPI, медиа, контроли) – те, что проверка
+    отдаст в `detected`. Дата – ПОСЛЕДНЯЯ колонка с ролью «дата», как в
+    `detected.date`. Если ролей модели нет – все числовые колонки, кроме даты.
+    """
+    date_col = None
+    value_cols: list = []
+    for col in df.columns:
+        role = _column_role(col, df[col])[0]
+        if role == 'date':
+            date_col = col
+        elif role in ('kpi', 'media', 'control'):
+            value_cols.append(col)
+    if not value_cols:
+        value_cols = [c for c in df.columns
+                      if c != date_col and pd.api.types.is_numeric_dtype(df[c])]
+    return date_col, value_cols
+
+
 def validate_role_compatibility(
     unit_costs: dict,
     media_columns: list,
@@ -543,11 +588,13 @@ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, A
     # сообщаем номер строки. Обучение на таком файле движок не запускает
     # (modeler/ols_modeler), поэтому проблема критическая, а не совет.
     _total_rows_issue: dict | None = None
+    # Колонка даты – та же, что уйдёт в detected.date и оттуда в конфиг
+    # обучения: при двух колонках роли «дата» проверка и обучение иначе
+    # судили бы по разным колонкам (H-1, аудит s56).
+    _det_date, _det_values = _detected_date_and_value_columns(df)
     try:
         from engines.planning import find_trailing_total_rows, total_rows_message
-        # Колонки даты и KPI детектор распознаёт сам – тем же способом, что и
-        # при обучении (единый источник, M-2 аудита s55).
-        _total_rows = find_trailing_total_rows(df, None, None)
+        _total_rows = find_trailing_total_rows(df, _det_date, None)
         if _total_rows:
             _total_rows_issue = {
                 'type': 'total_row_in_data',
@@ -561,13 +608,17 @@ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, A
 
     # ── Строка с числами без даты в любом месте файла (в-1, s56) ──────────
     # Обучалась лишним периодом без предупреждения (зонд s56). Итоговые
-    # строки детектор исключает сам – у них свой текст выше. В статистику
-    # такие строки не берём, как и итог.
+    # строки исключаем – у них свой текст выше. В статистику такие строки
+    # не берём, как и итог. «Числа» – в колонках модели, как их отдаст
+    # проверка; если ролей нет – во всех числовых колонках, кроме даты.
     _undated_rows_issue: dict | None = None
     _undated_rows: list[dict] = []
     try:
         from engines.planning import find_undated_rows, undated_rows_message
-        _undated_rows = find_undated_rows(df, None, None)
+        _undated_rows = find_undated_rows(
+            df, _det_date, _det_values,
+            exclude_index=[r['index'] for r in _total_rows],
+        )
         if _undated_rows:
             _undated_rows_issue = {
                 'type': 'undated_row_in_data',
@@ -661,8 +712,6 @@ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, A
         issues.append(_undated_rows_issue)
 
     # ── Column detection ──
-    # П1 (аудит №3 В-3): импорт единого критерия total-budget один раз, не в цикле.
-    from engines.narrative_adapter import _normalize_channel_name
     columns = []
     date_col = None
     kpi_cols = []
@@ -670,12 +719,8 @@ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, A
     control_cols = []
 
     for col in df.columns:
-        role, confidence = detect_column_role_with_confidence(col)
-        # У3 (2026-07-04): числовой гейт ролей. media/control входят в X численно —
-        # текстовый столбец-атрибут с именем-ловушкой («Категория А/Б», «Регион»)
-        # уронил бы обучение на astype(float). Понижаем до 'unused' с подсказкой;
-        # money-строки («3 836 962 ₽») парсятся → роль сохраняется.
-        if role in ('media', 'control') and not _is_numeric_parseable(df[col]):
+        role, confidence, _demoted = _column_role(col, df[col])
+        if _demoted == 'non_numeric_role':
             warnings.append({
                 'column': col,
                 'type': 'non_numeric_role',
@@ -689,31 +734,19 @@ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, A
                 # рендерится нейтральной «Принять».
                 'action': 'acknowledge',
             })
-            role = 'unused'
-            confidence = 0.0
-        # Т3-плюс П1 (2026-07-04): суммарный бюджет как media задваивает вклад.
-        # Критерий ЕДИНЫЙ с фильтром таблицы каналов (_merge_channels): если после
-        # снятия медиа-токенов имени инструмента НЕ остаётся (_normalize_channel_name
-        # → None), это агрегатная колонка «Бюджет ДО НДС», а не отдельный канал.
-        # Как media она обучается отдельной серией (в MMX — 6.45% вклада) и рвёт
-        # согласованность timeline↔таблица. Понижаем до 'unused' (юзер вернёт вручную,
-        # как и в non_numeric_role) → новые модели её не обучают, состав серий сходится.
-        if role == 'media':
-            if _normalize_channel_name(col) is None:
-                warnings.append({
-                    'column': col,
-                    'type': 'total_budget_as_media',
-                    'message': (
-                        f'{col} – похоже на суммарный бюджет, а не отдельный канал '
-                        f'(после снятия слов «Бюджет / до НДС» имени инструмента не '
-                        f'осталось). Как медиа-канал он задвоит вклад и исказит ROI. '
-                        f'Роль снята; при необходимости задайте её вручную.'
-                    ),
-                    'severity': 'warning',
-                    'action': 'acknowledge',  # Г-1: роль уже снята — не «Исключить»
-                })
-                role = 'unused'
-                confidence = 0.0
+        elif _demoted == 'total_budget_as_media':
+            warnings.append({
+                'column': col,
+                'type': 'total_budget_as_media',
+                'message': (
+                    f'{col} – похоже на суммарный бюджет, а не отдельный канал '
+                    f'(после снятия слов «Бюджет / до НДС» имени инструмента не '
+                    f'осталось). Как медиа-канал он задвоит вклад и исказит ROI. '
+                    f'Роль снята; при необходимости задайте её вручную.'
+                ),
+                'severity': 'warning',
+                'action': 'acknowledge',  # Г-1: роль уже снята – не «Исключить»
+            })
         col_info: dict[str, Any] = {
             'name': col,
             'role': role,

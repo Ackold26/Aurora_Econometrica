@@ -9,7 +9,7 @@
   detect_media_plan_tail(df, date_col, kpi_col, media_cols) -> dict
   find_trailing_total_rows(df, date_col, kpi_col) -> list[dict]
   total_rows_message(total_rows) -> str
-  find_undated_rows(df, date_col, kpi_col) -> list[dict]
+  find_undated_rows(df, date_col, value_cols, exclude_index) -> list[dict]
   undated_rows_message(undated_rows) -> str
   compute_source_hash(data_file) -> str
   load_frames(data_file, date_col, kpi_col, media_cols) -> dict
@@ -22,6 +22,7 @@ import hashlib
 import json
 import logging
 import re
+import warnings as _warnings  # «warnings» – локальный список в detect_media_plan_tail
 from pathlib import Path
 from typing import Any
 
@@ -245,50 +246,123 @@ def total_rows_message(total_rows: list[dict[str, Any]]) -> str:
 _UNDATED_ROWS_SHOWN = 5
 
 
+def _dates_recognized(series: "pd.Series") -> "pd.Series":
+    """Разобрана ли дата в каждой ячейке – хотя бы одним из двух способов.
+
+    Первый – как у детектора итогов. Второй – поэлементно с днём впереди:
+    pandas выводит формат по первой ячейке, и на «04.01.2023» (день ≤ 12)
+    «13.01.2023» ниже уже не разбирается, а «13.03.2023» среди дат вида
+    2023-03-13 – тоже (M-2, аудит s56). Значение даты здесь не нужно – только
+    «дата есть».
+    """
+    with _warnings.catch_warnings():
+        _warnings.simplefilter("ignore")
+        ok = pd.to_datetime(series, errors="coerce").notna().to_numpy(copy=True)
+        retry = ~ok & series.notna().to_numpy()
+        if retry.any():
+            second = pd.to_datetime(
+                series[retry], errors="coerce", format="mixed", dayfirst=True,
+            )
+            ok[retry] = second.notna().to_numpy()
+    return pd.Series(ok, index=series.index)
+
+
+def _is_calendar(series: "pd.Series") -> bool:
+    """Колонка – календарь: datetime64 либо нечисловая колонка, у которой
+    дата распознаётся у большинства непустых значений. Числовая (и bool) –
+    не календарь: `to_datetime` берёт любое число за дату от 1970-го, и
+    пустая ячейка давала ложный отказ (macro_monthly.csv, приёмка fix02).
+    Цена – целые серийные номера Excel во всей колонке тоже не календарь.
+    """
+    if pd.api.types.is_datetime64_any_dtype(series):
+        return True
+    if pd.api.types.is_numeric_dtype(series):
+        return False
+    filled = series.dropna()
+    if filled.empty:
+        return False
+    return int(_dates_recognized(filled).sum()) * 2 > len(filled)
+
+
+def _calendar_date_column(df: "pd.DataFrame", preferred: str | None) -> str | None:
+    """Колонка даты для правила строк без даты: `preferred`, если она есть в
+    таблице и это календарь; иначе первая колонка с ролью «дата», которая
+    календарь; иначе None – правило молчит.
+
+    Проверка данных передаёт detected.date, обучение – date_column конфига
+    (куда detected.date и попадает), поэтому обе стороны выбирают одну
+    колонку. В файле [Дата, Неделя] detected.date – «Неделя» с номерами
+    недель; без этого выбора правило на ней молчало бы, и строка средних
+    снова обучалась лишним периодом.
+    """
+    if preferred is not None and preferred in df.columns and _is_calendar(df[preferred]):
+        return preferred
+    from engines.validator import detect_column_role_with_confidence
+    return next(
+        (c for c in df.columns
+         if detect_column_role_with_confidence(str(c))[0] == "date" and _is_calendar(df[c])),
+        None,
+    )
+
+
 def find_undated_rows(
     df: "pd.DataFrame",
     date_col: str | None,
-    kpi_col: str | None = None,
+    value_cols: list[str],
+    exclude_index: Any = (),
 ) -> list[dict[str, Any]]:
-    """Найти строки с числами, у которых дата не распознаётся, – в любом
-    месте таблицы: хвост, середина, после медиаплана.
+    """Найти строки с числами, у которых дата не заполнена или не
+    распознаётся, – в любом месте таблицы: хвост, середина, после медиаплана.
 
     Зонд s56: строка средних без слова, строка со стёртой датой обучались
     лишним периодом без единого предупреждения (OLS n_obs 49 вместо 48),
     а в середине файла ещё и сдвигали адсток следующих периодов.
 
-    «Есть числа» – то же, что в `_row_is_total`: хоть одна ячейка вне колонки
-    даты читается как число. Дата – тот же разбор и та же колонка, что у
-    детектора итогов. Строки-итоги сюда не входят: у них свой текст
-    (`total_rows_message`), одну строку дважды не сообщаем.
+    «Строка с числами» – в ней есть НЕНУЛЕВОЕ число хотя бы в одной из
+    `value_cols` (колонки модели: KPI, медиа, контроли). Протянутая формула
+    с нулями, «№ п/п», справочный блок под таблицей в колонках вне модели
+    отказа не дают (H-2, аудит s56). Строки из `exclude_index` (итоговые – у
+    них свой текст `total_rows_message`) не сообщаем.
 
-    Предохранитель: правило молчит, если колонка даты не найдена или дата
+    Колонка даты – `date_col`, если это календарь, иначе первая колонка с
+    ролью «дата», которая календарь (`_calendar_date_column`); проверка
+    передаёт detected.date, обучение – date_column конфига, и обе стороны
+    приходят к одной колонке (H-1, приёмка fix02).
+
+    Предохранитель: правило молчит, если календарной колонки даты нет или дата
     распознана не более чем у половины строк с числами, – это формат дат,
-    а не отдельные строки без даты.
+    а не отдельные строки без даты. Считается по тем же строкам с числами,
+    поэтому нули протянутой формулы его не выключают (H-3).
 
     Возвращает [{index, file_row}] в порядке файла, как
     `find_trailing_total_rows`.
     """
     if df.empty:
         return []
-    date_col = _resolve_role_column(df, date_col, "date")
+    date_col = _calendar_date_column(df, date_col)
     if not date_col:
         return []
-    dates = pd.to_datetime(df[date_col], errors="coerce")
-    rest = df.drop(columns=[date_col])
-    # Пустую ячейку второй колонки дат (NaT) `to_numeric` превращает в целое
-    # число – числом её не считаем, иначе пустая строка дала бы отказ.
-    has_numbers = (rest.apply(pd.to_numeric, errors="coerce").notna() & rest.notna()).any(axis=1)
+    if isinstance(value_cols, str):
+        value_cols = [value_cols]
+    cols = [c for c in dict.fromkeys(value_cols) if c in df.columns and c != date_col]
+    if not cols:
+        return []
+    raw = df[cols]
+    vals = raw.apply(pd.to_numeric, errors="coerce")
+    # Пустую ячейку колонки дат (NaT) `to_numeric` превращает в целое число –
+    # числом её не считаем.
+    has_numbers = (vals.notna() & (vals != 0) & raw.notna()).any(axis=1)
+    dated = _dates_recognized(df[date_col])
     n_with_numbers = int(has_numbers.sum())
-    n_dated = int((has_numbers & dates.notna()).sum())
+    n_dated = int((has_numbers & dated).sum())
     if n_dated * 2 <= n_with_numbers:
         return []
-    total_index = {r["index"] for r in find_trailing_total_rows(df, date_col, kpi_col)}
+    excluded = set(exclude_index)
     return [
         {"index": df.index[pos], "file_row": pos + 2}
         for pos in range(len(df))
-        if has_numbers.iloc[pos] and pd.isna(dates.iloc[pos])
-        and df.index[pos] not in total_index
+        if has_numbers.iloc[pos] and not dated.iloc[pos]
+        and df.index[pos] not in excluded
     ]
 
 
@@ -296,11 +370,13 @@ def undated_rows_message(undated_rows: list[dict[str, Any]]) -> str:
     """Текст для человека: в каких строках нет даты и что с ними делать."""
     if len(undated_rows) == 1:
         return (
-            f"В строке {undated_rows[0]['file_row']} файла нет даты, а в ячейках есть "
-            f"числа. Строку без даты программа не может поставить на шкалу времени: "
-            f"если это итог, среднее или примечание, при обучении она станет лишним "
-            f"периодом и исказит продажи и бюджеты. Заполните дату в этой строке или "
-            f"удалите строку и загрузите файл заново."
+            f"В строке {undated_rows[0]['file_row']} файла не заполнена или не "
+            f"распознана дата, а в ячейках есть числа. Строку без даты программа не "
+            f"может поставить на шкалу времени: если это итог, среднее или примечание, "
+            f"при обучении она станет лишним периодом и исказит продажи и бюджеты. "
+            f"Заполните дату в этой строке – в том же виде, что и в остальных "
+            f"строках, например 01.02.2024, – или удалите строку и загрузите файл "
+            f"заново."
         )
     nums = ", ".join(str(r["file_row"]) for r in undated_rows[:_UNDATED_ROWS_SHOWN])
     rest = len(undated_rows) - _UNDATED_ROWS_SHOWN
@@ -309,11 +385,12 @@ def undated_rows_message(undated_rows: list[dict[str, Any]]) -> str:
         word = "строке" if rest % 10 == 1 and rest % 100 != 11 else "строках"
         nums += f" и ещё в {rest} {word}"
     return (
-        f"В строках {nums} файла нет даты, а в ячейках есть числа. Строки без даты "
-        f"программа не может поставить на шкалу времени: если это итоги, средние "
-        f"или примечания, при обучении они станут лишними периодами и исказят "
-        f"продажи и бюджеты. Заполните даты в этих строках или удалите строки и "
-        f"загрузите файл заново."
+        f"В строках {nums} файла не заполнены или не распознаны даты, а в ячейках "
+        f"есть числа. Строки без даты программа не может поставить на шкалу "
+        f"времени: если это итоги, средние или примечания, при обучении они станут "
+        f"лишними периодами и исказят продажи и бюджеты. Заполните даты в этих "
+        f"строках – в том же виде, что и в остальных строках, например 01.02.2024, "
+        f"– или удалите строки и загрузите файл заново."
     )
 
 

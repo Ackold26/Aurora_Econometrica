@@ -363,10 +363,13 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
             'message': total_rows_message(_total_rows),
         }
     # в-1 (s56): строка с числами без даты в любом месте файла – тот же отказ
-    # и по той же причине (остальные движки читают файл сами).
+    # и по той же причине (остальные движки читают файл сами). «Числа» –
+    # ненулевые в колонках модели из конфига (H-2, аудит s56).
     from engines.planning import find_undated_rows, undated_rows_message
     _undated_rows = find_undated_rows(
-        df, config.get('date_column', 'date'), config.get('kpi_column'),
+        df, config.get('date_column', 'date'),
+        [config.get('kpi_column'), *(config.get('media_columns') or []),
+         *(config.get('control_columns') or [])],
     )
     if _undated_rows:
         return {
