@@ -17,7 +17,7 @@ cwd = `D:\Docs\Aurora_Ai\Dev\Aurora_Econometrica_thinwt`. **Стартовая �
 | Приёмка в конфигурации поставки `build-cloud --test` | 639 passed / 0 failed / 4 ignored (`Projects/_s55/test_thin_s55_try2.log`) |
 | CI | красный инфраструктурно; на `256636ab` 53 падения поимённо = эталон 2.5.6, новых 0 (`_s55/ci_*.set`) |
 | **Установщик 2.5.7 собран** | `D:/cargo-targets/ai-agency/release/bundle/nsis/Optimizer MMM_2.5.7_x64-setup.exe`, 257 733 355 б, SHA256 `f3fc1f4f01cc4d672aba99c72a5ac042a56d940c9d6e1fc76f633dfa923ab60c`; шлюз в несжатом exe = 5; пакет содержимого v7 в staging полон; вершина `256636ab` |
-| Живые пробы установщика | `Projects/_s55/PROBE_s55_257.md` (исполнитель `probe-257`; если отчёта нет – пробы не закончены, см. задачу 1) |
+| Живые пробы установщика 2.5.7 | закончены: (а)(в)(г) PASS, (б) не проверена, находка (в-1) – `Projects/_s55/PROBE_s55_257.md` (итог ниже) |
 | Реестр CPD – проход доказательств | `_s55/cpd_s55_evidence.txt` + механическая сверка `_s55/verify_table.txt` (что вносить, что с поправкой, что НЕЛЬЗЯ) |
 
 ## Задачи (приоритет)
