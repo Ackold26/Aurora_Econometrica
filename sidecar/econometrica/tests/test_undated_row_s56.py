@@ -377,9 +377,13 @@ def _append_rows(df: pd.DataFrame, rows: list[dict]) -> pd.DataFrame:
                          ids=["date_first", "week_first"])
 def test_two_date_columns_validation_and_training_agree(tmp_path, order, case):
     """H-1: две колонки роли «дата». Проверка судит по той же колонке, что
-    отдаёт в detected.date (последней), обучение – по date_column из конфига,
-    куда detected.date и попадает. До правки проверка брала первую колонку:
-    «проверка зелёная – обучение отказало» и наоборот (probe5)."""
+    отдаёт в detected.date, обучение – по date_column из конфига, куда
+    detected.date и попадает. До правки проверка брала первую колонку:
+    «проверка зелёная – обучение отказало» и наоборот (probe5).
+
+    H-1 AUDIT03 (вариант Б ведущей): detected.date – календарная «Дата» при
+    любом порядке колонок, а не последняя «Неделя» с номерами: по номерам
+    обучение шло на датах 1970 года."""
     from engines.ols_modeler import train_ols
     df = _frame().rename(columns={"date": "Дата"})
     df["Неделя"] = pd.Series(range(1, len(df) + 1), dtype=object)
@@ -394,7 +398,8 @@ def test_two_date_columns_validation_and_training_agree(tmp_path, order, case):
     p = _save(df, tmp_path)
     res = _validate(p)
     det = res["detected"]["date"]
-    assert det == order[-1]
+    assert det == "Дата"
+    assert _issues(res, "date_column_numeric") == []
     val_refused = bool(_issues(res, "undated_row_in_data"))
     tr = train_ols({**_train_cfg(p), "date_column": det}, str(tmp_path / "proj"))
     assert val_refused == (tr.get("error_code") == "UNDATED_ROW_IN_DATA"), tr.get("message")
@@ -403,6 +408,10 @@ def test_two_date_columns_validation_and_training_agree(tmp_path, order, case):
         from engines.modeler import train_model
         tb = train_model({**_train_cfg(p), "date_column": det}, str(tmp_path / "proj_b"))
         assert tb.get("error_code") == "UNDATED_ROW_IN_DATA"
+    else:
+        # Обучение на настоящих датах, а не на 1970-01-01.
+        assert tr["status"] == "ok", tr.get("message")
+        assert tr["diagnostics"]["actual_vs_predicted"]["dates"][0] == "2022-01-01"
     # По сути: «Неделя» – номера (числовая), календарь – «Дата» при любом
     # порядке колонок; отказ – ровно когда пуста «Дата» (приёмка fix02, (б)).
     expected = case in ("avg_both_empty", "date_blank")
@@ -578,11 +587,16 @@ def test_validator_value_columns_follow_detected_roles():
 # ─── Приёмка fix02: числовая колонка с ролью «дата» – не календарь ───────────
 
 
-def test_numeric_date_column_like_macro_monthly_is_not_refused(tmp_path):
+def test_numeric_date_column_like_macro_monthly(tmp_path):
     """macro_monthly.csv: «период» строками + числовые «…_конец_месяца» (роль
-    «дата» по имени). detected.date – последняя, числовая; `to_datetime`
-    берёт число за дату от 1970-го, и пустая последняя ячейка давала ложный
-    отказ «строка 38». Числовая колонка календарём не считается."""
+    «дата» по имени). `to_datetime` берёт число за дату от 1970-го, и пустая
+    последняя ячейка давала ложный отказ «строка 38». Числовая колонка
+    календарём не считается.
+
+    H-1 AUDIT03 (вариант Б ведущей): detected.date – календарный «период»;
+    обучение с date_column = числовая колонка – отказ DATE_COLUMN_NUMERIC с
+    названием «периода», с «периодом» – успех (fix04 закрепил было успех
+    обучения по числовой «дате», то есть по датам 1970 года)."""
     from engines.ols_modeler import train_ols
     df = _frame()
     df["date"] = [d.strftime("%Y-%m") for d in pd.to_datetime(df["date"])]
@@ -594,16 +608,23 @@ def test_numeric_date_column_like_macro_monthly_is_not_refused(tmp_path):
     p = tmp_path / "macro.csv"
     df.to_csv(p, index=False, sep=";")
     res = _validate(p)
-    det = res["detected"]["date"]
-    assert det == "индекс_потребительских_цен_уровень_конец_месяца"
+    assert res["detected"]["date"] == "период"
     assert _issues(res, "undated_row_in_data") == []
+    assert _issues(res, "date_column_numeric") == []
     assert res["file"]["rows"] == N_HIST
-    cfg = {**_train_cfg(p), "date_column": det}
-    tr = train_ols(cfg, str(tmp_path / "proj"))
+    numeric = "индекс_потребительских_цен_уровень_конец_месяца"
+    tr = train_ols({**_train_cfg(p), "date_column": numeric}, str(tmp_path / "proj"))
+    assert (tr["status"], tr["error_code"]) == ("error", "DATE_COLUMN_NUMERIC")
+    assert tr["message"].startswith(f"Дата в колонке «{numeric}» прочитана как число (например ")
+    assert tr["message"].endswith(
+        "В файле есть колонка с датами «период» – выберите её колонкой даты на "
+        "шаге настройки и запустите обучение заново.")
     # CSVPROBE s56: прежняя проверка «не UNDATED» маскировала падение
     # обучения на CSV с «;» («KPI column not found») – теперь успех целиком.
+    tr = train_ols({**_train_cfg(p), "date_column": "период"}, str(tmp_path / "proj2"))
     assert tr["status"] == "ok", tr.get("message")
     assert tr["diagnostics"]["n_obs"] == N_HIST
+    assert tr["diagnostics"]["actual_vs_predicted"]["dates"][0] == "2022-01-01"
 
 
 @pytest.mark.parametrize("kind", ["xlsx_datetime64", "csv_iso_strings", "csv_year_month"])
@@ -852,23 +873,36 @@ def _week_number_total_frame() -> pd.DataFrame:
 
 
 def test_total_row_with_numeric_detected_date_keeps_total_text(tmp_path):
-    """L-2 (мутация M7): detected.date – «Неделя» с номерами; детектор итогов
-    судил по ней, и «Итого» получало общий текст про дату. Теперь – та же
-    календарная колонка, что у правила строк без даты: свой код и текст в
-    проверке, отказ итога в обоих обучениях."""
+    """L-2 (мутация M7): [Дата, Неделя-номер] + «Итого». Детектор итогов судил
+    по числовой «Неделе», и «Итого» получало общий текст про дату. Теперь – та
+    же календарная колонка, что у правила строк без даты: свой код и текст в
+    проверке, отказ итога в обоих обучениях.
+
+    H-1 AUDIT03 (вариант Б ведущей): «Дата» теперь и в detected.date – одна
+    колонка на проверку, детекторы и конфиг обучения. Старый конфиг с
+    «Неделей» – отказ H-1 с названием колонки «Дата» (он раньше итога)."""
     p = _save(_week_number_total_frame(), tmp_path)
     res = _validate(p)
-    assert res["detected"]["date"] == "Неделя"
+    assert res["detected"]["date"] == "Дата"
     totals = _issues(res, "total_row_in_data")
     assert [i["rows"] for i in totals] == [[42]]
     assert "похожа на итоговую" in totals[0]["message"]
     assert _issues(res, "undated_row_in_data") == []
+    assert _issues(res, "date_column_numeric") == []
     cfg = {"data_file": str(p), "kpi_column": "sales", "media_columns": ["tv_spend", "digital_spend"],
-           "control_columns": [], "date_column": "Неделя", "adstock_config": {}}
+           "control_columns": [], "date_column": res["detected"]["date"], "adstock_config": {}}
     from engines.modeler import train_model
     from engines.ols_modeler import train_ols
-    assert train_ols(cfg, str(tmp_path / "proj"))["error_code"] == "TOTAL_ROW_IN_DATA"
-    assert train_model(cfg, str(tmp_path / "proj_b"))["error_code"] == "TOTAL_ROW_IN_DATA"
+    for tr in (train_ols(cfg, str(tmp_path / "proj")), train_model(cfg, str(tmp_path / "proj_b"))):
+        assert tr["error_code"] == "TOTAL_ROW_IN_DATA"
+        assert tr["message"] == totals[0]["message"]
+    old = {**cfg, "date_column": "Неделя"}
+    for tr in (train_ols(old, str(tmp_path / "proj_o")), train_model(old, str(tmp_path / "proj_ob"))):
+        assert tr["error_code"] == "DATE_COLUMN_NUMERIC"
+        assert tr["message"] == (
+            "Дата в колонке «Неделя» прочитана как число (например 1). В файле есть "
+            "колонка с датами «Дата» – выберите её колонкой даты на шаге настройки и "
+            "запустите обучение заново.")
 
 
 def test_nearest_dated_row_for_text_sample():

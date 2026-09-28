@@ -260,13 +260,18 @@ _UNDATED_ROWS_SHOWN = 5
 
 
 # Ячейка – полная дата: три числовые группы (день, месяц, год в любом
-# порядке) через «.», «/» или «-», допускается хвост времени.
-_FULL_DATE_RE = re.compile(r"\s*\d{1,4}[./-]\d{1,2}[./-]\d{1,4}(?:[T\s].*)?")
+# порядке) через «.», «/» или «-» либо «число месяц-словом год»
+# («16 October 2023», «16 Oct 2023» – L-3, AUDIT03 s56), допускается хвост
+# времени.
+_FULL_DATE_RE = re.compile(
+    r"\s*(?:\d{1,4}[./-]\d{1,2}[./-]\d{1,4}|\d{1,2}\s+[^\W\d_]+\.?\s+\d{2,4})(?:[T\s].*)?"
+)
 
 
 def _full_date_cells(series: "pd.Series") -> "pd.Series":
-    """Ячейка – полная дата: объект даты (из xlsx) или строка из трёх
-    числовых групп. Голый год «2023», «2023-12», «Dec 2023» – нет."""
+    """Ячейка – полная дата: объект даты (из xlsx), строка из трёх
+    числовых групп или «16 October 2023». Голый год «2023», «2023-12»,
+    «Dec 2023» – нет."""
     import datetime as _dt
     import numpy as _np
 
@@ -319,6 +324,8 @@ def _is_calendar(series: "pd.Series") -> bool:
     не календарь: `to_datetime` берёт любое число за дату от 1970-го, и
     пустая ячейка давала ложный отказ (macro_monthly.csv, приёмка fix02).
     Цена – целые серийные номера Excel во всей колонке тоже не календарь.
+    Текст «01.2022» / «2022.01» (дата, записанная Excel как число) – тоже
+    не календарь: по ней отказывает `numeric_date_example` (H-1, AUDIT03 s56).
     """
     if pd.api.types.is_datetime64_any_dtype(series):
         return True
@@ -327,7 +334,106 @@ def _is_calendar(series: "pd.Series") -> bool:
     filled = series.dropna()
     if filled.empty:
         return False
+    from engines.data_io import is_number_like_date_column
+    if is_number_like_date_column(filled):
+        return False
     return int(_dates_recognized(filled).sum()) * 2 > len(filled)
+
+
+def numeric_date_example(series: "pd.Series") -> str | None:
+    """Колонка даты прочитана как число – пример её значения для текста
+    отказа, иначе None.
+
+    «Как число» – числовой тип (не bool): «01.2022» из CSV (pandas даёт
+    1.2022), ГГГГММ, серийные номера Excel, номера недель; либо текст, где
+    каждое значение «ММ.ГГГГ» / «ГГГГ.ММ» (`data_io` оставляет его текстом).
+    `to_datetime` берёт число за наносекунды от 1970 года, и модель молча
+    обучалась на датах 1970-01-01: праздники и сезонность байеса считались
+    от них (H-1, AUDIT03 s56).
+    """
+    filled = series.dropna()
+    if filled.empty:
+        return None
+    if pd.api.types.is_bool_dtype(series):
+        return None
+    if pd.api.types.is_numeric_dtype(series):
+        v = filled.iloc[0]
+        if float(v).is_integer():
+            return str(int(v))
+        return str(v)
+    from engines.data_io import is_number_like_date_column
+    if is_number_like_date_column(filled):
+        return str(filled.iloc[0]).strip()
+    return None
+
+
+def numeric_date_message(column: Any, example: str, calendar: Any = None) -> str:
+    """Текст отказа: дата в колонке `column` прочитана как число. Если в
+    файле есть колонка с датами `calendar` – назвать её."""
+    if calendar is not None:
+        return (
+            f"Дата в колонке «{column}» прочитана как число (например {example}). "
+            f"В файле есть колонка с датами «{calendar}» – выберите её колонкой "
+            f"даты на шаге настройки и запустите обучение заново."
+        )
+    return (
+        f"Дата в колонке «{column}» прочитана как число (например {example}). "
+        f"Сохраните даты в виде ДД.ММ.ГГГГ и загрузите файл заново."
+    )
+
+
+def numeric_date_refusal(df: "pd.DataFrame", column: Any) -> str | None:
+    """Текст отказа H-1 для колонки даты `column` (из detected.date или
+    date_column конфига), если она прочитана как число; иначе None.
+
+    Проверка отдаёт в detected.date календарную колонку, когда она есть,
+    поэтому текст с подсказкой «выберите колонку «Дата»» видит только
+    обучение со старым или ручным конфигом. Один текст для проверки, OLS и
+    байеса.
+    """
+    if column is None or column not in df.columns:
+        return None
+    example = numeric_date_example(df[column])
+    if example is None:
+        return None
+    return numeric_date_message(column, example, _calendar_date_column(df, column))
+
+
+def find_non_numeric_column(
+    df: "pd.DataFrame", columns: list[Any],
+) -> tuple[Any, list[str]] | None:
+    """Первая колонка модели, которую обучение не сможет привести к числу
+    (`astype(float)`), и до трёх примеров непригодных значений; иначе None.
+
+    Обучение на CSV с « - » или «1 234 ₽» в числовой колонке падало сырым
+    ValueError вместо понятного отказа (L-2, AUDIT03 s56). Колонки, которых
+    нет в таблице, пропускаем – для них у обучения свои отказы.
+    """
+    for col in dict.fromkeys(c for c in columns if c is not None):
+        if col not in df.columns:
+            continue
+        s = df[col]
+        if pd.api.types.is_numeric_dtype(s):
+            continue
+        bad = set()
+        for v in s.dropna():
+            try:
+                float(v)
+            except (TypeError, ValueError):
+                bad.add(str(v).strip())
+        if bad:
+            return col, sorted(bad)[:3]
+    return None
+
+
+def non_numeric_column_message(column: Any, examples: list[str]) -> str:
+    """Текст отказа: в колонке модели есть значения не-числа."""
+    return (
+        f"В колонке «{column}» есть значения, которые не читаются как числа "
+        f"(например: {', '.join(examples)}). Обучение на такой колонке не "
+        f"запустится: замените текст числами или задайте столбцу числовой формат "
+        f"в исходном файле и загрузите файл заново."
+    )
 
 
 def _calendar_date_column(df: "pd.DataFrame", preferred: str | None) -> str | None:

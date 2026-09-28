@@ -276,7 +276,8 @@ def _detected_date_and_value_columns(df: 'pd.DataFrame') -> tuple[Any, list, int
     """Колонка даты, колонки модели (KPI, медиа, контроли) – те, что проверка
     отдаст в `detected`, – и сколько из них должно быть с ненулевым числом,
     чтобы строка считалась «строкой с числами». Дата – ПОСЛЕДНЯЯ колонка с
-    ролью «дата», как в `detected.date`.
+    ролью «дата», а если она не календарь – календарная колонка роли «дата»
+    (`_calendar_date_column`), как в `detected.date`.
 
     Если ролей модели нет – запасной ход: все числовые колонки, кроме даты и
     нумерации, и строка «с числами», только если числа хотя бы в двух из них
@@ -291,6 +292,13 @@ def _detected_date_and_value_columns(df: 'pd.DataFrame') -> tuple[Any, list, int
             date_col = col
         elif role in ('kpi', 'media', 'control'):
             value_cols.append(col)
+    # Последняя колонка роли «дата» не календарь (номера недель, ИПЦ
+    # «…_конец_месяца»), а календарная в файле есть – дата она: иначе обучение
+    # шло по числам как по датам 1970 года (H-1, AUDIT03 s56, вариант Б
+    # ведущей). Та же колонка – у детекторов итогов и строк без даты.
+    if date_col is not None:
+        from engines.planning import _calendar_date_column
+        date_col = _calendar_date_column(df, date_col) or date_col
     if value_cols:
         return date_col, value_cols, 1
     value_cols = [c for c in df.columns
@@ -794,9 +802,12 @@ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, A
             # Phase 2 audit pass 5: per-column year span detection - позволяет
             # frontend (UnitCostsPanel) показать %/год input БЕЗ зависимости от
             # обученного pickle (econ_forecast_context требует model.latest.pkl).
+            # Дата, прочитанная как число, дала бы годы 1970 – без них (H-1,
+            # AUDIT03 s56).
             try:
+                from engines.planning import numeric_date_example
                 _dates = pd.to_datetime(df[col], errors='coerce').dropna()
-                if not _dates.empty:
+                if not _dates.empty and numeric_date_example(df[col]) is None:
                     _years = _dates.dt.year
                     _unique_years = sorted(set(int(y) for y in _years.unique()))
                     col_info['date_stats'] = {
@@ -981,6 +992,12 @@ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, A
 
         columns.append(col_info)
 
+    # detected.date – та же колонка, что у детекторов итогов и строк без даты:
+    # календарная колонка роли «дата», если она есть (H-1, AUDIT03 s56,
+    # вариант Б ведущей). Роли колонок в таблице не меняются.
+    if date_col is not None:
+        date_col = _det_date
+
     # ── Structure checks ──
     if not date_col:
         issues.append({
@@ -988,6 +1005,22 @@ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, A
             'message': 'Не найден столбец с датами. Переименуйте столбец в "date"',
             'severity': 'critical',
         })
+
+    # H-1 (AUDIT03 s56): колонка даты, которая уйдёт в detected.date и оттуда в
+    # конфиг обучения, прочитана как число («01.2022» из CSV – 1.2022, ГГГГММ,
+    # серийные номера). Проверка отвечала «ГОТОВ», а обучение шло на датах
+    # 1970-01-01. Обучение по ней отказывает тем же текстом.
+    _date_numeric_refusal = None
+    if date_col is not None:
+        from engines.planning import numeric_date_refusal
+        _date_numeric_refusal = numeric_date_refusal(df, date_col)
+        if _date_numeric_refusal is not None:
+            issues.append({
+                'column': date_col,
+                'type': 'date_column_numeric',
+                'message': _date_numeric_refusal,
+                'severity': 'critical',
+            })
 
     if not kpi_cols:
         issues.append({
@@ -1154,7 +1187,9 @@ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, A
 
     # ── Date frequency + period check ──
     date_frequency = 'unknown'
-    if date_col:
+    # Дата-число: частота по датам 1970-го и совет «YYYY-MM-DD» спорили бы с
+    # отказом выше (H-1, AUDIT03 s56).
+    if date_col and _date_numeric_refusal is None:
         date_frequency = detect_date_frequency(df[date_col])
         try:
             df[date_col] = pd.to_datetime(df[date_col])

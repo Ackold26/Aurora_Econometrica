@@ -3062,6 +3062,9 @@ def project_save_kpi_settings(req: ValuePerCountUnitSaveRequest):
     """
     try:
         from pathlib import Path
+        # `pd` модульного импорта нет: без этой строки любое успешное
+        # сохранение падало NameError на 'updated_at' → 500 (AUDIT03 s56, ч.2 п.5).
+        import pandas as pd
         from utils.mode_inference import derive_mode
         from utils.safe_io import atomic_write_json
         from utils.log_config import setup_module_logger, log_event

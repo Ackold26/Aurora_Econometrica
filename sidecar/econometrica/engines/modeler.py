@@ -357,6 +357,18 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
         _calendar_date_column, find_trailing_total_rows, total_rows_message,
     )
     _date_col_cfg = config.get('date_column', 'date')
+    # H-1 (AUDIT03 s56): дата, прочитанная как число («01.2022» из CSV –
+    # 1.2022), – отказ: иначе праздники и сезонность считались от дат
+    # 1970-01-01, и модель обучалась молча.
+    from engines.planning import numeric_date_refusal
+    _date_refusal = numeric_date_refusal(df, _date_col_cfg)
+    if _date_refusal is not None:
+        return {
+            'status': 'error',
+            'error_code': 'DATE_COLUMN_NUMERIC',
+            'column': _date_col_cfg,
+            'message': _date_refusal,
+        }
     _total_rows = find_trailing_total_rows(
         df, _calendar_date_column(df, _date_col_cfg) or _date_col_cfg,
         config.get('kpi_column'), file_rows=_file_rows,
@@ -409,6 +421,19 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
     date_col = config.get('date_column', 'date')
     adstock_config = config.get('adstock_config', {})
     merge_rules = config.get('merge_rules', {}) or {}
+
+    # L-2 (AUDIT03 s56): текст в колонке модели – понятный отказ, а не сырой
+    # ValueError из astype(float) ниже. После отсева хвоста с пустым KPI:
+    # строки медиаплана в обучение не идут.
+    from engines.planning import find_non_numeric_column, non_numeric_column_message
+    _non_numeric = find_non_numeric_column(df, [kpi_col, *(media_cols or []), *(control_cols or [])])
+    if _non_numeric:
+        return {
+            'status': 'error',
+            'error_code': 'NON_NUMERIC_COLUMN',
+            'column': _non_numeric[0],
+            'message': non_numeric_column_message(*_non_numeric),
+        }
 
     # ─── Auto adstock resolution (NEW-1 fix) ─────────────────────────────
     # Резолвим 'auto' / {'type': 'auto'} ДО enforce_jax_for_weibull.
