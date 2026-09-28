@@ -89,9 +89,15 @@ def train_ols(config: dict, project_dir: str, progress_callback=None) -> dict[st
 
     # L4 (s55): строка «итого» в хвосте файла — отказ, симметрично modeler.py
     # (там же объяснение, почему не молчаливый отсев).
-    from engines.planning import find_trailing_total_rows, total_rows_message
+    # Колонка даты для итогов – та же календарная, что у правила строк без
+    # даты ниже и в проверке данных (L-2, аудит s56).
+    from engines.planning import (
+        _calendar_date_column, find_trailing_total_rows, total_rows_message,
+    )
+    _date_col_cfg = config.get('date_column', 'date')
     _total_rows = find_trailing_total_rows(
-        df, config.get('date_column', 'date'), config.get('kpi_column'),
+        df, _calendar_date_column(df, _date_col_cfg) or _date_col_cfg,
+        config.get('kpi_column'),
     )
     if _total_rows:
         return {
@@ -101,9 +107,9 @@ def train_ols(config: dict, project_dir: str, progress_callback=None) -> dict[st
         }
     # в-1 (s56): строка с числами без даты в любом месте файла – тот же отказ.
     # «Числа» – ненулевые в колонках модели из конфига (H-2, аудит s56).
-    from engines.planning import find_undated_rows, undated_rows_message
+    from engines.planning import find_undated_rows, nearest_dated_row, undated_rows_message
     _undated_rows = find_undated_rows(
-        df, config.get('date_column', 'date'),
+        df, _date_col_cfg,
         [config.get('kpi_column'), *(config.get('media_columns') or []),
          *(config.get('control_columns') or [])],
     )
@@ -111,7 +117,9 @@ def train_ols(config: dict, project_dir: str, progress_callback=None) -> dict[st
         return {
             'status': 'error',
             'error_code': 'UNDATED_ROW_IN_DATA',
-            'message': undated_rows_message(_undated_rows),
+            'message': undated_rows_message(
+                _undated_rows, nearest_dated_row(df, _date_col_cfg, _undated_rows),
+            ),
         }
 
     kpi_col = config['kpi_column']

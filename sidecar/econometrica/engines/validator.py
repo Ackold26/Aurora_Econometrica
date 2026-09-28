@@ -4,6 +4,7 @@ Reads xlsx/csv, validates structure, computes statistics, detects issues.
 Returns JSON for UI display (Traffic Light format).
 """
 import logging
+import re
 import pandas as pd
 import numpy as np
 from pathlib import Path
@@ -248,10 +249,34 @@ def _column_role(col: Any, series: 'pd.Series') -> tuple[str, float, str | None]
     return role, confidence, None
 
 
-def _detected_date_and_value_columns(df: 'pd.DataFrame') -> tuple[Any, list]:
-    """Колонка даты и колонки модели (KPI, медиа, контроли) – те, что проверка
-    отдаст в `detected`. Дата – ПОСЛЕДНЯЯ колонка с ролью «дата», как в
-    `detected.date`. Если ролей модели нет – все числовые колонки, кроме даты.
+# Имя колонки-нумерации: «№», «№ п/п», «п/п», «N».
+_NUMBERING_NAME_RE = re.compile(r'\s*(№|n|п/п|№\s*п/п)\s*', re.IGNORECASE)
+
+
+def _is_numbering_column(col: Any, series: 'pd.Series') -> bool:
+    """Колонка-нумерация строк: имя «№ / № п/п / N» либо целые, которые
+    по строкам растут ровно на 1. Протянутую ниже данных нумерацию
+    строкой с числами не считаем (A2-M1, аудит s56)."""
+    if _NUMBERING_NAME_RE.fullmatch(str(col)):
+        return True
+    if not pd.api.types.is_numeric_dtype(series) or pd.api.types.is_bool_dtype(series):
+        return False
+    vals = series.dropna()
+    if len(vals) < 2 or not bool((vals == vals.round()).all()):
+        return False
+    return bool((vals.diff().iloc[1:] == 1).all())
+
+
+def _detected_date_and_value_columns(df: 'pd.DataFrame') -> tuple[Any, list, int]:
+    """Колонка даты, колонки модели (KPI, медиа, контроли) – те, что проверка
+    отдаст в `detected`, – и сколько из них должно быть с ненулевым числом,
+    чтобы строка считалась «строкой с числами». Дата – ПОСЛЕДНЯЯ колонка с
+    ролью «дата», как в `detected.date`.
+
+    Если ролей модели нет – запасной ход: все числовые колонки, кроме даты и
+    нумерации, и строка «с числами», только если числа хотя бы в двух из них
+    (одиночный номер или протянутая формула ниже данных – не период; A2-M1,
+    аудит s56). Колонки модели обучение знает из конфига и проверит само.
     """
     date_col = None
     value_cols: list = []
@@ -261,10 +286,12 @@ def _detected_date_and_value_columns(df: 'pd.DataFrame') -> tuple[Any, list]:
             date_col = col
         elif role in ('kpi', 'media', 'control'):
             value_cols.append(col)
-    if not value_cols:
-        value_cols = [c for c in df.columns
-                      if c != date_col and pd.api.types.is_numeric_dtype(df[c])]
-    return date_col, value_cols
+    if value_cols:
+        return date_col, value_cols, 1
+    value_cols = [c for c in df.columns
+                  if c != date_col and pd.api.types.is_numeric_dtype(df[c])
+                  and not _is_numbering_column(c, df[c])]
+    return date_col, value_cols, min(2, len(value_cols))
 
 
 def validate_role_compatibility(
@@ -590,11 +617,17 @@ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, A
     _total_rows_issue: dict | None = None
     # Колонка даты – та же, что уйдёт в detected.date и оттуда в конфиг
     # обучения: при двух колонках роли «дата» проверка и обучение иначе
-    # судили бы по разным колонкам (H-1, аудит s56).
-    _det_date, _det_values = _detected_date_and_value_columns(df)
+    # судили бы по разным колонкам (H-1, аудит s56). Детектору итогов – та
+    # же календарная колонка, что правилу строк без даты: по числовой
+    # detected.date «Итого» получало общий текст про дату (L-2, аудит s56).
+    _det_date, _det_values, _det_min_numbers = _detected_date_and_value_columns(df)
     try:
-        from engines.planning import find_trailing_total_rows, total_rows_message
-        _total_rows = find_trailing_total_rows(df, _det_date, None)
+        from engines.planning import (
+            _calendar_date_column, find_trailing_total_rows, total_rows_message,
+        )
+        _total_rows = find_trailing_total_rows(
+            df, _calendar_date_column(df, _det_date) or _det_date, None,
+        )
         if _total_rows:
             _total_rows_issue = {
                 'type': 'total_row_in_data',
@@ -614,16 +647,21 @@ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, A
     _undated_rows_issue: dict | None = None
     _undated_rows: list[dict] = []
     try:
-        from engines.planning import find_undated_rows, undated_rows_message
+        from engines.planning import (
+            find_undated_rows, nearest_dated_row, undated_rows_message,
+        )
         _undated_rows = find_undated_rows(
             df, _det_date, _det_values,
             exclude_index=[r['index'] for r in _total_rows],
+            min_numbers=_det_min_numbers,
         )
         if _undated_rows:
             _undated_rows_issue = {
                 'type': 'undated_row_in_data',
                 'rows': [r['file_row'] for r in _undated_rows],
-                'message': undated_rows_message(_undated_rows),
+                'message': undated_rows_message(
+                    _undated_rows, nearest_dated_row(df, _det_date, _undated_rows),
+                ),
                 'severity': 'critical',
             }
     except Exception:

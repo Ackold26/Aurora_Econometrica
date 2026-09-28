@@ -9,8 +9,9 @@
   detect_media_plan_tail(df, date_col, kpi_col, media_cols) -> dict
   find_trailing_total_rows(df, date_col, kpi_col) -> list[dict]
   total_rows_message(total_rows) -> str
-  find_undated_rows(df, date_col, value_cols, exclude_index) -> list[dict]
-  undated_rows_message(undated_rows) -> str
+  find_undated_rows(df, date_col, value_cols, exclude_index, min_numbers) -> list[dict]
+  nearest_dated_row(df, date_col, undated_rows) -> int | None
+  undated_rows_message(undated_rows, dated_row) -> str
   compute_source_hash(data_file) -> str
   load_frames(data_file, date_col, kpi_col, media_cols) -> dict
   load_saved_forecast(project_dir) -> dict | None
@@ -246,6 +247,25 @@ def total_rows_message(total_rows: list[dict[str, Any]]) -> str:
 _UNDATED_ROWS_SHOWN = 5
 
 
+# Ячейка – полная дата: три числовые группы (день, месяц, год в любом
+# порядке) через «.», «/» или «-», допускается хвост времени.
+_FULL_DATE_RE = re.compile(r"\s*\d{1,4}[./-]\d{1,2}[./-]\d{1,4}(?:[T\s].*)?")
+
+
+def _full_date_cells(series: "pd.Series") -> "pd.Series":
+    """Ячейка – полная дата: объект даты (из xlsx) или строка из трёх
+    числовых групп. Голый год «2023», «2023-12», «Dec 2023» – нет."""
+    import datetime as _dt
+    import numpy as _np
+
+    def full(v: Any) -> bool:
+        if isinstance(v, str):
+            return _FULL_DATE_RE.fullmatch(v) is not None
+        return isinstance(v, (_dt.date, _np.datetime64)) and not pd.isna(v)
+
+    return series.map(full).astype(bool)
+
+
 def _dates_recognized(series: "pd.Series") -> "pd.Series":
     """Разобрана ли дата в каждой ячейке – хотя бы одним из двух способов.
 
@@ -254,11 +274,25 @@ def _dates_recognized(series: "pd.Series") -> "pd.Series":
     «13.01.2023» ниже уже не разбирается, а «13.03.2023» среди дат вида
     2023-03-13 – тоже (M-2, аудит s56). Значение даты здесь не нужно – только
     «дата есть».
+
+    Второй разбор (`format="mixed"`) берёт за дату и голый год «2023», и
+    «2023-12», «Dec 2023» – подытог года с такой меткой снова обучался лишним
+    периодом (A2-H1, аудит s56). Поэтому он – только для ячеек-полных-дат.
+    В колонке, где полные даты – большинство непустых, и первый разбор
+    признаёт только их: в столбце дат из xlsx он берёт за дату текст «2022»
+    и число 2022 (S9 аудита). Колонку «2024-01», «Jan-23», «2023-Q1» это не
+    трогает – полных дат в ней нет.
     """
+    if pd.api.types.is_datetime64_any_dtype(series):
+        return series.notna()
+    filled = series.notna().to_numpy()
+    full = _full_date_cells(series).to_numpy()
     with _warnings.catch_warnings():
         _warnings.simplefilter("ignore")
         ok = pd.to_datetime(series, errors="coerce").notna().to_numpy(copy=True)
-        retry = ~ok & series.notna().to_numpy()
+        if int(full.sum()) * 2 > int(filled.sum()):
+            ok &= full
+        retry = ~ok & filled & full
         if retry.any():
             second = pd.to_datetime(
                 series[retry], errors="coerce", format="mixed", dayfirst=True,
@@ -310,6 +344,7 @@ def find_undated_rows(
     date_col: str | None,
     value_cols: list[str],
     exclude_index: Any = (),
+    min_numbers: int = 1,
 ) -> list[dict[str, Any]]:
     """Найти строки с числами, у которых дата не заполнена или не
     распознаётся, – в любом месте таблицы: хвост, середина, после медиаплана.
@@ -322,7 +357,9 @@ def find_undated_rows(
     `value_cols` (колонки модели: KPI, медиа, контроли). Протянутая формула
     с нулями, «№ п/п», справочный блок под таблицей в колонках вне модели
     отказа не дают (H-2, аудит s56). Строки из `exclude_index` (итоговые – у
-    них свой текст `total_rows_message`) не сообщаем.
+    них свой текст `total_rows_message`) не сообщаем. `min_numbers` – в скольких
+    колонках нужно ненулевое число: проверка без распознанных ролей берёт все
+    числовые колонки и требует двух (A2-M1, аудит s56).
 
     Колонка даты – `date_col`, если это календарь, иначе первая колонка с
     ролью «дата», которая календарь (`_calendar_date_column`); проверка
@@ -351,7 +388,7 @@ def find_undated_rows(
     vals = raw.apply(pd.to_numeric, errors="coerce")
     # Пустую ячейку колонки дат (NaT) `to_numeric` превращает в целое число –
     # числом её не считаем.
-    has_numbers = (vals.notna() & (vals != 0) & raw.notna()).any(axis=1)
+    has_numbers = (vals.notna() & (vals != 0) & raw.notna()).sum(axis=1) >= max(1, min_numbers)
     dated = _dates_recognized(df[date_col])
     n_with_numbers = int(has_numbers.sum())
     n_dated = int((has_numbers & dated).sum())
@@ -366,17 +403,52 @@ def find_undated_rows(
     ]
 
 
-def undated_rows_message(undated_rows: list[dict[str, Any]]) -> str:
-    """Текст для человека: в каких строках нет даты и что с ними делать."""
+def nearest_dated_row(
+    df: "pd.DataFrame",
+    date_col: str | None,
+    undated_rows: list[dict[str, Any]],
+) -> int | None:
+    """Номер строки файла с распознанной датой, ближайшей к первой строке из
+    `undated_rows` (при равенстве – верхняя), – образец для текста отказа.
+    Колонка даты выбирается, как в `find_undated_rows`; нет такой строки –
+    None."""
+    if df.empty or not undated_rows:
+        return None
+    date_col = _calendar_date_column(df, date_col)
+    if not date_col:
+        return None
+    dated = _dates_recognized(df[date_col]).to_numpy()
+    positions = [i for i in range(len(df)) if dated[i]]
+    if not positions:
+        return None
+    first = df.index.get_loc(undated_rows[0]["index"])
+    best = min(positions, key=lambda i: (abs(i - first), i))
+    return best + 2
+
+
+def undated_rows_message(
+    undated_rows: list[dict[str, Any]],
+    dated_row: int | None = None,
+) -> str:
+    """Текст для человека: в каких строках нет даты и что с ними делать.
+
+    `dated_row` – строка файла с распознанной датой (`nearest_dated_row`):
+    образец «так же, как в строке N». Готовый пример вида «01.02.2024»
+    противоречил «в том же виде» в файле с датами 2024-02-01 и читался
+    двояко (L-5, аудит s56).
+    """
+    if dated_row is not None:
+        how = f"так же, как в строке {dated_row},"
+    else:
+        how = "в том же виде, что и в остальных строках,"
     if len(undated_rows) == 1:
         return (
             f"В строке {undated_rows[0]['file_row']} файла не заполнена или не "
             f"распознана дата, а в ячейках есть числа. Строку без даты программа не "
             f"может поставить на шкалу времени: если это итог, среднее или примечание, "
             f"при обучении она станет лишним периодом и исказит продажи и бюджеты. "
-            f"Заполните дату в этой строке – в том же виде, что и в остальных "
-            f"строках, например 01.02.2024, – или удалите строку и загрузите файл "
-            f"заново."
+            f"Заполните дату в этой строке – {how} – или удалите строку и загрузите "
+            f"файл заново."
         )
     nums = ", ".join(str(r["file_row"]) for r in undated_rows[:_UNDATED_ROWS_SHOWN])
     rest = len(undated_rows) - _UNDATED_ROWS_SHOWN
@@ -389,8 +461,7 @@ def undated_rows_message(undated_rows: list[dict[str, Any]]) -> str:
         f"есть числа. Строки без даты программа не может поставить на шкалу "
         f"времени: если это итоги, средние или примечания, при обучении они станут "
         f"лишними периодами и исказят продажи и бюджеты. Заполните даты в этих "
-        f"строках – в том же виде, что и в остальных строках, например 01.02.2024, "
-        f"– или удалите строки и загрузите файл заново."
+        f"строках – {how} – или удалите строки и загрузите файл заново."
     )
 
 

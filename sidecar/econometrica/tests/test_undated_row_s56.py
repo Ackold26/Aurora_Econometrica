@@ -122,10 +122,13 @@ def test_average_row_without_date_refused_everywhere(tmp_path, pos):
     tr = _ols(p, tmp_path)
     assert tr["status"] == "error"
     assert tr["error_code"] == "UNDATED_ROW_IN_DATA"
-    assert tr["message"] == undated_rows_message([{"file_row": file_row}])
+    # Образец даты – ближайшая строка с датой, при равенстве верхняя (L-5).
+    assert tr["message"] == undated_rows_message([{"file_row": file_row}], file_row - 1)
+    assert issues[0]["message"] == tr["message"]
     tb = _bayes(p, tmp_path)
     assert tb["status"] == "error"
     assert tb["error_code"] == "UNDATED_ROW_IN_DATA"
+    assert tb["message"] == tr["message"]
 
 
 @pytest.mark.parametrize("pos", [24, N_HIST - 1], ids=["middle_c3", "tail_c4"])
@@ -315,24 +318,39 @@ def test_more_than_five_rows_listed_with_rest_count():
 
 
 def test_single_row_message_verbatim():
+    """L-5 (аудит s56): вместо «например 01.02.2024» – строка-образец."""
+    assert undated_rows_message([{"file_row": 26}], 25) == (
+        "В строке 26 файла не заполнена или не распознана дата, а в ячейках есть "
+        "числа. Строку без даты программа не может поставить на шкалу времени: "
+        "если это итог, среднее или примечание, при обучении она станет лишним "
+        "периодом и исказит продажи и бюджеты. Заполните дату в этой строке – так "
+        "же, как в строке 25, – или удалите строку и загрузите файл заново.")
     assert undated_rows_message([{"file_row": 26}]) == (
         "В строке 26 файла не заполнена или не распознана дата, а в ячейках есть "
         "числа. Строку без даты программа не может поставить на шкалу времени: "
         "если это итог, среднее или примечание, при обучении она станет лишним "
         "периодом и исказит продажи и бюджеты. Заполните дату в этой строке – в "
-        "том же виде, что и в остальных строках, например 01.02.2024, – или "
-        "удалите строку и загрузите файл заново.")
+        "том же виде, что и в остальных строках, – или удалите строку и загрузите "
+        "файл заново.")
 
 
 def test_plural_message_verbatim():
     rows = [{"file_row": n} for n in (3, 7, 9)]
+    assert undated_rows_message(rows, 2) == (
+        "В строках 3, 7, 9 файла не заполнены или не распознаны даты, а в "
+        "ячейках есть числа. Строки без даты программа не может поставить на "
+        "шкалу времени: если это итоги, средние или примечания, при обучении "
+        "они станут лишними периодами и исказят продажи и бюджеты. Заполните "
+        "даты в этих строках – так же, как в строке 2, – или удалите строки и "
+        "загрузите файл заново.")
     assert undated_rows_message(rows) == (
         "В строках 3, 7, 9 файла не заполнены или не распознаны даты, а в "
         "ячейках есть числа. Строки без даты программа не может поставить на "
         "шкалу времени: если это итоги, средние или примечания, при обучении "
         "они станут лишними периодами и исказят продажи и бюджеты. Заполните "
-        "даты в этих строках – в том же виде, что и в остальных строках, "
-        "например 01.02.2024, – или удалите строки и загрузите файл заново.")
+        "даты в этих строках – в том же виде, что и в остальных строках, – или "
+        "удалите строки и загрузите файл заново.")
+    assert "01.02.2024" not in undated_rows_message(rows)
 
 
 def test_training_resolves_date_column_like_total_detector(tmp_path):
@@ -480,7 +498,7 @@ def test_month_name_date_still_refused_with_honest_text(tmp_path):
     assert [r["file_row"] for r in find_undated_rows(df, "date", VALUE_COLS)] == [12]
     msg = _issues(_validate(_save(df, tmp_path)), "undated_row_in_data")[0]["message"]
     assert msg.startswith("В строке 12 файла не заполнена или не распознана дата")
-    assert "в том же виде, что и в остальных строках, например 01.02.2024" in msg
+    assert "Заполните дату в этой строке – так же, как в строке 11, –" in msg
 
 
 def test_zero_row_after_plan_is_not_refused(tmp_path):
@@ -551,10 +569,10 @@ def test_validator_value_columns_follow_detected_roles():
     from engines.validator import _detected_date_and_value_columns
     df = _frame()
     df.insert(0, "№", range(1, len(df) + 1))
-    assert _detected_date_and_value_columns(df) == ("date", VALUE_COLS)
-    bare = pd.DataFrame({"date": ["2023-01-01", "2023-02-01"], "x1": [1.0, 2.0],
+    assert _detected_date_and_value_columns(df) == ("date", VALUE_COLS, 1)
+    bare = pd.DataFrame({"date": ["2023-01-01", "2023-02-01"], "x1": [10.0, 25.0],
                          "x2": ["a", "b"]})
-    assert _detected_date_and_value_columns(bare) == ("date", ["x1"])
+    assert _detected_date_and_value_columns(bare) == ("date", ["x1"], 1)
 
 
 # ─── Приёмка fix02: числовая колонка с ролью «дата» – не календарь ───────────
@@ -665,3 +683,256 @@ def test_all_date_role_columns_numeric_is_silent(tmp_path):
     from engines.ols_modeler import train_ols
     tr = train_ols({**_train_cfg(p), "date_column": res["detected"]["date"]}, str(tmp_path / "proj"))
     assert tr.get("error_code") != "UNDATED_ROW_IN_DATA"
+
+
+# ─── Повторный аудит s56 (AUDIT02_s56.txt), fix04 ────────────────────────────
+
+
+def _monthly_csv_with_year_subtotals(tmp_path: Path, fmt: str) -> Path:
+    """S8/S10 аудита: помесячно 2022–2023 датами-строками, после декабря
+    каждого года – подытог с меткой «2022» / «2023» и суммами."""
+    df = _frame(n_hist=24)
+    stamps = pd.to_datetime(df["date"])
+    df["date"] = [d.strftime("%Y-%m-%d" if fmt == "iso" else "%d.%m.%Y") for d in stamps]
+    out = _insert(df, 12, {"date": "2022", **{c: df[c].iloc[:12].sum() for c in VALUE_COLS}})
+    out = _append_rows(out, [{"date": "2023", **{c: df[c].iloc[12:].sum() for c in VALUE_COLS}}])
+    p = tmp_path / "data.csv"
+    out.to_csv(p, index=False)
+    return p
+
+
+@pytest.mark.parametrize("fmt", ["iso", "ddmm"])
+def test_year_subtotal_label_is_not_a_date(tmp_path, fmt):
+    """A2-H1: второй разбор (`format="mixed"`) брал голый год «2023» за дату –
+    подытоги года снова обучались лишними периодами (OLS n_obs 26 вместо
+    отказа). Теперь – отказ в проверке и в обоих обучениях."""
+    p = _monthly_csv_with_year_subtotals(tmp_path, fmt)
+    res = _validate(p)
+    assert res["status"] == "error"
+    assert [i["rows"] for i in _issues(res, "undated_row_in_data")] == [[14, 27]]
+    assert _ols(p, tmp_path)["error_code"] == "UNDATED_ROW_IN_DATA"
+    assert _bayes(p, tmp_path)["error_code"] == "UNDATED_ROW_IN_DATA"
+
+
+# Метки подытогов из прогона p_lbl.py аудита: ни одна не дата.
+_NOT_DATE_LABELS = [
+    "2023", "2023 г.", "2023 год", "Итого 2023", "итог 2023", "Всего за 2023", "12.2023",
+    "2023-12", "1 кв", "Q4", "Dec", "Декабрь", "Avg", "Mean", "Sum", "1", "12", "31", "52",
+    "100", "2023.0", "Jan 2023", "FY2023", "H1 2023", "Н1 2023", "1-е полугодие", "TOTAL",
+    "AVG 2023", "2023 total", "Dec 2023",
+]
+
+
+@pytest.mark.parametrize("base", [
+    ["2022-01-01", "2022-02-01", "2022-03-01"],
+    ["01.01.2022", "01.02.2022", "01.03.2022"],
+    [pd.Timestamp("2022-01-01"), pd.Timestamp("2022-02-01"), pd.Timestamp("2022-03-01")],
+], ids=["iso", "ddmm", "xlsx_timestamps"])
+@pytest.mark.parametrize("label", _NOT_DATE_LABELS)
+def test_subtotal_labels_table(base, label):
+    """A2-H1 таблично: среди полных дат метка подытога – не дата ни в первом,
+    ни во втором разборе."""
+    from engines.planning import _dates_recognized
+    s = pd.Series(base + [label], dtype=object)
+    assert _dates_recognized(s).tolist() == [True, True, True, False]
+
+
+@pytest.mark.parametrize("cell", [
+    "13.03.2023", "2023-03-13", "13/03/2023", "02.01.23", "2023-01-16 10:30",
+    "2023-01-16T10:30:00", " 13.03.2023 ",
+])
+def test_full_dates_still_recognized_among_iso(cell):
+    """Полные даты в любом из видов по-прежнему дата (M-2 не сломан)."""
+    from engines.planning import _dates_recognized
+    s = pd.Series(["2023-01-02", "2023-01-09", "2023-01-16", cell], dtype=object)
+    assert _dates_recognized(s).all()
+
+
+def test_partial_date_columns_still_calendar():
+    """Колонка из одних неполных дат («2024-01», «Jan-23», «2023-Q1») не
+    ограничивается полными датами – это календарь, как и прежде."""
+    from engines.planning import _is_calendar
+    for vals in (["2024-01", "2024-02", "2024-03"], ["Jan-23", "Feb-23", "Mar-23"],
+                 ["2023-Q1", "2023-Q2", "2023-Q3"]):
+        assert _is_calendar(pd.Series(vals, dtype=object)), vals
+
+
+@pytest.mark.parametrize("label", ["2022", 2022], ids=["text", "number"])
+def test_xlsx_dates_with_year_label_refused(tmp_path, label):
+    """S9 аудита: xlsx с настоящими датами и подытогом «2022» (текстом или
+    числом) – первый разбор смешанной колонки брал его за дату, строка
+    обучалась. Теперь отказ."""
+    df = _frame(n_hist=24)
+    out = _insert(df, 12, {"date": label, **{c: df[c].iloc[:12].sum() for c in VALUE_COLS}})
+    p = _save(out, tmp_path)
+    back = pd.read_excel(p)
+    assert not pd.api.types.is_datetime64_any_dtype(back["date"])
+    assert [i["rows"] for i in _issues(_validate(p), "undated_row_in_data")] == [[14]]
+    assert _ols(p, tmp_path)["error_code"] == "UNDATED_ROW_IN_DATA"
+
+
+def _norole_frame(n: int = 52) -> pd.DataFrame:
+    """p_norole.py аудита: ни одна колонка модели не распознаётся по имени."""
+    rng = np.random.RandomState(9)
+    return pd.DataFrame({
+        "№": range(1, n + 1),
+        "Дата": list(pd.date_range("2023-01-02", periods=n, freq="7D")),
+        "Упаковки": rng.uniform(1e4, 2e4, n),
+        "ТВ": rng.uniform(1e5, 5e5, n),
+        "Интернет": rng.uniform(1e4, 5e4, n),
+    }).astype({"Дата": object})
+
+
+def _norole_cfg(p: Path) -> dict:
+    return {"data_file": str(p), "kpi_column": "Упаковки", "media_columns": ["ТВ", "Интернет"],
+            "control_columns": [], "date_column": "Дата", "adstock_config": {}}
+
+
+@pytest.mark.parametrize("numbering", ["№", "№ п/п", "N", "Строка"])
+def test_no_roles_numbering_below_data_not_refused(tmp_path, numbering):
+    """A2-M1: без распознанных ролей проверка берёт все числовые колонки;
+    «№», протянутый на 3 строки ниже данных, давал отказ [54, 55, 56], хотя
+    обучение по конфигу проходило. «Строка» – нумерация без имени-признака
+    (целые с шагом 1)."""
+    from engines.ols_modeler import train_ols
+    df = _norole_frame().rename(columns={"№": numbering})
+    out = pd.concat([df, pd.DataFrame({numbering: [53, 54, 55]})], ignore_index=True)
+    p = _save(out, tmp_path)
+    res = _validate(p)
+    assert not res["detected"]["kpi"]
+    assert _issues(res, "undated_row_in_data") == []
+    tr = train_ols(_norole_cfg(p), str(tmp_path / "proj"))
+    assert tr["status"] == "ok", tr.get("message")
+    assert tr["diagnostics"]["n_obs"] == 52
+
+
+def test_no_roles_average_row_still_refused(tmp_path):
+    """A2-M1: тот же файл без ролей + строка средних по «Упаковки/ТВ» без
+    даты – отказ в проверке (числа в двух колонках запасного набора) и в
+    обучении."""
+    from engines.ols_modeler import train_ols
+    df = _norole_frame()
+    avg = {"Упаковки": df["Упаковки"].mean(), "ТВ": df["ТВ"].mean()}
+    out = pd.concat([df, pd.DataFrame({"№": [53, 54, 55]}), pd.DataFrame([avg])],
+                    ignore_index=True)
+    p = _save(out, tmp_path)
+    assert [i["rows"] for i in _issues(_validate(p), "undated_row_in_data")] == [[57]]
+    assert train_ols(_norole_cfg(p), str(tmp_path / "proj"))["error_code"] == "UNDATED_ROW_IN_DATA"
+
+
+def test_no_roles_single_number_in_row_not_refused():
+    """A2-M1: без ролей одно число в строке (протянутая формула, сноска с
+    цифрой) – не период; с ролями одного числа по-прежнему достаточно."""
+    from engines.validator import _detected_date_and_value_columns
+    df = _norole_frame()
+    out = pd.concat([df, pd.DataFrame([{"ТВ": 5.0}])], ignore_index=True)
+    date_col, cols, min_numbers = _detected_date_and_value_columns(out)
+    assert (date_col, cols, min_numbers) == ("Дата", ["Упаковки", "ТВ", "Интернет"], 2)
+    assert find_undated_rows(out, date_col, cols, min_numbers=min_numbers) == []
+    assert find_undated_rows(out, date_col, cols) == [{"index": 52, "file_row": 54}]
+
+
+def _week_number_total_frame() -> pd.DataFrame:
+    """T3 из p_two.py: [Дата, Неделя-номер] + «Итого» с суммами по всем
+    числовым колонкам, включая «Неделю»."""
+    rng = np.random.RandomState(5)
+    n = 40
+    c = pd.DataFrame({
+        "Дата": list(pd.date_range("2023-01-02", periods=n, freq="7D")),
+        "Неделя": list(range(1, n + 1)),
+        "sales": rng.uniform(1e3, 2e3, n),
+        "tv_spend": rng.uniform(100, 300, n),
+        "digital_spend": rng.uniform(50, 150, n),
+    })
+    tot = {"Дата": "Итого", **{k: c[k].sum() for k in ["Неделя", "sales", "tv_spend", "digital_spend"]}}
+    return pd.concat([c.astype({"Дата": object}), pd.DataFrame([tot])], ignore_index=True)
+
+
+def test_total_row_with_numeric_detected_date_keeps_total_text(tmp_path):
+    """L-2 (мутация M7): detected.date – «Неделя» с номерами; детектор итогов
+    судил по ней, и «Итого» получало общий текст про дату. Теперь – та же
+    календарная колонка, что у правила строк без даты: свой код и текст в
+    проверке, отказ итога в обоих обучениях."""
+    p = _save(_week_number_total_frame(), tmp_path)
+    res = _validate(p)
+    assert res["detected"]["date"] == "Неделя"
+    totals = _issues(res, "total_row_in_data")
+    assert [i["rows"] for i in totals] == [[42]]
+    assert "похожа на итоговую" in totals[0]["message"]
+    assert _issues(res, "undated_row_in_data") == []
+    cfg = {"data_file": str(p), "kpi_column": "sales", "media_columns": ["tv_spend", "digital_spend"],
+           "control_columns": [], "date_column": "Неделя", "adstock_config": {}}
+    from engines.modeler import train_model
+    from engines.ols_modeler import train_ols
+    assert train_ols(cfg, str(tmp_path / "proj"))["error_code"] == "TOTAL_ROW_IN_DATA"
+    assert train_model(cfg, str(tmp_path / "proj_b"))["error_code"] == "TOTAL_ROW_IN_DATA"
+
+
+def test_nearest_dated_row_for_text_sample():
+    """L-5: образец – ближайшая строка с датой к первой строке без даты;
+    первая строка данных без даты – образец ниже; дат нет – образца нет."""
+    from engines.planning import nearest_dated_row
+    df = _frame()
+    first = _insert(df, 0, _means(df))
+    rows = find_undated_rows(first, "date", VALUE_COLS)
+    assert rows == [{"index": 0, "file_row": 2}]
+    assert nearest_dated_row(first, "date", rows) == 3
+    assert "так же, как в строке 3," in undated_rows_message(rows, nearest_dated_row(first, "date", rows))
+    tail = _insert(df, len(df), _means(df))
+    assert nearest_dated_row(tail, "date", find_undated_rows(tail, "date", VALUE_COLS)) == N_HIST + 1
+    no_dates = df.assign(date=None)
+    assert nearest_dated_row(no_dates, "date", [{"index": 0, "file_row": 2}]) is None
+
+
+def test_text_week_column_with_one_date_is_not_calendar():
+    """L-4 (мутация M1): текстовая «Неделя N» с одной ячейкой-датой – не
+    календарь (большинство, а не «хотя бы одна»). Иначе правило выбрало бы
+    её вместо настоящей даты и промолчало на строке средних."""
+    from engines.planning import _calendar_date_column, _is_calendar
+    df = _frame()
+    df.insert(0, "Неделя", [f"Неделя {i + 1}" for i in range(len(df))])
+    df.loc[5, "Неделя"] = "2022-06-01"
+    assert not _is_calendar(df["Неделя"])
+    assert _calendar_date_column(df, "Неделя") == "date"
+    out = _insert(df, len(df), _means(df))
+    assert find_undated_rows(out, "Неделя", VALUE_COLS) == [{"index": N_HIST, "file_row": N_HIST + 2}]
+
+
+def test_first_calendar_column_chosen_when_preferred_not_calendar():
+    """L-4 (мутация M2): две календарные колонки, preferred – номер недели:
+    правило берёт ПЕРВУЮ календарную («Дата начала»), как обещано."""
+    from engines.planning import _calendar_date_column
+    df = _frame().rename(columns={"date": "Дата начала"})
+    ends = [d + pd.Timedelta(days=6) for d in pd.to_datetime(df["Дата начала"])]
+    df.insert(1, "Дата окончания", pd.Series(ends, dtype=object))
+    df.insert(2, "Неделя", range(1, len(df) + 1))
+    assert _calendar_date_column(df, "Неделя") == "Дата начала"
+    df.loc[10, "Дата начала"] = None
+    assert [r["file_row"] for r in find_undated_rows(df, "Неделя", VALUE_COLS)] == [12]
+
+
+def test_number_only_in_control_column_refused_in_training(tmp_path):
+    """L-4 (мутации M5/M6): строка без даты с числом только в контроле
+    (price_index) – отказ в проверке и в обоих обучениях: контроли входят в
+    колонки модели."""
+    df = _frame()
+    out = _insert(df, len(df), {"price_index": 1.02})
+    p = _save(out, tmp_path)
+    assert [i["rows"] for i in _issues(_validate(p), "undated_row_in_data")] == [[N_HIST + 2]]
+    assert _ols(p, tmp_path)["error_code"] == "UNDATED_ROW_IN_DATA"
+    assert _bayes(p, tmp_path)["error_code"] == "UNDATED_ROW_IN_DATA"
+
+
+def test_numbering_column_detection():
+    """A2-M1: нумерация – по имени («№», «№ п/п», «N») или целые с шагом 1
+    по строкам (с протяжкой ниже данных); прочие числовые колонки – нет."""
+    from engines.validator import _detected_date_and_value_columns, _is_numbering_column
+    step = pd.Series([1, 2, 3, 4, 5, 6])
+    assert _is_numbering_column("Строка", step)
+    assert _is_numbering_column("№ п/п", pd.Series([10.5, 3.0]))
+    assert not _is_numbering_column("ТВ", pd.Series([1, 2, 4, 5]))
+    assert not _is_numbering_column("ТВ", pd.Series([1.5, 2.5, 3.5]))
+    assert not _is_numbering_column("ТВ", pd.Series([True, False]))
+    df = _norole_frame().rename(columns={"№": "Строка"})
+    out = pd.concat([df, pd.DataFrame({"Строка": [53, 54, 55]})], ignore_index=True)
+    assert _detected_date_and_value_columns(out) == ("Дата", ["Упаковки", "ТВ", "Интернет"], 2)
