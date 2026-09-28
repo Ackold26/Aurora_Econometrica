@@ -132,10 +132,8 @@ def estimate_causal_forest(
             path = Path(file_path)
             if not path.exists():
                 return error_response('DATA_LOAD_FAILED', f'Файл не найден: {file_path}')
-            if path.suffix.lower() in ('.xlsx', '.xls'):
-                df = pd.read_excel(file_path, sheet_name=sheet_name) if sheet_name else pd.read_excel(file_path)
-            else:
-                df = pd.read_csv(file_path)
+            from engines.data_io import read_data_file
+            df = read_data_file(file_path, sheet_name=sheet_name)
         except Exception as e:
             return error_response('DATA_LOAD_FAILED', f'{type(e).__name__}: {e}')
     else:

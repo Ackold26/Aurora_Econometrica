@@ -71,8 +71,8 @@ def _current_n_obs(project_dir: str) -> int | None:
         from utils.data_file_resolver import resolve_data_file
         model = load_model_with_compat(Path(project_dir) / 'models' / 'latest.pkl')
         data_path = resolve_data_file(model['config'].get('data_file'), project_dir)
-        df = (pd.read_csv(data_path) if str(data_path).endswith('.csv')
-              else pd.read_excel(data_path))
+        from engines.data_io import read_data_file
+        df = read_data_file(data_path)
         return len(df)
     except Exception as e:  # noqa: BLE001 — обещания не должны падать из-за данных
         logger.warning('promises: не удалось определить n_obs данных: %s', e)
@@ -174,8 +174,8 @@ def check_promises(project_dir: str) -> dict[str, Any]:
         data_path = resolve_data_file(config.get('data_file'), project_dir)
     except FileNotFoundError as e:
         return {'status': 'error', 'error_code': 'NO_DATA', 'message': str(e)}
-    df = (pd.read_csv(data_path) if str(data_path).endswith('.csv')
-          else pd.read_excel(data_path))
+    from engines.data_io import read_data_file
+    df = read_data_file(data_path)
     merge_rules = config.get('merge_rules')
     if merge_rules:
         try:

@@ -336,7 +336,8 @@ def predict_scenario(config: dict, project_dir: str) -> dict[str, Any]:
             from utils.merge_rules import apply_merge_rules
             data_file = config_model.get('data_file')
             if data_file:
-                _train_df = pd.read_excel(data_file) if data_file.endswith(('.xlsx', '.xls')) else pd.read_csv(data_file)
+                from engines.data_io import read_data_file
+                _train_df = read_data_file(data_file)
                 apply_merge_rules(_train_df, config_model.get('merge_rules'))
                 from utils.unit_cost_inflation import apply_inflation_to_unit_costs
                 unit_costs = apply_inflation_to_unit_costs(
@@ -360,10 +361,8 @@ def predict_scenario(config: dict, project_dir: str) -> dict[str, Any]:
     media_plan = config.get('media_plan', {})
     if config.get('media_plan_file'):
         plan_file = config['media_plan_file']
-        if plan_file.endswith('.csv'):
-            plan_df = pd.read_csv(plan_file)
-        else:
-            plan_df = pd.read_excel(plan_file)
+        from engines.data_io import read_data_file
+        plan_df = read_data_file(plan_file)
         for col in media_cols:
             if col in plan_df.columns:
                 media_plan[col] = plan_df[col].fillna(0).tolist()
@@ -426,7 +425,8 @@ def predict_scenario(config: dict, project_dir: str) -> dict[str, Any]:
     training_n_periods = plan_n
     if data_file and plan_n == 1:
         try:
-            ref_df = pd.read_excel(data_file) if data_file.endswith(('.xlsx', '.xls')) else pd.read_csv(data_file)
+            from engines.data_io import read_data_file
+            ref_df = read_data_file(data_file)
             training_n_periods = max(len(ref_df), 1)
         except Exception:
             training_n_periods = plan_n
@@ -471,11 +471,8 @@ def predict_scenario(config: dict, project_dir: str) -> dict[str, Any]:
                 _effective_training_n = max(int(len(_y_hist)), 1)
             elif data_file:
                 try:
-                    _ref_df2 = (
-                        pd.read_excel(data_file)
-                        if data_file.endswith(('.xlsx', '.xls'))
-                        else pd.read_csv(data_file)
-                    )
+                    from engines.data_io import read_data_file
+                    _ref_df2 = read_data_file(data_file)
                     _effective_training_n = max(len(_ref_df2), 1)
                 except Exception:
                     pass
@@ -564,11 +561,8 @@ def predict_scenario(config: dict, project_dir: str) -> dict[str, Any]:
     if _is_planning_mode and _carry_in_enabled and data_file:
         try:
             from utils.merge_rules import apply_merge_rules as _amr_hist
-            _hist_df_raw = (
-                pd.read_excel(data_file)
-                if data_file.endswith(('.xlsx', '.xls'))
-                else pd.read_csv(data_file)
-            )
+            from engines.data_io import read_data_file
+            _hist_df_raw = read_data_file(data_file)
             _amr_hist(_hist_df_raw, config_model.get('merge_rules'))
             # Аудит 2026-07-10 (Critical): data_file может нести хвост-медиаплан
             # (KPI пуст, инвестиции заполнены) — без фильтра carry_in считался бы
@@ -731,7 +725,8 @@ def predict_scenario(config: dict, project_dir: str) -> dict[str, Any]:
     canonical_reconstruction_ok = False
     if data_file and not y_std_degenerate:
         try:
-            cur_df = pd.read_excel(data_file) if data_file.endswith(('.xlsx', '.xls')) else pd.read_csv(data_file)
+            from engines.data_io import read_data_file
+            cur_df = read_data_file(data_file)
             from utils.merge_rules import apply_merge_rules as _apply_merge
             _apply_merge(cur_df, config_model.get('merge_rules'))
             current_predictions = []
@@ -822,7 +817,8 @@ def predict_scenario(config: dict, project_dir: str) -> dict[str, Any]:
     if posterior_samples is not None and data_file:
         try:
             from utils.merge_rules import apply_merge_rules
-            train_df = pd.read_excel(data_file) if data_file.endswith(('.xlsx', '.xls')) else pd.read_csv(data_file)
+            from engines.data_io import read_data_file
+            train_df = read_data_file(data_file)
             apply_merge_rules(train_df, config_model.get('merge_rules'))
             for col in media_cols:
                 if col in train_df.columns:
@@ -1090,9 +1086,8 @@ def predict_scenario(config: dict, project_dir: str) -> dict[str, Any]:
         from utils.forecast_validation import extrapolation_severity
         _data_file_ex = config_model.get('data_file')
         if _data_file_ex:
-            _hist_df = (pd.read_excel(_data_file_ex)
-                        if str(_data_file_ex).endswith(('.xlsx', '.xls'))
-                        else pd.read_csv(_data_file_ex))
+            from engines.data_io import read_data_file
+            _hist_df = read_data_file(_data_file_ex)
             try:
                 from utils.merge_rules import apply_merge_rules as _amr_ex
                 _amr_ex(_hist_df, config_model.get('merge_rules'))

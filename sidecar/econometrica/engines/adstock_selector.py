@@ -35,10 +35,8 @@ def select_adstock(file_path: str, kpi_column: str, media_columns: list[str],
         return {'status': 'error', 'message': f'File not found: {file_path}'}
 
     try:
-        if path.suffix in ('.xlsx', '.xls'):
-            df = pd.read_excel(path)
-        else:
-            df = pd.read_csv(path)
+        from engines.data_io import read_data_file
+        df = read_data_file(path)
     except Exception as e:
         return {'status': 'error', 'message': f'Read error: {e}'}
 

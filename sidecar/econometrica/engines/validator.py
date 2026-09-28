@@ -386,19 +386,6 @@ def compute_histogram(series: 'pd.Series', bins: int = 10) -> dict:
     }
 
 
-def _read_csv_smart(path: 'Path') -> 'pd.DataFrame':
-    """C1 (2026-07-03): CSV русского Excel по умолчанию с разделителем «;» —
-    pd.read_csv(запятая) читал его в ОДНУ колонку → пользователь получал
-    невнятное «Не найден KPI-столбец». Дешёвый детект: если после запятой
-    вышла одна колонка с «;» в имени — перечитать с «;». Обычные CSV идут
-    прежним быстрым путём (без sniffer-замедления engine='python').
-    """
-    df = pd.read_csv(path)
-    if df.shape[1] == 1 and ';' in str(df.columns[0]):
-        df = pd.read_csv(path, sep=';')
-    return df
-
-
 def data_preview(file_path: str, n_rows: int = 20) -> dict[str, Any]:
     """Read first n_rows of a file and return preview data.
 
@@ -413,11 +400,12 @@ def data_preview(file_path: str, n_rows: int = 20) -> dict[str, Any]:
     if not path.exists():
         return {'status': 'error', 'message': f'Файл не найден: {file_path}'}
 
+    # C1 (2026-07-03) → s56 fix04: CSV русского Excel («;», десятичная
+    # запятая, cp1251) – тем же чтением, что у обучения и всех движков.
+    from engines.data_io import read_data_file
     try:
-        if path.suffix in ('.xlsx', '.xls'):
-            df = pd.read_excel(path)
-        elif path.suffix == '.csv':
-            df = _read_csv_smart(path)
+        if path.suffix in ('.xlsx', '.xls', '.csv'):
+            df = read_data_file(path)
         else:
             return {'status': 'error', 'message': f'Неподдерживаемый формат: {path.suffix}'}
     except Exception as e:
@@ -579,12 +567,13 @@ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, A
         _write_media_plan_unknown(project_dir)
         return {'status': 'error', 'message': f'Файл не найден: {file_path}'}
 
-    # Read data
+    # Read data – тем же чтением, что у обучения и всех движков; карта строк –
+    # номера строк файла в отказах с учётом пустых строк CSV (L-1, аудит s56).
+    from engines.data_io import read_data_file
+    _file_rows: list[int] | None = None
     try:
-        if path.suffix in ('.xlsx', '.xls'):
-            df = pd.read_excel(path)
-        elif path.suffix == '.csv':
-            df = _read_csv_smart(path)
+        if path.suffix in ('.xlsx', '.xls', '.csv'):
+            df, _file_rows = read_data_file(path, keep_row_map=True)
         else:
             _write_media_plan_unknown(project_dir)
             return {'status': 'error', 'message': f'Неподдерживаемый формат: {path.suffix}. Нужен xlsx или csv.'}
@@ -627,6 +616,7 @@ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, A
         )
         _total_rows = find_trailing_total_rows(
             df, _calendar_date_column(df, _det_date) or _det_date, None,
+            file_rows=_file_rows,
         )
         if _total_rows:
             _total_rows_issue = {
@@ -654,13 +644,15 @@ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, A
             df, _det_date, _det_values,
             exclude_index=[r['index'] for r in _total_rows],
             min_numbers=_det_min_numbers,
+            file_rows=_file_rows,
         )
         if _undated_rows:
             _undated_rows_issue = {
                 'type': 'undated_row_in_data',
                 'rows': [r['file_row'] for r in _undated_rows],
                 'message': undated_rows_message(
-                    _undated_rows, nearest_dated_row(df, _det_date, _undated_rows),
+                    _undated_rows,
+                    nearest_dated_row(df, _det_date, _undated_rows, file_rows=_file_rows),
                 ),
                 'severity': 'critical',
             }

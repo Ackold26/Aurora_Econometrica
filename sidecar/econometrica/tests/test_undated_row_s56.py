@@ -600,7 +600,10 @@ def test_numeric_date_column_like_macro_monthly_is_not_refused(tmp_path):
     assert res["file"]["rows"] == N_HIST
     cfg = {**_train_cfg(p), "date_column": det}
     tr = train_ols(cfg, str(tmp_path / "proj"))
-    assert tr.get("error_code") != "UNDATED_ROW_IN_DATA", tr.get("message")
+    # CSVPROBE s56: прежняя проверка «не UNDATED» маскировала падение
+    # обучения на CSV с «;» («KPI column not found») – теперь успех целиком.
+    assert tr["status"] == "ok", tr.get("message")
+    assert tr["diagnostics"]["n_obs"] == N_HIST
 
 
 @pytest.mark.parametrize("kind", ["xlsx_datetime64", "csv_iso_strings", "csv_year_month"])

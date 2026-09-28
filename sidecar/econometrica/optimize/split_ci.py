@@ -69,8 +69,8 @@ def optimal_split_ci(
     unit_costs = _resolve_current_unit_costs(project_dir, cfg, unit_costs_override)
 
     data_file = resolve_data_file(cfg.get('data_file'), project_dir)
-    df = (pd.read_excel(data_file) if str(data_file).endswith(('.xlsx', '.xls'))
-          else pd.read_csv(data_file))
+    from engines.data_io import read_data_file
+    df = read_data_file(data_file)
     apply_merge_rules(df, cfg.get('merge_rules'))
     n_periods = max(len(df), 1)
 

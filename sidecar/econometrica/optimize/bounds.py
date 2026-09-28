@@ -175,10 +175,8 @@ def compute_safe_corridor(
         }
 
     # Load training data.
-    if str(data_file).endswith(('.xlsx', '.xls')):
-        df = pd.read_excel(data_file)
-    else:
-        df = pd.read_csv(data_file)
+    from engines.data_io import read_data_file
+    df = read_data_file(data_file)
 
     # Apply merge_rules если есть (consistent с optimizer/decomposer).
     try:

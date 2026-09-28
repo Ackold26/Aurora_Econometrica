@@ -111,7 +111,8 @@ def test_train_model_computes_fingerprint_right_after_read():
     )
     call_at = source.index('build_data_fingerprint(df, data_file)')
     filter_at = source.index('df[df[kpi_col].notna()]')
-    read_at = source.index('df = pd.read_excel(data_file)')
+    # s56 fix04: чтение – единым помощником клиентского файла.
+    read_at = source.index('df, _file_rows = read_data_file(data_file, keep_row_map=True)')
     assert read_at < call_at < filter_at, (
         'Отпечаток должен сниматься между чтением файла и отсевом хвоста'
     )

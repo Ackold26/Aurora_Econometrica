@@ -1078,12 +1078,8 @@ def preflight(req: PreflightRequest):
 
     # Step 1: read data + basic shape check
     try:
-        if req.file_path.endswith('.csv'):
-            import pandas as _pd
-            df = _pd.read_csv(req.file_path)
-        else:
-            import pandas as _pd
-            df = _pd.read_excel(req.file_path)
+        from engines.data_io import read_data_file
+        df = read_data_file(req.file_path)
     except Exception as e:
         return JSONResponse(content={
             'status': 'error', 'error_code': 'DATA_LOAD_FAILED',
@@ -1571,7 +1567,8 @@ def _detect_training_year_ranges(model_data: dict) -> list[dict] | None:
         return None
     try:
         import pandas as pd
-        df = pd.read_excel(data_file) if str(data_file).endswith(('.xlsx', '.xls')) else pd.read_csv(data_file)
+        from engines.data_io import read_data_file
+        df = read_data_file(data_file)
         if date_col not in df.columns:
             return None
         dates = pd.to_datetime(df[date_col], errors='coerce').dropna()
@@ -1696,7 +1693,8 @@ def forecast_scaling_preview(req: ForecastScalingRequest):
             import pandas as pd
             data_file = (model_data.get('config') or {}).get('data_file')
             if data_file:
-                df = pd.read_excel(data_file) if str(data_file).endswith(('.xlsx', '.xls')) else pd.read_csv(data_file)
+                from engines.data_io import read_data_file
+                df = read_data_file(data_file)
                 from utils.merge_rules import apply_merge_rules
                 apply_merge_rules(df, (model_data.get('config') or {}).get('merge_rules'))
                 training_totals = {col: float(df[col].fillna(0).sum()) for col in media_cols if col in df.columns}
@@ -1781,11 +1779,8 @@ def hierarchical_warning_endpoint(req: HierarchicalWarningRequest):
         if data_file and media_cols:
             try:
                 import pandas as pd
-                df = (
-                    pd.read_excel(data_file)
-                    if str(data_file).endswith(('.xlsx', '.xls'))
-                    else pd.read_csv(data_file)
-                )
+                from engines.data_io import read_data_file
+                df = read_data_file(data_file)
                 from utils.merge_rules import apply_merge_rules
                 apply_merge_rules(df, (model_data.get('config') or {}).get('merge_rules'))
                 train_total_money = float(sum(
@@ -2948,10 +2943,8 @@ def project_auto_price(req: AutoPriceRequest):
                 'message': 'Данные не найдены - загрузите проект и обучите модель сначала.',
             }, status_code=404)
 
-        if str(data_file).endswith(('.xlsx', '.xls')):
-            df = pd.read_excel(data_file)
-        else:
-            df = pd.read_csv(data_file)
+        from engines.data_io import read_data_file
+        df = read_data_file(data_file)
 
         result = detect_value_per_count_unit(
             df,

@@ -349,11 +349,8 @@ def _repair_y_actual_against_data_file(model_data: dict[str, Any]) -> None:
         if not data_path.exists():
             _REPAIR_COUNTERS['skipped_file_gone'] += 1
             return  # file deleted/moved post-training → preserve pickle state.
-        import pandas as _pd
-        if str(data_file).lower().endswith(('.xlsx', '.xls')):
-            df = _pd.read_excel(data_file)
-        else:
-            df = _pd.read_csv(data_file)
+        from engines.data_io import read_data_file
+        df = read_data_file(data_file)
         if kpi_col not in df.columns:
             _REPAIR_COUNTERS['skipped_col_missing'] += 1
             return  # column renamed/dropped → preserve pickle.
@@ -682,8 +679,8 @@ def infer_granularity_at_load(model_data: dict[str, Any]) -> str | None:
     if not data_file:
         return None
     try:
-        import pandas as pd
-        df = pd.read_excel(data_file) if str(data_file).endswith(('.xlsx', '.xls')) else pd.read_csv(data_file)
+        from engines.data_io import read_data_file
+        df = read_data_file(data_file)
         if date_col not in df.columns:
             return None
         from utils.forecast_validation import detect_granularity
@@ -760,8 +757,8 @@ def infer_x_norm_quantiles_at_load(
         return None
 
     try:
-        import pandas as pd
-        df = pd.read_excel(data_file) if str(data_file).endswith(('.xlsx', '.xls')) else pd.read_csv(data_file)
+        from engines.data_io import read_data_file
+        df = read_data_file(data_file)
         from utils.merge_rules import apply_merge_rules
         apply_merge_rules(df, config.get('merge_rules'))
         from utils.adstock import apply_adstock

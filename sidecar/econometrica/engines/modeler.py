@@ -340,12 +340,11 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
 
     report('loading', pct=10)
 
-    # Read data
+    # Read data – единым чтением клиентского файла (CSV «;», десятичная
+    # запятая, cp1251; карта строк для номеров в отказах – s56 fix04).
+    from engines.data_io import read_data_file
     data_file = config['data_file']
-    if data_file.endswith('.csv'):
-        df = pd.read_csv(data_file)
-    else:
-        df = pd.read_excel(data_file)
+    df, _file_rows = read_data_file(data_file, keep_row_map=True)
 
     # L4 (s55): строка «итого» в хвосте файла прошла бы фильтр пустого KPI
     # ниже и обучилась как ещё один период с удвоенными продажами. Молча
@@ -360,7 +359,7 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
     _date_col_cfg = config.get('date_column', 'date')
     _total_rows = find_trailing_total_rows(
         df, _calendar_date_column(df, _date_col_cfg) or _date_col_cfg,
-        config.get('kpi_column'),
+        config.get('kpi_column'), file_rows=_file_rows,
     )
     if _total_rows:
         return {
@@ -376,13 +375,15 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
         df, _date_col_cfg,
         [config.get('kpi_column'), *(config.get('media_columns') or []),
          *(config.get('control_columns') or [])],
+        file_rows=_file_rows,
     )
     if _undated_rows:
         return {
             'status': 'error',
             'error_code': 'UNDATED_ROW_IN_DATA',
             'message': undated_rows_message(
-                _undated_rows, nearest_dated_row(df, _date_col_cfg, _undated_rows),
+                _undated_rows,
+                nearest_dated_row(df, _date_col_cfg, _undated_rows, file_rows=_file_rows),
             ),
         }
 

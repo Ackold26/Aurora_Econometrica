@@ -7,10 +7,10 @@
 
 Публичное API:
   detect_media_plan_tail(df, date_col, kpi_col, media_cols) -> dict
-  find_trailing_total_rows(df, date_col, kpi_col) -> list[dict]
+  find_trailing_total_rows(df, date_col, kpi_col, file_rows) -> list[dict]
   total_rows_message(total_rows) -> str
-  find_undated_rows(df, date_col, value_cols, exclude_index, min_numbers) -> list[dict]
-  nearest_dated_row(df, date_col, undated_rows) -> int | None
+  find_undated_rows(df, date_col, value_cols, exclude_index, min_numbers, file_rows) -> list[dict]
+  nearest_dated_row(df, date_col, undated_rows, file_rows) -> int | None
   undated_rows_message(undated_rows, dated_row) -> str
   compute_source_hash(data_file) -> str
   load_frames(data_file, date_col, kpi_col, media_cols) -> dict
@@ -177,10 +177,19 @@ def _resolve_role_column(df: "pd.DataFrame", col: str | None, role: str) -> str 
     )
 
 
+def _file_row(file_rows: list[int] | None, pos: int) -> int:
+    """Номер строки файла для позиции таблицы: по карте строк, если она
+    есть и сходится с таблицей, иначе позиция + 2 (заголовок – строка 1)."""
+    if file_rows is not None and 0 <= pos < len(file_rows):
+        return int(file_rows[pos])
+    return pos + 2
+
+
 def find_trailing_total_rows(
     df: "pd.DataFrame",
     date_col: str | None,
     kpi_col: str | None = None,
+    file_rows: list[int] | None = None,
 ) -> list[dict[str, Any]]:
     """Найти строки-итоги в ХВОСТЕ таблицы (после последней строки с датой).
 
@@ -196,7 +205,9 @@ def find_trailing_total_rows(
     считаются.
 
     Возвращает [{index, file_row, reason}] в порядке файла: index — метка
-    строки в df, file_row — номер строки в файле (заголовок — строка 1).
+    строки в df, file_row — номер строки в файле (заголовок — строка 1):
+    `file_rows[позиция]`, если карта строк передана (`data_io.read_data_file`,
+    пустые строки CSV), иначе позиция + 2.
     Колонки даты и KPI, которых нет в таблице (или None), распознаются тем же
     способом, что в проверке данных.
     """
@@ -219,7 +230,8 @@ def find_trailing_total_rows(
             continue
         reason = _row_is_total(row, above, date_col, kpi_col)
         if reason:
-            found.append({"index": df.index[pos], "file_row": pos + 2, "reason": reason})
+            found.append({"index": df.index[pos], "file_row": _file_row(file_rows, pos),
+                          "reason": reason})
     return found
 
 
@@ -345,6 +357,7 @@ def find_undated_rows(
     value_cols: list[str],
     exclude_index: Any = (),
     min_numbers: int = 1,
+    file_rows: list[int] | None = None,
 ) -> list[dict[str, Any]]:
     """Найти строки с числами, у которых дата не заполнена или не
     распознаётся, – в любом месте таблицы: хвост, середина, после медиаплана.
@@ -372,7 +385,7 @@ def find_undated_rows(
     поэтому нули протянутой формулы его не выключают (H-3).
 
     Возвращает [{index, file_row}] в порядке файла, как
-    `find_trailing_total_rows`.
+    `find_trailing_total_rows` (с той же картой строк `file_rows`).
     """
     if df.empty:
         return []
@@ -396,7 +409,7 @@ def find_undated_rows(
         return []
     excluded = set(exclude_index)
     return [
-        {"index": df.index[pos], "file_row": pos + 2}
+        {"index": df.index[pos], "file_row": _file_row(file_rows, pos)}
         for pos in range(len(df))
         if has_numbers.iloc[pos] and not dated.iloc[pos]
         and df.index[pos] not in excluded
@@ -407,11 +420,12 @@ def nearest_dated_row(
     df: "pd.DataFrame",
     date_col: str | None,
     undated_rows: list[dict[str, Any]],
+    file_rows: list[int] | None = None,
 ) -> int | None:
     """Номер строки файла с распознанной датой, ближайшей к первой строке из
     `undated_rows` (при равенстве – верхняя), – образец для текста отказа.
     Колонка даты выбирается, как в `find_undated_rows`; нет такой строки –
-    None."""
+    None. Нумерация – та же карта строк `file_rows`."""
     if df.empty or not undated_rows:
         return None
     date_col = _calendar_date_column(df, date_col)
@@ -423,7 +437,7 @@ def nearest_dated_row(
         return None
     first = df.index.get_loc(undated_rows[0]["index"])
     best = min(positions, key=lambda i: (abs(i - first), i))
-    return best + 2
+    return _file_row(file_rows, best)
 
 
 def undated_rows_message(
@@ -631,15 +645,11 @@ def compute_source_hash(data_file: str) -> str:
 
 
 def _read_file(path: Path) -> "pd.DataFrame":
-    """Читаем xlsx/csv в DataFrame (переиспользуем логику validator)."""
-    if path.suffix in (".xlsx", ".xls"):
-        return pd.read_excel(path)
-    if path.suffix == ".csv":
-        # C1: CSV русского Excel с «;» в качестве разделителя
-        df = pd.read_csv(path)
-        if df.shape[1] == 1 and ";" in str(df.columns[0]):
-            df = pd.read_csv(path, sep=";")
-        return df
+    """Читаем xlsx/csv в DataFrame – единым чтением клиентского файла
+    (`engines.data_io`, s56 fix04)."""
+    if path.suffix in (".xlsx", ".xls", ".csv"):
+        from engines.data_io import read_data_file
+        return read_data_file(path)
     raise ValueError(f"Неподдерживаемый формат: {path.suffix}. Нужен xlsx или csv.")
 
 
@@ -1098,11 +1108,8 @@ def generate_media_plan_template(project_dir: str, n_future_periods: int = 12) -
     # F-AVT-3: config не всегда хранит date_column (обучение его не сохраняет) —
     # детектим колонку даты из файла, если дефолт 'date' в нём отсутствует.
     try:
-        _probe = (
-            pd.read_excel(data_file, nrows=0)
-            if str(data_file).endswith((".xlsx", ".xls"))
-            else pd.read_csv(data_file, nrows=0)
-        )
+        from engines.data_io import read_data_file
+        _probe = read_data_file(data_file)
         if date_column not in _probe.columns:
             from engines.validator import detect_column_role_with_confidence as _role
             _date_cands = [c for c in _probe.columns if _role(str(c))[0] == "date"]

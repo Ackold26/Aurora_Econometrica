@@ -769,11 +769,10 @@ def _таблица_исходных_данных(модель, конфиг) ->
         return итог
 
     try:
-        import pandas as pd
-        if файл.suffix.lower() in ('.csv', '.txt', '.tsv'):
-            таблица = pd.read_csv(файл, sep=None, engine='python')
-        else:
-            таблица = pd.read_excel(файл)
+        # Тем же чтением, что у обучения: отпечаток снят с таблицы,
+        # прочитанной им (s56 fix04).
+        from engines.data_io import read_data_file
+        таблица = read_data_file(файл)
     except Exception as ошибка:  # noqa: BLE001 – выгрузка не должна падать из-за файла
         итог['reason'] = f'файл исходных данных не прочитан: {type(ошибка).__name__}'
         logger.warning('Файл исходных данных при выгрузке не прочитан: %s', ошибка)

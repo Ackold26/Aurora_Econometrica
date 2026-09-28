@@ -476,11 +476,8 @@ def _compute_aggregate_roi(
     if not data_file:
         raise ValueError('config.data_file is missing — cannot load raw spend.')
 
-    df = (
-        pd.read_excel(data_file)
-        if str(data_file).endswith(('.xlsx', '.xls'))
-        else pd.read_csv(data_file)
-    )
+    from engines.data_io import read_data_file
+    df = read_data_file(data_file)
 
     # Apply merge rules (virtualised channels)
     try:

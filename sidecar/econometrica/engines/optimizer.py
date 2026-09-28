@@ -399,7 +399,8 @@ def optimize(config: dict, project_dir: str) -> dict[str, Any]:
     # каталог проекта / понятная русская ошибка (не сырой Errno в HTTP 500).
     from utils.data_file_resolver import resolve_data_file
     data_file = str(resolve_data_file(config_model.get('data_file'), project_dir))
-    df = pd.read_excel(data_file) if data_file.endswith(('.xlsx', '.xls')) else pd.read_csv(data_file)
+    from engines.data_io import read_data_file
+    df = read_data_file(data_file)
     # Материализация виртуальных каналов (совпадает с train-time merge_rules)
     from utils.merge_rules import apply_merge_rules
     apply_merge_rules(df, config_model.get('merge_rules'))

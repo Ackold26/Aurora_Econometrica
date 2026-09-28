@@ -398,7 +398,8 @@ def drift_check(
         data_path = resolve_data_file(config.get('data_file'), project_dir)
     except FileNotFoundError as e:
         return {'status': 'error', 'error_code': 'NO_DATA', 'message': str(e)}
-    df = pd.read_csv(data_path) if str(data_path).endswith('.csv') else pd.read_excel(data_path)
+    from engines.data_io import read_data_file
+    df = read_data_file(data_path)
     merge_rules = config.get('merge_rules')
     if merge_rules:
         try:

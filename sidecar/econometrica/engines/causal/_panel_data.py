@@ -74,10 +74,9 @@ def load_panel(
         return None, None, error_response('DATA_LOAD_FAILED', f'Файл не найден: {file_path}')
 
     try:
-        if path.suffix.lower() in ('.xlsx', '.xls'):
-            df = pd.read_excel(file_path, sheet_name=sheet_name) if sheet_name else pd.read_excel(file_path)
-        elif path.suffix.lower() == '.csv':
-            df = pd.read_csv(file_path)
+        if path.suffix.lower() in ('.xlsx', '.xls', '.csv'):
+            from engines.data_io import read_data_file
+            df = read_data_file(file_path, sheet_name=sheet_name)
         else:
             return None, None, error_response('DATA_LOAD_FAILED', f'Неподдерживаемый формат: {path.suffix}')
     except Exception as e:

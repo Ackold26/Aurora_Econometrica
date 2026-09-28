@@ -105,10 +105,8 @@ def run_backtest(
         }
 
     # Load data
-    if data_file.endswith('.csv'):
-        df = pd.read_csv(data_file)
-    else:
-        df = pd.read_excel(data_file)
+    from engines.data_io import read_data_file
+    df = read_data_file(data_file)
 
     n_obs = len(df)
     if holdout_periods >= n_obs - 4:
@@ -522,10 +520,8 @@ def run_rolling_backtest(
     except FileNotFoundError as e:
         return {'status': 'error', 'error_code': 'NO_DATA', 'message': str(e)}
 
-    if str(data_path).endswith('.csv'):
-        df = pd.read_csv(data_path)
-    else:
-        df = pd.read_excel(data_path)
+    from engines.data_io import read_data_file
+    df = read_data_file(data_path)
     # Правила слияния колонок применялись при обучении — повторить, чтобы
     # медиа-колонки конфига существовали в df (иначе KeyError на планах окон).
     merge_rules = config.get('merge_rules')
