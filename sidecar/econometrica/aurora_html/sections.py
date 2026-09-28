@@ -137,7 +137,7 @@ def _fmt_x_with_ci(mean: Any, ci_low: Any, ci_high: Any) -> str:
     tier = _ci_tier_class(mean, ci_low, ci_high)
     return (
         f'{base} <span class="ci-bracket {tier}">'
-        f'[{_fmt_x_bare(ci_low)} - {_fmt_x_bare(ci_high)}]</span>'
+        f'[{_fmt_x_bare(ci_low)} – {_fmt_x_bare(ci_high)}]</span>'
     )
 
 
@@ -327,7 +327,7 @@ def _fmt_metric_with_ci(mean: Any, ci_low: Any, ci_high: Any, kpi: dict) -> str:
         hi_str = _fmt_metric_bare(ci_high, kpi)
     return (
         f'{base} <span class="ci-bracket {tier}">'
-        f'[{lo_str} - {hi_str}]</span>'
+        f'[{lo_str} – {hi_str}]</span>'
     )
 
 
@@ -800,7 +800,7 @@ def render_executive_summary(ctx: dict) -> str:
                 "или сбор большего объёма данных."
             )
     else:
-        situation = f"{client} - демонстрационный preview без переданных данных."
+        situation = f"{client} – демонстрационный preview без переданных данных."
         complication = "Narrative появится после обучения модели и оптимизации."
         question = scqar["question"]["template"]
         answer = "Будет сформирована после декомпозиции и оптимизации бюджета."
@@ -893,17 +893,17 @@ def render_at_a_glance(ctx: dict) -> str:
         # effectiveness-mode исключён: там метрика — доля, breakeven неприменим (как
         # all_below_breakeven ниже).
         if hero_m < 1.0 and kpi["mode"] != "effectiveness":
-            f2 = f"{hero} - лучший среди медиа, но всё ещё под breakeven ({kpi['metric_short']} {hero_m_fmt})"
+            f2 = f"{hero} – лучший среди медиа, но всё ещё под breakeven ({kpi['metric_short']} {hero_m_fmt})"
             f2_sup = f"{_under_breakeven_phrase(kpi)} означает что канал тратит больше чем приносит инкрементала"
         elif honest:
-            f2 = f"{hero} - единственный канал близкий к окупаемости ({kpi['metric_short']} {hero_m_fmt})"
+            f2 = f"{hero} – единственный канал близкий к окупаемости ({kpi['metric_short']} {hero_m_fmt})"
             f2_sup = strings["findings_templates"]["f2_hero_support"].format(hero_spend_pct_fmt=_fmt_pct(hero_spend_pct))
         else:
             if kpi["is_legacy"]:
                 f2 = strings["findings_templates"]["f2_hero"].format(hero=hero, hero_mroas=hero_m)
             else:
                 # v1.3.2: replace «mROAS X.X×» в шаблоне на KPI-aware фразу.
-                f2 = f"{hero} - самый эффективный канал с {kpi['metric_short']} {hero_m_fmt}"
+                f2 = f"{hero} – самый эффективный канал с {kpi['metric_short']} {hero_m_fmt}"
             f2_sup = strings["findings_templates"]["f2_hero_support"].format(hero_spend_pct_fmt=_fmt_pct(hero_spend_pct))
         findings.append((f2, f2_sup))
 
@@ -930,7 +930,7 @@ def render_at_a_glance(ctx: dict) -> str:
                 f3_sup = "При weighted ROI < 1× оптимизация перераспределением не вернёт прибыльность"
             else:
                 f3_sup = (
-                    f"Когда у всех каналов {_under_breakeven_phrase(kpi)} - "
+                    f"Когда у всех каналов {_under_breakeven_phrase(kpi)} – "
                     "оптимизация перераспределением не вернёт прибыльность"
                 )
         elif binding:
@@ -1204,7 +1204,7 @@ def render_mroas(ctx: dict) -> str:
         chart_subtitle_text = "Стоимость следующей единицы (incremental cost-per-unit)"
     else:
         chart_title_text = "mROAS по каналам · мультипликатор"
-        chart_subtitle_text = "Marginal ROI последнего вложенного рубля"
+        chart_subtitle_text = "Отдача последнего вложенного рубля (mROAS)"
 
     # Commentary blocks - math-fix v1.0.14.1 B refactor (2026-04-28).
     # Pre-fix: hardcoded «явный потенциал scale-up» / «потенциал удержания» /
@@ -1242,7 +1242,7 @@ def render_mroas(ctx: dict) -> str:
             label = ch.get("action_label") or ch_action
             reasoning = ch.get("action_reasoning") or ""
             commentary_blocks.append((
-                f"{ch_name} - {label}.",
+                f"{ch_name} – {label}.",
                 reasoning or f"mROAS {float(ch.get('mroas') or 0):.2f}×, рекомендация по портфелю.",
             ))
             if len(commentary_blocks) >= 3:
@@ -1251,7 +1251,7 @@ def render_mroas(ctx: dict) -> str:
         if not commentary_blocks:
             top_m = by_priority[0] if by_priority else {}
             commentary_blocks = [(
-                f"{top_m.get('name', '-')} - лидер по mROAS.",
+                f"{top_m.get('name', '-')} – лидер по mROAS.",
                 f"mROAS {float(top_m.get('mroas') or 0):.2f}× по результатам декомпозиции.",
             )]
     else:
@@ -1294,11 +1294,11 @@ def render_share(ctx: dict) -> str:
     strings = ctx["strings"]
     kicker = strings["sections"]["share"]["kicker"]
     body = f"""
-{_action_title("Доля бюджета vs доля эффекта – выявление дисбаланса")}
+{_action_title("Доля бюджета и доля эффекта – выявление дисбаланса")}
 <div class="chart-container">
   <div class="chart-title-bar">
     <div>
-      <div class="chart-title">Доля бюджета vs доля эффекта · %</div>
+      <div class="chart-title">Доля бюджета и доля эффекта · %</div>
       <div class="chart-subtitle">Каналы с долей эффекта выше доли бюджета недоинвестированы</div>
     </div>
     <button class="btn-inline" data-copy-chart="chart-share">Сохранить PNG</button>
@@ -1689,7 +1689,7 @@ def render_recommendation(ctx: dict) -> str:
             else:
                 problem_clause = f"{_n_channels(n_saturated)} под breakeven"
             action_02_text = (
-                f"{problem_clause} - проверить качество данных, параметры затухания и сравнить "
+                f"{problem_clause} – проверить качество данных, параметры затухания и сравнить "
                 "с отраслевыми ориентирами перед следующей итерацией."
             )
         else:
@@ -1781,7 +1781,7 @@ def render_recommendation(ctx: dict) -> str:
 <div class="chart-container" style="margin-top:28px;">
   <div class="chart-title-bar">
     <div>
-      <div class="chart-title">Текущий vs оптимальный бюджет · млн ₽</div>
+      <div class="chart-title">Текущий и оптимальный бюджет · млн ₽</div>
       <div class="chart-subtitle">Рекомендация оптимизатора по каналам</div>
     </div>
     <button class="btn-inline" data-copy-chart="chart-optimize">Сохранить PNG</button>
@@ -2270,7 +2270,7 @@ def render_sources(ctx: dict) -> str:
     _src_line = (
         "OLS MMM · точечные оценки · bootstrap 90% HDI (n=200)"
         if is_ols
-        else "Bayesian MMM · posterior means · 90% HDI"
+        else "Байесовская модель MMM · правдоподобный диапазон 90%, показаны средние апостериорного распределения"
     )
 
     # Нет числа - нет подписи (2026-07-26): пустая шкала «- /100» с ярлыком
@@ -2408,7 +2408,7 @@ def render_closing(ctx: dict) -> str:
   <p class="closing-cta">{escape(closing["cta"])}</p>
   <p class="closing-narrative">{escape(closing["narrative"])}</p>
   <p style="margin-top:32px;font-family:var(--font-mono);font-size:11px;color:var(--text-muted);">
-    Report ID: <code class="report-id" style="font-size:11px;">{escape(report_id)}</code>
+    Номер отчёта: <code class="report-id" style="font-size:11px;">{escape(report_id)}</code>
   </p>
 </div>"""
     return _section("closing", "", body, "section-closing")
@@ -2438,13 +2438,16 @@ def render_trust_loop(ctx: dict) -> str:
         is_q = (gran == "M" and h == 3) or (gran == "W" and h == 13) or (gran == "D" and h == 90)
         word = "кварталов" if is_q else "окон проверки"
         rows = ""
+        # s55: окна – «окт 2023 – дек 2023» тем же помощником, что «Срок плана».
+        from engines.narrative_adapter import format_window_label
+        bt_gran = gran or (ctx.get("meta") or {}).get("period_granularity")
         for w in (bt.get("windows") or [])[:8]:
             lo, hi = w.get("pi_low_total"), w.get("pi_high_total")
             interval = (f"{_fmt_int(lo)} – {_fmt_int(hi)}"
                         if lo is not None and hi is not None else "н/д")
             mark = "✓" if w.get("hit_total") else ("–" if w.get("hit_total") is None else "✕")
             rows += (
-                f'<tr><td>{escape(str(w.get("window") or "н/д"))}</td>'
+                f'<tr><td>{escape(format_window_label(w["window"], bt_gran) if w.get("window") else "н/д")}</td>'
                 f'<td class="num">{_fmt_int(w.get("actual_total"))}</td>'
                 f'<td class="num">{_fmt_int(w.get("predicted_total"))}</td>'
                 f'<td class="num">{interval}</td><td class="center">{mark}</td></tr>'
@@ -2665,15 +2668,15 @@ def render_forecast_plan(ctx: dict) -> str:
     kpi_label = kpi_meta.get("target_axis") or "Прогноз KPI"
 
     def _signed_int(v: Any) -> str:
-        """Абсолютная разница со знаком; None → прочерк (INV-50)."""
+        """Абсолютная разница со знаком; None → прочерк «–» (INV-50)."""
         if v is None:
-            return "-"
+            return "–"
         s = _fmt_int(abs(v))
         return f"+{s}" if v >= 0 else f"−{s}"
 
     def _signed_pct(v: Any) -> str:
         if v is None:
-            return "-"
+            return "–"
         s = _fmt_pct(abs(v))
         return f"+{s}" if v >= 0 else f"−{s}"
 
@@ -2686,7 +2689,7 @@ def render_forecast_plan(ctx: dict) -> str:
         if summary.get("period_first") and summary.get("period_last"):
             from engines.narrative_adapter import format_period_span
             span = (
-                f" ({escape(format_period_span(summary['period_first'], summary['period_last']))})"
+                f" ({escape(format_period_span(summary['period_first'], summary['period_last'], (ctx.get('meta') or {}).get('period_granularity')))})"
             )
         blocks += f"""
 <p class="trust-sub"><strong>Срок плана:</strong> {horizon} {plural(int(horizon), ['период', 'периода', 'периодов'])}{span}.</p>"""
@@ -2840,9 +2843,10 @@ def render_forecast_plan(ctx: dict) -> str:
         if show_delta:
             # Δ к базовому плану — та же формула, что в таблице сравнения на
             # экране (`MultiScenarioPage.svelte`, upliftPct). У самой базовой
-            # строки разницы с собой нет — прочерк, а не «0%».
+            # строки разницы с собой нет — прочерк, а не «0%». s55: прочерк –
+            # короткое тире «–», не дефис-минус (его легко принять за минус числа).
             if kpi is None or sc is base_view or str(sc.get("name")) == str(base_view.get("name")):
-                d_str = "-"
+                d_str = "–"
             else:
                 d_str = _signed_pct((float(kpi) - base_kpi) / abs(base_kpi) * 100.0)
             delta_cell = f'<td class="num">{bold_open}{d_str}{bold_close}</td>'

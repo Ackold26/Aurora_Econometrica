@@ -437,7 +437,7 @@ def compute_channel_action(
             label_ru=ACTION_LABEL_RU['Cut'],
             tone=ACTION_TONE['Cut'],
             reasoning=(
-                f'{_metric_str} - канал уменьшает продажи, а не приносит их'
+                f'{_metric_str} – канал уменьшает продажи, а не приносит их'
                 if eff_mroas <= 0 else
                 f'{_metric_str} глубоко ниже точки безубыточности – каждый рубль приносит убыток'
             ),
@@ -477,7 +477,7 @@ def compute_channel_action(
             label_ru=ACTION_LABEL_RU['Scale'],
             tone=ACTION_TONE['Scale'],
             reasoning=(
-                f'Оптимизатор рекомендует +{(ratio - 1) * 100:.0f}%, {_metric_str} - '
+                f'Оптимизатор рекомендует +{(ratio - 1) * 100:.0f}%, {_metric_str} – '
                 f'недо-инвестирован'
             ),
             priority=ACTION_PRIORITY['Scale'],

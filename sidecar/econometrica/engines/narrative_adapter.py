@@ -552,10 +552,10 @@ def derive_action_headline(
                 # определён (переброска незначима либо ни один канал не помечен к
                 # сокращению) — про сокращение молчим, говорим только про рост.
                 if cut_source and cut_source != hero:
-                    return f"Нарастить {hero} и сократить {cut_source} - {lift_txt}"
-                return f"Нарастить {hero} - {lift_txt}"
+                    return f"Нарастить {hero} и сократить {cut_source} – {lift_txt}"
+                return f"Нарастить {hero} – {lift_txt}"
             # Сравнение эффективности с лидером — не директива сокращать его.
-            return f"Нарастить {hero} - mROAS {hero_m:.1f}x против {leader}"
+            return f"Нарастить {hero} – mROAS {hero_m:.1f}x против {leader}"
         if hero and hero_m >= 1.2:
             # B1-fix R-14-семейство: «устойчив» — только когда нижняя граница
             # CI выше безубыточности; при широком интервале эпитет не заявляем.
@@ -565,10 +565,10 @@ def derive_action_headline(
             except (TypeError, ValueError):
                 _stable = False
             _sfx = " устойчив" if _stable else ""
-            return f"Защитить лидерство {hero} - mROAS {hero_m:.1f}x{_sfx}"
+            return f"Защитить лидерство {hero} – mROAS {hero_m:.1f}x{_sfx}"
         if all_underperf:
             return "Сократить неэффективные каналы и сфокусировать бюджет"
-        return "Сбалансировать портфель по mROAS - один канал не доминирует"
+        return "Сбалансировать портфель по mROAS – один канал не доминирует"
 
     if slide_hint == "portfolio":
         # s07: action = consolidation recommendation with quantified target share
@@ -586,7 +586,7 @@ def derive_action_headline(
         contribs = [p[0] for p in pairs]
         total = sum(contribs) or 1.0
         if total <= 0:
-            return "Перепроверить входные данные - вклад каналов не рассчитывается"
+            return "Перепроверить входные данные – вклад каналов не рассчитывается"
         acc = 0.0
         top_n = 0
         for v in contribs:
@@ -597,12 +597,12 @@ def derive_action_headline(
         pct = round(sum(p[1] for p in pairs[:top_n]), 1)
         other_n = max(0, len(channels) - top_n)
         if len(channels) == 1:
-            return "Портфель состоит из одного канала - рекомендуется диверсификация"
+            return "Портфель состоит из одного канала – рекомендуется диверсификация"
         if other_n == 0:
-            return "Все каналы работают - консолидация не требуется"
+            return "Все каналы работают – консолидация не требуется"
         if top_n == 1:
-            return f"Сфокусировать бюджет на одном канале - он даёт {fmt_share_pct(pct)} медиа-вклада"
-        return f"Консолидировать до топ-{top_n} каналов - они обеспечивают {fmt_share_pct(pct)} медиа-вклада"
+            return f"Сфокусировать бюджет на одном канале – он даёт {fmt_share_pct(pct)} медиа-вклада"
+        return f"Консолидировать до топ-{top_n} каналов – они обеспечивают {fmt_share_pct(pct)} медиа-вклада"
 
     if slide_hint == "timeline":
         # B1-fix R-09 (2026-07-03): прежний заголовок «Перейти на пульсирующее
@@ -640,22 +640,22 @@ def derive_action_headline(
             if subjects["kind"] == "rebalance":
                 if has_lift:
                     # Rebalance scenario - quantified reallocation
-                    return f"Перераспределить {format_realloc_mln(realloc)} млн руб в {scale_dest} - {lift_txt}"
+                    return f"Перераспределить {format_realloc_mln(realloc)} млн руб в {scale_dest} – {lift_txt}"
                 # Rebalance без верного lift - action без числа прироста
                 return f"Перераспределить {format_realloc_mln(realloc)} млн руб из {cut_source} в {scale_dest}"
             if subjects["kind"] == "scale_only":
                 # Источник не определён — про «из» молчим, обещаем только рост.
-                _tail = f" - {lift_txt}" if has_lift else ""
+                _tail = f" – {lift_txt}" if has_lift else ""
                 return f"Перераспределить {format_realloc_mln(realloc)} млн руб в {scale_dest}{_tail}"
-            _tail = f" - {lift_txt}" if has_lift else ""
+            _tail = f" – {lift_txt}" if has_lift else ""
             return f"Сократить {cut_source} ({format_realloc_mln(realloc)} млн руб){_tail}"
         # B1-fix R-14: «сбалансирован» при неопределённых вердиктах — не то же
         # самое; сначала снять неопределённость, потом перераспределять.
         _uncertain_n = sum(1 for c in channels if c.get("verdict") == "Uncertain")
         if _uncertain_n >= max(2, (total_ch + 1) // 2):
-            return "Снять неопределённость вердиктов перед ре-аллокацией - интервалы эффективности широки"
+            return "Снять неопределённость вердиктов перед ре-аллокацией – интервалы эффективности широки"
         # Hold + control scenario
-        return "Портфель сбалансирован - рекомендуется A/B тест перед ре-аллокацией"
+        return "Портфель сбалансирован – рекомендуется A/B тест перед ре-аллокацией"
 
     return None
 
@@ -902,6 +902,12 @@ def _ru_month_year(dt: datetime) -> str:
     return f'{_RU_MONTHS_SHORT[dt.month - 1]} {dt.year}'
 
 
+_RU_QUARTERS = ('I', 'II', 'III', 'IV')
+# Метки, которые печатает planning._period_label для квартала и года.
+_QUARTER_LABEL_RE = re.compile(r'^(\d{4})-Q([1-4])$')
+_YEAR_LABEL_RE = re.compile(r'^(\d{4})$')
+
+
 def _parse_period_label(label: Any) -> datetime | None:
     """Метка периода → дата по тому же правилу, что `_derive_data_coverage`:
     ISO-дата с временем или без; иначе None."""
@@ -911,20 +917,87 @@ def _parse_period_label(label: Any) -> datetime | None:
         return None
 
 
-def format_period_span(first: Any, last: Any) -> str:
-    """Края срока плана для клиента: «дек 2024 – авг 2025».
+def period_granularity(dates: Any) -> str | None:
+    """Гранулярность ряда дат для подписей периода: 'D'|'W'|'M'|'Q'|'Y' или None.
+
+    s55 (L1): источник – `utils.forecast_validation.detect_granularity` (тот же,
+    что у планирования, проверки на истории и заголовков «по неделям»); порог
+    уверенности 0.5 – как у `AuroraHTMLBuilder._period_unit`. Нерегулярные,
+    неразборчивые или слишком короткие ряды → None (подпись «мес год», как до s55).
+    """
+    parsed = [_parse_period_label(d) for d in (dates or [])]
+    if len(parsed) < 2 or any(p is None for p in parsed):
+        return None
+    try:
+        from utils.forecast_validation import detect_granularity
+        g = detect_granularity(parsed)
+    except Exception:  # noqa: BLE001 — подпись периода не должна ронять отчёт
+        return None
+    if g.get('confidence', 0.0) < 0.5:
+        return None
+    return g.get('granularity')
+
+
+def _quarter_or_year_label(label: Any, granularity: str | None) -> str | None:
+    """Подпись одного края для квартальных/годовых данных: «I кв. 2023» / «2023».
+
+    Квартал берётся из самой даты, поэтому метки начала периода (01.01, 01.04 …)
+    и конца (31.03, 30.06 …) дают один и тот же квартал – края не съезжают.
+    Метки planning._period_label («2026-Q1», «2026») разбираются и без гранулярности.
+    """
+    s = str(label).strip()
+    m = _QUARTER_LABEL_RE.match(s)
+    if m:
+        return f'{_RU_QUARTERS[int(m.group(2)) - 1]} кв. {m.group(1)}'
+    m = _YEAR_LABEL_RE.match(s)
+    if m:
+        return m.group(1)
+    dt = _parse_period_label(label)
+    if dt is None:
+        return None
+    if granularity == 'Q':
+        return f'{_RU_QUARTERS[(dt.month - 1) // 3]} кв. {dt.year}'
+    if granularity == 'Y':
+        return str(dt.year)
+    return None
+
+
+def format_period_span(first: Any, last: Any, granularity: str | None = None) -> str:
+    """Края срока для клиента: «дек 2024 – авг 2025».
 
     s53: отчёты выводили сырые метки ISO («2024-12-30T00:00:00 – 2025-08-04T00:00:00»).
     Формат тот же, что у периода данных (`_derive_data_coverage`). Если хоть одна
     метка не разбирается как дата («2025-01», «2025-W01», порядковые) — обе как есть,
     без смешения форматов. Оба края в одном месяце — один «мес год». Только слой
     вывода: сохранённые метки не меняются.
+
+    s55 (L1): «мес год» искажает края квартальных и годовых данных (метки начала
+    квартала «янв 2026 – окт 2026» при плане по декабрь). При `granularity` 'Q' –
+    «I кв. 2023 – IV кв. 2024», при 'Y' – «2023 – 2024»; недельные и месячные –
+    как прежде. Гранулярность даёт вызывающий (`period_granularity` по датам ряда).
     """
+    qa, qb = _quarter_or_year_label(first, granularity), _quarter_or_year_label(last, granularity)
+    if qa is not None and qb is not None:
+        return qa if qa == qb else f'{qa} – {qb}'
     a, b = _parse_period_label(first), _parse_period_label(last)
     if a is None or b is None:
         return f'{first} – {last}'
     la, lb = _ru_month_year(a), _ru_month_year(b)
     return la if la == lb else f'{la} – {lb}'
+
+
+def format_window_label(window: Any, granularity: str | None = None) -> str:
+    """Подпись окна проверки на истории «2023-10-02 – 2023-12-25» → «окт 2023 – дек 2023».
+
+    s55: окна печатались сырыми ISO-датами; теперь тем же `format_period_span`,
+    что «Срок плана». Подпись, которая не делится на два края (порядковые
+    «периоды 1–13»), – как есть.
+    """
+    s = str(window)
+    parts = s.split(' – ')
+    if len(parts) != 2:
+        return s
+    return format_period_span(parts[0].strip(), parts[1].strip(), granularity)
 
 
 def _derive_data_coverage(decompose_data: dict | None) -> dict | None:
@@ -956,11 +1029,21 @@ def _derive_data_coverage(decompose_data: dict | None) -> dict | None:
     def _lbl(dt: datetime) -> str:
         return _ru_month_year(dt)
 
+    # s55 (L1): квартальные/годовые данные – «I кв. 2023 – IV кв. 2024» / «2023 – 2024»
+    # (тот же format_period_span, что «Срок плана»); прочие – «мес год – мес год», как прежде.
+    granularity = period_granularity(dates)
+    if granularity in ('Q', 'Y'):
+        window_label = format_period_span(parsed[0].date().isoformat(),
+                                          parsed[-1].date().isoformat(), granularity)
+    else:
+        window_label = f'{_lbl(parsed[0])} – {_lbl(parsed[-1])}'
+
     return {
-        'window_label': f'{_lbl(parsed[0])} – {_lbl(parsed[-1])}',
+        'window_label': window_label,
         'n_observations': len(parsed),
         'frequency_label': freq,
         'date_gaps': date_gaps,
+        'granularity': granularity,
     }
 
 
@@ -1034,6 +1117,9 @@ def _map_pipeline_to_builder_data(
     if data_coverage:
         meta["period_label"] = data_coverage["window_label"]
         meta["data_window_label"] = data_coverage["window_label"]
+        # s55 (L1): гранулярность данных – для подписей срока плана и окон
+        # проверки на истории в HTML и PPTX (квартал/год вместо «мес год»).
+        meta["period_granularity"] = data_coverage["granularity"]
 
     # --- Diagnostics ---
     diag_src = model_data.get("diagnostics", {}) or {}

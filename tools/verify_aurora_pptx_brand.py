@@ -179,8 +179,21 @@ def main() -> int:
     def _strip_formula_vars(text: str) -> str:
         return _re2.sub(r'\b[a-z_]+_\{?[a-z0-9,]+\}?\b', ' ', text)
 
-    vd_clean = _strip_formula_vars(visible_default)
-    vc_clean = _strip_formula_vars(visible_custom)
+    # s55 (решение владельца 28.09): заголовки терминов глоссария – «русское имя
+    # (английское)». Узаконены ровно эти заголовки целиком; то же английское слово
+    # в прозе по-прежнему ловится.
+    _approved_glossary_heads = (
+        "Насыщение (Saturation, кривая Хилла)",
+        "Базовые продажи (Baseline)",
+    )
+
+    def _strip_glossary_heads(text: str) -> str:
+        for head in _approved_glossary_heads:
+            text = text.replace(head, " ")
+        return text
+
+    vd_clean = _strip_formula_vars(_strip_glossary_heads(visible_default))
+    vc_clean = _strip_formula_vars(_strip_glossary_heads(visible_custom))
     for term in english_banlist:
         pattern = _re2.compile(rf'\b{_re2.escape(term)}\b', _re2.IGNORECASE)
         bad_default = pattern.search(vd_clean)

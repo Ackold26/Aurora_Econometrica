@@ -260,6 +260,8 @@ class AuroraPPTXBuilder:
             "period_label", None if self.is_live else "Q1 2026")
         self.forecast_period_label = meta.get(
             "forecast_period_label", None if self.is_live else "Q3-Q4 2026")
+        # s55 (L1): гранулярность данных из адаптера – квартал/год в подписях сроков.
+        self.period_granularity = meta.get("period_granularity")
         self.data_window_label = meta.get(
             "data_window_label", None if self.is_live else "W01 W13 2026")
         # Stage C.6.3: TOC shrunk to 5 real sections with content (Option B
@@ -321,7 +323,7 @@ class AuroraPPTXBuilder:
         # у каждого потребителя: иначе следующая поверхность повторит дефект.
         if isinstance(self.mqs_score, float) and not math.isfinite(self.mqs_score):
             self.mqs_score = None
-        self.mqs_tier_label = _d("mqs_tier_label", "GOOD - готовность к production")
+        self.mqs_tier_label = _d("mqs_tier_label", "GOOD – готовность к production")
         self.r_squared = _d("r_squared", 0.872)
         self.mape_pct = _d("mape_pct", 8.3)
         self.r_hat_max = _d("r_hat_max", 1.008)
@@ -989,9 +991,9 @@ class AuroraPPTXBuilder:
                 # МЕДИА-вкладе, не в продажах (Kagocel: «32% продаж» реально
                 # 32% медиа-вклада = 12% продаж при медиа 38%). Квалификатор
                 # обязателен — иначе клиент завышает роль канала втрое.
-                f1 = f"{leader} - {_fmt_share_pct(leader_contrib_pct)} медиа-вклада при {_fmt_pct(leader_spend_pct)} бюджета"
+                f1 = f"{leader} – {_fmt_share_pct(leader_contrib_pct)} медиа-вклада при {_fmt_pct(leader_spend_pct)} бюджета"
             else:
-                f1 = f"{leader} - максимальный медиа-вклад в продажи"
+                f1 = f"{leader} – максимальный медиа-вклад в продажи"
             # v1.3.2: KPI-aware portfolio metric (ROI×/CPU/доля).
             if weighted_roi is not None:
                 if self.kpi["is_legacy"]:
@@ -1013,13 +1015,13 @@ class AuroraPPTXBuilder:
         # от honest_narrative (media<10%). effectiveness-mode исключён (метрика —
         # доля, breakeven неприменим). Зеркалит decomposer + HTML-hero.
         if hero_mroas < 1.0 and self.kpi["mode"] != "effectiveness":
-            f2 = f"{hero} - лучший среди медиа, но под breakeven ({hero_metric_short} {hero_metric_fmt})"
+            f2 = f"{hero} – лучший среди медиа, но под breakeven ({hero_metric_short} {hero_metric_fmt})"
             s2 = f"{_under_breakeven_phrase_pptx(self.kpi)} означает что канал тратит больше чем приносит"
         elif hero_mroas > 0:
-            f2 = f"{hero} - самый эффективный канал, {hero_metric_short} {hero_metric_fmt}"
+            f2 = f"{hero} – самый эффективный канал, {hero_metric_short} {hero_metric_fmt}"
             s2 = f"Текущий бюджет на нём {_fmt_pct(hero_spend_pct)}" if hero_spend_pct is not None else "Потенциал для перераспределения бюджета"
         else:
-            f2 = f"{hero} - наиболее эффективный канал по {hero_metric_short}"
+            f2 = f"{hero} – наиболее эффективный канал по {hero_metric_short}"
             s2 = "Потенциал для перераспределения бюджета"
 
         # Finding 3 - reallocation / honest disclosure
@@ -1040,19 +1042,19 @@ class AuroraPPTXBuilder:
             and all((float(c.get("mroas") or c.get("roi") or 0) < 1.0) for c in self.channels)
         )
         if honest and all_below_breakeven:
-            f3 = "Рекомендация: все каналы под breakeven - сократить медиа или диагностика данных"
+            f3 = "Рекомендация: все каналы под breakeven – сократить медиа или диагностика данных"
             if self.kpi["is_legacy"]:
                 s3 = "При weighted ROI < 1× оптимизация перераспределением не вернёт прибыльность"
             else:
                 s3 = (
-                    f"Когда у всех каналов {_under_breakeven_phrase_pptx(self.kpi)} - "
+                    f"Когда у всех каналов {_under_breakeven_phrase_pptx(self.kpi)} – "
                     "оптимизация перераспределением не вернёт прибыльность"
                 )
         elif _f3_subjects["kind"] == "rebalance":
             # L15 (math-fix v1.4 Section C): action-driven reallocation subjects
             f3 = (f"Рекомендация: перераспределить {format_realloc_mln(_f3_subjects['amount_mln'])} млн "
                   f"из {_f3_subjects['cut_source']} в {_f3_subjects['scale_destination']}")
-            s3 = _lift_phrase_pptx(expected_lift_pct, self.kpi) if expected_lift_pct is not None else "Ожидаемый эффект - положительный"
+            s3 = _lift_phrase_pptx(expected_lift_pct, self.kpi) if expected_lift_pct is not None else "Ожидаемый эффект – положительный"
         elif _f3_subjects["kind"] == "scale_only":
             # 🔴 s47 (14.09.2026): здесь стояла запасная ветка «из {leader} в {hero}»
             # (помечена «Legacy fallback when cut_source/scale_destination not yet
@@ -1062,11 +1064,11 @@ class AuroraPPTXBuilder:
             # когда оптимизатор не назвал, кого режет, — про «из» молчим.
             f3 = (f"Рекомендация: нарастить {_f3_subjects['scale_destination']} "
                   f"на ~{format_realloc_mln(_f3_subjects['amount_mln'])} млн")
-            s3 = _lift_phrase_pptx(expected_lift_pct, self.kpi) if expected_lift_pct is not None else "Ожидаемый эффект - положительный"
+            s3 = _lift_phrase_pptx(expected_lift_pct, self.kpi) if expected_lift_pct is not None else "Ожидаемый эффект – положительный"
         elif _f3_subjects["kind"] == "cut_only":
             f3 = (f"Рекомендация: сократить {_f3_subjects['cut_source']} "
-                  f"({format_realloc_mln(_f3_subjects['amount_mln'])} млн) - аллокация неэффективна")
-            s3 = _lift_phrase_pptx(expected_lift_pct, self.kpi) if expected_lift_pct is not None else "Ожидаемый эффект - положительный"
+                  f"({format_realloc_mln(_f3_subjects['amount_mln'])} млн) – аллокация неэффективна")
+            s3 = _lift_phrase_pptx(expected_lift_pct, self.kpi) if expected_lift_pct is not None else "Ожидаемый эффект – положительный"
         else:
             f3 = "Рекомендация: сохранить текущую аллокацию по лидеру портфеля"
             # B1-fix R-09/R-13: «+0.0 пп» — пустое обещание; при незначимом lift
@@ -1074,7 +1076,7 @@ class AuroraPPTXBuilder:
             if expected_lift_pct is not None and expected_lift_pct >= 0.5:
                 s3 = _lift_phrase_pptx(expected_lift_pct, self.kpi)
             else:
-                s3 = "Перераспределение не даёт ощутимого прироста - портфель у оптимума"
+                s3 = "Перераспределение не даёт ощутимого прироста – портфель у оптимума"
 
         # Finding 4 - verdict distribution (how portfolio looks)
         # Stage C.3: idiomatic Russian plural forms (no lazy "канал(ов)" hack).
@@ -1094,7 +1096,7 @@ class AuroraPPTXBuilder:
         # posterior-интервалы) «чёткая рекомендация по каждому» — ложь.
         # Kagocel-зонд: все 4 канала Uncertain + текст обещал чёткость.
         if uncertain_n > 0 and scale_n == 0 and cut_n == 0:
-            f4 = f"Портфель: вердикты {_ru_channels(uncertain_n)} неопределённые - интервалы эффективности широки"
+            f4 = f"Портфель: вердикты {_ru_channels(uncertain_n)} неопределённые – интервалы эффективности широки"
             s4 = "Для уверенных действий нужно больше данных или длиннее история"
         elif uncertain_n > 0:
             f4 = f"Портфель: {_ru_channels(scale_n)} к росту, {_ru_channels(cut_n)} к сокращению"
@@ -1110,7 +1112,7 @@ class AuroraPPTXBuilder:
             # (голый носитель без прилагательного) не даёт; единая точка со
             # SCQAR-ситуацией выше (utils.kpi_display.active_channels_phrase).
             from utils.kpi_display import active_channels_phrase
-            s4 = f"Из {active_channels_phrase(len(self.channels))} - чёткая рекомендация по каждому"
+            s4 = f"Из {active_channels_phrase(len(self.channels))} – чёткая рекомендация по каждому"
 
         # Finding 5 - MQS quality signal.
         # 2026-07-25: нет числа - нет подписи. self.mqs_score=None (метрика не
@@ -1128,7 +1130,7 @@ class AuroraPPTXBuilder:
             mqs = None
         if mqs is None:
             f5 = "Оценка качества модели (MQS) не выполнялась для этого расчёта"
-            s5 = "Итоговый балл недоступен - диагностические метрики см. на слайде «Данные и качество»"
+            s5 = "Итоговый балл недоступен – диагностические метрики см. на слайде «Данные и качество»"
         else:
             # 2026-07-26: пороги — из единого источника (utils.diagnostics),
             # как это уже сделано в HTML-ветке. Своя лестница 80/60 здесь
@@ -1204,8 +1206,10 @@ class AuroraPPTXBuilder:
             # c.mroas = mathematical units/₽; для count display invert к CPU.
             # legacy = '1.5'× / count = '80' (CPU; unit в header «₽/ед.») /
             # effectiveness = '25' (percentage; unit «%»).
+            # s55: денежный mROAS – две цифры после запятой, как в HTML
+            # (sections._fmt_x/_fmt_metric): «0.2» и «0.2» скрывали 0.24 и 0.17.
             if self.kpi["is_legacy"]:
-                roi_str = f"{float(mroas):.1f}" if mroas else "-"
+                roi_str = f"{float(mroas):.2f}" if mroas else "-"
             elif self.kpi["mode"] == "effectiveness":
                 if mroas:
                     val = float(mroas)
@@ -1219,7 +1223,7 @@ class AuroraPPTXBuilder:
                 else:
                     roi_str = "-"
             else:
-                roi_str = f"{float(mroas):.1f}" if mroas else "-"
+                roi_str = f"{float(mroas):.2f}" if mroas else "-"
             # Аудит s47, находка 5 (та же точка класса, что fmt_share_pct/kpi_display.py):
             # одна десятая вместо целого, иначе сумма долей строк расходится с 100
             # (87.5+7.5+5.0→88+8+5=101).
@@ -1234,11 +1238,11 @@ class AuroraPPTXBuilder:
             ci_str = ""
             if ci_low is not None and ci_high is not None:
                 if self.kpi["is_legacy"]:
-                    ci_str = f"[{float(ci_low):.1f} - {float(ci_high):.1f}]"
+                    ci_str = f"[{float(ci_low):.2f} – {float(ci_high):.2f}]"
                 elif self.kpi["mode"] == "effectiveness":
                     lo = float(ci_low) * (100 if abs(float(ci_low)) <= 1.0 else 1)
                     hi = float(ci_high) * (100 if abs(float(ci_high)) <= 1.0 else 1)
-                    ci_str = f"[{lo:.1f} - {hi:.1f}]"
+                    ci_str = f"[{lo:.1f} – {hi:.1f}]"
                 elif self.kpi["kpi_kind"] == "count":
                     try:
                         lo_raw = float(ci_low)
@@ -1246,11 +1250,11 @@ class AuroraPPTXBuilder:
                         if lo_raw > 0 and hi_raw > 0:
                             lo_cpu = 1.0 / hi_raw  # invert + swap
                             hi_cpu = 1.0 / lo_raw
-                            ci_str = f"[{lo_cpu:.0f} - {hi_cpu:.0f}]"
+                            ci_str = f"[{lo_cpu:.0f} – {hi_cpu:.0f}]"
                     except (TypeError, ValueError, ZeroDivisionError):
                         pass
                 else:
-                    ci_str = f"[{float(ci_low):.1f} - {float(ci_high):.1f}]"
+                    ci_str = f"[{float(ci_low):.2f} – {float(ci_high):.2f}]"
 
             rows.append((name, budget_str, contrib_str, roi_str, share_str, verdict, footnote, ci_str))
         return rows
@@ -1376,7 +1380,7 @@ class AuroraPPTXBuilder:
              "ROI 1.8× выше среднего по каналам"),
             ("02", "Насыщение на TV начинается с 80 TRP/нед",
              "Предельный ROI падает на 22% относительно IV кв. 2025"),
-            ("03", "Digital video - самый эффективный канал с mROAS 1.9×",
+            ("03", "Digital video – самый эффективный канал с mROAS 1.9×",
              "Текущий бюджет на нём меньше 15%"),
             ("04", "Базовый уровень растёт на 8% год к году – кампании работают на долгосроке",  # П8-1
              "Бренд-эффект виден в динамике"),
@@ -1591,13 +1595,13 @@ class AuroraPPTXBuilder:
                 # B1-fix R-12: cpct — доля в МЕДИА-вкладе, не в продажах
                 # (без квалификатора клиент завышает роль канала кратно).
                 takeaway = (
-                    f"{leader} даёт {_fmt_share_pct(cpct)} медиа-вклада при {_fmt_pct(spct)} бюджета - "
+                    f"{leader} даёт {_fmt_share_pct(cpct)} медиа-вклада при {_fmt_pct(spct)} бюджета – "
                     "основная точка оптимизации портфеля"
                 )
             else:
-                takeaway = f"{leader} - основной драйвер портфеля и точка оптимизации"
+                takeaway = f"{leader} – основной драйвер портфеля и точка оптимизации"
         else:
-            takeaway = "TV генерирует 42% медиа-вклада при 28% бюджета - основная точка оптимизации портфеля"
+            takeaway = "TV генерирует 42% медиа-вклада при 28% бюджета – основная точка оптимизации портфеля"
         self._render_section_divider(
             slide_num=6,
             takeaway=takeaway,
@@ -1627,7 +1631,7 @@ class AuroraPPTXBuilder:
             self._render_section_divider(
                 slide_num=10,
                 takeaway=(
-                    "Байесовский MMM с адстоком и Hill-насыщением - "
+                    "Байесовский MMM с адстоком и Hill-насыщением – "
                     "прозрачная математическая модель с правдоподобными диапазонами"
                 ),
                 topics=[
@@ -1648,11 +1652,11 @@ class AuroraPPTXBuilder:
             else "Данные загружены из файла клиента"
         )
         if tb_mln:
-            takeaway = f"{_window_part}, бюджет {tb_mln:.0f} млн руб - {_mqs_part}"
+            takeaway = f"{_window_part}, бюджет {tb_mln:.0f} млн руб – {_mqs_part}"
         elif self.is_live:
-            takeaway = f"{_window_part} - {_mqs_part}"
+            takeaway = f"{_window_part} – {_mqs_part}"
         else:
-            takeaway = f"{_window_part} - {_mqs_part}, готовность к production"
+            takeaway = f"{_window_part} – {_mqs_part}, готовность к production"
         self._render_section_divider(
             slide_num=12,
             takeaway=takeaway,
@@ -1668,7 +1672,7 @@ class AuroraPPTXBuilder:
         self._render_section_divider(
             slide_num=14,
             takeaway=(
-                "Справочные материалы отчёта - глоссарий терминов, "
+                "Справочные материалы отчёта – глоссарий терминов, "
                 "методологические ссылки и контактная информация"
             ),
             topics=[
@@ -1740,7 +1744,7 @@ class AuroraPPTXBuilder:
                     )
                 else:
                     quote_txt = (
-                        f"{leader} - единственный лидер и по вкладу, и по эффективности. "
+                        f"{leader} – единственный лидер и по вкладу, и по эффективности. "
                         "Бюджет следует сохранить до признаков насыщения."
                     )
         else:
@@ -1751,7 +1755,7 @@ class AuroraPPTXBuilder:
             quote_txt = (
                 "Каждый рубль в TV возвращает в 1.8 раза больше, "
                 "чем среднее по каналам. Однако начиная с 80 TRP/нед "
-                "маржинальный возврат падает - сигнал к перераспределению в digital."
+                "маржинальный возврат падает – сигнал к перераспределению в digital."
             )
 
         self._action_title(
@@ -1791,7 +1795,7 @@ class AuroraPPTXBuilder:
         # Source footnote at bottom
         # B1-fix R-02/R-06: период — только реальный; «откалибрована под
         # FMCG-бенчмарки» — недоказуемое заявление, в live не пишем.
-        _engine_label = "OLS MMM" if self.is_ols else "Bayesian MMM"
+        _engine_label = "OLS MMM" if self.is_ols else "байесовская модель MMM"
         _window_sfx = f" {self.data_window_label}" if self.data_window_label else ""
         _src_text = f"Источник: {_engine_label} · {self.report_id}; данные {self.sources_client_label}{_window_sfx}."
         if not self.is_live:
@@ -1913,7 +1917,7 @@ class AuroraPPTXBuilder:
             _s = self.facts.get("leader_share_spend_pct")
             _tk = (f"{_l} даёт {_fmt_share_pct(_c)} медиа-вклада при {_fmt_pct(_s)} бюджета"
                    if _c is not None and _s is not None
-                   else f"{_l} - основной драйвер портфеля")
+                   else f"{_l} – основной драйвер портфеля")
         else:
             _tk = None
         self._section_intro(slide, 2, "Декомпозиция вкладов", _tk)
@@ -1975,7 +1979,7 @@ class AuroraPPTXBuilder:
         elif self.kpi["kpi_kind"] == "count":
             chart_subtitle_text = f"Стоимость следующей единицы (incremental cost-per-unit){_period_sfx}"
         else:
-            chart_subtitle_text = f"Marginal ROI последнего вложенного рубля{_period_sfx}"
+            chart_subtitle_text = f"Отдача последнего вложенного рубля (mROAS){_period_sfx}"
         self._text(
             slide, chart_x, chart_y + 0.27, chart_w, 0.22,
             chart_subtitle_text,
@@ -2137,7 +2141,7 @@ class AuroraPPTXBuilder:
         _src_text = (
             f"Источник: OLS MMM Aurora AI · {self.report_id}; точечные оценки + bootstrap-диапазон"
             if self.is_ols
-            else f"Источник: Bayesian MMM Aurora AI · {self.report_id}; медианы апостериорного распределения"
+            else f"Источник: байесовская модель MMM Aurora AI · {self.report_id}; медианы апостериорного распределения"
         )
         self._source(slide, 6.87, text=_src_text)
 
@@ -2184,12 +2188,12 @@ class AuroraPPTXBuilder:
                 if ch.get("action_reasoning"):
                     reasoning = ch["action_reasoning"]
                 elif self.kpi["is_legacy"]:
-                    reasoning = f"mROAS {float(ch.get('mroas') or 0):.1f}× - рекомендация по портфелю."
+                    reasoning = f"mROAS {float(ch.get('mroas') or 0):.1f}× – рекомендация по портфелю."
                 else:
                     metric_val = _fmt_metric_pptx(ch.get('mroas') or 0, self.kpi)
-                    reasoning = f"{self.kpi['metric_short']} {metric_val} - рекомендация по портфелю."
+                    reasoning = f"{self.kpi['metric_short']} {metric_val} – рекомендация по портфелю."
                 commentary.append((
-                    f"{ch_name} - {label}.",
+                    f"{ch_name} – {label}.",
                     f" {reasoning}",
                 ))
                 if len(commentary) >= 3:
@@ -2201,25 +2205,25 @@ class AuroraPPTXBuilder:
                 hero_m = float(hero.get("mroas") or 0)
                 if self.kpi["is_legacy"]:
                     commentary.append((
-                        f"{hero_name} - лидер по mROAS.",
+                        f"{hero_name} – лидер по mROAS.",
                         f" mROAS {hero_m:.1f}×. Бюджет следует пересмотреть с учётом насыщения.",
                     ))
                 else:
                     metric_short = self.kpi["metric_short"]
                     metric_val = _fmt_metric_pptx(hero_m, self.kpi)
                     commentary.append((
-                        f"{hero_name} - лидер по {metric_short}.",
+                        f"{hero_name} – лидер по {metric_short}.",
                         f" {metric_short} {metric_val}. Бюджет следует пересмотреть с учётом насыщения.",
                     ))
         else:
             # Wireframe placeholder when no channels (preview mode)
             commentary = [
-                ("Digital video - Масштабировать.",
-                 " mROAS 1.9× - Optimizer рекомендует +50%, недо-инвестирован."),
-                ("Search - Удерживать.",
-                 " mROAS 1.7× стабилен, gap +1пп - баланс."),
-                ("Print и Radio - Сократить.",
-                 " mROAS 0.7-0.75× ниже breakeven - бюджет приносит убыток."),
+                ("Digital video – Масштабировать.",
+                 " mROAS 1.9× – Optimizer рекомендует +50%, недо-инвестирован."),
+                ("Search – Удерживать.",
+                 " mROAS 1.7× стабилен, gap +1пп – баланс."),
+                ("Print и Radio – Сократить.",
+                 " mROAS 0.7-0.75× ниже breakeven – бюджет приносит убыток."),
             ]
         cy = chart_y + 0.55
         for lead, body in commentary:
@@ -2255,7 +2259,7 @@ class AuroraPPTXBuilder:
         # Covers all edge cases (all-zero / single-channel / consolidate / balanced).
         s07_title = (
             derive_action_headline(self.channels, self.facts, "portfolio")
-            or "Консолидировать до топ-5 каналов - они обеспечивают 87% медиа-вклада"
+            or "Консолидировать до топ-5 каналов – они обеспечивают 87% медиа-вклада"
         )
         self._action_title(
             slide, s07_title,
@@ -2498,7 +2502,7 @@ class AuroraPPTXBuilder:
         else:
             footnotes = [
                 ("1", "TV: mROAS считается при текущих 85 TRP/нед; выше 100 TRP/нед ROI падает ниже 1.2×."),
-                ("2", "Social volatile - mROAS 1.3× median, но диапазон 0.8-1.8× (высокая неопределённость)."),
+                ("2", "Social volatile – mROAS 1.3× median, но диапазон 0.8-1.8× (высокая неопределённость)."),
                 ("3", "Print: ниже точки безубыточности; рекомендация основана на 3-квартальном тренде."),
             ]
         line_h = 0.14
@@ -2526,7 +2530,7 @@ class AuroraPPTXBuilder:
         _src_text2 = (
             f"Источник: OLS MMM Aurora AI · {self.report_id}; bootstrap 90% HDI (n=200), точечные оценки."
             if self.is_ols
-            else f"Источник: Bayesian MMM Aurora AI · {self.report_id}; 90% HDI-интервалы, медианы апостериорного распределения."
+            else f"Источник: байесовская модель MMM Aurora AI · {self.report_id}; правдоподобные диапазоны 90%, медианы апостериорного распределения."
         )
         self._source(slide, 6.87, text=_src_text2)
 
@@ -2545,7 +2549,7 @@ class AuroraPPTXBuilder:
         # Stage C.5: timeline action headline = schedule recommendation.
         title = (
             derive_action_headline(self.channels, self.facts, "timeline")
-            or "Пульсирующее размещение вместо непрерывного - экономия 15-20% без потери охвата"
+            or "Пульсирующее размещение вместо непрерывного – экономия 15-20% без потери охвата"
         )
         self._action_title(
             slide,
@@ -2563,8 +2567,11 @@ class AuroraPPTXBuilder:
         ts = self.time_series if isinstance(self.time_series, dict) else None
         if ts and ts.get("dates"):
             dates_list = list(ts["dates"])
-            from engines.narrative_adapter import format_period_span
-            period_label = format_period_span(dates_list[0], dates_list[-1]) if dates_list else (self.data_window_label or "н/д")
+            from engines.narrative_adapter import format_period_span, period_granularity
+            period_label = (
+                format_period_span(dates_list[0], dates_list[-1], period_granularity(dates_list))
+                if dates_list else (self.data_window_label or "н/д")
+            )
         else:
             period_label = self.data_window_label or "н/д"
 
@@ -2659,10 +2666,10 @@ class AuroraPPTXBuilder:
             )
 
             # Source at bottom (unified position, real-data variant)
-            _engine_decomp = "OLS MMM" if self.is_ols else "Bayesian MMM"
+            _engine_decomp = "OLS MMM" if self.is_ols else "байесовская модель MMM"
             self._source(
                 slide, 6.87,
-                text=f"Источник: {self.sources_client_label}, продажи за период {period_label}; декомпозиция {_engine_decomp} · {self.report_id}",
+                text=f"Источник: {self.sources_client_label}, продажи за период {period_label}; декомпозиция: {_engine_decomp} · {self.report_id}",
             )
 
             self._footer(slide, 8 + self._page_shift)
@@ -2805,12 +2812,12 @@ class AuroraPPTXBuilder:
         # Source at bottom (unified position)
         # B1-fix R-02: период в подписи — timeline уже показывает реальные даты;
         # используем ту же period_label-логику (реальные даты > мета > «н/д»).
-        _engine_decomp2 = "OLS MMM" if self.is_ols else "Bayesian MMM"
+        _engine_decomp2 = "OLS MMM" if self.is_ols else "байесовская модель MMM"
         _tl_period = period_label if period_label and period_label != "н/д" else None
         _tl_period_part = f", продажи за период {_tl_period}" if _tl_period else ""
         self._source(
             slide, 6.87,
-            text=f"Источник: {self.sources_client_label}{_tl_period_part}; декомпозиция {_engine_decomp2} · {self.report_id}",
+            text=f"Источник: {self.sources_client_label}{_tl_period_part}; декомпозиция: {_engine_decomp2} · {self.report_id}",
         )
 
         self._footer(slide, 8 + self._page_shift)
@@ -2933,11 +2940,11 @@ class AuroraPPTXBuilder:
             if _realloc_potential and _has_real_lift:
                 _compl_tail = "Портфель требует перебалансировки."
             elif f.get("binding_constraints"):
-                _compl_tail = ("Однако оптимизатор упёрся в заданные границы каналов - "
+                _compl_tail = ("Однако оптимизатор упёрся в заданные границы каналов – "
                                "потенциал перераспределения ограничен настройками.")
             else:
                 _compl_tail = ("Однако перераспределение в заданных границах не даёт "
-                               "ощутимого прироста - разрыв объясняется насыщением каналов.")
+                               "ощутимого прироста – разрыв объясняется насыщением каналов.")
             complication_body = (
                 (". ".join(complication_parts) + ". " + _compl_tail)
                 if complication_parts else _compl_tail
@@ -3085,17 +3092,17 @@ class AuroraPPTXBuilder:
                         _action_02 = (
                             "Снять неопределённость вердиктов.",
                             f" {', '.join(_uncertain_names[:3])}: интервалы эффективности "
-                            "широки - добавить историю данных или вариацию трат, затем переобучить модель.",
+                            "широки – добавить историю данных или вариацию трат, затем переобучить модель.",
                         )
                     else:
                         _action_02 = (
                             f"Контролировать насыщение {leader}.",
                             " Наращивание трат сверх текущего уровня даёт убывающую отдачу "
-                            "(Hill-насыщение) - отслеживать mROAS при изменениях бюджета.",
+                            "(Hill-насыщение) – отслеживать mROAS при изменениях бюджета.",
                         )
                     # Пласт 2 (2026-07-11): KPI-aware lift fragment — для count/effectiveness «ROAS» не применим.
                     _lift_frag = (
-                        f" {_lift_phrase_pptx(lift, self.kpi)} - проверить фактом."
+                        f" {_lift_phrase_pptx(lift, self.kpi)} – проверить фактом."
                         if (lift is not None and lift >= 0.5)
                         else " Проверить, что фактические продажи соответствуют прогнозу модели."
                     )
@@ -3278,7 +3285,7 @@ class AuroraPPTXBuilder:
             n_brand = sum(1 for v in cats.values() if v == 'brand')
             n_perf = sum(1 for v in cats.values() if v == 'performance')
             t3_text = (
-                f"v1.1.0: Brand vs Performance split - {n_brand} brand, {n_perf} performance каналов. "
+                f"v1.1.0: Brand vs Performance split – {n_brand} brand, {n_perf} performance каналов. "
                 f"Hierarchical priors разделяют long-decay (бренд ~12 нед) и short-decay (perf ~1-2 нед)."
             )
         y_сноски = 6.87
@@ -3319,7 +3326,7 @@ class AuroraPPTXBuilder:
                 "ε_t ~ Normal(0, σ) (frequentist)",
                 # B1-fix R-07-семейство: фактический n_boot=200 (ols_bootstrap.py),
                 # «n=1000» был враньём того же класса, что и conformal-глоссарий (F-18).
-                "Диапазон на ROI/mROAS - bootstrap n=200",
+                "Диапазон на ROI/mROAS – bootstrap n=200",
             ]
         else:
             formulas = [
@@ -3409,11 +3416,11 @@ class AuroraPPTXBuilder:
             ("Долгосрочные бренд-эффекты (>26 недель).",
              "Модель учитывает краткосрочный и среднесрочный эффект, но не долгосрочное строительство бренда."),
             ("Каннибализация между категориями.",
-             f"Если у клиента несколько SKU - модель считает их единым KPI."),
+             f"Если у клиента несколько SKU – модель считает их единым KPI."),
             ("Вариация качества креативов.",
-             "Влияние качества роликов на ROI не моделируется - предполагается постоянным."),
+             "Влияние качества роликов на ROI не моделируется – предполагается постоянным."),
             ("Конкурентная медиа-активность.",
-             "Доля голоса (SoV) конкурентов в модели отсутствует - оценка справедлива для стабильной категории."),
+             "Доля голоса (SoV) конкурентов в модели отсутствует – оценка справедлива для стабильной категории."),
             ("Макроэкономические шоки.",
              "Экстремальные события (валютные скачки, регуляторные изменения) вне области анализа."),
         ]
@@ -3442,7 +3449,7 @@ class AuroraPPTXBuilder:
             _bottom_note = (
                 "Параметры отложенного эффекта (adstock)/насыщения: индустриальные бенчмарки OLS MMM, фиксированные."  # П8-2
                 if self.is_ols
-                else "Приоры: слабоинформативные, на основе индустриальных бенчмарков Bayesian MMM."
+                else "Приоры: слабоинформативные, на основе индустриальных бенчмарков байесовской модели MMM."
             )
             self._source(slide, y_сноски, text=_bottom_note)
         else:
@@ -3450,7 +3457,7 @@ class AuroraPPTXBuilder:
             _bottom_note2 = (
                 "Параметры отложенного эффекта (adstock)/насыщения: индустриальные бенчмарки OLS MMM, фиксированные."  # П8-2
                 if self.is_ols
-                else "Приоры: слабоинформативные, на основе индустриальных бенчмарков Bayesian MMM."
+                else "Приоры: слабоинформативные, на основе индустриальных бенчмарков байесовской модели MMM."
             )
             self._source(slide, y_сноски, text=_bottom_note2)
 
@@ -3474,8 +3481,8 @@ class AuroraPPTXBuilder:
             else "Данные загружены из файла клиента"
         )
         _tk_data = (
-            f"{_window_part}, бюджет {_tb_mln:.0f} млн руб - {_mqs_part}"
-            if _tb_mln else f"{_window_part} - {_mqs_part}"
+            f"{_window_part}, бюджет {_tb_mln:.0f} млн руб – {_mqs_part}"
+            if _tb_mln else f"{_window_part} – {_mqs_part}"
         )
         self._section_intro(slide, 4, "Данные и качество", _tk_data)
 
@@ -3957,12 +3964,16 @@ class AuroraPPTXBuilder:
             )
         ry += 0.3
         windows = bt.get("windows") or []
+        # s55: окна – «окт 2023 – дек 2023» тем же помощником, что «Срок плана»,
+        # не сырые ISO-даты; гранулярность – самой проверки на истории.
+        from engines.narrative_adapter import format_window_label
+        _bt_gran = bt.get("granularity") or self.period_granularity
         # До 8 окон — строки по 0.34"; при больших N таблица остаётся читаемой.
         for w_row in windows[:8]:
             hit_mark = w_row.get("hit_total")
             self._text(
                 slide, right_x, ry, col_period_w, 0.24,
-                str(w_row.get("window") or "н/д"),
+                format_window_label(w_row["window"], _bt_gran) if w_row.get("window") else "н/д",
                 font=self.sans, size=9, color=self.deep_100,
             )
             self._text(
@@ -4165,7 +4176,7 @@ class AuroraPPTXBuilder:
             span = ""
             if summary.get("period_first") and summary.get("period_last"):
                 from engines.narrative_adapter import format_period_span
-                span = f" ({format_period_span(summary['period_first'], summary['period_last'])})"
+                span = f" ({format_period_span(summary['period_first'], summary['period_last'], self.period_granularity)})"
             self._text(
                 slide, left_x, y, content_w, 0.22,
                 f"Срок плана: {horizon} {plural(int(horizon), ['период', 'периода', 'периодов'])}{span}",
@@ -4619,8 +4630,8 @@ class AuroraPPTXBuilder:
 
         if self.is_ols:
             _methodology_terms = [
-                ("MMM", "Marketing Mix Modeling - статистическая декомпозиция вклада каналов в продажи."),
-                ("OLS", "Ordinary Least Squares - метод наименьших квадратов, closed-form оценка β-коэффициентов."),
+                ("MMM", "Marketing Mix Modeling – статистическая декомпозиция вклада каналов в продажи."),
+                ("OLS", "Ordinary Least Squares – метод наименьших квадратов, closed-form оценка β-коэффициентов."),
                 # Мат-аудит 2026-07-02 (F-18/INV-50): глоссарий врал о методологии.
                 # Было: «n=1000» (движок: n_boot=200), «Conformal PI с гарантией
                 # покрытия» (conformal.py F3-caveat: на временных рядах
@@ -4628,8 +4639,8 @@ class AuroraPPTXBuilder:
                 # honest PI + caveats, не math-guaranteed).
                 ("Bootstrap", "Resampling-метод для построения правдоподобных диапазонов (200 итераций)."),
                 ("Frequentist", "Классический статистический подход: точечные оценки + диапазон на основе sampling distribution."),
-                ("Adstock", "Отложенный эффект медиа: часть воздействия переносится на следующие периоды."),
-                ("Насыщение", "Убывающая отдача: кривая Хилла, S-образное насыщение эффекта."),
+                ("Эффект переноса (Adstock)", "Отложенный эффект медиа: часть воздействия переносится на следующие периоды."),
+                ("Насыщение (Saturation, кривая Хилла)", "Убывающая отдача: кривая Хилла, S-образное насыщение эффекта."),
                 ("Conformal PI", "Интервал предсказания без предположений о распределении; на временных рядах маркетинга покрытие приближённое (строгая гарантия требует взаимозаменяемости наблюдений)."),
             ]
             _quality_terms = [
@@ -4639,41 +4650,41 @@ class AuroraPPTXBuilder:
                 # (compute_ci_hdi, DEFAULT_HDI_PROB=0.9, M-OLS-1).
                 ("Bootstrap-диапазон", "90% HDI-интервал на ROI/mROAS из resampling-распределения."),
                 ("β-SE", "Стандартная ошибка β-коэффициентов из (XᵀX)⁻¹."),
-                ("MQS", "Model Quality Score - композитный индекс качества Aurora (0-100)."),
+                ("MQS", "Model Quality Score – композитный индекс качества Aurora (0-100)."),
                 ("VIF / Leverage", "OLS-диагностики мультиколлинеарности и влиятельности точек."),
-                ("Базовый / инкрементальный", "Органические продажи без медиа и продажи, вызванные медиа-инвестициями."),
+                ("Базовые продажи (Baseline)", "Органические продажи без медиа; дополнительные продажи от рекламы (Incremental sales) – вызванные медиа-инвестициями."),
             ]
         else:
             _methodology_terms = [
-                ("MMM", "Marketing Mix Modeling - статистическая декомпозиция вклада каналов в продажи."),
-                ("Байесовский вывод", "Вероятностный подход: апостериорные распределения вместо точечных оценок."),
-                ("NUTS", "No-U-Turn Sampler - эффективный метод MCMC для многомерных распределений."),
+                ("MMM", "Marketing Mix Modeling – статистическая декомпозиция вклада каналов в продажи."),
+                ("Байесовский вывод (Bayesian inference)", "Вероятностный подход: апостериорные распределения вместо точечных оценок."),
+                ("NUTS", "No-U-Turn Sampler – эффективный метод MCMC для многомерных распределений."),
                 ("NumPyro / JAX", "Python-стек для байесовских вычислений с компиляцией JIT."),
-                ("Априорное / апостериорное", "Исходные предположения → обновлённая оценка после данных."),
-                ("Adstock", "Отложенный эффект медиа: часть воздействия переносится на следующие периоды."),
-                ("Насыщение", "Убывающая отдача: кривая Хилла, S-образное насыщение эффекта."),
+                ("Априорное распределение (Prior)", "Исходные предположения до данных; апостериорное распределение (Posterior) – оценка после данных."),
+                ("Эффект переноса (Adstock)", "Отложенный эффект медиа: часть воздействия переносится на следующие периоды."),
+                ("Насыщение (Saturation, кривая Хилла)", "Убывающая отдача: кривая Хилла, S-образное насыщение эффекта."),
             ]
             _quality_terms = [
                 ("R²", "Доля объяснённой моделью вариации продаж (0 до 1). Целевое > 0.7."),
                 ("MAPE", "Средняя абсолютная процентная ошибка прогноза."),
                 ("R-hat", "Диагностика сходимости MCMC-цепей; целевое значение ≤ 1.01."),
-                ("ESS", "Effective Sample Size - число независимых выборок из апостериорного распределения."),
+                ("ESS", "Effective Sample Size – число независимых выборок из апостериорного распределения."),
                 # B1-fix R-07: фактический уровень — 90% HDI (DEFAULT_HDI_PROB=0.9);
                 # «95%» в глоссарии — то же семейство F-18, не догрепанное b501708.
-                ("Правдоподобный диапазон (90% HDI)", "Байесовский интервал правдоподобия - в нём истинное значение лежит с 90% вероятностью."),
-                ("MQS", "Model Quality Score - композитный индекс качества Aurora (0-100)."),
-                ("Базовый / инкрементальный", "Органические продажи без медиа и продажи, вызванные медиа-инвестициями."),
+                ("Правдоподобный диапазон (90% HDI)", "Байесовский интервал правдоподобия – в нём истинное значение лежит с 90% вероятностью."),
+                ("MQS", "Model Quality Score – композитный индекс качества Aurora (0-100)."),
+                ("Базовые продажи (Baseline)", "Органические продажи без медиа; дополнительные продажи от рекламы (Incremental sales) – вызванные медиа-инвестициями."),
             ]
         columns = [
             ("МЕТОДОЛОГИЯ MMM", _methodology_terms),
             ("КАЧЕСТВО МОДЕЛИ", _quality_terms),
             ("МЕДИА-МЕТРИКИ", [
-                ("mROAS", "Marginal ROAS - возврат с последнего вложенного рубля (×-коэффициент)."),
-                ("ROI", "Return on Investment - общая возвратность вложений (инкрементальный вклад / расход)."),
-                ("TRP / GRP", "Target / Gross Rating Points - охват целевой аудитории в рейтинг-пунктах."),
-                ("CPP", "Cost per Point - стоимость одного рейтингового пункта в рублях."),
-                ("Охват (Reach)", "Процент целевой аудитории, встретивших рекламу минимум один раз."),
-                ("Доля голоса (SoV)", "Доля рекламного голоса бренда относительно конкурентов в категории."),
+                ("mROAS", "Marginal ROAS – возврат с последнего вложенного рубля (×-коэффициент)."),
+                ("ROI", "Return on Investment – общая возвратность вложений (инкрементальный вклад / расход)."),
+                ("TRP / GRP", "Target / Gross Rating Points – охват целевой аудитории в рейтинг-пунктах."),
+                ("CPP", "Cost per Point – стоимость одного рейтингового пункта в рублях."),
+                ("Охват и частота (Reach & Frequency)", "Процент целевой аудитории, встретивших рекламу минимум один раз, и среднее число контактов."),
+                ("Доля голоса (Share of Voice)", "Доля рекламного голоса бренда относительно конкурентов в категории."),
                 ("Рекомендация", "Вердикт по каналу: Увеличить / Держать / Наблюдать / Сократить / Остановить."),
             ]),
         ]
@@ -4743,8 +4754,8 @@ class AuroraPPTXBuilder:
         # в live нейтральная формулировка (срок волны — предмет договорённости).
         self._text(
             slide, self.safe, cta_y + 0.32, self.w - 2 * self.safe, 0.35,
-            ("Следующая волна анализа - после накопления новых данных."
-             if self.is_live else "Следующая волна анализа - через 90 дней."),
+            ("Следующая волна анализа – после накопления новых данных."
+             if self.is_live else "Следующая волна анализа – через 90 дней."),
             font=self.serif, size=18, italic=True, color=self.deep_100,
         )
         # Sacred lime underlines CTA (emphasizes action, not statement)
@@ -4759,10 +4770,10 @@ class AuroraPPTXBuilder:
         self._rich(
             slide, self.safe, 5.00, self.w - 2 * self.safe, 1.5,
             runs=[
-                ("Медиабюджет - управляемый инструмент роста, а не статья затрат. ",
+                ("Медиабюджет – управляемый инструмент роста, а не статья затрат. ",
                  {"font": self.serif, "size": 11, "bold": True, "italic": True, "color": self.deep_80}),
                 ("Байесовский вывод измеряет эффективность каналов вместе с границами "
-                 "неопределённости - это основа доверия к решениям. Методология следует "
+                 "неопределённости – это основа доверия к решениям. Методология следует "
                  "отраслевым стандартам MMM; платформа масштабируется от квартального отчёта "
                  "до ежемесячного мониторинга, от одной позиции до портфеля брендов.",
                  {"font": self.serif, "size": 11, "italic": True, "color": self.deep_60}),

@@ -27,6 +27,8 @@ from __future__ import annotations
 
 import json
 
+from engines.channel_action import VERDICT_DISPLAY_RU
+
 
 def bootstrap_js(
     initial_theme: str,
@@ -41,7 +43,10 @@ def bootstrap_js(
         'theme':     strings.get('ui', {}).get('theme', {}),
         'empty':     strings.get('empty_states', {}),
         'buttons':   strings.get('ui', {}).get('buttons', {}),
-        'verdicts':  strings.get('verdicts', {}),
+        # s55: словарь вердиктов берётся из единого рус-источника таблиц отчёта,
+        # а не из strings_ru.json – там он переводил ключи сами в себя, и в
+        # выдвижной панели канала покупатель видел «Scale»/«Cut».
+        'verdicts':  dict(VERDICT_DISPLAY_RU),
     }, ensure_ascii=True)
 
     return f"""
@@ -448,12 +453,28 @@ def bootstrap_js(
       animation: !PREFERS_REDUCED_MOTION,
       animationDuration: 600,
       textStyle: {{ color: pal.textColor, fontFamily: 'Inter, sans-serif' }},
-      grid: {{ left: 8, right: 8, bottom: 8, top: 8, containLabel: true }},
+      // s55: запас слева 16 (было 8) – ECharts оценивает ширину подписи оси
+      // «25 000 000 000» уже, чем её рисует шрифт отчёта, и первая цифра
+      // обрезалась краем полотна на ~1 px (замер в браузере, образцы s55).
+      grid: {{ left: 16, right: 8, bottom: 8, top: 8, containLabel: true }},
       tooltip: baseTooltip(pal),
+      // s55: подписываются ВСЕ категории (interval: 0) – прежде ECharts молча
+      // прореживал их через одну, и «Итого»/часть каналов пропадали; при >4
+      // категориях подписи повёрнуты, containLabel держит их внутри полотна.
+      // Тот же приём, что у buildForecastCompareOption ниже.
       xAxis: Object.assign({{ type: 'category', data: data.labels }}, baseAxisStyle(pal), {{
-        axisLabel: Object.assign({{}}, baseAxisStyle(pal).axisLabel, {{ rotate: data.labels.length > 6 ? 25 : 0 }})
+        axisLabel: Object.assign({{}}, baseAxisStyle(pal).axisLabel, {{
+          rotate: data.labels.length > 4 ? 20 : 0,
+          interval: 0
+        }})
       }}),
-      yAxis: Object.assign({{ type: 'value' }}, baseAxisStyle(pal)),
+      // s55: ось – русские разделители разрядов, как подписи столбцов ниже и ось
+      // buildForecastCompareOption; было «25,000,000,000» (формат ECharts по умолчанию).
+      yAxis: Object.assign({{ type: 'value' }}, baseAxisStyle(pal), {{
+        axisLabel: Object.assign({{}}, baseAxisStyle(pal).axisLabel, {{
+          formatter: function(v) {{ return Math.round(v).toLocaleString('ru-RU'); }}
+        }})
+      }}),
       series: [{{
         type: 'bar',
         data: data.values.map(function(v, i) {{
@@ -888,7 +909,9 @@ def bootstrap_js(
              '<span style="color:var(--text-muted);">' + escapeHtml(lbl) + '</span>' +
              '<span style="color:var(--text);font-weight:600;">' + escapeHtml(val) + '</span></div>';
     }}
-    var verdictText = (STRINGS.verdicts && STRINGS.verdicts[d.verdict]) || d.verdict;
+    // verdict_display – та же смягчённая подпись, что в ячейке таблицы
+    // («Увеличить (предв.)»); словарь – запасной путь для старых данных.
+    var verdictText = d.verdict_display || (STRINGS.verdicts && STRINGS.verdicts[d.verdict]) || d.verdict;
     // Whitelist verdict against known values to avoid class-attr injection.
     var safeVerdict = /^[A-Za-z]+$/.test(String(d.verdict || '')) ? d.verdict : 'Watch';
     return '<div>' +

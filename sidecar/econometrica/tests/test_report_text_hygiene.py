@@ -126,6 +126,10 @@ def test_pptx_honest_no_bare_baseline(honest_payload, tmp_path):
     """П8-2: «baseline» не встречается голым в клиентском PPTX."""
     prs = AuroraPPTXBuilder(honest_payload).build()
     txt = _pptx_text(prs)
+    # s55: узаконен ровно заголовок термина глоссария «Базовые продажи (Baseline)»
+    # (решение владельца 28.09, тот же термин, что в _LEGITIMISED_TERMS для HTML).
+    # Одна строка-рамка целиком, не подстрока: «baseline» в прозе ловится как прежде.
+    txt = "\n".join(l for l in txt.split("\n") if l.strip() != "Базовые продажи (Baseline)")
     hits = BASELINE_RE.findall(txt)
     assert not hits, f"П8-2: голый baseline в PPTX: {txt[max(0,txt.lower().find('baseline')-40):txt.lower().find('baseline')+60]!r}"
 
@@ -383,7 +387,8 @@ _SECTION_RENDER_BY_ID = dict(SECTION_RENDERERS)
 # отрасли разрешён и почему. Реестр открытый и печатается в охвате: молча
 # разрастись он не может, каждая запись требует обоснования строкой.
 _LEGITIMISED_TERMS = {
-    ("glossary", "Baseline"): (
+    # s55 (решение владельца 28.09): заголовок термина – «русское имя (английское)».
+    ("glossary", "Базовые продажи (Baseline)"): (
         "строка-заголовок термина в глоссарии: определение принятого термина "
         "отрасли, не англицизм в прозе. Тот же приём уже действует для «Adstock»"
     ),
@@ -414,8 +419,9 @@ def test_baseline_rule_still_catches_prose():
     Узаконена строка-заголовок термина; всё, что рядом, ловится по-прежнему —
     иначе исключение молча превратилось бы в разрешение слова везде.
     """
-    assert _bare_baseline_lines("Baseline", "glossary") == []
-    assert _bare_baseline_lines("Baseline", "summary") == ["Baseline"]
+    assert _bare_baseline_lines("Базовые продажи (Baseline)", "glossary") == []
+    assert _bare_baseline_lines("Базовые продажи (Baseline)", "summary") == ["Базовые продажи (Baseline)"]
+    assert _bare_baseline_lines("Baseline", "glossary") == ["Baseline"]
     assert _bare_baseline_lines("Доля baseline выросла", "glossary") == [
         "Доля baseline выросла"
     ]

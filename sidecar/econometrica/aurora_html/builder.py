@@ -25,6 +25,7 @@ from . import themes as themes_mod
 from . import security
 from .sections import SECTION_RENDERERS, _kpi_view, _contrib_scale, _fmt_contrib
 from .interactive import bootstrap_js
+from engines.channel_action import soften_verdict_display
 try:
     from econometrica.engines.narrative_adapter import compute_report_id, _normalize_channel_name
 except ImportError:
@@ -289,6 +290,11 @@ class AuroraHTMLBuilder:
                 "contrib_label": "Вклад, " + drill_unit,
                 "mroas":        float(c.get("mroas") or 0),
                 "verdict":      c.get("verdict") or "Watch",
+                # s55: подпись вердикта для выдвижной панели – тем же путём, что
+                # ячейка таблицы (sections.render_action_table), иначе панель и
+                # таблица расходятся при не-reliable модели.
+                "verdict_display": c.get("verdict_display")
+                    or soften_verdict_display(c.get("verdict") or "Watch", None)[0],
                 "current_spend_mln": round(float(c.get("current_spend") or 0) / 1e6, 2),
                 "optimal_spend_mln": round(float(c.get("optimal_spend") or 0) / 1e6, 2),
             }
@@ -692,7 +698,7 @@ class AuroraHTMLBuilder:
         ui = self.strings["ui"]
 
         doc_title = f"Aurora AI · MMM-отчёт · {self.client}"
-        doc_description = f"Marketing Mix Modeling отчёт от Aurora AI. Report ID: {self.report_id}"
+        doc_description = f"Моделирование маркетингового микса · Отчёт Aurora AI. Номер отчёта: {self.report_id}"
 
         html = shell_tpl.safe_substitute(
             initial_theme=self.initial_theme,
