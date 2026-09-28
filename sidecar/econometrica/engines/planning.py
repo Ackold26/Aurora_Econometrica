@@ -86,8 +86,11 @@ def _days_gap_tolerance(granularity: str) -> float:
 # ─── Строка «итого» в хвосте таблицы (L4, s55) ───────────────────────────────
 
 # Слово-признак итоговой строки в любой текстовой ячейке («Итого», «ИТОГО:»,
-# «Всего», «Grand Total», «Сумма за период»).
-_TOTAL_WORD_RE = re.compile(r"(?<!\w)(итог\w*|всего|total|сумм\w*)(?!\w)", re.IGNORECASE)
+# «Всего», «Grand Total», «Subtotal», «Sum», «Сумма за период»). Одно слово
+# итогом строку не делает – см. `_row_is_total`.
+_TOTAL_WORD_RE = re.compile(
+    r"(?<!\w)(итог\w*|всего|(?:sub)?totals?|sum|сумм\w*)(?!\w)", re.IGNORECASE,
+)
 # Допуск «значение ≈ сумме столбца»: Excel-сумма точна, запас — на округление
 # отображаемых значений при ручном вводе итога.
 _TOTAL_SUM_REL_TOL = 1e-3
@@ -99,34 +102,72 @@ def _row_is_total(
     date_col: str,
     kpi_col: str | None,
 ) -> str | None:
-    """Причина считать строку итоговой: 'word' / 'sums' / None."""
-    for col, val in row.items():
-        if isinstance(val, str) and _TOTAL_WORD_RE.search(val):
-            return "word"
-    # Суммы сверяем с обоими вариантами, которыми их считают в Excel: по всем
-    # строкам выше и только по истории (где KPI заполнен) — итог медиаплана
-    # клиент мог посчитать и так, и так.
-    hist = above
-    if kpi_col and kpi_col in above.columns:
-        hist = above[pd.to_numeric(above[kpi_col], errors="coerce").notna()]
-    n_values = 0
-    n_match = 0
+    """Причина считать строку итоговой: 'word' / 'sums' / None.
+
+    Итог — строка, где есть числа И (слово-признак ИЛИ совпадение с суммами).
+    """
+    values: dict[Any, float] = {}
     for col, val in row.items():
         if col == date_col:
             continue
         v = pd.to_numeric(pd.Series([val]), errors="coerce").iloc[0]
-        if pd.isna(v):
-            continue
-        n_values += 1
-        for part in (above, hist):
-            s = pd.to_numeric(part[col], errors="coerce").sum()
+        if pd.notna(v):
+            values[col] = float(v)
+    # Строка без единого числа — примечание («Источник: …, суммы без НДС»):
+    # KPI в ней пуст, в обучение она не попадает, и слово-признак в тексте
+    # сноски отказа не даёт (M-1, аудит s55).
+    if not values:
+        return None
+    for val in row.values:
+        if isinstance(val, str) and _TOTAL_WORD_RE.search(val):
+            return "word"
+    # Суммы сверяем со всеми вариантами, которыми их считают в Excel: по всем
+    # строкам выше, только по истории (KPI заполнен) и только по плану (KPI
+    # пуст) — итог медиаплана клиент мог посчитать любым из них (H-1, аудит s55).
+    parts = [above]
+    if kpi_col and kpi_col in above.columns:
+        has_kpi = pd.to_numeric(above[kpi_col], errors="coerce").notna()
+        parts += [above[has_kpi], above[~has_kpi]]
+    n_match = 0
+    for col, v in values.items():
+        for part in parts:
+            col_vals = pd.to_numeric(part[col], errors="coerce").dropna()
+            # Сумма столбца с одним ненулевым значением равна ему самому —
+            # совпадение с ней ничего не доказывает.
+            if int((col_vals != 0).sum()) < 2:
+                continue
+            s = col_vals.sum()
             if s != 0 and abs(v - s) <= _TOTAL_SUM_REL_TOL * abs(s):
+                # Значение, равное сумме неотрицательного KPI с ≥2 ненулевыми
+                # строками выше, у настоящего периода невозможно (все прочие
+                # были бы нулями) — итог уже по одной ячейке: «подбили итог
+                # продаж» или суммы лишь в части столбцов (H-2, аудит s55).
+                if col == kpi_col and bool((col_vals >= 0).all()):
+                    return "sums"
                 n_match += 1
                 break
-    # Одно совпадение — случайность; итог повторяет суммы большинства столбцов.
-    if n_match >= 2 and n_match * 2 >= n_values:
+    # Одно совпадение вне KPI — случайность; итог повторяет суммы большинства
+    # столбцов.
+    if n_match >= 2 and n_match * 2 >= len(values):
         return "sums"
     return None
+
+
+def _resolve_role_column(df: "pd.DataFrame", col: str | None, role: str) -> str | None:
+    """Колонка роли: названная, если она есть в таблице, иначе — та, что
+    распознаёт проверка данных (`detect_column_role_with_confidence`).
+
+    Конфиг обучения переоткрытого проекта несёт `date_column='date'` по
+    умолчанию и при файле с «Дата»; без распознавания защита от итога молча
+    выключалась бы (M-2, аудит s55).
+    """
+    if col and col in df.columns:
+        return col
+    from engines.validator import detect_column_role_with_confidence
+    return next(
+        (c for c in df.columns if detect_column_role_with_confidence(str(c))[0] == role),
+        None,
+    )
 
 
 def find_trailing_total_rows(
@@ -136,9 +177,10 @@ def find_trailing_total_rows(
 ) -> list[dict[str, Any]]:
     """Найти строки-итоги в ХВОСТЕ таблицы (после последней строки с датой).
 
-    Итог — строка без распознаваемой даты, в которой есть слово «итого /
-    всего / total / сумма» ИЛИ значения большинства числовых столбцов равны
-    суммам этих столбцов по строкам выше. Такая строка, попав в обучение,
+    Итог — строка без распознаваемой даты, в которой есть числа и слово
+    «итого / всего / total / сумма» ИЛИ значение KPI (либо большинства
+    числовых столбцов) равно сумме столбца по строкам выше — всем, истории
+    или плану. Такая строка, попав в обучение,
     удваивает продажи и бюджеты; в файле с медиапланом она же становится
     лишним «периодом плана» без даты.
 
@@ -147,8 +189,14 @@ def find_trailing_total_rows(
 
     Возвращает [{index, file_row, reason}] в порядке файла: index — метка
     строки в df, file_row — номер строки в файле (заголовок — строка 1).
+    Колонки даты и KPI, которых нет в таблице (или None), распознаются тем же
+    способом, что в проверке данных.
     """
-    if not date_col or date_col not in df.columns or df.empty:
+    if df.empty:
+        return []
+    date_col = _resolve_role_column(df, date_col, "date")
+    kpi_col = _resolve_role_column(df, kpi_col, "kpi")
+    if not date_col:
         return []
     dates = pd.to_datetime(df[date_col], errors="coerce")
     positions = [i for i in range(len(df)) if pd.notna(dates.iloc[i])]

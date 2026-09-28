@@ -173,3 +173,128 @@ def test_bayesian_training_refuses_total_row(tmp_path):
     res = train_model(_train_cfg(p), str(tmp_path / "proj"))
     assert res["status"] == "error"
     assert res["error_code"] == "TOTAL_ROW_IN_DATA"
+
+
+# ─── Аудит s55 (AUDIT_s55_257.md): H-1, H-2, M-1, M-2, L-2 ─────────────────
+
+
+def _append(df: pd.DataFrame, row: dict) -> pd.DataFrame:
+    """Дописать строку без даты; незаданные ячейки пусты."""
+    out = df.copy()
+    out["date"] = out["date"].astype(object)
+    out.loc[len(out)] = {**{c: np.nan for c in out.columns}, "date": None, **row}
+    return out
+
+
+def _plan_rows(df: pd.DataFrame) -> pd.DataFrame:
+    return df[df["sales"].isna()]
+
+
+def test_plan_total_over_plan_rows_only_is_detected(tmp_path):
+    """H-1 сценарий A: итог под бюджетами плана, посчитанный только по строкам плана."""
+    df = _frame(n_plan=6)
+    plan = _plan_rows(df)
+    out = _append(df, {"tv_spend": plan["tv_spend"].sum(),
+                       "digital_spend": plan["digital_spend"].sum()})
+    assert find_trailing_total_rows(out, "date", "sales") == [
+        {"index": N_HIST + 6, "file_row": N_HIST + 6 + 2, "reason": "sums"}]
+    res = _validate(_save(out, tmp_path))
+    assert len(_total_issues(res)) == 1
+    plan_det = res["media_plan_detected"]
+    assert plan_det["n_future_periods"] == 6
+    assert None not in plan_det["future_dates"]
+
+
+def test_plan_total_with_zero_kpi_refused_by_training(tmp_path):
+    """H-1 сценарий B: итог плана по всем столбцам, в ячейке KPI 0 (=СУММ пустого)."""
+    from engines.ols_modeler import train_ols
+    df = _frame(n_plan=6)
+    plan = _plan_rows(df)
+    out = _append(df, {"sales": 0.0, "tv_spend": plan["tv_spend"].sum(),
+                       "digital_spend": plan["digital_spend"].sum(),
+                       "price_index": plan["price_index"].sum()})
+    p = _save(out, tmp_path)
+    assert len(_total_issues(_validate(p))) == 1
+    res = train_ols(_train_cfg(p), str(tmp_path / "proj"))
+    assert res["status"] == "error"
+    assert res["error_code"] == "TOTAL_ROW_IN_DATA"
+
+
+def test_kpi_sum_alone_is_a_total(tmp_path):
+    """H-2: «подбили итог продаж» – одна ячейка, сумма KPI."""
+    from engines.ols_modeler import train_ols
+    df = _frame()
+    out = _append(df, {"sales": df["sales"].sum()})
+    assert [r["reason"] for r in find_trailing_total_rows(out, "date", "sales")] == ["sums"]
+    p = _save(out, tmp_path)
+    res = train_ols(_train_cfg(p), str(tmp_path / "proj"))
+    assert res["error_code"] == "TOTAL_ROW_IN_DATA"
+
+
+def test_kpi_sum_with_averaged_other_columns_is_a_total():
+    """H-2: сумма по KPI, средние по прочим столбцам (совпадений меньше половины)."""
+    df = _frame()
+    out = _append(df, {"sales": df["sales"].sum(), "tv_spend": df["tv_spend"].mean(),
+                       "digital_spend": df["digital_spend"].mean(),
+                       "price_index": df["price_index"].mean()})
+    assert [r["reason"] for r in find_trailing_total_rows(out, "date", "sales")] == ["sums"]
+
+
+def test_single_non_kpi_sum_match_is_not_a_total():
+    """Одно совпадение вне KPI – по-прежнему случайность."""
+    df = _frame()
+    last = df.iloc[-1]
+    out = _append(df, {"sales": last["sales"], "tv_spend": df["tv_spend"].sum(),
+                       "digital_spend": last["digital_spend"],
+                       "price_index": last["price_index"]})
+    assert find_trailing_total_rows(out, "date", "sales") == []
+
+
+def test_kpi_with_negative_values_needs_majority():
+    """KPI со знаком (прибыль): одно совпадение с суммой ничего не доказывает."""
+    df = _frame()
+    df["sales"] = df["sales"] - 1500.0
+    last = df.iloc[-1]
+    out = _append(df, {"sales": df["sales"].sum(), "tv_spend": last["tv_spend"],
+                       "digital_spend": last["digital_spend"],
+                       "price_index": last["price_index"]})
+    assert find_trailing_total_rows(out, "date", "sales") == []
+
+
+@pytest.mark.parametrize("note", [
+    "Источник: внутренняя отчётность клиента, суммы без НДС",
+    "Примечание: всего 48 месяцев, 2025 – предварительные данные",
+    "Source: client data, total market excluded",
+], ids=["summ", "vsego", "total_en"])
+def test_note_row_with_total_word_but_no_numbers_is_not_a_total(tmp_path, note):
+    """M-1: строка-сноска без чисел в хвосте – не итог, обучение идёт."""
+    from engines.ols_modeler import train_ols
+    out = _append(_frame(), {"date": note})
+    assert find_trailing_total_rows(out, "date", "sales") == []
+    p = _save(out, tmp_path)
+    res = _validate(p)
+    assert _total_issues(res) == []
+    assert res["status"] != "error"
+    tr = train_ols(_train_cfg(p), str(tmp_path / "proj"))
+    assert tr["status"] == "ok", tr.get("message")
+
+
+def test_training_detects_date_column_when_config_names_default(tmp_path):
+    """M-2: в файле «Дата», в конфиге переоткрытого проекта date_column='date'."""
+    from engines.ols_modeler import train_ols
+    from engines.modeler import train_model
+    out = _with_total(_frame(), None).rename(columns={"date": "Дата"})
+    assert [r["file_row"] for r in find_trailing_total_rows(out, "date", "sales")] == [N_HIST + 2]
+    p = _save(out, tmp_path)
+    cfg = _train_cfg(p)
+    assert cfg["date_column"] == "date"
+    assert train_ols(cfg, str(tmp_path / "proj"))["error_code"] == "TOTAL_ROW_IN_DATA"
+    assert train_model(cfg, str(tmp_path / "proj_b"))["error_code"] == "TOTAL_ROW_IN_DATA"
+
+
+@pytest.mark.parametrize("word", ["Totals", "Subtotal", "Sum"])
+def test_english_total_words_detected(word):
+    """L-2: «Totals», «Subtotal», «Sum» при числе в строке."""
+    df = _frame()
+    out = _append(df, {"date": word, "sales": 1.0})
+    assert [r["reason"] for r in find_trailing_total_rows(out, "date", "sales")] == ["word"]

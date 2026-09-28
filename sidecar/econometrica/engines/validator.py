@@ -545,15 +545,9 @@ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, A
     _total_rows_issue: dict | None = None
     try:
         from engines.planning import find_trailing_total_rows, total_rows_message
-        _total_date_col = next(
-            (c for c in df.columns if detect_column_role_with_confidence(str(c))[0] == 'date'),
-            None,
-        )
-        _total_kpi_col = next(
-            (c for c in df.columns if detect_column_role_with_confidence(str(c))[0] == 'kpi'),
-            None,
-        )
-        _total_rows = find_trailing_total_rows(df, _total_date_col, _total_kpi_col)
+        # Колонки даты и KPI детектор распознаёт сам – тем же способом, что и
+        # при обучении (единый источник, M-2 аудита s55).
+        _total_rows = find_trailing_total_rows(df, None, None)
         if _total_rows:
             _total_rows_issue = {
                 'type': 'total_row_in_data',

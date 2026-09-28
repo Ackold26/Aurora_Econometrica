@@ -178,7 +178,14 @@
   StrCpy $1 0
 ${TAG}_check:
   ; `find` возвращает 0, когда строка НАЙДЕНА, то есть процесс ещё жив.
-  nsExec::Exec 'cmd /c tasklist /FI "IMAGENAME eq ${IMAGE}" /NH | "$SYSDIR\find.exe" /I "${IMAGE}"'
+  ; 🔴 M-4 (аудит s55, 2026-09-28): вывод tasklist – CSV, не таблица. Таблица режет имя
+  ; образа до 25 знаков, а у интерфейса их 27 (`aurora-econometrica-gui.e`) – `find`
+  ; полного имени не находил, и для интерфейса проверка с 18.09 всегда отвечала «процесса
+  ; нет»: ни снятия, ни окна «BLOCKED» для случая V77. В CSV имя целиком и в кавычках;
+  ; ищем его вместе с кавычками (в строке `find` кавычка внутри – удвоенная), чтобы
+  ; совпадало только поле имени. Проба s55: копия ping.exe под именем из 32 знаков –
+  ; прежняя проверка «нет», эта «жив». Фильтра по учётной записи здесь по-прежнему нет.
+  nsExec::Exec 'cmd /c tasklist /FI "IMAGENAME eq ${IMAGE}" /FO CSV /NH | "$SYSDIR\find.exe" /I """${IMAGE}"""'
   Pop $0
   StrCmp $0 "0" 0 ${TAG}_gone
   IntCmp $1 ${AURORA_KILL_ATTEMPTS} ${TAG}_stuck 0 ${TAG}_stuck

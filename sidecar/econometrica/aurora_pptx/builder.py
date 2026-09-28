@@ -2023,101 +2023,113 @@ class AuroraPPTXBuilder:
         else:
             bar_labels = ["Digital video", "Search", "TV", "OOH", "Social", "Print"]
             bar_values = [1.9, 1.7, 1.5, 1.2, 1.0, 0.7]
-        hero_idx = 0  # always best after KPI-aware sort - hero at index 0
-
-        chart_data = CategoryChartData()
-        # Reversed: PPTX bar chart renders first category at bottom
-        chart_data.categories = list(reversed(bar_labels))
-        # v1.3.2: series label per KPI.
-        chart_data.add_series(self.kpi["metric_short"], list(reversed(bar_values)))
-
         bar_area_x = chart_x
         bar_area_y = chart_y + 0.75
         bar_area_w = chart_w
         bar_area_h = 2.9
 
-        graphic_frame = slide.shapes.add_chart(
-            XL_CHART_TYPE.BAR_CLUSTERED,
-            Inches(bar_area_x), Inches(bar_area_y),
-            Inches(bar_area_w), Inches(bar_area_h),
-            chart_data,
-        )
-        chart = graphic_frame.chart
-        chart.has_legend = False
-        chart.has_title = False
-
-        # Color discipline: ONE gold hero bar (Digital video = last after reverse), others muted
-        series = chart.plots[0].series[0]
-        # reversed order - hero is at index len-1
-        reversed_hero = len(bar_values) - 1 - hero_idx
-        for i, point in enumerate(series.points):
-            point.format.fill.solid()
-            point.format.fill.fore_color.rgb = self.gold if i == reversed_hero else self.deep_40
-            point.format.line.fill.background()
-
-        # Data labels on bar ends - v1.3.2 audit fix (B1): format per KPI.
-        # - effectiveness: native '0.0%' format auto-multiplies fraction by 100
-        #   (PPTX/Excel built-in % handling). Pre-fix '0.0"%"' literal "%" suffix
-        #   showed 0.25 → "0.25%" instead of 25.0%.
-        # - count: bars already inverted to CPU (₽/ед.) above. Plain integer
-        #   format с unit suffix in literal text.
-        # - monetary: × multiplier, 1-decimal.
-        plot = chart.plots[0]
-        plot.has_data_labels = True
-        data_labels = plot.data_labels
-        if self.kpi["mode"] == "effectiveness":
-            data_labels.number_format = '0.0%'  # native percent - auto-multiplies
-        elif self.kpi["kpi_kind"] == "count":
-            data_labels.number_format = '0" ₽/ед."'
+        # M-5 (аудит s55): у всех каналов mROAS ≤ 0 – категорий нет, и
+        # add_chart падал «chart data contains no categories», выгрузка PPTX
+        # не строилась вовсе (HTML того же набора строился). Вместо диаграммы –
+        # честная надпись.
+        if not bar_labels:
+            self._text(
+                slide, bar_area_x, bar_area_y, bar_area_w, 0.6,
+                "Ни у одного канала нет положительной отдачи в этой модели – "
+                "сравнивать на диаграмме нечего.",
+                font=self.sans, size=11, color=self.deep_80,
+            )
         else:
-            data_labels.number_format = '0.0"×"'
-        data_labels.font.size = Pt(10)
-        data_labels.font.name = self.sans
-        data_labels.font.color.rgb = self.deep_80
-        from pptx.enum.chart import XL_DATA_LABEL_POSITION
-        try:
-            data_labels.position = XL_DATA_LABEL_POSITION.OUTSIDE_END
-        except Exception:
-            pass
+            hero_idx = 0  # always best after KPI-aware sort - hero at index 0
 
-        # Axis styling - minimalist (tier-1 MBB spec)
-        cat_axis = chart.category_axis
-        cat_axis.tick_labels.font.size = Pt(10)
-        cat_axis.tick_labels.font.name = self.sans
-        cat_axis.tick_labels.font.color.rgb = self.deep_100
-        cat_axis.format.line.fill.background()  # no axis line
+            chart_data = CategoryChartData()
+            # Reversed: PPTX bar chart renders first category at bottom
+            chart_data.categories = list(reversed(bar_labels))
+            # v1.3.2: series label per KPI.
+            chart_data.add_series(self.kpi["metric_short"], list(reversed(bar_values)))
 
-        val_axis = chart.value_axis
-        val_axis.visible = False  # hide numeric value axis (labels are direct)
-        val_axis.minimum_scale = 0
-        # v1.3.2 audit fix: adaptive axis scale + tick interval per KPI.
-        # - monetary: mROAS× values 0..5+; tick 0.5, min span 2.2.
-        # - count: CPU ₽/ед. values 10..200+; tick auto-derived.
-        # - effectiveness: fractions 0..1 native; tick 0.2, max ~1.15.
-        _max_v = max(bar_values) if bar_values else 2.0
-        if self.kpi["mode"] == "effectiveness":
-            val_axis.major_unit = 0.2
-            val_axis.maximum_scale = max(1.0, _max_v * 1.15)
-        elif self.kpi["kpi_kind"] == "count":
-            # CPU domain: tick ≈ 1/10 of max; max accommodate clipping headroom.
-            val_axis.major_unit = max(10, _max_v / 10)
-            val_axis.maximum_scale = max(20, _max_v * 1.15)
-        else:
-            val_axis.major_unit = 0.5
-            val_axis.maximum_scale = max(2.2, _max_v * 1.15)
+            graphic_frame = slide.shapes.add_chart(
+                XL_CHART_TYPE.BAR_CLUSTERED,
+                Inches(bar_area_x), Inches(bar_area_y),
+                Inches(bar_area_w), Inches(bar_area_h),
+                chart_data,
+            )
+            chart = graphic_frame.chart
+            chart.has_legend = False
+            chart.has_title = False
 
-        # Gap between bars
-        from pptx.oxml.ns import qn
-        ser = series._element
-        ser_pr = ser.find(qn('c:spPr'))
-        # Set gap width via XML (python-pptx limitation for gap_width)
-        try:
-            bar_chart = chart.plots[0]._element
-            gap = bar_chart.find(qn('c:gapWidth'))
-            if gap is not None:
-                gap.set('val', '60')
-        except Exception:
-            pass
+            # Color discipline: ONE gold hero bar (Digital video = last after reverse), others muted
+            series = chart.plots[0].series[0]
+            # reversed order - hero is at index len-1
+            reversed_hero = len(bar_values) - 1 - hero_idx
+            for i, point in enumerate(series.points):
+                point.format.fill.solid()
+                point.format.fill.fore_color.rgb = self.gold if i == reversed_hero else self.deep_40
+                point.format.line.fill.background()
+
+            # Data labels on bar ends - v1.3.2 audit fix (B1): format per KPI.
+            # - effectiveness: native '0.0%' format auto-multiplies fraction by 100
+            #   (PPTX/Excel built-in % handling). Pre-fix '0.0"%"' literal "%" suffix
+            #   showed 0.25 → "0.25%" instead of 25.0%.
+            # - count: bars already inverted to CPU (₽/ед.) above. Plain integer
+            #   format с unit suffix in literal text.
+            # - monetary: × multiplier, 1-decimal.
+            plot = chart.plots[0]
+            plot.has_data_labels = True
+            data_labels = plot.data_labels
+            if self.kpi["mode"] == "effectiveness":
+                data_labels.number_format = '0.0%'  # native percent - auto-multiplies
+            elif self.kpi["kpi_kind"] == "count":
+                data_labels.number_format = '0" ₽/ед."'
+            else:
+                data_labels.number_format = '0.0"×"'
+            data_labels.font.size = Pt(10)
+            data_labels.font.name = self.sans
+            data_labels.font.color.rgb = self.deep_80
+            from pptx.enum.chart import XL_DATA_LABEL_POSITION
+            try:
+                data_labels.position = XL_DATA_LABEL_POSITION.OUTSIDE_END
+            except Exception:
+                pass
+
+            # Axis styling - minimalist (tier-1 MBB spec)
+            cat_axis = chart.category_axis
+            cat_axis.tick_labels.font.size = Pt(10)
+            cat_axis.tick_labels.font.name = self.sans
+            cat_axis.tick_labels.font.color.rgb = self.deep_100
+            cat_axis.format.line.fill.background()  # no axis line
+
+            val_axis = chart.value_axis
+            val_axis.visible = False  # hide numeric value axis (labels are direct)
+            val_axis.minimum_scale = 0
+            # v1.3.2 audit fix: adaptive axis scale + tick interval per KPI.
+            # - monetary: mROAS× values 0..5+; tick 0.5, min span 2.2.
+            # - count: CPU ₽/ед. values 10..200+; tick auto-derived.
+            # - effectiveness: fractions 0..1 native; tick 0.2, max ~1.15.
+            _max_v = max(bar_values) if bar_values else 2.0
+            if self.kpi["mode"] == "effectiveness":
+                val_axis.major_unit = 0.2
+                val_axis.maximum_scale = max(1.0, _max_v * 1.15)
+            elif self.kpi["kpi_kind"] == "count":
+                # CPU domain: tick ≈ 1/10 of max; max accommodate clipping headroom.
+                val_axis.major_unit = max(10, _max_v / 10)
+                val_axis.maximum_scale = max(20, _max_v * 1.15)
+            else:
+                val_axis.major_unit = 0.5
+                val_axis.maximum_scale = max(2.2, _max_v * 1.15)
+
+            # Gap between bars
+            from pptx.oxml.ns import qn
+            ser = series._element
+            ser_pr = ser.find(qn('c:spPr'))
+            # Set gap width via XML (python-pptx limitation for gap_width)
+            try:
+                bar_chart = chart.plots[0]._element
+                gap = bar_chart.find(qn('c:gapWidth'))
+                if gap is not None:
+                    gap.set('val', '60')
+            except Exception:
+                pass
 
         # Breakeven reference note - v1.3.2: text adapts per KPI/mode.
         if self.kpi["mode"] == "effectiveness":
