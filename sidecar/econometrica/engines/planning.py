@@ -9,6 +9,8 @@
   detect_media_plan_tail(df, date_col, kpi_col, media_cols) -> dict
   find_trailing_total_rows(df, date_col, kpi_col) -> list[dict]
   total_rows_message(total_rows) -> str
+  find_undated_rows(df, date_col, kpi_col) -> list[dict]
+  undated_rows_message(undated_rows) -> str
   compute_source_hash(data_file) -> str
   load_frames(data_file, date_col, kpi_col, media_cols) -> dict
   load_saved_forecast(project_dir) -> dict | None
@@ -188,7 +190,8 @@ def find_trailing_total_rows(
     лишним «периодом плана» без даты.
 
     Строки без даты В СЕРЕДИНЕ данных сюда не попадают — это другая ошибка,
-    её обрабатывают как раньше. Полностью пустые строки итогом не считаются.
+    её ловит `find_undated_rows` (s56). Полностью пустые строки итогом не
+    считаются.
 
     Возвращает [{index, file_row, reason}] в порядке файла: index — метка
     строки в df, file_row — номер строки в файле (заголовок — строка 1).
@@ -233,6 +236,84 @@ def total_rows_message(total_rows: list[dict[str, Any]]) -> str:
         f"а в ячейках слово «Итого» или «Среднее» либо суммы столбцов. В расчёт "
         f"их брать нельзя – при обучении они станут лишними периодами и исказят "
         f"продажи и бюджеты. Удалите эти строки из файла и загрузите его заново."
+    )
+
+
+# ─── Строка с числами без даты в любом месте файла (в-1, s56) ────────────────
+
+# Больше номеров строк в тексте отказа не перечисляем – остальные «и ещё K».
+_UNDATED_ROWS_SHOWN = 5
+
+
+def find_undated_rows(
+    df: "pd.DataFrame",
+    date_col: str | None,
+    kpi_col: str | None = None,
+) -> list[dict[str, Any]]:
+    """Найти строки с числами, у которых дата не распознаётся, – в любом
+    месте таблицы: хвост, середина, после медиаплана.
+
+    Зонд s56: строка средних без слова, строка со стёртой датой обучались
+    лишним периодом без единого предупреждения (OLS n_obs 49 вместо 48),
+    а в середине файла ещё и сдвигали адсток следующих периодов.
+
+    «Есть числа» – то же, что в `_row_is_total`: хоть одна ячейка вне колонки
+    даты читается как число. Дата – тот же разбор и та же колонка, что у
+    детектора итогов. Строки-итоги сюда не входят: у них свой текст
+    (`total_rows_message`), одну строку дважды не сообщаем.
+
+    Предохранитель: правило молчит, если колонка даты не найдена или дата
+    распознана не более чем у половины строк с числами, – это формат дат,
+    а не отдельные строки без даты.
+
+    Возвращает [{index, file_row}] в порядке файла, как
+    `find_trailing_total_rows`.
+    """
+    if df.empty:
+        return []
+    date_col = _resolve_role_column(df, date_col, "date")
+    if not date_col:
+        return []
+    dates = pd.to_datetime(df[date_col], errors="coerce")
+    rest = df.drop(columns=[date_col])
+    # Пустую ячейку второй колонки дат (NaT) `to_numeric` превращает в целое
+    # число – числом её не считаем, иначе пустая строка дала бы отказ.
+    has_numbers = (rest.apply(pd.to_numeric, errors="coerce").notna() & rest.notna()).any(axis=1)
+    n_with_numbers = int(has_numbers.sum())
+    n_dated = int((has_numbers & dates.notna()).sum())
+    if n_dated * 2 <= n_with_numbers:
+        return []
+    total_index = {r["index"] for r in find_trailing_total_rows(df, date_col, kpi_col)}
+    return [
+        {"index": df.index[pos], "file_row": pos + 2}
+        for pos in range(len(df))
+        if has_numbers.iloc[pos] and pd.isna(dates.iloc[pos])
+        and df.index[pos] not in total_index
+    ]
+
+
+def undated_rows_message(undated_rows: list[dict[str, Any]]) -> str:
+    """Текст для человека: в каких строках нет даты и что с ними делать."""
+    if len(undated_rows) == 1:
+        return (
+            f"В строке {undated_rows[0]['file_row']} файла нет даты, а в ячейках есть "
+            f"числа. Строку без даты программа не может поставить на шкалу времени: "
+            f"если это итог, среднее или примечание, при обучении она станет лишним "
+            f"периодом и исказит продажи и бюджеты. Заполните дату в этой строке или "
+            f"удалите строку и загрузите файл заново."
+        )
+    nums = ", ".join(str(r["file_row"]) for r in undated_rows[:_UNDATED_ROWS_SHOWN])
+    rest = len(undated_rows) - _UNDATED_ROWS_SHOWN
+    if rest > 0:
+        # «и ещё 4 файла» читалось как «ещё четыре файла» – называем строки явно.
+        word = "строке" if rest % 10 == 1 and rest % 100 != 11 else "строках"
+        nums += f" и ещё в {rest} {word}"
+    return (
+        f"В строках {nums} файла нет даты, а в ячейках есть числа. Строки без даты "
+        f"программа не может поставить на шкалу времени: если это итоги, средние "
+        f"или примечания, при обучении они станут лишними периодами и исказят "
+        f"продажи и бюджеты. Заполните даты в этих строках или удалите строки и "
+        f"загрузите файл заново."
     )
 
 

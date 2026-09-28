@@ -362,6 +362,18 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
             'error_code': 'TOTAL_ROW_IN_DATA',
             'message': total_rows_message(_total_rows),
         }
+    # в-1 (s56): строка с числами без даты в любом месте файла – тот же отказ
+    # и по той же причине (остальные движки читают файл сами).
+    from engines.planning import find_undated_rows, undated_rows_message
+    _undated_rows = find_undated_rows(
+        df, config.get('date_column', 'date'), config.get('kpi_column'),
+    )
+    if _undated_rows:
+        return {
+            'status': 'error',
+            'error_code': 'UNDATED_ROW_IN_DATA',
+            'message': undated_rows_message(_undated_rows),
+        }
 
     # ─── Отпечаток исходных данных (воспроизводимость) ───────────────────
     # Снимаем ЗДЕСЬ, при обучении, а не при выпуске документа: у большинства

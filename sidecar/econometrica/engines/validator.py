@@ -555,10 +555,34 @@ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, A
                 'message': total_rows_message(_total_rows),
                 'severity': 'critical',
             }
-            df = df.drop(index=[r['index'] for r in _total_rows]).reset_index(drop=True)
-            n_rows = len(df)
     except Exception:
+        _total_rows = []
         logger.warning('total-row detection failed — proceeding with full df', exc_info=True)
+
+    # ── Строка с числами без даты в любом месте файла (в-1, s56) ──────────
+    # Обучалась лишним периодом без предупреждения (зонд s56). Итоговые
+    # строки детектор исключает сам – у них свой текст выше. В статистику
+    # такие строки не берём, как и итог.
+    _undated_rows_issue: dict | None = None
+    _undated_rows: list[dict] = []
+    try:
+        from engines.planning import find_undated_rows, undated_rows_message
+        _undated_rows = find_undated_rows(df, None, None)
+        if _undated_rows:
+            _undated_rows_issue = {
+                'type': 'undated_row_in_data',
+                'rows': [r['file_row'] for r in _undated_rows],
+                'message': undated_rows_message(_undated_rows),
+                'severity': 'critical',
+            }
+    except Exception:
+        _undated_rows = []
+        logger.warning('undated-row detection failed – proceeding with full df', exc_info=True)
+
+    _drop_index = [r['index'] for r in _total_rows + _undated_rows]
+    if _drop_index:
+        df = df.drop(index=_drop_index).reset_index(drop=True)
+        n_rows = len(df)
 
     # ── Медиаплан-хвост: детекция до любой статистики ──────────────────────
     # Если после исторических строк (KPI заполнен) идут строки будущего (KPI пуст),
@@ -633,6 +657,8 @@ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, A
     warnings = []
     if _total_rows_issue:
         issues.append(_total_rows_issue)
+    if _undated_rows_issue:
+        issues.append(_undated_rows_issue)
 
     # ── Column detection ──
     # П1 (аудит №3 В-3): импорт единого критерия total-budget один раз, не в цикле.

@@ -121,15 +121,17 @@ def test_plan_file_total_with_kpi_keeps_plan_detected(tmp_path):
 # ─── Контроль: чего правка не трогает ────────────────────────────────────────
 
 
-def test_blank_date_in_the_middle_is_not_a_total(tmp_path):
-    """Пустая дата в середине данных — другая ошибка, прежнее поведение."""
+def test_blank_date_in_the_middle_is_undated_not_total(tmp_path):
+    """Пустая дата в середине данных – не итог, а строка без даты (s56,
+    `test_undated_row_s56.py`): свой отказ, в статистику не входит."""
     df = _frame()
     df["date"] = df["date"].astype(object)
     df.loc[10, "date"] = None
     assert find_trailing_total_rows(df, "date", "sales") == []
     res = _validate(_save(df, tmp_path))
     assert _total_issues(res) == []
-    assert res["file"]["rows"] == N_HIST
+    assert [i["rows"] for i in res["issues"] if i["type"] == "undated_row_in_data"] == [[12]]
+    assert res["file"]["rows"] == N_HIST - 1
 
 
 def test_trailing_row_without_date_and_without_totals_is_not_flagged():
