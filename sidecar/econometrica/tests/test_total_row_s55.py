@@ -298,3 +298,68 @@ def test_english_total_words_detected(word):
     df = _frame()
     out = _append(df, {"date": word, "sales": 1.0})
     assert [r["reason"] for r in find_trailing_total_rows(out, "date", "sales")] == ["word"]
+
+
+# ─── Аудит s55 (AUDIT_s55_fix.md): L-1n – строка средних в хвосте ────────────
+
+
+def _means(df: pd.DataFrame) -> dict:
+    return {c: df[c].mean() for c in ("sales", "tv_spend", "digital_spend", "price_index")}
+
+
+def test_average_row_with_label_in_other_column_refused_by_training(tmp_path):
+    """L-1n: «Среднее» в текстовой колонке, дата пуста – до правки строка
+    обучалась лишним периодом (OLS n_obs 21 вместо 20 на зонде)."""
+    from engines.ols_modeler import train_ols
+    df = _frame()
+    df["comment"] = ""
+    out = _append(df, {**_means(df), "comment": "Среднее"})
+    assert find_trailing_total_rows(out, "date", "sales") == [
+        {"index": N_HIST, "file_row": N_HIST + 2, "reason": "word"}]
+    p = _save(out, tmp_path)
+    res = train_ols(_train_cfg(p), str(tmp_path / "proj"))
+    assert res["status"] == "error"
+    assert res["error_code"] == "TOTAL_ROW_IN_DATA"
+    assert "итоговую или среднюю" in res["message"]
+
+
+def test_average_row_in_date_column_is_critical_not_raw_crash(tmp_path):
+    """L-1n: «Среднее» в колонке даты – критическая проблема проверки данных,
+    а байесовское обучение отказывает понятным текстом, а не DateParseError."""
+    from engines.modeler import train_model
+    df = _frame()
+    out = _append(df, {**_means(df), "date": "Среднее"})
+    p = _save(out, tmp_path)
+    res = _validate(p)
+    issues = _total_issues(res)
+    assert [i["rows"] for i in issues] == [[N_HIST + 2]]
+    assert issues[0]["severity"] == "critical"
+    assert res["status"] == "error"
+    tr = train_model(_train_cfg(p), str(tmp_path / "proj"))
+    assert tr["status"] == "error"
+    assert tr["error_code"] == "TOTAL_ROW_IN_DATA"
+
+
+@pytest.mark.parametrize("word", ["Average", "Mean", "AVG", "Средние значения"])
+def test_average_words_detected(word):
+    df = _frame()
+    out = _append(df, {**_means(df), "date": word})
+    assert [r["reason"] for r in find_trailing_total_rows(out, "date", "sales")] == ["word"]
+
+
+def test_average_note_without_numbers_is_not_a_total(tmp_path):
+    """Примечание «среднее за период» без чисел – не итог (как M-1)."""
+    from engines.ols_modeler import train_ols
+    out = _append(_frame(), {"date": "* среднее за период – по данным клиента"})
+    assert find_trailing_total_rows(out, "date", "sales") == []
+    p = _save(out, tmp_path)
+    assert _total_issues(_validate(p)) == []
+    assert train_ols(_train_cfg(p), str(tmp_path / "proj"))["status"] == "ok"
+
+
+def test_column_named_average_check_does_not_trigger(tmp_path):
+    """Слово в ЗАГОЛОВКЕ колонки («Средний чек») на детектор не влияет."""
+    df = _frame()
+    df["Средний чек"] = np.random.RandomState(5).uniform(500, 700, len(df))
+    assert find_trailing_total_rows(df, "date", "sales") == []
+    assert _total_issues(_validate(_save(df, tmp_path))) == []

@@ -4,7 +4,9 @@
 (HTML того же набора строился). Дефект был и до 2.5.7 (`a9234fac`).
 
 Стережём: (1) выгрузка строится, на слайде вместо диаграммы – надпись;
-(2) при обычных данных диаграмма на месте.
+(2) при обычных данных диаграмма на месте;
+(3) подпись к диаграмме «1.0× = безубыточность» – только при диаграмме
+(L-3n, аудит s55: висела над надписью).
 """
 from __future__ import annotations
 
@@ -18,6 +20,7 @@ _HERE = os.path.dirname(os.path.abspath(__file__))
 _FIXTURE = os.path.join(_HERE, "fixtures", "kagocel_builder_payload.json")
 _TITLE = "MROAS ПО КАНАЛАМ / МУЛЬТИПЛИКАТОР"
 _NOTE = "Ни у одного канала нет положительной отдачи"
+_BREAKEVEN = "безубыточность"
 
 
 def _payload() -> dict:
@@ -45,6 +48,7 @@ def test_all_channels_nonpositive_mroas_builds_with_note():
     assert slide is not None
     assert any(_NOTE in t for t in texts)
     assert not any(sh.has_chart for sh in slide.shapes)
+    assert not any(_BREAKEVEN in t for t in texts)
 
 
 def test_positive_mroas_keeps_chart():
@@ -53,3 +57,4 @@ def test_positive_mroas_keeps_chart():
     assert slide is not None
     assert any(sh.has_chart for sh in slide.shapes)
     assert not any(_NOTE in t for t in texts)
+    assert any(_BREAKEVEN in t for t in texts)

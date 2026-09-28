@@ -2142,12 +2142,15 @@ class AuroraPPTXBuilder:
                 breakeven_note = "Чем ниже CPU, тем дешевле каждая единица"
         else:
             breakeven_note = "1.0× = безубыточность  ·  выше = прибыльно"
-        self._text(
-            slide, chart_x + chart_w - 2.5, bar_area_y - 0.22, 2.5, 0.18,
-            breakeven_note,
-            font=self.sans, size=7, italic=True, color=self.deep_60,
-            align=PP_ALIGN.RIGHT,
-        )
+        # Подпись к диаграмме – только когда диаграмма есть: при mROAS ≤ 0 у
+        # всех каналов вместо неё надпись M-5 (L-3n, аудит s55).
+        if bar_labels:
+            self._text(
+                slide, chart_x + chart_w - 2.5, bar_area_y - 0.22, 2.5, 0.18,
+                breakeven_note,
+                font=self.sans, size=7, italic=True, color=self.deep_60,
+                align=PP_ALIGN.RIGHT,
+            )
 
         # Source at bottom (unified position max low to footer hairline)
         _src_text = (
