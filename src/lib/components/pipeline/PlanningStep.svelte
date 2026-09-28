@@ -55,6 +55,7 @@
   import PromisesCard from './PromisesCard.svelte';
   import BacktestCard from './BacktestCard.svelte';
   import { planningLiveState } from '$lib/planning-live-state.js';
+  import { formatMediaPlanSpan, ruPlanPeriodsForm } from '$lib/period-format.js';
   import { Info, AlertTriangle, ChevronDown } from 'lucide-svelte';
 
   // ── Helpers ───────────────────────────────────────────────────────────────
@@ -759,9 +760,9 @@
     <section class="mediaplan-section">
       <h3 class="section-title">Базовый план из файла</h3>
       <p class="section-note">
-        Обнаружено {mpData.n_future_periods} {mpData.granularity === 'week' ? 'недель' : 'периодов'}
-        {#if mpData.period_labels?.length}
-          ({mpData.period_labels[0]} – {mpData.period_labels[mpData.period_labels.length - 1]})
+        Обнаружено {ruPlanPeriodsForm(mpData.n_future_periods, mpData.granularity)}
+        {#if formatMediaPlanSpan(mpData)}
+          ({formatMediaPlanSpan(mpData)})
         {/if}
       </p>
       {#if mpData.warnings?.length}

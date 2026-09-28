@@ -535,6 +535,37 @@ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, A
                         'дата, продажи (KPI) и медиа-каналы.'),
         }
 
+    # ── Строка «итого» в хвосте таблицы (L4, s55) ─────────────────────────
+    # Проба на демо-файле: строка без даты с суммами проходила проверку со
+    # статусом «ok» без единого предупреждения и уходила в обучение как ещё
+    # один период (продажи удваивались); в файле с медиапланом она же ломала
+    # распознавание плана. В статистику и детекцию плана её не берём, человеку
+    # сообщаем номер строки. Обучение на таком файле движок не запускает
+    # (modeler/ols_modeler), поэтому проблема критическая, а не совет.
+    _total_rows_issue: dict | None = None
+    try:
+        from engines.planning import find_trailing_total_rows, total_rows_message
+        _total_date_col = next(
+            (c for c in df.columns if detect_column_role_with_confidence(str(c))[0] == 'date'),
+            None,
+        )
+        _total_kpi_col = next(
+            (c for c in df.columns if detect_column_role_with_confidence(str(c))[0] == 'kpi'),
+            None,
+        )
+        _total_rows = find_trailing_total_rows(df, _total_date_col, _total_kpi_col)
+        if _total_rows:
+            _total_rows_issue = {
+                'type': 'total_row_in_data',
+                'rows': [r['file_row'] for r in _total_rows],
+                'message': total_rows_message(_total_rows),
+                'severity': 'critical',
+            }
+            df = df.drop(index=[r['index'] for r in _total_rows]).reset_index(drop=True)
+            n_rows = len(df)
+    except Exception:
+        logger.warning('total-row detection failed — proceeding with full df', exc_info=True)
+
     # ── Медиаплан-хвост: детекция до любой статистики ──────────────────────
     # Если после исторических строк (KPI заполнен) идут строки будущего (KPI пуст),
     # статистику и ratio считаем только по истории. Хвост не скрываем — возвращаем
@@ -606,6 +637,8 @@ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, A
 
     issues = []
     warnings = []
+    if _total_rows_issue:
+        issues.append(_total_rows_issue)
 
     # ── Column detection ──
     # П1 (аудит №3 В-3): импорт единого критерия total-budget один раз, не в цикле.

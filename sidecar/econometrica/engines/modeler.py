@@ -347,6 +347,22 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
     else:
         df = pd.read_excel(data_file)
 
+    # L4 (s55): строка «итого» в хвосте файла прошла бы фильтр пустого KPI
+    # ниже и обучилась как ещё один период с удвоенными продажами. Молча
+    # выбросить её здесь нельзя — остальные движки (декомпозиция, сценарии,
+    # проверка на истории) читают тот же файл сами и разошлись бы с моделью.
+    # Поэтому отказ с номером строки — тот же текст, что в проверке данных.
+    from engines.planning import find_trailing_total_rows, total_rows_message
+    _total_rows = find_trailing_total_rows(
+        df, config.get('date_column', 'date'), config.get('kpi_column'),
+    )
+    if _total_rows:
+        return {
+            'status': 'error',
+            'error_code': 'TOTAL_ROW_IN_DATA',
+            'message': total_rows_message(_total_rows),
+        }
+
     # ─── Отпечаток исходных данных (воспроизводимость) ───────────────────
     # Снимаем ЗДЕСЬ, при обучении, а не при выпуске документа: у большинства
     # обученных моделей исходного файла по записанному в конфиге пути уже

@@ -87,6 +87,19 @@ def train_ols(config: dict, project_dir: str, progress_callback=None) -> dict[st
     else:
         df = pd.read_excel(data_file)
 
+    # L4 (s55): строка «итого» в хвосте файла — отказ, симметрично modeler.py
+    # (там же объяснение, почему не молчаливый отсев).
+    from engines.planning import find_trailing_total_rows, total_rows_message
+    _total_rows = find_trailing_total_rows(
+        df, config.get('date_column', 'date'), config.get('kpi_column'),
+    )
+    if _total_rows:
+        return {
+            'status': 'error',
+            'error_code': 'TOTAL_ROW_IN_DATA',
+            'message': total_rows_message(_total_rows),
+        }
+
     kpi_col = config['kpi_column']
     # Аудит 2026-07-10 (High): хвост-медиаплан (KPI пуст) без фильтра уходил бы
     # в fillna(0) → обучение на фейковых нулевых продажах при ненулевых тратах.

@@ -83,6 +83,7 @@
   // single source of truth с column_detection.py.
   import { detectChannelUnitType as detectChannelType } from '$lib/services/classifier-patterns.js';
   import { TriangleAlert } from 'lucide-svelte';
+  import { formatMediaPlanSpan, ruPlanPeriodsForm } from '$lib/period-format.js';
 
   /** Channel sums (Σ единиц за весь период) из validateData. Используется
    *  AppliedModeSummary для derivation unit_cost из «общего бюджета»
@@ -1268,9 +1269,9 @@
       <div class="mp-banner-content">
         <p class="mp-banner-title">Найден план на будущее</p>
         <p class="mp-banner-desc">
-          {mp.n_future_periods} {mp.granularity === 'week' ? 'недель' : 'периодов'}
-          {#if mp.period_labels?.length}
-            ({mp.period_labels[0]} – {mp.period_labels[mp.period_labels.length - 1]})
+          {ruPlanPeriodsForm(mp.n_future_periods, mp.granularity)}
+          {#if formatMediaPlanSpan(mp)}
+            ({formatMediaPlanSpan(mp)})
           {/if}
           – это ваш медиаплан?
         </p>

@@ -7,6 +7,8 @@
 
 Публичное API:
   detect_media_plan_tail(df, date_col, kpi_col, media_cols) -> dict
+  find_trailing_total_rows(df, date_col, kpi_col) -> list[dict]
+  total_rows_message(total_rows) -> str
   compute_source_hash(data_file) -> str
   load_frames(data_file, date_col, kpi_col, media_cols) -> dict
   load_saved_forecast(project_dir) -> dict | None
@@ -17,6 +19,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import re
 from pathlib import Path
 from typing import Any
 
@@ -78,6 +81,108 @@ def _days_gap_tolerance(granularity: str) -> float:
         "Q": 10.0,
         "Y": 30.0,
     }.get(granularity, 3.0)
+
+
+# ─── Строка «итого» в хвосте таблицы (L4, s55) ───────────────────────────────
+
+# Слово-признак итоговой строки в любой текстовой ячейке («Итого», «ИТОГО:»,
+# «Всего», «Grand Total», «Сумма за период»).
+_TOTAL_WORD_RE = re.compile(r"(?<!\w)(итог\w*|всего|total|сумм\w*)(?!\w)", re.IGNORECASE)
+# Допуск «значение ≈ сумме столбца»: Excel-сумма точна, запас — на округление
+# отображаемых значений при ручном вводе итога.
+_TOTAL_SUM_REL_TOL = 1e-3
+
+
+def _row_is_total(
+    row: "pd.Series",
+    above: "pd.DataFrame",
+    date_col: str,
+    kpi_col: str | None,
+) -> str | None:
+    """Причина считать строку итоговой: 'word' / 'sums' / None."""
+    for col, val in row.items():
+        if isinstance(val, str) and _TOTAL_WORD_RE.search(val):
+            return "word"
+    # Суммы сверяем с обоими вариантами, которыми их считают в Excel: по всем
+    # строкам выше и только по истории (где KPI заполнен) — итог медиаплана
+    # клиент мог посчитать и так, и так.
+    hist = above
+    if kpi_col and kpi_col in above.columns:
+        hist = above[pd.to_numeric(above[kpi_col], errors="coerce").notna()]
+    n_values = 0
+    n_match = 0
+    for col, val in row.items():
+        if col == date_col:
+            continue
+        v = pd.to_numeric(pd.Series([val]), errors="coerce").iloc[0]
+        if pd.isna(v):
+            continue
+        n_values += 1
+        for part in (above, hist):
+            s = pd.to_numeric(part[col], errors="coerce").sum()
+            if s != 0 and abs(v - s) <= _TOTAL_SUM_REL_TOL * abs(s):
+                n_match += 1
+                break
+    # Одно совпадение — случайность; итог повторяет суммы большинства столбцов.
+    if n_match >= 2 and n_match * 2 >= n_values:
+        return "sums"
+    return None
+
+
+def find_trailing_total_rows(
+    df: "pd.DataFrame",
+    date_col: str | None,
+    kpi_col: str | None = None,
+) -> list[dict[str, Any]]:
+    """Найти строки-итоги в ХВОСТЕ таблицы (после последней строки с датой).
+
+    Итог — строка без распознаваемой даты, в которой есть слово «итого /
+    всего / total / сумма» ИЛИ значения большинства числовых столбцов равны
+    суммам этих столбцов по строкам выше. Такая строка, попав в обучение,
+    удваивает продажи и бюджеты; в файле с медиапланом она же становится
+    лишним «периодом плана» без даты.
+
+    Строки без даты В СЕРЕДИНЕ данных сюда не попадают — это другая ошибка,
+    её обрабатывают как раньше. Полностью пустые строки итогом не считаются.
+
+    Возвращает [{index, file_row, reason}] в порядке файла: index — метка
+    строки в df, file_row — номер строки в файле (заголовок — строка 1).
+    """
+    if not date_col or date_col not in df.columns or df.empty:
+        return []
+    dates = pd.to_datetime(df[date_col], errors="coerce")
+    positions = [i for i in range(len(df)) if pd.notna(dates.iloc[i])]
+    if not positions:
+        return []
+    last_dated = positions[-1]
+    above = df.iloc[: last_dated + 1]
+    found: list[dict[str, Any]] = []
+    for pos in range(last_dated + 1, len(df)):
+        row = df.iloc[pos]
+        if row.isna().all():
+            continue
+        reason = _row_is_total(row, above, date_col, kpi_col)
+        if reason:
+            found.append({"index": df.index[pos], "file_row": pos + 2, "reason": reason})
+    return found
+
+
+def total_rows_message(total_rows: list[dict[str, Any]]) -> str:
+    """Текст для человека: какие строки похожи на итог и что с ними делать."""
+    nums = ", ".join(str(r["file_row"]) for r in total_rows)
+    if len(total_rows) == 1:
+        return (
+            f"Строка {nums} файла похожа на итоговую: в ней нет даты, а в ячейках "
+            f"слово «Итого» или суммы столбцов. В расчёт её брать нельзя – она "
+            f"удвоит продажи и бюджеты при обучении. Удалите эту строку из файла "
+            f"и загрузите его заново."
+        )
+    return (
+        f"Строки {nums} файла похожи на итоговые: в них нет даты, а в ячейках "
+        f"слово «Итого» или суммы столбцов. В расчёт их брать нельзя – они "
+        f"удвоят продажи и бюджеты при обучении. Удалите эти строки из файла "
+        f"и загрузите его заново."
+    )
 
 
 # ─── Основная функция ────────────────────────────────────────────────────────
