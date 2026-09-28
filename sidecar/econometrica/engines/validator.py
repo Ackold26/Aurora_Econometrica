@@ -251,18 +251,23 @@ def _column_role(col: Any, series: 'pd.Series') -> tuple[str, float, str | None]
 
 # Имя колонки-нумерации: «№», «№ п/п», «п/п», «N».
 _NUMBERING_NAME_RE = re.compile(r'\s*(№|n|п/п|№\s*п/п)\s*', re.IGNORECASE)
+# Нумерацию без имени-признака признаём не короче стольких непустых значений:
+# две-четыре подряд идущих целых бывают и у настоящего канала.
+_NUMBERING_MIN_VALUES = 5
 
 
 def _is_numbering_column(col: Any, series: 'pd.Series') -> bool:
-    """Колонка-нумерация строк: имя «№ / № п/п / N» либо целые, которые
-    по строкам растут ровно на 1. Протянутую ниже данных нумерацию
-    строкой с числами не считаем (A2-M1, аудит s56)."""
+    """Колонка-нумерация строк: имя «№ / № п/п / N» либо не меньше
+    `_NUMBERING_MIN_VALUES` целых, которые по ВСЕМ непустым строкам растут
+    ровно на 1. Протянутую ниже данных нумерацию строкой с числами не
+    считаем (A2-M1, аудит s56). Зовётся только в запасном ходе – при
+    распознанных ролях колонки модели не трогает."""
     if _NUMBERING_NAME_RE.fullmatch(str(col)):
         return True
     if not pd.api.types.is_numeric_dtype(series) or pd.api.types.is_bool_dtype(series):
         return False
     vals = series.dropna()
-    if len(vals) < 2 or not bool((vals == vals.round()).all()):
+    if len(vals) < _NUMBERING_MIN_VALUES or not bool((vals == vals.round()).all()):
         return False
     return bool((vals.diff().iloc[1:] == 1).all())
 

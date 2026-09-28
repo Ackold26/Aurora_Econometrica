@@ -116,6 +116,15 @@ def test_train_model_computes_fingerprint_right_after_read():
     assert read_at < call_at < filter_at, (
         'Отпечаток должен сниматься между чтением файла и отсевом хвоста'
     )
+    # Между чтением и отпечатком таблица не меняется: ни присваивания df,
+    # ни записи в его ячейки/колонки, ни inplace-операций (детекторы итогов и
+    # строк без даты только читают df и при находке выходят с отказом).
+    import re
+    between = source[source.index('\n', read_at):call_at]
+    assert not re.search(
+        r'^\s*df\s*(?:,[^=\n]*)?=(?!=)|^\s*df(?:\.loc|\.iloc)?\[[^\n]*\]\s*=(?!=)|inplace\s*=\s*True',
+        between, re.M,
+    ), 'Между чтением файла и отпечатком таблица df изменяется'
     assert 'data_fingerprint=data_fingerprint' in source, (
         'Отпечаток обязан уходить в environment_snapshot одним снимком, '
         'а не дописываться в паспорт сбоку'

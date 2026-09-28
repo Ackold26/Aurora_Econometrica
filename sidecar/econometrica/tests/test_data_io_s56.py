@@ -253,3 +253,35 @@ def test_validation_and_training_agree_on_russian_csv(tmp_path, sep, encoding):
     assert t_ru["diagnostics"]["n_obs"] == t_c["diagnostics"]["n_obs"] == N
     assert t_ru["diagnostics"]["metrics"]["r_squared"] == pytest.approx(
         t_c["diagnostics"]["metrics"]["r_squared"], rel=1e-9)
+
+
+class _StopAfterFingerprint(Exception):
+    pass
+
+
+def test_fingerprint_taken_from_table_exactly_as_read(tmp_path, monkeypatch):
+    """Свойство, которое стережёт test_train_model_computes_fingerprint_right_after_read,
+    проверено поведением: байес снимает отпечаток с таблицы ровно такой, какой
+    её отдаёт `read_data_file`, – до отсева хвоста медиаплана (KPI пуст) и
+    любых преобразований. Файл – CSV русского Excel с пустой строкой."""
+    import utils.data_fingerprint as fp_mod
+    from engines.modeler import train_model
+    df = _frame()
+    df.loc[N - 3:, "sales"] = np.nan  # хвост медиаплана: 3 периода без KPI
+    lines = [x.replace(";nan;", ";;") for x in _ru_lines(df)]
+    lines = lines[:4] + [""] + lines[4:]
+    p = tmp_path / "data.csv"
+    p.write_text("\r\n".join(lines) + "\r\n", encoding="cp1251", newline="")
+    seen = {}
+
+    def capture(frame, data_file):
+        seen["df"] = frame.copy()
+        raise _StopAfterFingerprint()
+
+    monkeypatch.setattr(fp_mod, "build_data_fingerprint", capture)
+    with pytest.raises(_StopAfterFingerprint):
+        train_model(_cfg(p), str(tmp_path / "proj_b"))
+    as_read = read_data_file(p)
+    assert len(as_read) == N
+    assert as_read["sales"].isna().sum() == 3
+    pd.testing.assert_frame_equal(seen["df"], as_read)

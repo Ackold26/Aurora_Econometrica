@@ -570,7 +570,7 @@ def test_validator_value_columns_follow_detected_roles():
     df = _frame()
     df.insert(0, "№", range(1, len(df) + 1))
     assert _detected_date_and_value_columns(df) == ("date", VALUE_COLS, 1)
-    bare = pd.DataFrame({"date": ["2023-01-01", "2023-02-01"], "x1": [10.0, 25.0],
+    bare = pd.DataFrame({"date": ["2023-01-01", "2023-02-01"], "x1": [1.0, 2.0],
                          "x2": ["a", "b"]})
     assert _detected_date_and_value_columns(bare) == ("date", ["x1"], 1)
 
@@ -927,11 +927,18 @@ def test_number_only_in_control_column_refused_in_training(tmp_path):
 
 
 def test_numbering_column_detection():
-    """A2-M1: нумерация – по имени («№», «№ п/п», «N») или целые с шагом 1
-    по строкам (с протяжкой ниже данных); прочие числовые колонки – нет."""
+    """A2-M1: нумерация – по имени («№», «№ п/п», «N») или не меньше 5 целых
+    с шагом ровно 1 по ВСЕМ непустым строкам (с протяжкой ниже данных);
+    прочие числовые колонки – нет. Короткий отрезок подряд идущих целых
+    (две-четыре строки) нумерацией не считается."""
     from engines.validator import _detected_date_and_value_columns, _is_numbering_column
     step = pd.Series([1, 2, 3, 4, 5, 6])
     assert _is_numbering_column("Строка", step)
+    assert _is_numbering_column("Строка", pd.Series([7, None, 8, 9, 10, 11]))
+    assert not _is_numbering_column("Строка", pd.Series([1, 2]))
+    assert not _is_numbering_column("Строка", pd.Series([1, 2, 3, 4]))
+    assert not _is_numbering_column("ТВ", pd.Series([3, 4, 5, 6, 7, 9]))
+    assert not _is_numbering_column("ТВ", pd.Series([5, 3, 4, 5, 6, 7, 8]))
     assert _is_numbering_column("№ п/п", pd.Series([10.5, 3.0]))
     assert not _is_numbering_column("ТВ", pd.Series([1, 2, 4, 5]))
     assert not _is_numbering_column("ТВ", pd.Series([1.5, 2.5, 3.5]))
@@ -939,3 +946,20 @@ def test_numbering_column_detection():
     df = _norole_frame().rename(columns={"№": "Строка"})
     out = pd.concat([df, pd.DataFrame({"Строка": [53, 54, 55]})], ignore_index=True)
     assert _detected_date_and_value_columns(out) == ("Дата", ["Упаковки", "ТВ", "Интернет"], 2)
+
+
+@pytest.mark.parametrize("channel", ["tv_spend", "price_index"])
+def test_consecutive_integer_channel_untouched_when_roles_known(tmp_path, channel):
+    """A2-M1: детектор нумерации работает только в запасном ходе. При
+    распознанных ролях канал или контроль, чьи значения – целые подряд
+    (1, 2, 3 … в каждой строке), остаётся колонкой модели, и строка без
+    даты с числом только в нём – отказ, как и прежде."""
+    from engines.validator import _detected_date_and_value_columns, _is_numbering_column
+    df = _frame()
+    df[channel] = np.arange(1, len(df) + 1, dtype=float)
+    assert _is_numbering_column(channel, df[channel])
+    assert _detected_date_and_value_columns(df) == ("date", VALUE_COLS, 1)
+    out = _insert(df, len(df), {channel: 5.0})
+    p = _save(out, tmp_path)
+    assert [i["rows"] for i in _issues(_validate(p), "undated_row_in_data")] == [[N_HIST + 2]]
+    assert _ols(p, tmp_path)["error_code"] == "UNDATED_ROW_IN_DATA"
