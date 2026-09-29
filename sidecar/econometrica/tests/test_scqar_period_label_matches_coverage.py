@@ -182,7 +182,8 @@ def test_situation_legacy_kpi_says_weighted_roi_in_russian():
     ctx = _ctx(kpi=None)
     text = _plain(render_executive_summary(ctx))
     assert "Weighted ROI" not in text
-    assert "Средневзвешенный ROI 1.6×" in text
+    # s58 (L-2): две цифры, как в таблицах («1.60×», не «1.6×»).
+    assert "Средневзвешенный ROI 1.60×" in text
 
 
 @pytest.mark.parametrize("kpi, lead", [

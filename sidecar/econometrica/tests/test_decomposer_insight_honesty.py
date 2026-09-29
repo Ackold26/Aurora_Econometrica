@@ -24,9 +24,12 @@ class TestFmtRoi:
         assert _fmt_roi(0.02) == '0.02×'
         assert _fmt_roi(0.04) != _fmt_roi(0.02)
 
-    def test_large_roi_one_decimal(self):
-        assert _fmt_roi(7.5) == '7.5×'
-        assert _fmt_roi(12186.08) == '12186.1×'
+    def test_large_roi_two_decimals_as_in_tables(self):
+        # s58 (L-2): и при ROI ≥ 1 – две цифры, как в таблицах отчётов («1.55×»),
+        # иначе одно число в прозе и в таблице выглядит по-разному («1.6×» / «1.55×»).
+        assert _fmt_roi(7.5) == '7.50×'
+        assert _fmt_roi(1.55) == '1.55×'
+        assert _fmt_roi(12186.08) == '12186.08×'
 
     def test_none_and_nonnumeric_safe(self):
         assert _fmt_roi(None) == '0.00×'   # None → 0.0 → две цифры
@@ -39,7 +42,7 @@ class TestInsightHonesty:
         channels = [_ch('TV', 3.5, gap=12), _ch('OOH', 0.6, gap=-8)]
         ins = _build_channel_insight(channels)
         assert 'TV - самый эффективный канал' in ins
-        assert '3.5×' in ins
+        assert '3.50×' in ins
 
     def test_unprofitable_top_NOT_crowned(self):
         # Лучший канал сам убыточен (0.04× < breakeven) → НЕ «самый эффективный»

@@ -125,7 +125,8 @@ class AuroraHTMLBuilder:
         self.version = self.meta.get('version') or '1.0.12'
         self.report_date = self.meta.get('report_date') or _fmt_ru_date(datetime.now())
         self.generated_dt = datetime.now()
-        self.generated_iso = self.generated_dt.isoformat(timespec='seconds')
+        # s58: подсказка подвала – полное время по-русски, не ISO («2026-09-29T04:24:26»).
+        self.generated_full = self.generated_dt.strftime('%d.%m.%Y %H:%M:%S')
         self.generated_human = _fmt_human_time(self.generated_dt)
 
         # Post-audit (2026-04-25): delegate to shared compute_report_id
@@ -728,7 +729,7 @@ class AuroraHTMLBuilder:
             report_id=security.escape(self.report_id),
             report_id_label=security.escape(ui["footer"]["report_id_label"]),
             generated_label=security.escape(ui["footer"]["generated_label"]),
-            generated_iso=security.escape(self.generated_iso),
+            generated_full=security.escape(self.generated_full),
             generated_human=security.escape(self.generated_human),
             copyright_line=security.escape(
                 self.strings["brand"]["copyright_template"].format(

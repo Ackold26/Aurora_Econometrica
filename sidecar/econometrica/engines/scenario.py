@@ -1393,7 +1393,7 @@ def compare_scenarios(project_dir: str, unit_costs: dict | None = None) -> dict[
 
     insight = (
         f"Лучший сценарий по {roas_label}: «{best['scenario_name']}» "
-        f"(ROAS {best_roas:.1f}×, лифт +{best['totals']['lift_pct']:.1f}%).{warn}"
+        f"(ROAS {best_roas:.2f}×, лифт +{best['totals']['lift_pct']:.1f}%).{warn}"
     )
 
     return {

@@ -86,11 +86,13 @@
   "scqar": {
     "situation": {
       "label": "ПОЛОЖЕНИЕ ДЕЛ",
-      "template": "{client} размещает {budget_mln:.0f} млн ₽ {period_phrase} через {channels_phrase}. Средневзвешенный ROI {weighted_roi:.1f}×, MQS модели {mqs}/100."
+      "template": "{client} размещает {budget_mln:.0f} млн ₽ {period_phrase} через {channels_phrase}. Средневзвешенный ROI {weighted_roi:.2f}×, MQS модели {mqs}/100."
     },
     "complication": {
       "label": "ЗАТРУДНЕНИЕ",
-      "template": "{budget_dominator} занимает {budget_dom_spend_pct_fmt} бюджета, но даёт {budget_dom_contrib_pct_fmt} эффекта. По mROAS {hero} опережает ({hero_mroas:.1f}×). Слабые каналы тянут портфель вниз."
+      "template": "{budget_dominator} занимает {budget_dom_spend_pct_fmt} бюджета, но даёт {budget_dom_contrib_pct_fmt} медиа-вклада.",
+      "hero_template": "По {metric_short} {hero} опережает ({hero_metric_fmt}).",
+      "underperf_template": "{underperf} {pull_verb} портфель вниз."
     },
     "complication_fallback": {
       "label": "ЗАТРУДНЕНИЕ",
@@ -127,8 +129,8 @@
   },
   "findings_templates": {
     "f1_leader": "{leader} – {contrib_pct_fmt} медиа-вклада при {spend_pct_fmt} бюджета",
-    "f1_leader_support": "ROI {weighted_roi:.1f}× средневзвешенный по каналам",
-    "f2_hero": "{hero} – самый эффективный канал с mROAS {hero_mroas:.1f}×",
+    "f1_leader_support": "ROI {weighted_roi:.2f}× средневзвешенный по каналам",
+    "f2_hero": "{hero} – самый эффективный канал с mROAS {hero_mroas:.2f}×",
     "f2_hero_support": "Текущий бюджет на нём {hero_spend_pct_fmt}",
     "f3_realloc": "Рекомендация: перераспределить {realloc} млн ₽ из {cut_source} в {scale_destination}",
     "f3_realloc_no_cut": "Рекомендация: нарастить {scale_destination} на ~{realloc} млн ₽",

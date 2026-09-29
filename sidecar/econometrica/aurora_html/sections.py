@@ -678,8 +678,22 @@ def render_executive_summary(ctx: dict) -> str:
                 budget_dominator=budget_dom,
                 budget_dom_spend_pct_fmt=_fmt_pct(bd_spend_pct),
                 budget_dom_contrib_pct_fmt=_fmt_share_pct(bd_contrib_pct),
-                hero=hero, hero_mroas=hero_m,
             )
+            # s58: «опережает» и «тянут» – по тем же условиям, что в презентации
+            # (aurora_pptx s09_scqar): герой не лидер и окупается; отстающие есть,
+            # глагол – по их числу. Раньше обе фразы печатались всегда.
+            if hero != leader and hero_m >= 1.0:
+                complication += " " + scqar["complication"]["hero_template"].format(
+                    metric_short="mROAS" if kpi["is_legacy"] else kpi["metric_short"],
+                    hero=hero,
+                    hero_metric_fmt=f"{hero_m:.2f}×" if kpi["is_legacy"] else _fmt_metric(hero_m, kpi),
+                )
+            _underperf_names = facts.get("underperformer_names") or []
+            if _underperf_names:
+                complication += " " + scqar["complication"]["underperf_template"].format(
+                    underperf=", ".join(_underperf_names),
+                    pull_verb="тянет" if len(_underperf_names) == 1 else "тянут",
+                )
         else:
             complication = scqar.get("complication_fallback", {}).get(
                 "template", "Портфель сбалансирован."
@@ -885,7 +899,7 @@ def render_at_a_glance(ctx: dict) -> str:
                 hero_spend_pct = (hero_spend / total_budget * 100) if total_budget else 0
                 break
 
-        hero_m_fmt = _fmt_metric(hero_m, kpi) if not kpi["is_legacy"] else f"{hero_m:.1f}×"
+        hero_m_fmt = _fmt_metric(hero_m, kpi) if not kpi["is_legacy"] else f"{hero_m:.2f}×"
         # INV-50 (2026-06-03 synthetic-truth аудит): sub-breakeven hero НИКОГДА не
         # «самый эффективный» — это противоречит его вердикту «убыточный». Гейт
         # расцеплён от honest_narrative (media<10%): даже при media≥10% (honest=False)

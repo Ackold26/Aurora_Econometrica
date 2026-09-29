@@ -997,7 +997,7 @@ class AuroraPPTXBuilder:
             # v1.3.2: KPI-aware portfolio metric (ROI×/CPU/доля).
             if weighted_roi is not None:
                 if self.kpi["is_legacy"]:
-                    s1 = f"ROI {weighted_roi:.1f}× средневзвешенный по каналам"
+                    s1 = f"ROI {weighted_roi:.2f}× средневзвешенный по каналам"
                 else:
                     s1 = f"{_weighted_summary_phrase_pptx(weighted_roi, self.kpi)} средневзвешенный по каналам"
             else:
@@ -1007,7 +1007,7 @@ class AuroraPPTXBuilder:
         # v1.3.2: KPI-aware metric short label + breakeven phrase.
         hero_metric_short = self.kpi["metric_short"]
         hero_metric_fmt = (
-            f"{hero_mroas:.1f}×" if self.kpi["is_legacy"]
+            f"{hero_mroas:.2f}×" if self.kpi["is_legacy"]
             else _fmt_metric_pptx(hero_mroas, self.kpi)
         )
         # INV-50 (2026-06-03 synthetic-truth аудит): sub-breakeven hero НИКОГДА не
@@ -2203,7 +2203,7 @@ class AuroraPPTXBuilder:
                 if ch.get("action_reasoning"):
                     reasoning = ch["action_reasoning"]
                 elif self.kpi["is_legacy"]:
-                    reasoning = f"mROAS {float(ch.get('mroas') or 0):.1f}× – рекомендация по портфелю."
+                    reasoning = f"mROAS {float(ch.get('mroas') or 0):.2f}× – рекомендация по портфелю."
                 else:
                     metric_val = _fmt_metric_pptx(ch.get('mroas') or 0, self.kpi)
                     reasoning = f"{self.kpi['metric_short']} {metric_val} – рекомендация по портфелю."
@@ -2221,7 +2221,7 @@ class AuroraPPTXBuilder:
                 if self.kpi["is_legacy"]:
                     commentary.append((
                         f"{hero_name} – лидер по mROAS.",
-                        f" mROAS {hero_m:.1f}×. Бюджет следует пересмотреть с учётом насыщения.",
+                        f" mROAS {hero_m:.2f}×. Бюджет следует пересмотреть с учётом насыщения.",
                     ))
                 else:
                     metric_short = self.kpi["metric_short"]
@@ -2885,7 +2885,7 @@ class AuroraPPTXBuilder:
             # v1.3.2: KPI-aware portfolio metric phrase в situation.
             if wr is not None:
                 if self.kpi["is_legacy"]:
-                    wr_segment = f"Средневзвешенный ROI {wr:.1f}×, "
+                    wr_segment = f"Средневзвешенный ROI {wr:.2f}×, "
                 else:
                     wr_segment = f"{_weighted_summary_phrase_pptx(wr, self.kpi)}, "
             else:
@@ -2918,18 +2918,20 @@ class AuroraPPTXBuilder:
             if budget_dom and bd_spend_pct is not None and abs((bd_spend_pct or 0) - (bd_contrib_pct or 0)) >= 5.0:
                 complication_parts.append(
                     f"{budget_dom} занимает {_fmt_pct(bd_spend_pct)} бюджета, "
-                    f"но даёт {_fmt_share_pct(bd_contrib_pct)} эффекта"
+                    f"но даёт {_fmt_share_pct(bd_contrib_pct)} медиа-вклада"
                 )
             if hero != leader and hero_m >= 1.0:
                 # v1.3.2: KPI-aware metric label в complication.
                 if self.kpi["is_legacy"]:
-                    complication_parts.append(f"по mROAS {hero} опережает ({hero_m:.1f}×)")
+                    complication_parts.append(f"По mROAS {hero} опережает ({hero_m:.2f}×)")
                 else:
                     metric_short = self.kpi["metric_short"]
                     metric_fmt = _fmt_metric_pptx(hero_m, self.kpi)
-                    complication_parts.append(f"по {metric_short} {hero} опережает ({metric_fmt})")
+                    complication_parts.append(f"По {metric_short} {hero} опережает ({metric_fmt})")
             if underperf:
-                complication_parts.append(f"{underperf_str} тянут портфель вниз")
+                # s58: число глагола – по числу отстающих («ТВ тянет», «ТВ, Радио тянут»).
+                _pull_verb = "тянет" if len(underperf) == 1 else "тянут"
+                complication_parts.append(f"{underperf_str} {_pull_verb} портфель вниз")
             # L15 (math-fix v1.4 Section C, 2026-04-29): use cut_source /
             # scale_destination from action_summary вместо leader/hero.
             # s47: через общее правило — тот же источник, что у сводки и слайда
