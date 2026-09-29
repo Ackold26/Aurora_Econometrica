@@ -452,12 +452,57 @@ def sync_version_info():
         sys.exit(1)
 
 
-def find_stale_sources(root, threshold):
-    """Исходники .py движка, изменённые позже `threshold` (секунды эпохи)."""
+def add_data_sources(pyinstaller_args: list) -> list[Path]:
+    """Пути-источники (`SRC`) из всех `--add-data SRC:DEST` в списке аргументов.
+
+    Парный разбор к `add_data_destinations`: `SRC` на Windows содержит свою `:`
+    (буква диска), DEST её не содержит никогда — режем по последнему `:`.
+    """
+    sources = []
+    for prev, item in zip(pyinstaller_args, pyinstaller_args[1:]):
+        if prev == '--add-data':
+            sources.append(Path(item.rsplit(':', 1)[0]))
+    return sources
+
+
+def find_stale_sources(root, threshold, data_sources=None):
+    """Файлы поставки движка, изменённые позже `threshold` (секунды эпохи).
+
+    Сверяются исходники `.py` под `root` И все файлы, которые уезжают в пакет
+    данными через `--add-data` (по умолчанию — из `PYINSTALLER_ARGS`, того же
+    списка, что получает PyInstaller, а не из копии перечня).
+
+    🔴 L-3 аудита 2.5.9: прежде смотрелись только `*.py`, а тексты отчётов
+    (`aurora_html/strings_ru.json`, `templates/*.html`, `aurora_pptx/strings_*.json`,
+    картинки и шаблоны) идут в пакет как данные. Их правка посреди сборки
+    уезжала в exe прежним текстом, а сторож говорил «свежий».
+    """
+    if data_sources is None:
+        data_sources = add_data_sources(PYINSTALLER_ARGS)
+    candidates = list(Path(root).rglob('*.py'))
+    for source in data_sources:
+        source = Path(source)
+        if source.is_dir():
+            candidates.extend(p for p in source.rglob('*') if p.is_file())
+        elif source.is_file():
+            candidates.append(source)
     stale = []
-    for p in Path(root).rglob('*.py'):
-        # Игнорируем build_tmp/ (если вдруг остался), dist/ и _internal/
-        if any(part in ('build_tmp', 'dist', '_internal') for part in p.parts):
+    seen = set()
+    for p in candidates:
+        # Один файл приходит дважды (`.py` каталога данных — и обходом корня, и
+        # обходом каталога), возможно в разном написании пути: ключ — разрешённый путь.
+        key = p.resolve()
+        if key in seen:
+            continue
+        seen.add(key)
+        # Игнорируем build_tmp/ (если вдруг остался), dist/ и _internal/, а также
+        # следы прогонов тестов (__pycache__ и прочие из TEST_RESIDUE_DIR_NAMES) и
+        # *.pyc: в пакет они не входят (Б-53 вычищает их из собранного), и их
+        # свежесть о свежести поставки не говорит ничего.
+        if any(part in ('build_tmp', 'dist', '_internal') or part in TEST_RESIDUE_DIR_NAMES
+               for part in p.parts):
+            continue
+        if p.suffix == '.pyc':
             continue
         # И себя: этот скрипт СОБИРАЕТ поставку, но в неё не входит. Правка
         # комментария в нём объявляла движок протухшим и требовала лишней
@@ -564,7 +609,7 @@ def main():
     if exe.exists():
         stale = find_stale_sources(ROOT, min(exe.stat().st_mtime, build_started))
         if stale:
-            print(f'\n[ERROR] Found {len(stale)} .py file(s) newer than {exe.name}:',
+            print(f'\n[ERROR] Found {len(stale)} source/data file(s) newer than {exe.name} build start:',
                   file=sys.stderr)
             for p in stale[:5]:
                 print(f'  {p.relative_to(ROOT)}', file=sys.stderr)
@@ -572,7 +617,7 @@ def main():
                 print(f'  ... +{len(stale) - 5} more', file=sys.stderr)
             print('Sync failed - exe was not refreshed. Re-run build.', file=sys.stderr)
             sys.exit(1)
-        print(f'  [OK] Freshness verified (exe newer than all .py sources)')
+        print(f'  [OK] Freshness verified (build started after all .py sources and --add-data files)')
 
     # 🔴 Распоряжение владельца 17.08.2026: поставка клиенту идёт ТОЛЬКО со шлюзом
     # (CPD-115). Штатная `npm run tauri build` собирает БЕЗ него — шлюз закрыт
