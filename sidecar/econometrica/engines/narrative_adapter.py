@@ -555,7 +555,7 @@ def derive_action_headline(
                     return f"Нарастить {hero} и сократить {cut_source} – {lift_txt}"
                 return f"Нарастить {hero} – {lift_txt}"
             # Сравнение эффективности с лидером — не директива сокращать его.
-            return f"Нарастить {hero} – mROAS {hero_m:.1f}x против {leader}"
+            return f"Нарастить {hero} – mROAS {hero_m:.2f}× против {leader}"
         if hero and hero_m >= 1.2:
             # B1-fix R-14-семейство: «устойчив» — только когда нижняя граница
             # CI выше безубыточности; при широком интервале эпитет не заявляем.
@@ -565,7 +565,7 @@ def derive_action_headline(
             except (TypeError, ValueError):
                 _stable = False
             _sfx = " устойчив" if _stable else ""
-            return f"Защитить лидерство {hero} – mROAS {hero_m:.1f}x{_sfx}"
+            return f"Защитить лидерство {hero} – mROAS {hero_m:.2f}×{_sfx}"
         if all_underperf:
             return "Сократить неэффективные каналы и сфокусировать бюджет"
         return "Сбалансировать портфель по mROAS – один канал не доминирует"

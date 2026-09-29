@@ -624,7 +624,14 @@ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, A
     # судили бы по разным колонкам (H-1, аудит s56). Детектору итогов – та
     # же календарная колонка, что правилу строк без даты: по числовой
     # detected.date «Итого» получало общий текст про дату (L-2, аудит s56).
-    _det_date, _det_values, _det_min_numbers = _detected_date_and_value_columns(df)
+    # N8 (2.5.9): сбой выбора колонок – не 500, а предупреждение ниже.
+    _detector_failed = False
+    try:
+        _det_date, _det_values, _det_min_numbers = _detected_date_and_value_columns(df)
+    except Exception:
+        logger.warning('date/value column detection failed', exc_info=True)
+        _det_date, _det_values, _det_min_numbers = None, [], 1
+        _detector_failed = True
     try:
         from engines.planning import (
             _calendar_date_column, find_trailing_total_rows, total_rows_message,
@@ -642,6 +649,7 @@ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, A
             }
     except Exception:
         _total_rows = []
+        _detector_failed = True
         logger.warning('total-row detection failed — proceeding with full df', exc_info=True)
 
     # ── Строка с числами без даты в любом месте файла (в-1, s56) ──────────
@@ -673,6 +681,7 @@ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, A
             }
     except Exception:
         _undated_rows = []
+        _detector_failed = True
         logger.warning('undated-row detection failed – proceeding with full df', exc_info=True)
 
     _drop_index = [r['index'] for r in _total_rows + _undated_rows]
@@ -754,6 +763,17 @@ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, A
 
     issues = []
     warnings = []
+    if _detector_failed:
+        warnings.append({
+            'type': 'data_check_failed',
+            'message': (
+                'Не удалось проверить файл на итоговые строки и строки без даты. '
+                'Проверьте, что в таблице нет строк «Итого» / «Среднее» и строк '
+                'без даты: попав в расчёт, они станут лишними периодами. При '
+                'обучении программа проверит файл ещё раз.'
+            ),
+            'severity': 'warning',
+        })
     if _total_rows_issue:
         issues.append(_total_rows_issue)
     if _undated_rows_issue:
@@ -952,6 +972,15 @@ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, A
                 'non_numeric_pct': _bad_pct,
                 'non_numeric': True,
             }
+            # N13 (2.5.9): текст отказа – тот же, что у обучения, с теми же
+            # примерами (`non_numeric_column_message`): « - » и «1 234 ₽»
+            # проверка и обучение называли по-разному, а для «₽» проверка
+            # винила десятичную запятую.
+            from engines.planning import find_non_numeric_column, non_numeric_column_message
+            _train_refusal = find_non_numeric_column(df, [col])
+            _foreign_chars = bool(
+                _filled.astype(str).str.contains(r'[^\d\s,.+\-−]', regex=True).any()
+            )
             if _bad > 0:
                 _examples = sorted({str(v).strip() for v in _filled[_bad_mask]})[:3]
                 _hint = f' Например: {", ".join(_examples)}.' if _examples else ''
@@ -959,10 +988,19 @@ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, A
                     'column': col,
                     'type': 'non_numeric_values',
                     'message': (
-                        f'{col} - {_bad_pct}% значений не читаются как числа '
-                        f'({_bad} из {_n_rows_total}).{_hint} Обучение на такой колонке '
-                        f'не запустится: замените текст числами либо очистите эти ячейки.'
+                        non_numeric_column_message(*_train_refusal) if _train_refusal else (
+                            f'{col} - {_bad_pct}% значений не читаются как числа '
+                            f'({_bad} из {_n_rows_total}).{_hint} Обучение на такой колонке '
+                            f'не запустится: замените текст числами либо очистите эти ячейки.'
+                        )
                     ),
+                    'severity': 'critical',
+                })
+            elif _foreign_chars and _train_refusal:
+                issues.append({
+                    'column': col,
+                    'type': 'non_numeric_format',
+                    'message': non_numeric_column_message(*_train_refusal),
                     'severity': 'critical',
                 })
             elif not pd.api.types.is_numeric_dtype(_raw):
@@ -1002,7 +1040,7 @@ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, A
     # календарная колонка роли «дата», если она есть (H-1, AUDIT03 s56,
     # вариант Б ведущей). Роли колонок в таблице не меняются.
     if date_col is not None:
-        date_col = _det_date
+        date_col = _det_date if _det_date is not None else date_col
 
     # ── Structure checks ──
     if not date_col:

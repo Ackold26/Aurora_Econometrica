@@ -300,6 +300,43 @@ def test_bayes_unparsed_dates_refused_before_sampling(tmp_path):
     assert "Неделя 1" in r["message"] and "ДД.ММ.ГГГГ" in r["message"]
 
 
+# ─── N8: сбой детектора ─────────────────────────────────────────────────────
+
+
+def _boom(*args, **kwargs):
+    raise RuntimeError("boom-detector")
+
+
+@pytest.mark.parametrize("engine", ["ols", "bayes"])
+def test_detector_failure_is_clear_refusal(tmp_path, monkeypatch, engine):
+    from engines import planning
+    monkeypatch.setattr(planning, "find_trailing_total_rows", _boom)
+    df = _base(48, WEEKS, n_plan=0)
+    p = tmp_path / "d.xlsx"
+    df.to_excel(p, index=False)
+    if engine == "ols":
+        r = _ols(p, tmp_path)
+    else:
+        from engines.modeler import train_model
+        r = train_model(_cfg(p), str(tmp_path / "proj"))
+    assert r["status"] == "error"
+    assert r["error_code"] == "DATA_CHECK_FAILED"
+    assert "boom" not in r["message"] and "DATA_CHECK_FAILED" in r["message"]
+
+
+@pytest.mark.parametrize("target", [
+    "find_trailing_total_rows", "find_undated_rows", "_calendar_date_column",
+])
+def test_detector_failure_warns_in_validation(tmp_path, monkeypatch, target):
+    from engines import planning
+    monkeypatch.setattr(planning, target, _boom)
+    df = _base(48, WEEKS, n_plan=0)
+    p = tmp_path / "d.xlsx"
+    df.to_excel(p, index=False)
+    v = _validate(p)
+    assert [w["type"] for w in v["warnings"]].count("data_check_failed") == 1
+
+
 # ─── N5 / L-1: план по календарной колонке ───────────────────────────────────
 
 
@@ -458,6 +495,38 @@ def test_row_is_total_skips_dates_and_nat():
     assert _row_is_total(row2, above, "date", "sales") is None
 
 
+# ─── N13: один текст NON_NUMERIC в проверке и обучении ──────────────────────
+
+
+@pytest.mark.parametrize("bad", [" - ", "rub"])
+def test_non_numeric_text_same_in_validation_and_training(tmp_path, bad):
+    df = _base(48, WEEKS, n_plan=0)
+    df["tv_spend"] = df["tv_spend"].astype(object)
+    if bad == "rub":
+        df["tv_spend"] = [f"{int(v):,} ₽".replace(",", " ") for v in df["tv_spend"]]
+    else:
+        df.loc[[3, 10, 20], "tv_spend"] = bad
+    p = tmp_path / "nn.csv"
+    df.to_csv(p, sep=";", index=False)
+    v = _validate(p)
+    iss = [i for i in v["issues"] if i.get("column") == "tv_spend"
+           and i["type"] in ("non_numeric_values", "non_numeric_format")]
+    t = _ols(p, tmp_path)
+    assert t["error_code"] == "NON_NUMERIC_COLUMN"
+    assert len(iss) == 1 and iss[0]["message"] == t["message"]
+    assert "десятичной запятой" not in iss[0]["message"]
+
+
+def test_decimal_comma_text_keeps_format_hint(tmp_path):
+    """Колонка «1234,5» в CSV «,» (текст с запятой) – прежний совет про формат."""
+    df = _base(48, WEEKS, n_plan=0)
+    df["tv_spend"] = [f"{v:.1f}".replace(".", ",") for v in df["tv_spend"]]
+    p = tmp_path / "dc.csv"
+    df.to_csv(p, index=False)
+    iss = [i for i in _validate(p)["issues"] if i.get("column") == "tv_spend"]
+    assert iss and "десятичной запятой" in iss[0]["message"]
+
+
 # ─── M7 (выжившая мутация AUDIT02 L-4) ──────────────────────────────────────
 
 
@@ -474,6 +543,18 @@ def test_total_row_detector_uses_calendar_column_with_week_numbers(tmp_path):
     kinds = {i["type"]: i.get("rows") for i in v["issues"]}
     assert kinds.get("total_row_in_data") == [50]
     assert "undated_row_in_data" not in kinds
+
+
+# ─── N22: mROAS в прозе двумя знаками ───────────────────────────────────────
+
+
+def test_action_headline_mroas_two_decimals():
+    from engines.narrative_adapter import derive_action_headline
+    channels = [{"name": "ТВ", "mroas": 4.254}, {"name": "Digital", "mroas": 2.0}]
+    h1 = derive_action_headline(channels, {"leader_channel": "Digital", "hero_channel": "ТВ"}, "mroas")
+    assert h1 == "Нарастить ТВ – mROAS 4.25× против Digital"
+    h2 = derive_action_headline(channels, {"leader_channel": "ТВ"}, "mroas")
+    assert h2 == "Защитить лидерство ТВ – mROAS 4.25×"
 
 
 # ─── Потребители колонки даты: те же значения, что у помощника ─────────────

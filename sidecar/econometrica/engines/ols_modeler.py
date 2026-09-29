@@ -96,42 +96,52 @@ def train_ols(config: dict, project_dir: str, progress_callback=None) -> dict[st
     _date_col_cfg = config.get('date_column', 'date')
     # H-1 (AUDIT03 s56): дата, прочитанная как число («01.2022» из CSV –
     # 1.2022), – отказ: иначе модель молча обучалась на датах 1970-01-01.
-    from engines.planning import numeric_date_refusal
-    _date_refusal = numeric_date_refusal(df, _date_col_cfg)
-    if _date_refusal is not None:
+    from engines.planning import data_check_failed_message, numeric_date_refusal
+    try:
+        _date_refusal = numeric_date_refusal(df, _date_col_cfg)
+        if _date_refusal is not None:
+            return {
+                'status': 'error',
+                'error_code': 'DATE_COLUMN_NUMERIC',
+                'column': _date_col_cfg,
+                'message': _date_refusal,
+            }
+        _total_rows = find_trailing_total_rows(
+            df, _calendar_date_column(df, _date_col_cfg) or _date_col_cfg,
+            config.get('kpi_column'), file_rows=_file_rows,
+        )
+        if _total_rows:
+            return {
+                'status': 'error',
+                'error_code': 'TOTAL_ROW_IN_DATA',
+                'message': total_rows_message(_total_rows),
+            }
+        # в-1 (s56): строка с числами без даты в любом месте файла – тот же отказ.
+        # «Числа» – ненулевые в колонках модели из конфига (H-2, аудит s56).
+        from engines.planning import find_undated_rows, nearest_dated_row, undated_rows_message
+        _undated_rows = find_undated_rows(
+            df, _date_col_cfg,
+            [config.get('kpi_column'), *(config.get('media_columns') or []),
+             *(config.get('control_columns') or [])],
+            file_rows=_file_rows,
+        )
+        if _undated_rows:
+            return {
+                'status': 'error',
+                'error_code': 'UNDATED_ROW_IN_DATA',
+                'message': undated_rows_message(
+                    _undated_rows,
+                    nearest_dated_row(df, _date_col_cfg, _undated_rows, file_rows=_file_rows),
+                ),
+            }
+    except Exception:
+        # N8 (2.5.9): сбой детектора – понятный отказ, а не HTTP 500 с сырым
+        # текстом: молча обучать без проверки итогов нельзя.
+        logger.warning('проверка итоговых строк и строк без даты не удалась', exc_info=True)
         return {
             'status': 'error',
-            'error_code': 'DATE_COLUMN_NUMERIC',
-            'column': _date_col_cfg,
-            'message': _date_refusal,
-        }
-    _total_rows = find_trailing_total_rows(
-        df, _calendar_date_column(df, _date_col_cfg) or _date_col_cfg,
-        config.get('kpi_column'), file_rows=_file_rows,
-    )
-    if _total_rows:
-        return {
-            'status': 'error',
-            'error_code': 'TOTAL_ROW_IN_DATA',
-            'message': total_rows_message(_total_rows),
-        }
-    # в-1 (s56): строка с числами без даты в любом месте файла – тот же отказ.
-    # «Числа» – ненулевые в колонках модели из конфига (H-2, аудит s56).
-    from engines.planning import find_undated_rows, nearest_dated_row, undated_rows_message
-    _undated_rows = find_undated_rows(
-        df, _date_col_cfg,
-        [config.get('kpi_column'), *(config.get('media_columns') or []),
-         *(config.get('control_columns') or [])],
-        file_rows=_file_rows,
-    )
-    if _undated_rows:
-        return {
-            'status': 'error',
-            'error_code': 'UNDATED_ROW_IN_DATA',
-            'message': undated_rows_message(
-                _undated_rows,
-                nearest_dated_row(df, _date_col_cfg, _undated_rows, file_rows=_file_rows),
-            ),
+            'error_code': 'DATA_CHECK_FAILED',
+            'message': data_check_failed_message(),
         }
 
     kpi_col = config['kpi_column']
