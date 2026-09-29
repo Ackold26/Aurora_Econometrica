@@ -1359,7 +1359,14 @@ def decompose(
     # Per-period dates
     date_col = config.get('date_column', 'date')
     if date_col in df.columns:
-        dates = [str(d)[:10] for d in df[date_col].tolist()]
+        # ISO через единый помощник дат (N0, 2.5.9): сырые «01.01.2021» /
+        # «янв.23» отчёт не понимал и писал «за анализируемый период» (M-1,
+        # PLANAUDIT_259). Нераспознанная метка – как в файле.
+        from utils.dates import parse_dates
+        dates = [
+            ts.strftime('%Y-%m-%d') if pd.notna(ts) else str(raw)[:10]
+            for ts, raw in zip(parse_dates(df[date_col]), df[date_col].tolist())
+        ]
     else:
         dates = [str(i + 1) for i in range(n_periods)]
 

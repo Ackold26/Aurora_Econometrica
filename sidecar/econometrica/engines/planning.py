@@ -23,12 +23,12 @@ import hashlib
 import json
 import logging
 import re
-import warnings as _warnings  # «warnings» – локальный список в detect_media_plan_tail
 from pathlib import Path
 from typing import Any
 
 import pandas as pd
 
+from utils.dates import parse_dates
 from utils.safe_io import unique_export_path
 
 logger = logging.getLogger(__name__)
@@ -217,7 +217,12 @@ def find_trailing_total_rows(
     kpi_col = _resolve_role_column(df, kpi_col, "kpi")
     if not date_col:
         return []
-    dates = pd.to_datetime(df[date_col], errors="coerce")
+    # Числовая колонка роли «дата» (номера недель) – «дата есть» там, где
+    # есть число: для неё помощник дат отдаёт NaT (N0, 2.5.9).
+    if pd.api.types.is_numeric_dtype(df[date_col]):
+        dates = df[date_col]
+    else:
+        dates = parse_dates(df[date_col])
     positions = [i for i in range(len(df)) if pd.notna(dates.iloc[i])]
     if not positions:
         return []
@@ -284,37 +289,26 @@ def _full_date_cells(series: "pd.Series") -> "pd.Series":
 
 
 def _dates_recognized(series: "pd.Series") -> "pd.Series":
-    """Разобрана ли дата в каждой ячейке – хотя бы одним из двух способов.
+    """Разобрана ли дата в каждой ячейке – тем же помощником, что даёт
+    значения дат обучению и всем движкам (`utils.dates.parse_dates`, N0
+    2.5.9): «дата есть» ровно там, где у помощника не NaT. Прежний разбор
+    pandas здесь признавал «Jan-23» датой года 1, а значения брались другим
+    разбором (C-2, PLANAUDIT_259).
 
-    Первый – как у детектора итогов. Второй – поэлементно с днём впереди:
-    pandas выводит формат по первой ячейке, и на «04.01.2023» (день ≤ 12)
-    «13.01.2023» ниже уже не разбирается, а «13.03.2023» среди дат вида
-    2023-03-13 – тоже (M-2, аудит s56). Значение даты здесь не нужно – только
-    «дата есть».
-
-    Второй разбор (`format="mixed"`) берёт за дату и голый год «2023», и
-    «2023-12», «Dec 2023» – подытог года с такой меткой снова обучался лишним
-    периодом (A2-H1, аудит s56). Поэтому он – только для ячеек-полных-дат.
-    В колонке, где полные даты – большинство непустых, и первый разбор
-    признаёт только их: в столбце дат из xlsx он берёт за дату текст «2022»
-    и число 2022 (S9 аудита). Колонку «2024-01», «Jan-23», «2023-Q1» это не
+    Помощник берёт за дату и голый год «2023», и «2023-12», «Dec 2023» –
+    подытог года с такой меткой снова обучался бы лишним периодом (A2-H1,
+    аудит s56). Поэтому в колонке, где полные даты – большинство непустых,
+    признаём только их: в столбце дат из xlsx текст «2022» и число 2022 –
+    не дата (S9 аудита). Колонку «2024-01», «Jan-23», «2023-Q1» это не
     трогает – полных дат в ней нет.
     """
     if pd.api.types.is_datetime64_any_dtype(series):
         return series.notna()
     filled = series.notna().to_numpy()
     full = _full_date_cells(series).to_numpy()
-    with _warnings.catch_warnings():
-        _warnings.simplefilter("ignore")
-        ok = pd.to_datetime(series, errors="coerce").notna().to_numpy(copy=True)
-        if int(full.sum()) * 2 > int(filled.sum()):
-            ok &= full
-        retry = ~ok & filled & full
-        if retry.any():
-            second = pd.to_datetime(
-                series[retry], errors="coerce", format="mixed", dayfirst=True,
-            )
-            ok[retry] = second.notna().to_numpy()
+    ok = parse_dates(series).notna().to_numpy(copy=True)
+    if int(full.sum()) * 2 > int(filled.sum()):
+        ok &= full
     return pd.Series(ok, index=series.index)
 
 
@@ -440,6 +434,17 @@ def non_numeric_column_message(column: Any, examples: list[str]) -> str:
         f"(например: {', '.join(examples)}). Обучение на такой колонке не "
         f"запустится: замените текст числами или задайте столбцу числовой формат "
         f"в исходном файле и загрузите файл заново."
+    )
+
+
+def date_not_parsed_message(column: Any, examples: list[str]) -> str:
+    """Текст отказа: в колонке даты есть значения, которые не читаются как
+    дата (N2, 2.5.9) – вместо сырого «time data … doesn't match format»."""
+    return (
+        f"В колонке «{column}» есть значения, которые не читаются как дата "
+        f"(например: {', '.join(examples)}). Без дат программа не может учесть "
+        f"праздники и сезонность. Запишите даты в виде ДД.ММ.ГГГГ и загрузите "
+        f"файл заново."
     )
 
 
@@ -629,8 +634,8 @@ def detect_media_plan_tail(
     # Работаем на копии, не трогаем оригинал
     work = df.copy()
 
-    # Приводим даты и сортируем
-    work[date_col] = pd.to_datetime(work[date_col], errors="coerce")
+    # Приводим даты (единым помощником, N0 2.5.9) и сортируем
+    work[date_col] = parse_dates(work[date_col])
     work = work.sort_values(date_col).reset_index(drop=True)
 
     kpi = work[kpi_col]
@@ -1252,7 +1257,8 @@ def generate_media_plan_template(project_dir: str, n_future_periods: int = 12) -
     granularity: str = gran_result.get("granularity", "M")
 
     # Строим будущие даты
-    last_date = pd.to_datetime(history_df[date_column].dropna().iloc[-1])
+    # Колонка целиком – правило дня решается по всем датам (N0, 2.5.9).
+    last_date = parse_dates(history_df[date_column]).dropna().iloc[-1]
     future_dates: list["pd.Timestamp"] = []
     cur = last_date
     for _ in range(n_future_periods):

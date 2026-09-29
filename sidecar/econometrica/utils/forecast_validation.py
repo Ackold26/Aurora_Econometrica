@@ -66,7 +66,9 @@ def detect_granularity(date_series, fallback: Granularity = 'W') -> dict:
     """
     try:
         import pandas as pd
-        dates = pd.to_datetime(pd.Series(date_series))
+        # Единый помощник дат (N0, 2.5.9): сюда приходит и сырая колонка файла.
+        from utils.dates import parse_dates
+        dates = parse_dates(pd.Series(date_series))
     except Exception:
         return {
             'granularity': fallback,

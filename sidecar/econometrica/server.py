@@ -1171,7 +1171,8 @@ def preflight(req: PreflightRequest):
             if req.date_column in df.columns:
                 try:
                     import pandas as _pd  # noqa: PLC0415 — тот же модуль, что выше
-                    _parsed = _pd.to_datetime(df[req.date_column], errors='coerce')
+                    from utils.dates import parse_dates  # N0 (2.5.9): единый помощник дат
+                    _parsed = parse_dates(df[req.date_column])
                     if _parsed.notna().all() and len(_parsed) == len(y_obs):
                         _pp_dates = _parsed.values
                     else:
@@ -1571,7 +1572,8 @@ def _detect_training_year_ranges(model_data: dict) -> list[dict] | None:
         df = read_data_file(data_file)
         if date_col not in df.columns:
             return None
-        dates = pd.to_datetime(df[date_col], errors='coerce').dropna()
+        from utils.dates import parse_dates  # N0 (2.5.9): единый помощник дат
+        dates = parse_dates(df[date_col]).dropna()
         if dates.empty:
             return None
         groups = dates.groupby(dates.dt.year)

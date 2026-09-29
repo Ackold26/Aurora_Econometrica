@@ -159,7 +159,8 @@ def prior_predictive_check(
             )
             from utils.forecast_validation import detect_granularity, detect_seasonality
 
-            dates_pd = pd.to_datetime(dates)
+            from utils.dates import parse_dates  # N0 (2.5.9): единый помощник дат
+            dates_pd = parse_dates(dates)
             control_cols_list: list[np.ndarray] = []
 
             # 1. Фурье-сезонность — идентичный путь как в modeler.py:389-426

@@ -879,8 +879,11 @@ def _диапазон_дат(таблица, конфиг, длина_истор
         нет('history.date_range', 'столбец дат не найден в файле исходных данных')
         return пусто
     try:
-        import pandas as pd
-        даты = pd.to_datetime(рамка[столбец]).dropna()
+        from utils.dates import parse_dates  # N0 (2.5.9): единый помощник дат
+        даты = parse_dates(рамка[столбец])
+        if (даты.isna() & рамка[столбец].notna()).any():
+            raise ValueError('не все даты разобраны')
+        даты = даты.dropna()
         первая, последняя = даты.min(), даты.max()
         строк = int(len(даты))
     except Exception as ошибка:  # noqa: BLE001
@@ -932,8 +935,10 @@ def _календарь_праздников(модель, нормировка,
         рамка = таблица['frame']
         if столбец_даты and столбец_даты in рамка.columns:
             try:
-                import pandas as pd
-                даты = pd.to_datetime(рамка[столбец_даты])
+                from utils.dates import parse_dates  # N0 (2.5.9): единый помощник дат
+                даты = parse_dates(рамка[столбец_даты])
+                if (даты.isna() & рамка[столбец_даты].notna()).any():
+                    raise ValueError('не все даты разобраны')
                 годы = sorted({int(г) for г in даты.dt.year.dropna().tolist()})
             except Exception as ошибка:  # noqa: BLE001
                 logger.warning('Столбец дат при выгрузке не разобран: %s', ошибка)

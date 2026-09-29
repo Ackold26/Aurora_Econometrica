@@ -446,9 +446,12 @@ def train_ols(config: dict, project_dir: str, progress_callback=None) -> dict[st
     date_col = config.get('date_column', 'date')
     avp_dates = None
     if date_col and date_col in df.columns:
-        try:
-            avp_dates = pd.to_datetime(df[date_col]).dt.strftime('%Y-%m-%d').tolist()
-        except Exception:
+        # Единый помощник дат (N0, 2.5.9): «ДД.ММ.ГГГГ» – днём впереди.
+        from utils.dates import parse_dates
+        _avp_parsed = parse_dates(df[date_col])
+        if _avp_parsed.notna().all():
+            avp_dates = _avp_parsed.dt.strftime('%Y-%m-%d').tolist()
+        else:
             # Непарсибельные метки (порядковые '1','2',...) — не выдумываем даты.
             # Ряд уедет без них, как и раньше; лучше без графиков, чем с чужой осью.
             logger.warning('OLS: столбец дат %r не разобран — ряд качества уйдёт без дат', date_col)

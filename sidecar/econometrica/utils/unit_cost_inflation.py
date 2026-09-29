@@ -62,7 +62,8 @@ def compute_inflation_weighted_avg_cost(
         import numpy as np
         import pandas as pd
         rate = float(inflation_pct) / 100.0
-        dates = pd.to_datetime(pd.Series(training_dates), errors='coerce')
+        from utils.dates import parse_dates  # N0 (2.5.9): единый помощник дат
+        dates = parse_dates(pd.Series(training_dates))
         spend = np.asarray(raw_spend_per_period, dtype=float)
         if len(dates) == 0 or len(spend) == 0:
             return float(current_cost)

@@ -62,7 +62,8 @@ def prepare_calibrations(
         raise CalibrationError(
             f'Для калибровки нужна колонка дат «{date_column}» – в данных её нет.'
         )
-    dates = pd.to_datetime(df[date_column], errors='coerce')
+    from utils.dates import parse_dates  # N0 (2.5.9): единый помощник дат
+    dates = parse_dates(df[date_column])
     if dates.isna().all():
         raise CalibrationError(
             f'Колонка дат «{date_column}» не распознаётся как даты – '

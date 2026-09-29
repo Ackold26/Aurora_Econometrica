@@ -369,7 +369,9 @@ def detect_date_frequency(series: 'pd.Series') -> str:
     Returns: 'daily' | 'weekly' | 'monthly' | 'quarterly' | 'unknown'
     """
     try:
-        dates = pd.to_datetime(series.dropna()).sort_values()
+        # Единый помощник дат (N0, 2.5.9): колонка целиком, «ДД.ММ.ГГГГ» – днём впереди.
+        from utils.dates import parse_dates
+        dates = parse_dates(series.dropna()).dropna().sort_values()
         if len(dates) < 3:
             return 'unknown'
         diffs = dates.diff().dropna().dt.days
@@ -806,7 +808,8 @@ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, A
             # AUDIT03 s56).
             try:
                 from engines.planning import numeric_date_example
-                _dates = pd.to_datetime(df[col], errors='coerce').dropna()
+                from utils.dates import parse_dates  # N0 (2.5.9)
+                _dates = parse_dates(df[col]).dropna()
                 if not _dates.empty and numeric_date_example(df[col]) is None:
                     _years = _dates.dt.year
                     _unique_years = sorted(set(int(y) for y in _years.unique()))
@@ -1191,14 +1194,37 @@ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, A
     # отказом выше (H-1, AUDIT03 s56).
     if date_col and _date_numeric_refusal is None:
         date_frequency = detect_date_frequency(df[date_col])
-        try:
-            df[date_col] = pd.to_datetime(df[date_col])
-        except Exception:
+        # Единый помощник дат (N0, 2.5.9) – те же значения, что у обучения.
+        from utils.dates import (
+            ambiguous_day_month_example, parse_dates, ru_date_words, unparsed_examples,
+        )
+        _raw_dates = df[date_col]
+        _parsed_dates = parse_dates(_raw_dates)
+        _bad_dates = unparsed_examples(_raw_dates, _parsed_dates)
+        if _bad_dates:
             warnings.append({
                 'type': 'date_parse',
-                'message': f'Не удалось распознать формат дат в "{date_col}". Убедитесь в формате YYYY-MM-DD',
+                'message': (
+                    f'В колонке «{date_col}» есть значения, которые не читаются как дата '
+                    f'(например: {", ".join(_bad_dates)}). Запишите даты в виде ДД.ММ.ГГГГ '
+                    f'и загрузите файл заново.'
+                ),
                 'severity': 'warning',
             })
+        _ambiguous = ambiguous_day_month_example(_raw_dates)
+        if _ambiguous:
+            warnings.append({
+                'type': 'date_order_ambiguous',
+                'message': (
+                    f'В колонке «{date_col}» по датам нельзя понять, где день, а где '
+                    f'месяц: оба числа не больше 12. Программа прочитала их как '
+                    f'ДД/ММ/ГГГГ – например «{_ambiguous}» как '
+                    f'{ru_date_words(parse_dates(pd.Series([_ambiguous])).iloc[0])}. '
+                    f'Если это не так, запишите даты в виде ДД.ММ.ГГГГ и загрузите файл заново.'
+                ),
+                'severity': 'warning',
+            })
+        df[date_col] = _parsed_dates
 
     # Аудит примеров Д-3 (2026-07-05): раньше n_rows считались НЕДЕЛЯМИ
     # («36 наблюдений — менее 1 года» на 3 ГОДАХ месячных данных — ложный

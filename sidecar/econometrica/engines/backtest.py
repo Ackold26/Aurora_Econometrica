@@ -603,8 +603,9 @@ def run_rolling_backtest(
     date_labels: list[str] | None = None
     if date_col in df.columns:
         try:
-            dts = pd.to_datetime(df[date_col])
-            date_labels = [d.strftime('%Y-%m-%d') for d in dts]
+            from utils.dates import parse_dates  # N0 (2.5.9): единый помощник дат
+            dts = parse_dates(df[date_col])
+            date_labels = None if dts.isna().any() else [d.strftime('%Y-%m-%d') for d in dts]
         except Exception:  # noqa: BLE001 — подписи не должны ронять проверку
             date_labels = None
 

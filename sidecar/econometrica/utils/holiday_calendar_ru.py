@@ -375,7 +375,9 @@ def generate_holiday_dummies(
         date_series = pd.Series(date_series)
 
     # Convert to date if datetime
-    date_series_dates = pd.to_datetime(date_series).dt.date
+    # Единый помощник дат (N0, 2.5.9): сюда приходит и сырая колонка файла.
+    from utils.dates import parse_dates
+    date_series_dates = parse_dates(date_series).dt.date
 
     # Determine year range
     years_in_data = sorted(set(d.year for d in date_series_dates if d is not pd.NaT))

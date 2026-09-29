@@ -531,9 +531,24 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
         for w in categorization_warnings:
             logger.warning(f'[Trust3 categorization] {w}')
 
-    # Parse dates
+    # Parse dates – единым помощником (N0/N2, 2.5.9): «ДД.ММ.ГГГГ» из CSV
+    # читался месяцем впереди, «янв.23» и ISO с одной «13.03.2023» роняли
+    # обучение сырым текстом. Нераспознанное – понятный отказ.
     if date_col in df.columns:
-        df[date_col] = pd.to_datetime(df[date_col])
+        from utils.dates import parse_dates, unparsed_examples
+        _parsed_dates = parse_dates(df[date_col])
+        if _parsed_dates.isna().any():
+            from engines.planning import date_not_parsed_message
+            return {
+                'status': 'error',
+                'error_code': 'DATE_NOT_PARSED',
+                'column': date_col,
+                'message': date_not_parsed_message(
+                    date_col,
+                    unparsed_examples(df[date_col], _parsed_dates) or ['пустая ячейка'],
+                ),
+            }
+        df[date_col] = _parsed_dates
 
     # ── v2.0.0 (ADR-019 §5): РФ holiday auto-injection ──
     # 12 hardcoded holidays auto-добавляются как control columns.
