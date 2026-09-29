@@ -360,7 +360,9 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
     # H-1 (AUDIT03 s56): дата, прочитанная как число («01.2022» из CSV –
     # 1.2022), – отказ: иначе праздники и сезонность считались от дат
     # 1970-01-01, и модель обучалась молча.
-    from engines.planning import data_check_failed_message, numeric_date_refusal
+    from engines.planning import (
+        data_check_failed_message, date_not_parsed_refusal, numeric_date_refusal,
+    )
     try:
         _date_refusal = numeric_date_refusal(df, _date_col_cfg)
         if _date_refusal is not None:
@@ -369,6 +371,16 @@ def train_model(config: dict, project_dir: str, progress_callback=None) -> dict[
                 'error_code': 'DATE_COLUMN_NUMERIC',
                 'column': _date_col_cfg,
                 'message': _date_refusal,
+            }
+        # M-2 (AUDIT_259): ни одной распознанной даты – детекторы итогов и
+        # строк без даты на такой колонке молчат; отказ, как у байеса.
+        _no_dates = date_not_parsed_refusal(df, _date_col_cfg)
+        if _no_dates is not None:
+            return {
+                'status': 'error',
+                'error_code': 'DATE_NOT_PARSED',
+                'column': _date_col_cfg,
+                'message': _no_dates,
             }
         _total_rows = find_trailing_total_rows(
             df, _calendar_date_column(df, _date_col_cfg) or _date_col_cfg,

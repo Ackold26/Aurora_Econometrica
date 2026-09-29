@@ -15,12 +15,19 @@ pandas выводил формат по первой ячейке без пра�
 - объект даты (xlsx) – как есть;
 - «Ч.Ч.ГГГГ» / «Ч/Ч/ГГГГ» / «Ч-Ч-ГГГГ» (год и двумя цифрами): если у
   какой-то ячейки первое число больше 12 – день впереди; если второе больше
-  12 – месяц впереди; если все не больше 12 – день впереди (русский
-  формат), а для «/» и «-» это неоднозначно, и проверка данных
-  предупреждает (`ambiguous_day_month_example`);
+  12 – месяц впереди; если все не больше 12 – днём считается число,
+  одинаковое во всей колонке («01.ММ.ГГГГ» – день впереди, «ММ/01/ГГГГ» –
+  месяц впереди: месячные данные, H-1 AUDIT_259); если такого нет – день
+  впереди (русский формат), а для «/» и «-» это неоднозначно, и проверка
+  данных предупреждает (`ambiguous_day_month_example`);
 - «ГГГГ-ММ-ДД», «ГГГГ/ММ/ДД», «ГГГГ.ММ.ДД» – год, месяц, день;
 - «Jan-23», «янв.23», «январь 2023», «янв 2023», «16 октября 2023» – явным
-  правилом «месяц словом + год», год из двух цифр – 20ГГ, без pandas;
+  правилом «месяц словом + год», без pandas; «Мес-ЧЧ» – «месяц + год», только
+  если ряд таких ячеек монотонен: недельное «Jan-02, Jan-09 …» (месяц и
+  день) иначе стало бы годами 2002, 2009 … (L-2 AUDIT_259) – тогда NaT;
+- квартал «23Q1», «2023Q1», «23-Q1» – первый день квартала (M-2 AUDIT_259);
+- год из двух цифр – 20ГГ, но ГГ больше «текущий год + 10» – 19ГГ
+  («01.12.99» – 1999, L-1 AUDIT_259);
 - пояс «+03:00» снимается с сохранением местного времени ячейки (не
   перевод в UTC: полночь «+03:00» иначе уехала бы в предыдущие сутки);
 - прочие строки с четырёхзначным годом («2016-09», «Dec 2023», «2023-Q1»,
@@ -54,7 +61,11 @@ _MONTH_YEAR_RE = re.compile(r"([^\W\d_]{3,})\.?[\s\-./']*(\d{4}|\d{2})" + _YEAR_
 _DAY_MONTH_YEAR_RE = re.compile(
     r"(\d{1,2})[\s\-./]*([^\W\d_]{3,})\.?[\s\-./,]*(\d{4}|\d{2})" + _YEAR_SUFFIX
 )
+# Квартал: «23Q1», «2023Q1», «23-Q1», «2023 Q1».
+_QUARTER_RE = re.compile(r"(\d{4}|\d{2})\s*[-/.]?\s*[Qq]\s*([1-4])")
 _FOUR_DIGITS_RE = re.compile(r"\d{4}")
+# Окно века для двузначного года: ГГ больше текущего года + 10 – прошлый век.
+_CENTURY_WINDOW = 10
 
 _MONTH_NAMES = {
     1: ("январь", "января", "january"),
@@ -86,7 +97,9 @@ def _month_number(word: str) -> int | None:
 
 def _year(text: str) -> int:
     y = int(text)
-    return 2000 + y if len(text) == 2 else y
+    if len(text) != 2:
+        return y
+    return 1900 + y if y > _dt.date.today().year % 100 + _CENTURY_WINDOW else 2000 + y
 
 
 def _make(year: int, month: int, day: int, hh: Any = None, mm: Any = None,
@@ -115,12 +128,24 @@ def _dmy_cells(strings: dict[Any, str]) -> dict[Any, re.Match]:
     return {k: m for k, s in strings.items() if (m := _DMY_RE.fullmatch(s))}
 
 
-def _day_first(matches: dict[Any, re.Match]) -> bool:
-    """Решение на колонку «Ч?Ч?ГГГГ»: месяц впереди – только если второе
-    число где-то больше 12, а первое нигде."""
-    first_big = any(int(m.group(1)) > 12 for m in matches.values())
-    second_big = any(int(m.group(3)) > 12 for m in matches.values())
-    return first_big or not second_big
+def _dmy_order(matches: dict[Any, re.Match]) -> tuple[bool, bool]:
+    """Решение на колонку «Ч?Ч?ГГГГ»: (день впереди, порядок не определён).
+
+    Число больше 12 – месяцем быть не может. Если все не больше 12, днём
+    считаем число, одинаковое во всей колонке, при другом меняющемся (день
+    «01» у месячных данных: «01.ММ.ГГГГ» и «ММ/01/ГГГГ» – H-1 AUDIT_259).
+    Иначе – день впереди, и порядок не определён."""
+    first = {int(m.group(1)) for m in matches.values()}
+    second = {int(m.group(3)) for m in matches.values()}
+    if max(first, default=0) > 12:
+        return True, False
+    if max(second, default=0) > 12:
+        return False, False
+    if len(first) == 1 and len(second) > 1:
+        return True, False
+    if len(second) == 1 and len(first) > 1:
+        return False, False
+    return True, True
 
 
 def _parse_string(s: str, day_first: bool) -> pd.Timestamp:
@@ -137,6 +162,9 @@ def _parse_string(s: str, day_first: bool) -> pd.Timestamp:
     if m:
         month = _month_number(m.group(1))
         return pd.NaT if month is None else _make(_year(m.group(2)), month, 1)
+    m = _QUARTER_RE.fullmatch(s)
+    if m:
+        return _make(_year(m.group(1)), 3 * int(m.group(2)) - 2, 1)
     m = _DAY_MONTH_YEAR_RE.fullmatch(s)
     if m:
         month = _month_number(m.group(2))
@@ -151,6 +179,11 @@ def _parse_string(s: str, day_first: bool) -> pd.Timestamp:
             return _plain(pd.to_datetime(s))
     except (ValueError, TypeError, OverflowError):
         return pd.NaT
+
+
+def _is_month_two_digits(s: str) -> bool:
+    m = _MONTH_YEAR_RE.fullmatch(s)
+    return m is not None and len(m.group(2)) == 2
 
 
 def _as_series(values: Any) -> pd.Series:
@@ -175,7 +208,7 @@ def parse_dates(values: Any) -> pd.Series:
     if pd.api.types.is_numeric_dtype(series) or pd.api.types.is_bool_dtype(series):
         return pd.Series(pd.NaT, index=series.index, dtype="datetime64[ns]")
     strings = _strings(series)
-    day_first = _day_first(_dmy_cells(strings))
+    day_first = _dmy_order(_dmy_cells(strings))[0]
     cache: dict[str, pd.Timestamp] = {}
     out: list[Any] = []
     for pos, v in enumerate(series.tolist()):
@@ -188,22 +221,27 @@ def parse_dates(values: Any) -> pd.Series:
             out.append(_plain(v))
         else:
             out.append(pd.NaT)
+    # «Мес-ЧЧ»: число – год, только если ряд монотонен (L-2 AUDIT_259).
+    mon_yy = [pos for pos, s in strings.items() if _is_month_two_digits(s) and pd.notna(out[pos])]
+    seq = [out[pos] for pos in mon_yy]
+    if seq and not (all(a <= b for a, b in zip(seq, seq[1:]))
+                    or all(a >= b for a, b in zip(seq, seq[1:]))):
+        for pos in mon_yy:
+            out[pos] = pd.NaT
     return pd.Series(pd.to_datetime(pd.Series(out, dtype=object), errors="coerce").to_numpy(),
                      index=series.index)
 
 
 def ambiguous_day_month_example(values: Any) -> str | None:
-    """Колонка «Ч/Ч/ГГГГ» или «Ч-Ч-ГГГГ», где ни одно из двух первых чисел
-    не больше 12: день и месяц не различить, прочитано днём впереди. Пример
-    ячейки для предупреждения проверки, иначе None. Для «.» – русский
-    формат, не предупреждаем."""
+    """Колонка «Ч/Ч/ГГГГ» или «Ч-Ч-ГГГГ», где день и месяц не различить
+    (оба числа не больше 12 и ни одно не постоянно во всей колонке),
+    прочитано днём впереди. Пример ячейки для предупреждения проверки, иначе
+    None. Для «.» – русский формат, не предупреждаем."""
     series = _as_series(values)
     if pd.api.types.is_numeric_dtype(series) or pd.api.types.is_datetime64_any_dtype(series):
         return None
     matches = _dmy_cells(_strings(series))
-    if not matches:
-        return None
-    if any(int(m.group(1)) > 12 or int(m.group(3)) > 12 for m in matches.values()):
+    if not matches or not _dmy_order(matches)[1]:
         return None
     for m in matches.values():
         if m.group(2) in "/-" and int(m.group(1)) != int(m.group(3)):

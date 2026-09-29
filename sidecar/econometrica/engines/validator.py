@@ -688,6 +688,9 @@ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, A
     if _drop_index:
         df = df.drop(index=_drop_index).reset_index(drop=True)
         n_rows = len(df)
+    # M-1 (AUDIT_259): сырые даты – до подмены df историей плана ниже: там
+    # колонка даты уже разобрана, и предупреждения о датах по ней молчали.
+    _raw_dates_df = df
 
     # ── Медиаплан-хвост: детекция до любой статистики ──────────────────────
     # Если после исторических строк (KPI заполнен) идут строки будущего (KPI пуст),
@@ -1055,8 +1058,9 @@ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, A
     # серийные номера). Проверка отвечала «ГОТОВ», а обучение шло на датах
     # 1970-01-01. Обучение по ней отказывает тем же текстом.
     _date_numeric_refusal = None
+    _date_not_parsed = None
     if date_col is not None:
-        from engines.planning import numeric_date_refusal
+        from engines.planning import date_not_parsed_refusal, numeric_date_refusal
         _date_numeric_refusal = numeric_date_refusal(df, date_col)
         if _date_numeric_refusal is not None:
             issues.append({
@@ -1065,6 +1069,17 @@ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, A
                 'message': _date_numeric_refusal,
                 'severity': 'critical',
             })
+        elif date_col in _raw_dates_df.columns:
+            # M-2 (AUDIT_259): ни одной распознанной даты – обучение (и OLS)
+            # откажет тем же текстом.
+            _date_not_parsed = date_not_parsed_refusal(_raw_dates_df, date_col)
+            if _date_not_parsed is not None:
+                issues.append({
+                    'column': date_col,
+                    'type': 'date_not_parsed',
+                    'message': _date_not_parsed,
+                    'severity': 'critical',
+                })
 
     if not kpi_cols:
         issues.append({
@@ -1239,10 +1254,14 @@ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, A
         from utils.dates import (
             ambiguous_day_month_example, parse_dates, ru_date_words, unparsed_examples,
         )
-        _raw_dates = df[date_col]
-        _parsed_dates = parse_dates(_raw_dates)
-        _bad_dates = unparsed_examples(_raw_dates, _parsed_dates)
-        if _bad_dates:
+        # Предупреждения – по сырой колонке файла (M-1 AUDIT_259), значения
+        # для статистики ниже – по df (история без плана).
+        _raw_dates = (_raw_dates_df[date_col] if date_col in _raw_dates_df.columns
+                      else df[date_col])
+        _raw_parsed = parse_dates(_raw_dates)
+        _parsed_dates = parse_dates(df[date_col])
+        _bad_dates = unparsed_examples(_raw_dates, _raw_parsed)
+        if _bad_dates and _date_not_parsed is None:
             warnings.append({
                 'type': 'date_parse',
                 'message': (
@@ -1260,7 +1279,7 @@ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, A
                     f'В колонке «{date_col}» по датам нельзя понять, где день, а где '
                     f'месяц: оба числа не больше 12. Программа прочитала их как '
                     f'ДД/ММ/ГГГГ – например «{_ambiguous}» как '
-                    f'{ru_date_words(parse_dates(pd.Series([_ambiguous])).iloc[0])}. '
+                    f'{ru_date_words(_raw_parsed[_raw_dates.astype(str).str.strip() == _ambiguous].iloc[0])}. '
                     f'Если это не так, запишите даты в виде ДД.ММ.ГГГГ и загрузите файл заново.'
                 ),
                 'severity': 'warning',

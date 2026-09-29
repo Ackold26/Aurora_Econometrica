@@ -93,9 +93,13 @@ def test_parse_dates_monthly_all_le_12_is_day_first():
 
 
 def test_parse_dates_slash_all_le_12_is_day_first_and_ambiguous():
-    s = pd.Series(["01/02/2023", "01/03/2023", "01/04/2023"])
-    _eq(parse_dates(s), ["2023-02-01", "2023-03-01", "2023-04-01"])
-    assert ambiguous_day_month_example(s) == "01/02/2023"
+    """Все ≤ 12 и ни одно число не постоянно – день впереди, порядок не
+    определён (предупреждение проверки). Переписан осознанно (H-1
+    AUDIT_259): прежний пример «01/02/2023, 01/03/2023» – постоянное «01»,
+    теперь это день, и порядок определён."""
+    s = pd.Series(["02/01/2023", "03/02/2023", "04/03/2023"])
+    _eq(parse_dates(s), ["2023-01-02", "2023-02-03", "2023-03-04"])
+    assert ambiguous_day_month_example(s) == "02/01/2023"
 
 
 def test_parse_dates_midnight_plus_03_keeps_local_date():
@@ -210,13 +214,27 @@ def test_date_frequency_without_plan(tmp_path):
     assert v.get("media_plan_detected") is None
 
 
-def test_slash_ambiguous_dates_warn(tmp_path):
-    df = _base(36, pd.date_range("2021-01-01", periods=42, freq="MS"), n_plan=0)
-    v = _validate(_ru_csv(df, tmp_path / "ru.csv", "%d/%m/%Y"))
+def _ambiguous_monthly(d) -> str:
+    """Месячный ряд, где день и месяц оба ≤ 12 и оба меняются: «02/01/2021»,
+    «03/02/2021» … – порядок по файлу не определить."""
+    return f"{d.month % 12 + 1:02d}/{d.month:02d}/{d.year}"
+
+
+@pytest.mark.parametrize("n_plan", [0, 6])
+def test_slash_ambiguous_dates_warn(tmp_path, n_plan):
+    """M-1 (AUDIT_259): с планом df подменяется историей, где даты уже
+    разобраны, – предупреждение считается по СЫРОЙ колонке и не пропадает.
+    Переписан осознанно (H-1): прежний месячный «01/ММ/ГГГГ» теперь
+    определён постоянным днём «01»."""
+    df = _base(36, pd.date_range("2021-01-01", periods=42, freq="MS"), n_plan=n_plan)
+    df["date"] = [_ambiguous_monthly(d) for d in df["date"]]
+    p = tmp_path / "amb.csv"
+    df.to_csv(p, sep=";", decimal=",", index=False)
+    v = _validate(p)
     warn = [w for w in v["warnings"] if w["type"] == "date_order_ambiguous"]
     assert len(warn) == 1
-    assert "«01/01/2021»" not in warn[0]["message"]  # пример – где день ≠ месяц
-    assert "как 1 февраля 2021" in warn[0]["message"]
+    assert "«02/01/2021» как 2 января 2021" in warn[0]["message"]
+    assert (v.get("media_plan_detected") or {}).get("n_future_periods") == (n_plan or None)
 
 
 def test_slash_unambiguous_dates_do_not_warn(tmp_path):
@@ -229,7 +247,8 @@ def test_unparsed_date_warning_asks_ddmmyyyy(tmp_path):
     """H-4: совет «Убедитесь в формате YYYY-MM-DD» спорил с отказом
     «ДД.ММ.ГГГГ» – теперь один вид даты в обоих текстах."""
     df = _base(48, pd.date_range("2023-01-02", periods=48, freq="7D"), n_plan=0)
-    df["date"] = [f"Неделя {i}" for i in range(1, 49)]
+    df["date"] = [d.strftime("%d.%m.%Y") for d in df["date"]]
+    df.loc[20:, "date"] = [f"Неделя {i}" for i in range(21, 49)]
     p = tmp_path / "bad.csv"
     df.to_csv(p, sep=";", decimal=",", index=False)
     v = _validate(p)
@@ -555,6 +574,137 @@ def test_action_headline_mroas_two_decimals():
     assert h1 == "Нарастить ТВ – mROAS 4.25× против Digital"
     h2 = derive_action_headline(channels, {"leader_channel": "ТВ"}, "mroas")
     assert h2 == "Защитить лидерство ТВ – mROAS 4.25×"
+
+
+# ─── Аудит 2.5.9 (AUDIT_259): H-1, M-1, M-2, L-1, L-2 ───────────────────────
+
+
+US_MONTHS = pd.date_range("2021-01-01", periods=36, freq="MS")
+
+
+@pytest.mark.parametrize("fmt", ["%m/%d/%Y", "%m-%d-%Y"])
+def test_us_monthly_month_first(fmt):
+    """H-1: «ММ/01/ГГГГ» (американская месячная выгрузка) – постоянное «01» –
+    день, месяцы не становятся январём (2.5.8 читал верно)."""
+    s = pd.Series([d.strftime(fmt) for d in US_MONTHS])
+    _eq(parse_dates(s), list(US_MONTHS))
+    assert ambiguous_day_month_example(s) is None
+
+
+@pytest.mark.parametrize("fmt", ["%d.%m.%Y", "%d/%m/%Y", "%d-%m-%Y"])
+def test_ru_monthly_still_day_first_after_constancy_rule(fmt):
+    """«01.ММ.ГГГГ» и «01/ММ/ГГГГ» – постоянное «01» впереди – день, порядок
+    определён, предупреждения нет."""
+    s = pd.Series([d.strftime(fmt) for d in US_MONTHS])
+    _eq(parse_dates(s), list(US_MONTHS))
+    assert ambiguous_day_month_example(s) is None
+
+
+@pytest.mark.parametrize("fmt", ["%d/%m/%Y", "%m/%d/%Y", "%d.%m.%Y", "%m-%d-%Y"])
+def test_weekly_both_orders(fmt):
+    _eq(parse_dates(pd.Series([d.strftime(fmt) for d in WEEKS])), list(WEEKS))
+
+
+def test_us_monthly_csv_with_plan_equals_xlsx(tmp_path):
+    """H-1 + M-1 на проверке: «ММ/01/ГГГГ» «,» + 6 строк плана – как xlsx."""
+    df = _base(36, pd.date_range("2021-01-01", periods=42, freq="MS"))
+    ctrl = tmp_path / "ctrl.xlsx"
+    df.to_excel(ctrl, index=False)
+    us = df.copy()
+    us["date"] = [d.strftime("%m/%d/%Y") for d in us["date"]]
+    p = tmp_path / "us.csv"
+    us.to_csv(p, index=False)
+    a, b = _plan_view(_validate(p)), _plan_view(_validate(ctrl))
+    assert a == b and a["gran"] == "M"
+
+
+QUARTERS = pd.date_range("2018-01-01", periods=26, freq="QS")
+
+
+def _q(d) -> str:
+    return f"{d:%y}Q{(d.month - 1) // 3 + 1}"
+
+
+@pytest.mark.parametrize("fmt", [
+    _q,
+    lambda d: f"{d.year}Q{(d.month - 1) // 3 + 1}",
+    lambda d: f"{d:%y}-Q{(d.month - 1) // 3 + 1}",
+])
+def test_quarter_values(fmt):
+    """M-2: квартал «ГГQк», «ГГГГQк», «ГГ-Qк» – первый день квартала."""
+    _eq(parse_dates(pd.Series([fmt(d) for d in QUARTERS])), list(QUARTERS))
+
+
+def test_q23_with_plan_like_xlsx(tmp_path):
+    """M-2: «23Q1» с планом – как в 2.5.8 и как xlsx: quarterly, план «Q»."""
+    df = _base(24, QUARTERS, n_plan=2)
+    ctrl = tmp_path / "q.xlsx"
+    df.to_excel(ctrl, index=False)
+    q = tmp_path / "q.csv"
+    q_df = df.copy()
+    q_df["date"] = [_q(d) for d in q_df["date"]]
+    q_df.to_csv(q, sep=";", decimal=",", index=False)
+    a, b = _plan_view(_validate(q)), _plan_view(_validate(ctrl))
+    assert a == b
+    assert a["gran"] == "Q" and a["freq"] == "quarterly"
+    assert a["labels"] == ["2024-Q1", "2024-Q2"]
+
+
+def _with_total(df: pd.DataFrame) -> pd.DataFrame:
+    tot = {c: df[c].sum() for c in ("sales", "tv_spend", "digital_spend", "price")}
+    return pd.concat([df, pd.DataFrame([{"date": "Итого", **tot}])], ignore_index=True)
+
+
+def test_q23_total_row_refused(tmp_path):
+    """M-2: «23Q1» + «Итого» – отказ итога (до правки OLS обучал 25-й период)."""
+    df = _base(24, QUARTERS, n_plan=0)
+    df["date"] = [_q(d) for d in df["date"]]
+    p = tmp_path / "qt.csv"
+    _with_total(df).to_csv(p, sep=";", decimal=",", index=False)
+    crit = [i["type"] for i in _validate(p)["issues"] if i["severity"] == "critical"]
+    assert crit == ["total_row_in_data"]
+    assert _ols(p, tmp_path)["error_code"] == "TOTAL_ROW_IN_DATA"
+
+
+def test_no_recognized_dates_refused_everywhere(tmp_path):
+    """M-2: ни одной распознанной даты – детектор итогов молчал бы, и OLS обучал
+    «Итого» периодом. Теперь проверка – критично, OLS и байес – DATE_NOT_PARSED."""
+    from engines.modeler import train_model
+    df = _base(48, WEEKS, n_plan=0)
+    df["date"] = [f"Неделя {i}" for i in range(1, 49)]
+    p = tmp_path / "nd.csv"
+    _with_total(df).to_csv(p, sep=";", decimal=",", index=False)
+    v = _validate(p)
+    crit = [i for i in v["issues"] if i["severity"] == "critical"]
+    assert [i["type"] for i in crit] == ["date_not_parsed"]
+    assert "Неделя 1" in crit[0]["message"] and "ДД.ММ.ГГГГ" in crit[0]["message"]
+    assert not [w for w in v["warnings"] if w["type"] == "date_parse"]
+    t = _ols(p, tmp_path)
+    assert t["error_code"] == "DATE_NOT_PARSED" and t["message"] == crit[0]["message"]
+    r = train_model(_cfg(p), str(tmp_path / "proj_b"))
+    assert r["error_code"] == "DATE_NOT_PARSED" and r["message"] == crit[0]["message"]
+
+
+def test_two_digit_year_century_window():
+    """L-1: «01.12.99» – 1999-12-01, а не 2099."""
+    _eq(parse_dates(pd.Series(["01.10.99", "01.11.99", "01.12.99"])),
+        ["1999-10-01", "1999-11-01", "1999-12-01"])
+    _eq(parse_dates(pd.Series(["Jan-99", "Feb-99"])), ["1999-01-01", "1999-02-01"])
+
+
+def test_month_day_weekly_is_not_years():
+    """L-2: недельное «Jan-02, Jan-09 … Dec-25» (месяц и день) – не годы 2002…2031:
+    ряд «месяц + год» немонотонен – NaT (громкий путь)."""
+    weeks = pd.date_range("2023-01-02", periods=52, freq="7D")
+    assert parse_dates(pd.Series([d.strftime("%b-%d") for d in weeks])).isna().all()
+
+
+@pytest.mark.parametrize("order", ["asc", "desc"])
+def test_month_year_monthly_still_months(order):
+    months = list(pd.date_range("2021-01-01", periods=36, freq="MS"))
+    if order == "desc":
+        months = months[::-1]
+    _eq(parse_dates(pd.Series([d.strftime("%b-%y") for d in months])), months)
 
 
 # ─── Потребители колонки даты: те же значения, что у помощника ─────────────

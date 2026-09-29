@@ -488,6 +488,27 @@ def date_not_parsed_message(column: Any, examples: list[str]) -> str:
     )
 
 
+def date_not_parsed_refusal(df: "pd.DataFrame", column: Any) -> str | None:
+    """Текст отказа, если в текстовой колонке даты `column` не распознано НИ
+    ОДНОЙ даты; иначе None (M-2 AUDIT_259). Детектор итогов на такой колонке
+    молчал (дат нет – «хвоста после последней даты» нет), и OLS, которому
+    даты не нужны, обучал строку «Итого» периодом. Числовую колонку
+    отвергает `numeric_date_refusal`. Один текст для проверки, OLS и байеса."""
+    if column is None or column not in df.columns:
+        return None
+    s = df[column]
+    if pd.api.types.is_numeric_dtype(s) or pd.api.types.is_datetime64_any_dtype(s):
+        return None
+    filled = s.dropna()
+    if filled.empty:
+        return None
+    parsed = parse_dates(filled)
+    if parsed.notna().any():
+        return None
+    from utils.dates import unparsed_examples
+    return date_not_parsed_message(column, unparsed_examples(filled, parsed))
+
+
 def data_check_failed_message() -> str:
     """Текст отказа обучения: проверка итоговых строк и строк без даты
     завершилась сбоем (N8, 2.5.9) – вместо HTTP 500 с сырым текстом."""
