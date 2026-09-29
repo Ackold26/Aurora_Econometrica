@@ -26,6 +26,9 @@
     после каждой запятой ровно три цифры («1,234»), не переводим – это может
     быть английский разделитель тысяч; она остаётся текстом, и проверка
     откажет громко, а не прочитает в 1000 раз меньше (M-2, AUDIT03 s56).
+    Так же – при любом разделителе, если в файле есть колонка чисел с
+    десятичной точкой («12.5»): соглашения смешаны, и «1,234» рядом с ней –
+    скорее английские тысячи (L-5, AUDIT03 s56).
   - Колонка, где каждое значение – «ММ.ГГГГ» или «ГГГГ.ММ» (дата, которую
     Excel записал как число), остаётся текстом «01.2022», а не числом 1.2022:
     проверка и обучение отказывают по ней с понятным текстом (H-1, AUDIT03
@@ -65,6 +68,8 @@ _DECIMAL_COMMA_RE = re.compile(
 _ENGLISH_THOUSANDS_RE = re.compile(r'\d{1,3}(?:,\d{3})+\.\d+')
 # Запятая, после которой не ровно три цифры, – точно десятичная («1,5»).
 _SURE_DECIMAL_COMMA_RE = re.compile(r',(?!\d{3}\s*$)\d+\s*$')
+# Число с десятичной точкой или целое: «12.5», «-3», «100».
+_POINT_NUMBER_RE = re.compile(r'\s*[-+−]?\d+(?:\.\d+)?\s*')
 # Дата, которую Excel записал как число: «01.2022» (ММ.ГГГГ), «2022.01» (ГГГГ.ММ).
 _NUMBER_LIKE_DATE_RE = re.compile(r'\s*(?:(\d{1,2})\.(\d{4})|(\d{4})\.(\d{1,2}))\s*')
 
@@ -192,6 +197,20 @@ def _row_map(text: str, sep: str, n_rows: int) -> list[int] | None:
     return rows
 
 
+def _has_point_decimal_column(as_text: pd.DataFrame, skip: Any) -> bool:
+    """В файле есть колонка чисел, где хотя бы одно записано с десятичной
+    точкой («12.5»). Колонки `skip` (даты «01.2022») не в счёт."""
+    for col in as_text.columns:
+        if col in skip:
+            continue
+        filled = as_text[col].dropna()
+        if (not filled.empty
+                and all(_POINT_NUMBER_RE.fullmatch(v) for v in filled)
+                and any('.' in v for v in filled)):
+            return True
+    return False
+
+
 def _convert_decimal_comma(df: pd.DataFrame, need_sure_comma: bool) -> pd.DataFrame:
     """Текстовые колонки, где КАЖДОЕ непустое значение – число с десятичной
     запятой и/или пробелом-разделителем тысяч, – в числа. Колонка, где есть
@@ -238,7 +257,8 @@ def _read_csv(path: Path, keep_row_map: bool) -> tuple[pd.DataFrame, list[int] |
         df = pd.read_csv(path, sep=sep, encoding=encoding, dtype=keep_text or None)
         if sep != ',' and not _ENGLISH_THOUSANDS_RE.search(text):
             df = _convert_decimal_comma(
-                df, need_sure_comma=sep == '\t' and encoding != 'cp1251',
+                df, need_sure_comma=(sep == '\t' and encoding != 'cp1251')
+                or _has_point_decimal_column(as_text, keep_text),
             )
     row_map = None
     if keep_row_map:

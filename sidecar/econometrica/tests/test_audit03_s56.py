@@ -11,6 +11,13 @@ L-2 – текст в числовой колонке модели ронял о
 L-3 – «16 October 2023» среди дат xlsx стало «строкой без даты».
 L-4 – тесты на выжившие мутации аудитора: N3, N16, N11, N12, A7.
 Попутно – server.py: `pd` не определён в /project/save_kpi_settings.
+
+s56 fix06 – повторный аудит (ч.4 AUDIT03):
+M-3 – подсказка про календарную колонку велела «выбрать её на шаге
+     настройки», чего интерфейс не умеет; текст – под кнопку «Сбросить шаг»
+     (проверяется в тестах H-1 и test_undated_row_s56).
+L-5 – «;» + «1,234» без дробей + колонка с точкой читались тихо как 1.234.
+L-7 – годы date_stats по дате-числу (1970) не покрыты тестом.
 """
 from __future__ import annotations
 
@@ -171,8 +178,9 @@ def test_week_number_next_to_real_dates(tmp_path, order):
     assert tr["status"] == "ok", tr.get("message")
     assert tr["diagnostics"]["actual_vs_predicted"]["dates"][0] == "2022-01-01"
     expected = ("Дата в колонке «Неделя» прочитана как число (например 1). В файле есть "
-                "колонка с датами «date» – выберите её колонкой даты на шаге настройки и "
-                "запустите обучение заново.")
+                "колонка с датами «date» – на шаге «Валидация» нажмите «Сбросить шаг»: "
+                "программа заново проверит данные и сама возьмёт её колонкой даты. Затем "
+                "снова подтвердите настройки шага и запустите обучение.")
     for tr in (_ols(p, tmp_path, date_column="Неделя"), _bayes(p, tmp_path, date_column="Неделя")):
         assert (tr["error_code"], tr["column"], tr["message"]) == (
             "DATE_COLUMN_NUMERIC", "Неделя", expected)
@@ -448,3 +456,79 @@ def test_save_kpi_settings_succeeds(tmp_path, monkeypatch):
     import json
     saved = json.loads((proj / "settings" / "v13_kpi.json").read_text(encoding="utf-8"))
     assert pd.Timestamp(saved["updated_at"]).year >= 2026
+
+
+# ─── L-5 (fix06): «;», «1,234» и колонка с десятичной точкой ─────────────────
+
+
+def _semicolon(tmp_path: Path, body: str) -> Path:
+    p = tmp_path / "l5.csv"
+    p.write_text(body, encoding="utf-8", newline="")
+    return p
+
+
+def test_semicolon_thousands_next_to_point_column_stay_text(tmp_path):
+    """p7/r1 аудита: в файле «;» есть колонка «12.5» – соглашения смешаны,
+    «1,234» без единой однозначной дроби остаётся текстом, а не 1.234."""
+    df = read_data_file(_semicolon(
+        tmp_path, "date;sales;tv\n01.01.2024;1,234;12.5\n08.01.2024;2,345;13.5\n"))
+    assert df["sales"].tolist() == ["1,234", "2,345"]
+    assert df["tv"].tolist() == [12.5, 13.5]
+
+
+@pytest.mark.parametrize("body,expected", [
+    ("date;sales;tv\n01.01.2024;1,234;12\n08.01.2024;2,345;13\n", [1.234, 2.345]),
+    ("date;sales;tv\n01.01.2024;1,234;12,5\n08.01.2024;2,345;13,5\n", [1.234, 2.345]),
+    ("date;sales\n01.2024;1,234\n02.2024;2,345\n", [1.234, 2.345]),
+    ("date;sales;note\n01.01.2024;1,234;12.5\n08.01.2024;2,345;н/д\n", [1.234, 2.345]),
+    ("date;sales;tv\n01.01.2024;1,234;12.5\n08.01.2024;2,5;13.5\n", [1.234, 2.5]),
+], ids=["integer_column", "no_point_column", "mmyyyy_date_is_not_point", "text_column",
+        "sure_decimal"])
+def test_semicolon_comma_decimal_without_mixed_conventions(tmp_path, body, expected):
+    """Без колонки чисел с точкой – как раньше: русское «1,234» = 1.234.
+    Целая колонка, дата «01.2024» и колонка с текстом («12.5», «н/д»)
+    колонкой с точкой не считаются; при колонке с точкой однозначная дробь
+    («2,5») переводит колонку."""
+    assert read_data_file(_semicolon(tmp_path, body))["sales"].tolist() == expected
+
+
+def test_semicolon_thousands_next_to_point_column_refused_loudly(tmp_path):
+    """Проверка и обучение отказывают по колонке «1,234», а не обучаются на
+    числах в 1000 раз меньше."""
+    p = tmp_path / "r1.csv"
+    df = _frame()
+    lines = [";".join(df.columns)] + [
+        ";".join([r["date"].strftime("%d.%m.%Y"), f"{int(r['sales']):,}",
+                  *(repr(float(r[c])) for c in [*MEDIA, *CONTROL])])
+        for _, r in df.iterrows()]
+    p.write_text("\n".join(lines) + "\n", encoding="utf-8", newline="")
+    res = _validate(p)
+    assert [i["column"] for i in _issues(res, "non_numeric_format")] == ["sales"]
+    assert _ols(p, tmp_path)["error_code"] == "NON_NUMERIC_COLUMN"
+
+
+# ─── L-7 (fix06): годы date_stats по дате-числу ──────────────────────────────
+
+
+def _date_info(res: dict) -> dict:
+    return next(c for c in res["columns"] if c["name"] == res["detected"]["date"])
+
+
+@pytest.mark.parametrize("kind", ["semicolon_mmyyyy_cp1251", "semicolon_yyyymm_dot",
+                                  "comma_mmyyyy_utf8", "xlsx_yyyymm_int"])
+def test_numeric_date_gives_no_year_stats(tmp_path, kind):
+    """Дата-число дала бы в date_stats годы 1970 – они ушли бы в
+    UnitCostsPanel (инфляция цен по годам). Годов по такой колонке нет."""
+    p, _ = _h1_file(tmp_path, kind)
+    res = _validate(p)
+    assert res["detected"]["date"] == "date"
+    assert "date_stats" not in _date_info(res)
+
+
+def test_calendar_date_gives_year_stats(tmp_path):
+    """Контроль: у настоящих дат годы есть – тест выше не пустой."""
+    p = tmp_path / "ok.xlsx"
+    _frame().to_excel(p, index=False)
+    stats = _date_info(_validate(p))["date_stats"]
+    assert stats["unique_years"] == [2022, 2023, 2024]
+    assert (stats["min_date"], stats["max_date"]) == ("2022-01-01", "2024-12-01")
