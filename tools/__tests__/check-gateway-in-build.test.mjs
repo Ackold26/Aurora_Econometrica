@@ -12,7 +12,7 @@ import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 import {
-  isInstaller, installerTopLevelExes, judge, find7zip,
+  isInstaller, installerTopLevelExes, judge, find7zip, defaultTarget,
 } from '../check-gateway-in-build.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -46,6 +46,22 @@ function productBytes({ gateway }) {
 function runGuard(target) {
   return spawnSync(process.execPath, [GUARD, target], { encoding: 'utf8' });
 }
+
+describe('defaultTarget — каталог сборки без аргумента', () => {
+  it('без CARGO_TARGET_DIR — <корень>/target/release: рабочая область cargo — корень, не src-tauri', () => {
+    expect(defaultTarget({}, 'D:/root')).toBe(join('D:/root', 'target', 'release'));
+    expect(defaultTarget({}, 'D:/root')).not.toMatch(/src-tauri/);
+  });
+
+  it('с CARGO_TARGET_DIR — туда', () => {
+    expect(defaultTarget({ CARGO_TARGET_DIR: 'D:/cargo-targets/ai-agency' }, 'D:/root'))
+      .toBe(join('D:/cargo-targets/ai-agency', 'release'));
+  });
+
+  it('по умолчанию корень — каталог над tools/, то есть корень этого дерева', () => {
+    expect(defaultTarget({})).toBe(join(HERE, '..', '..', 'target', 'release'));
+  });
+});
 
 describe('isInstaller', () => {
   it('узнаёт установщик по -setup/_setup и не путает с бинарём продукта', () => {

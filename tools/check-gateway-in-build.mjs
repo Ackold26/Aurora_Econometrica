@@ -78,10 +78,21 @@ import { fileURLToPath } from 'node:url';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
-/** Каталог сборки по умолчанию — тот же, что называет CLAUDE.md продукта. */
-const DEFAULT_TARGET = process.env.CARGO_TARGET_DIR
-  ? join(process.env.CARGO_TARGET_DIR, 'release')
-  : join(ROOT, 'src-tauri', 'target', 'release');
+/**
+ * Каталог сборки по умолчанию: `CARGO_TARGET_DIR`, если задан, иначе `<корень>/target`.
+ *
+ * 🔴 Не `src-tauri/target`: рабочая область cargo — КОРЕНЬ дерева (`Cargo.toml` с
+ * `[workspace]`), и без `CARGO_TARGET_DIR` сборка ложится в `<корень>/target`, а
+ * `src-tauri/target` в дереве не существует вовсе. Прежний путь давал отказ «не найдено»
+ * на исправной сборке — ложное красное, после которого сторожа перестают звать.
+ */
+export function defaultTarget(env = process.env, root = ROOT) {
+  return env.CARGO_TARGET_DIR
+    ? join(env.CARGO_TARGET_DIR, 'release')
+    : join(root, 'target', 'release');
+}
+
+const DEFAULT_TARGET = defaultTarget();
 
 /** Имена, решающие вердикт: их присутствие и означает облачный путь в бинаре. */
 const GATEWAY_MARKS = ['gateway_executor', 'aurora_gateway'];
