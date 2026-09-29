@@ -645,6 +645,10 @@ class AuroraHTMLBuilder:
             # при разборе латиницы в оглавлении: соседний пункт «trust» уже был
             # обвязан проверкой живых данных, а этот — нет.
             "forecast": self.data.get("forecast"),
+            # s58 (2.5.9): KPI прогона. Без ключа разделы (sections._kpi_view) всегда
+            # шли денежной веткой: штучный KPI и доля получали «Средневзвешенный ROI»
+            # и «mROAS …×», тогда как презентация того же прогона – CPU/долю.
+            "kpi": self.data.get("kpi"),
         }
         sections_html = "\n".join(render(ctx) for _, render in SECTION_RENDERERS)
 

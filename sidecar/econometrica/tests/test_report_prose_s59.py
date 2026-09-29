@@ -148,9 +148,8 @@ def test_hero_is_leader_no_outperform_phrase_in_both():
 def test_html_complication_kpi_aware_not_mroas_for_count():
     """Штучный KPI: «По CPU …», как в презентации, а не «По mROAS … ×».
 
-    HTML – на уровне раздела: строитель страницы ключ «kpi» в контекст разделов
-    не передаёт (отдельная находка s58, вне этой правки), поэтому KPI-зависимая
-    ветка проверяется так же, как в tools/test_aurora_html_kpi_aware.py.
+    HTML – на уровне раздела, как в tools/test_aurora_html_kpi_aware.py; целая
+    сборка со штучным KPI – test_built_html_sections_follow_kpi_like_pptx ниже.
     """
     from aurora_html.sections import render_executive_summary
     data = _payload(("Banners",))
@@ -245,3 +244,30 @@ def test_footer_title_is_russian_time_not_iso():
     assert re.fullmatch(r"\d{2}\.\d{2}\.\d{4} \d{2}:\d{2}:\d{2}", m.group(1)), m.group(1)
     visible_attrs = re.findall(r'\b(?:title|aria-label|alt|placeholder)="([^"]*)"', page)
     assert [a for a in visible_attrs if _ISO.search(a)] == []
+
+
+# ─── KPI в разделах готового HTML (находка s58, в 2.5.9) ───────────────────
+
+def _without_glossary(page: str) -> str:
+    """Страница без раздела-словаря: словарь статичен и определяет термины
+    («Средневзвешенный ROI», «ROI», «mROAS») для любого отчёта."""
+    return re.sub(r'<section id="glossary".*?</section>', "", page, flags=re.S)
+
+
+@pytest.mark.parametrize("kpi_patch", [
+    {"kpi_kind": "count", "derived_mode": "roi", "kpi_type": "leads"},
+    {"kpi_kind": "monetary", "derived_mode": "effectiveness", "kpi_type": "awareness"},
+], ids=["count", "effectiveness"])
+def test_built_html_sections_follow_kpi_like_pptx(kpi_patch):
+    """Строитель HTML не передавал «kpi» в контекст разделов – готовый отчёт со
+    штучным KPI или долей печатал «Средневзвешенный ROI 0.80×», а презентация
+    того же прогона – CPU/долю. Проверка на ЦЕЛОЙ сборке (build_html), не разделе."""
+    data = _payload(("Banners",))
+    data["kpi"] = dict(data["kpi"], **kpi_patch)
+    html_text = _html_text(_without_glossary(_html_page(copy.deepcopy(data))))
+    pptx_text = _pptx(copy.deepcopy(data))
+    assert "Средневзвешенный ROI" not in html_text
+    html_sit = [l for l in html_text.splitlines() if " размещает " in l]
+    pptx_sit = [l for l in pptx_text.splitlines() if " размещает " in l]
+    assert len(html_sit) == 1 and len(pptx_sit) == 1, (html_sit, pptx_sit)
+    assert html_sit[0] == pptx_sit[0], (html_sit[0], pptx_sit[0])
