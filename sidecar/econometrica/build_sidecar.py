@@ -31,6 +31,7 @@ if hasattr(sys.stdout, 'reconfigure'):
 import re
 import subprocess
 import shutil
+import time
 from pathlib import Path
 
 ROOT = Path(__file__).parent
@@ -451,6 +452,25 @@ def sync_version_info():
         sys.exit(1)
 
 
+def find_stale_sources(root, threshold):
+    """Исходники .py движка, изменённые позже `threshold` (секунды эпохи)."""
+    stale = []
+    for p in Path(root).rglob('*.py'):
+        # Игнорируем build_tmp/ (если вдруг остался), dist/ и _internal/
+        if any(part in ('build_tmp', 'dist', '_internal') for part in p.parts):
+            continue
+        # И себя: этот скрипт СОБИРАЕТ поставку, но в неё не входит. Правка
+        # комментария в нём объявляла движок протухшим и требовала лишней
+        # пересборки на семь минут. Исключение ровно одно и названо явно —
+        # расширять его нельзя: ложная тревога тут безопасна, а ложное
+        # «свежий» отправило бы клиенту старый движок (инцидент 2026-04-21).
+        if p.name == 'build_sidecar.py':
+            continue
+        if p.stat().st_mtime > threshold:
+            stale.append(p)
+    return stale
+
+
 def main():
     # ── Prerequisite: regenerate aurora_tokens.py from Standards/tokens/ ──
     # Without this, sidecar import econometrica.aurora_tokens fails at runtime.
@@ -462,6 +482,10 @@ def main():
     print(f'\nBuilding {OUTPUT_NAME} with PyInstaller (--onedir)...')
     print(f'Output: {DIST / OUTPUT_NAME}/\n')
 
+    # Порог свежести – момент старта PyInstaller, а не время записи exe: он
+    # собирает исходники в начале, exe пишет в конце, и правка посреди сборки
+    # оказывалась «старше» exe (s57, 29.09.2026 – проскочил старый текст отказа).
+    build_started = time.time()
     result = subprocess.run(PYINSTALLER_ARGS, cwd=ROOT)
     if result.returncode != 0:
         print('\nBuild FAILED.')
@@ -538,21 +562,7 @@ def main():
     # словит handshake mismatch / отсутствие эндпоинтов. Инцидент 2026-04-21.
     exe = ROOT / f'{OUTPUT_NAME}.exe'
     if exe.exists():
-        exe_mtime = exe.stat().st_mtime
-        stale = []
-        for p in ROOT.rglob('*.py'):
-            # Игнорируем build_tmp/ (если вдруг остался), dist/ и _internal/
-            if any(part in ('build_tmp', 'dist', '_internal') for part in p.parts):
-                continue
-            # И себя: этот скрипт СОБИРАЕТ поставку, но в неё не входит. Правка
-            # комментария в нём объявляла движок протухшим и требовала лишней
-            # пересборки на семь минут. Исключение ровно одно и названо явно —
-            # расширять его нельзя: ложная тревога тут безопасна, а ложное
-            # «свежий» отправило бы клиенту старый движок (инцидент 2026-04-21).
-            if p.name == 'build_sidecar.py':
-                continue
-            if p.stat().st_mtime > exe_mtime:
-                stale.append(p)
+        stale = find_stale_sources(ROOT, min(exe.stat().st_mtime, build_started))
         if stale:
             print(f'\n[ERROR] Found {len(stale)} .py file(s) newer than {exe.name}:',
                   file=sys.stderr)
