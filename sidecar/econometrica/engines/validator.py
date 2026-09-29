@@ -693,7 +693,10 @@ def validate_data(file_path: str, project_dir: str | None = None) -> dict[str, A
     try:
         from engines.planning import detect_media_plan_tail, compute_source_hash
         # Авто-детект колонок ролей для planning детектора (минимальный набор).
-        _date_col_hint = next(
+        # N5 (2.5.9): колонка даты – та же, что detected.date (календарная);
+        # первая по порядку в [Неделя, Дата] – номера недель, и план получал
+        # даты 1970-01-01.
+        _date_col_hint = _det_date if _det_date is not None else next(
             (c for c in df.columns if detect_column_role_with_confidence(str(c))[0] == 'date'),
             None,
         )

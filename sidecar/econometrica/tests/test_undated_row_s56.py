@@ -517,9 +517,13 @@ def test_month_name_date_still_refused_with_honest_text(tmp_path):
 
 def test_zero_row_after_plan_is_not_refused(tmp_path):
     """M-5 (probe4 F5): строка нулей без даты после медиаплана. Ненулевых
-    чисел в ней нет – правило её не ловит, как было до в-1: проверка считает
-    её седьмым периодом плана без даты, обучение идёт на 36 периодах истории
-    (KPI пуст – строку отсекает фильтр). Долг – см. FIX02_s56.md."""
+    чисел в ней нет – правило строк без даты её не ловит, обучение идёт на
+    36 периодах истории (KPI пуст – строку отсекает фильтр).
+
+    Переписан осознанно (N4, 2.5.9): прежде тест закреплял дефект – проверка
+    считала строку седьмым периодом плана с датой null («7 недель» при 6,
+    прогноз базового плана – HTTP 422). Теперь строка без даты, без KPI и без
+    ненулевых медиа периодом плана не считается: 6 периодов, все с датами."""
     df = _frame(n_plan=6)
     out = _append_rows(df, [{"tv_spend": 0.0, "digital_spend": 0.0}])
     assert find_undated_rows(out, "date", VALUE_COLS) == []
@@ -528,8 +532,10 @@ def test_zero_row_after_plan_is_not_refused(tmp_path):
     assert _issues(res, "undated_row_in_data") == []
     assert _issues(res, "total_row_in_data") == []
     plan = res["media_plan_detected"]
-    assert plan["n_future_periods"] == 7
-    assert plan["future_dates"][-1] is None
+    assert plan["n_future_periods"] == 6
+    assert None not in plan["future_dates"]
+    assert "" not in plan["period_labels"]
+    assert all(v is not None for vals in plan["channels"].values() for v in vals)
     tr = _ols(p, tmp_path)
     assert tr["status"] == "ok", tr.get("message")
     assert tr["diagnostics"]["n_obs"] == N_HIST

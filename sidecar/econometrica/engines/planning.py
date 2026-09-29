@@ -113,9 +113,17 @@ def _row_is_total(
 
     Итог — строка, где есть числа И (слово-признак ИЛИ совпадение с суммами).
     """
+    import datetime as _dt
+    import numpy as _np
+
     values: dict[Any, float] = {}
     for col, val in row.items():
         if col == date_col:
+            continue
+        # N9 (2.5.9): дата и пустая дата (NaT) второй колонки дат – не число:
+        # `to_numeric` давал им наносекунды, и сноска под таблицей
+        # [date, date_end] получала ложный отказ «похожа на итоговую».
+        if val is pd.NaT or isinstance(val, (_dt.date, _np.datetime64)):
             continue
         v = pd.to_numeric(pd.Series([val]), errors="coerce").iloc[0]
         if pd.notna(v):
@@ -204,6 +212,9 @@ def find_trailing_total_rows(
     её ловит `find_undated_rows` (s56). Полностью пустые строки итогом не
     считаются.
 
+    Последнюю строку С ДАТОЙ проверяем тоже, только по KPI: итог с датой –
+    `reason='dated_sums'` и `column` – колонка KPI (N6, 2.5.9).
+
     Возвращает [{index, file_row, reason}] в порядке файла: index — метка
     строки в df, file_row — номер строки в файле (заголовок — строка 1):
     `file_rows[позиция]`, если карта строк передана (`data_io.read_data_file`,
@@ -229,6 +240,17 @@ def find_trailing_total_rows(
     last_dated = positions[-1]
     above = df.iloc[: last_dated + 1]
     found: list[dict[str, Any]] = []
+    # N6 (2.5.9): итог С ДАТОЙ последней строкой («2023-12-31» и сумма продаж
+    # за год) обучался периодом с удвоенными продажами без замечаний. Сверяем
+    # только KPI последней датированной строки с суммой KPI выше – у
+    # настоящего периода она невозможна (см. `_row_is_total`). Подытог с
+    # датой в середине таблицы – не здесь (M-3, в 2.5.10).
+    if kpi_col and kpi_col in df.columns and kpi_col != date_col:
+        if _row_is_total(df.iloc[last_dated][[kpi_col]], df.iloc[:last_dated],
+                         date_col, kpi_col) == "sums":
+            found.append({"index": df.index[last_dated],
+                          "file_row": _file_row(file_rows, last_dated),
+                          "reason": "dated_sums", "column": kpi_col})
     for pos in range(last_dated + 1, len(df)):
         row = df.iloc[pos]
         if row.isna().all():
@@ -241,7 +263,25 @@ def find_trailing_total_rows(
 
 
 def total_rows_message(total_rows: list[dict[str, Any]]) -> str:
-    """Текст для человека: какие строки похожи на итог и что с ними делать."""
+    """Текст для человека: какие строки похожи на итог и что с ними делать.
+
+    Итог с датой (`reason='dated_sums'`, N6 2.5.9) – свой текст: «в ней нет
+    даты» о нём было бы неправдой."""
+    dated = [r for r in total_rows if r.get("reason") == "dated_sums"]
+    undated = [r for r in total_rows if r.get("reason") != "dated_sums"]
+    parts = [_undated_total_rows_message(undated)] if undated else []
+    for r in dated:
+        parts.append(
+            f"Строка {r['file_row']} файла похожа на итоговую: дата в ней заполнена, "
+            f"но число в колонке «{r['column']}» равно сумме этой колонки во всех "
+            f"строках выше. В расчёт её брать нельзя – при "
+            f"обучении она станет лишним периодом и исказит продажи и бюджеты. "
+            f"Удалите эту строку из файла и загрузите его заново."
+        )
+    return " ".join(parts)
+
+
+def _undated_total_rows_message(total_rows: list[dict[str, Any]]) -> str:
     nums = ", ".join(str(r["file_row"]) for r in total_rows)
     if len(total_rows) == 1:
         return (
@@ -636,6 +676,16 @@ def detect_media_plan_tail(
 
     # Приводим даты (единым помощником, N0 2.5.9) и сортируем
     work[date_col] = parse_dates(work[date_col])
+    # N4 (2.5.9): строка без даты, без KPI и без ненулевых медиа (протянутые
+    # нули под планом) – не период плана. Иначе план становился на период
+    # длиннее («7 недель» при 6), а прогноз базового плана с датой null
+    # отказывал 422. Строку без даты с числами ловит `find_undated_rows`.
+    _media_in = [c for c in media_cols if c in work.columns]
+    _media_nonzero = (
+        work[_media_in].apply(pd.to_numeric, errors="coerce").fillna(0).ne(0).any(axis=1)
+        if _media_in else pd.Series(False, index=work.index)
+    )
+    work = work[~(work[date_col].isna() & work[kpi_col].isna() & ~_media_nonzero)]
     work = work.sort_values(date_col).reset_index(drop=True)
 
     kpi = work[kpi_col]
@@ -814,6 +864,10 @@ def load_frames(
                 detected_kpi = str(col)
             elif role == "media":
                 detected_media.append(str(col))
+        # N5 (2.5.9): колонка даты – календарная колонка роли «дата», как
+        # detected.date проверки. Первая по порядку в [Неделя, Дата] – номера
+        # недель, и даты плана выходили 1970-01-01.
+        detected_date = _calendar_date_column(df, detected_date) or detected_date
 
         if date_col is None:
             date_col = detected_date
@@ -1231,7 +1285,8 @@ def generate_media_plan_template(project_dir: str, n_future_periods: int = 12) -
         if date_column not in _probe.columns:
             from engines.validator import detect_column_role_with_confidence as _role
             _date_cands = [c for c in _probe.columns if _role(str(c))[0] == "date"]
-            date_column = _date_cands[0] if _date_cands else None
+            # L-1 (2.5.9): календарная колонка роли «дата», как в load_frames.
+            date_column = _calendar_date_column(_probe, None) or (_date_cands[0] if _date_cands else None)
     except Exception:
         date_column = None if date_column not in ("date",) else date_column
 
@@ -1244,7 +1299,8 @@ def generate_media_plan_template(project_dir: str, n_future_periods: int = 12) -
         _hist_cols = list(frames["history_df"].columns)
         from engines.validator import detect_column_role_with_confidence as _role2
         _dc = [c for c in _hist_cols if _role2(str(c))[0] == "date"]
-        date_column = _dc[0] if _dc else _hist_cols[0]
+        date_column = (_calendar_date_column(frames["history_df"], None)
+                       or (_dc[0] if _dc else _hist_cols[0]))
 
     history_df: "pd.DataFrame" = frames["history_df"]
     if history_df.empty:

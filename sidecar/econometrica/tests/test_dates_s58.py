@@ -300,6 +300,182 @@ def test_bayes_unparsed_dates_refused_before_sampling(tmp_path):
     assert "Неделя 1" in r["message"] and "ДД.ММ.ГГГГ" in r["message"]
 
 
+# ─── N5 / L-1: план по календарной колонке ───────────────────────────────────
+
+
+def _week_date_frame(n_hist: int = 48, n_plan: int = 6) -> pd.DataFrame:
+    df = _base(n_hist, pd.date_range("2023-01-02", periods=n_hist + n_plan, freq="7D"), n_plan)
+    df.insert(0, "week", range(1, n_hist + n_plan + 1))
+    return df
+
+
+def test_plan_dates_from_calendar_column_not_week_number(tmp_path):
+    """N5: [week, date] + план – даты и подписи плана по «date», а не
+    1970-01-01 по номерам недель; как у [date, week]."""
+    df = _week_date_frame()
+    p1 = tmp_path / "wd.xlsx"
+    df.to_excel(p1, index=False)
+    p2 = tmp_path / "dw.xlsx"
+    df[["date", "week", "sales", "tv_spend", "digital_spend", "price"]].to_excel(p2, index=False)
+    a, b = _validate(p1)["media_plan_detected"], _validate(p2)["media_plan_detected"]
+    assert a["future_dates"] == b["future_dates"]
+    assert a["future_dates"][0].startswith("2023-12-04")
+    assert a["period_labels"] == b["period_labels"]
+    assert not any(lbl.startswith("1970") for lbl in a["period_labels"])
+
+
+def test_load_frames_uses_calendar_column(tmp_path):
+    from engines.planning import load_frames
+    df = _week_date_frame()
+    p = tmp_path / "wd.xlsx"
+    df.to_excel(p, index=False)
+    fr = load_frames(str(p))
+    assert fr["detection"]["found"]
+    assert fr["detection"]["future_dates"][0].startswith("2023-12-04")
+
+
+def test_media_plan_template_uses_calendar_column(tmp_path):
+    """L-1: конфиг без date_column и файл [week, date] – шаблон продолжает
+    даты по «date», а не 1970-01-02…"""
+    from engines.planning import generate_media_plan_template
+    project = tmp_path / "project"
+    (project / "models").mkdir(parents=True)
+    (project / "data").mkdir()
+    df = _week_date_frame(n_plan=0)
+    df = df.rename(columns={"date": "Дата", "week": "Неделя"})
+    data_file = project / "data" / "data.xlsx"
+    df.to_excel(data_file, index=False)
+    with open(project / "models" / "latest.pkl", "wb") as f:
+        pickle.dump({"media_columns": ["tv_spend", "digital_spend"], "kpi_column": "sales",
+                     "data_file": str(data_file), "control_columns": []}, f)
+    r = generate_media_plan_template(str(project), n_future_periods=3)
+    assert r["status"] == "ok", r
+    out = pd.read_excel(r["path"])
+    tail = pd.to_datetime(out["Дата"]).iloc[-3:].dt.strftime("%Y-%m-%d").tolist()
+    assert tail == ["2023-12-04", "2023-12-11", "2023-12-18"]
+
+
+def test_media_plan_template_continues_ru_csv_dates(tmp_path):
+    """Шаблон по CSV «ДД.ММ.ГГГГ»: последняя дата – по всей колонке (день
+    впереди), а не по одной ячейке."""
+    from engines.planning import generate_media_plan_template
+    project = tmp_path / "project"
+    (project / "models").mkdir(parents=True)
+    (project / "data").mkdir()
+    df = _base(40, pd.date_range("2023-01-02", periods=40, freq="7D"), n_plan=0)
+    data_file = _ru_csv(df, project / "data" / "data.csv")
+    with open(project / "models" / "latest.pkl", "wb") as f:
+        pickle.dump({"media_columns": ["tv_spend", "digital_spend"], "kpi_column": "sales",
+                     "date_column": "date", "data_file": str(data_file), "control_columns": []}, f)
+    r = generate_media_plan_template(str(project), n_future_periods=2)
+    assert r["status"] == "ok", r
+    out = pd.read_excel(r["path"])
+    assert [pd.Timestamp(x).strftime("%Y-%m-%d") for x in out["date"].iloc[-2:]] == [
+        "2023-10-09", "2023-10-16"]
+
+
+# ─── N4: нулевая строка после плана ─────────────────────────────────────────
+
+
+def test_zero_row_after_plan_not_a_period_in_detector():
+    from engines.planning import detect_media_plan_tail
+    df = _base(36, pd.date_range("2021-01-01", periods=42, freq="MS"), n_plan=6)
+    df = pd.concat([df, pd.DataFrame([{"tv_spend": 0.0, "digital_spend": 0.0}])], ignore_index=True)
+    r = detect_media_plan_tail(df, "date", "sales", ["tv_spend", "digital_spend"])
+    assert r["found"] and r["n_future_periods"] == 6
+    assert None not in r["future_dates"]
+
+
+def test_undated_row_with_media_after_plan_still_counted():
+    """Строка без даты с НЕНУЛЕВЫМИ медиа – не протянутые нули: детектор её не
+    выбрасывает (её отказом ловит `find_undated_rows`)."""
+    from engines.planning import detect_media_plan_tail
+    df = _base(36, pd.date_range("2021-01-01", periods=42, freq="MS"), n_plan=6)
+    df = pd.concat([df, pd.DataFrame([{"tv_spend": 5.0, "digital_spend": 0.0}])], ignore_index=True)
+    r = detect_media_plan_tail(df, "date", "sales", ["tv_spend", "digital_spend"])
+    assert r["n_future_periods"] == 7
+
+
+# ─── N6: итог с датой последней строкой ─────────────────────────────────────
+
+
+def test_dated_total_last_row_refused(tmp_path):
+    from engines.planning import find_trailing_total_rows
+    df = _base(48, WEEKS, n_plan=0)
+    tot = {c: df[c].sum() for c in ("sales", "tv_spend", "digital_spend", "price")}
+    out = pd.concat([df, pd.DataFrame([{"date": pd.Timestamp("2023-12-31"), **tot}])],
+                    ignore_index=True)
+    rows = find_trailing_total_rows(out, "date", "sales")
+    assert rows == [{"index": 48, "file_row": 50, "reason": "dated_sums", "column": "sales"}]
+    p = tmp_path / "t.xlsx"
+    out.to_excel(p, index=False)
+    iss = [i for i in _validate(p)["issues"] if i["type"] == "total_row_in_data"]
+    assert iss and iss[0]["rows"] == [50]
+    assert "дата в ней заполнена" in iss[0]["message"] and "нет даты" not in iss[0]["message"]
+    assert _ols(p, tmp_path)["error_code"] == "TOTAL_ROW_IN_DATA"
+
+
+def test_ordinary_last_period_is_not_total(tmp_path):
+    from engines.planning import find_trailing_total_rows
+    df = _base(48, WEEKS, n_plan=0)
+    assert find_trailing_total_rows(df, "date", "sales") == []
+    p = tmp_path / "ok.xlsx"
+    df.to_excel(p, index=False)
+    assert not [i for i in _validate(p)["issues"] if i["type"] == "total_row_in_data"]
+
+
+def test_dated_total_with_undated_total_both_named():
+    from engines.planning import total_rows_message
+    msg = total_rows_message([
+        {"index": 1, "file_row": 50, "reason": "dated_sums", "column": "sales"},
+        {"index": 2, "file_row": 51, "reason": "word"},
+    ])
+    assert "Строка 51 файла похожа на итоговую или среднюю: в ней нет даты" in msg
+    assert "Строка 50 файла похожа на итоговую: дата в ней заполнена" in msg
+
+
+# ─── N9: пустая вторая колонка дат – не число ───────────────────────────────
+
+
+def test_footnote_with_nat_second_date_column_not_total(tmp_path):
+    df = _base(48, WEEKS, n_plan=0)
+    df.insert(1, "date_end", df["date"] + pd.Timedelta(days=6))
+    note = pd.DataFrame([{"date": "Источник: панель, суммы без НДС"}])
+    out = pd.concat([df, note], ignore_index=True)
+    p = tmp_path / "de.xlsx"
+    out.to_excel(p, index=False)
+    t = _ols(p, tmp_path, date="date")
+    assert t["status"] == "ok", t.get("message")
+    assert t["diagnostics"]["n_obs"] == 48
+
+
+def test_row_is_total_skips_dates_and_nat():
+    from engines.planning import _row_is_total
+    above = pd.DataFrame({"date": WEEKS[:3], "date_end": WEEKS[:3], "sales": [1.0, 2.0, 3.0]})
+    row = pd.Series({"date": np.nan, "date_end": pd.NaT, "sales": np.nan, "note": "суммы"})
+    assert _row_is_total(row, above, "date", "sales") is None
+    row2 = pd.Series({"date": np.nan, "date_end": dt.datetime(2023, 1, 1), "sales": np.nan})
+    assert _row_is_total(row2, above, "date", "sales") is None
+
+
+# ─── M7 (выжившая мутация AUDIT02 L-4) ──────────────────────────────────────
+
+
+def test_total_row_detector_uses_calendar_column_with_week_numbers(tmp_path):
+    """[Неделя-номер, Дата] + «Итого»: проверка называет строку итоговой
+    (total_row_in_data), а не строкой без даты. Мутация M7 (детектор итогов
+    без колонки даты) проходила все тесты."""
+    df = _week_date_frame(n_plan=0).rename(columns={"week": "Неделя", "date": "Дата"})
+    tot = {c: df[c].sum() for c in ("sales", "tv_spend", "digital_spend", "price")}
+    out = pd.concat([df, pd.DataFrame([{"Неделя": "Итого", **tot}])], ignore_index=True)
+    p = tmp_path / "wk.xlsx"
+    out.to_excel(p, index=False)
+    v = _validate(p)
+    kinds = {i["type"]: i.get("rows") for i in v["issues"]}
+    assert kinds.get("total_row_in_data") == [50]
+    assert "undated_row_in_data" not in kinds
+
+
 # ─── Потребители колонки даты: те же значения, что у помощника ─────────────
 
 RU_MONTHLY = pd.date_range("2021-01-01", periods=36, freq="MS")
