@@ -42,21 +42,37 @@
  * читается как «регресс у всех». Здесь: не нашли контрольную строку — значит смотрим не
  * туда, и это ОТКАЗ, а не «шлюза нет».
  *
- * ## Чего этот сторож НЕ умеет
+ * ## Установщик
  *
- * Установщик NSIS (`*-setup.exe`) внутри сжат: строк кода в нём не найти, и проба на нём
- * дала бы ложное «шлюза нет». Такие файлы пропускаются ЯВНО и называются вслух — молчание
- * читалось бы как «проверено и сошлось». Проверять надо распакованный бинарь продукта:
- * либо из каталога сборки, либо из установленной программы.
+ * Установщик NSIS (`*-setup.exe`) внутри сжат: строк кода в нём не найти, и проба на
+ * самих его байтах дала бы ложное «шлюза нет». Поэтому установщик, названный ПРЯМО,
+ * распаковывается 7-Zip во временный каталог, и судятся двоичные файлы его верхнего
+ * уровня — то есть ровно то, что попадёт к клиенту (N23, s58).
+ *
+ * 🔴 Почему не «проверить exe из каталога сборки рядом». Измерено 29.09.2026: exe,
+ * извлечённый из установщика 2.5.8, НЕ совпадает побайтово с `release/aurora-econometrica-gui.exe`
+ * той же сборки (расхождение с байта 12 657 145). Вердикт по соседнему файлу — вердикт
+ * не о том, что публикуется. Проверять надо файл, который уходит клиенту.
+ *
+ * Нет 7-Zip — ОТКАЗ, а не пропуск: «не смогли заглянуть» не значит «шлюз на месте».
+ * Путь к 7-Zip можно задать переменной `AURORA_7Z`.
+ *
+ * При обходе КАТАЛОГА установщики по-прежнему пропускаются и называются вслух: в общем
+ * каталоге сборки лежат установщики всех прежних версий и чужих продуктов, и вердикт по
+ * ним к этой сборке не относится.
  *
  * Запуск:
- *   node tools/check-gateway-in-build.mjs <путь к .exe или каталогу>
+ *   node tools/check-gateway-in-build.mjs <путь к .exe, установщику или каталогу>
  *   node tools/check-gateway-in-build.mjs            (каталог сборки по умолчанию)
  *
  * Код возврата: 0 — шлюз на месте во всех проверенных файлах; 1 — нет, противоречие,
  * либо проверять оказалось нечего.
  */
-import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
+import {
+  existsSync, mkdtempSync, readFileSync, readdirSync, realpathSync, rmSync, statSync,
+} from 'node:fs';
+import { tmpdir } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -105,6 +121,91 @@ function countOccurrences(buffer, needle) {
   }
 }
 
+/** Установщик по имени файла — тот же признак, по которому обход каталога его пропускает. */
+export function isInstaller(file) {
+  const name = basename(file).toLowerCase();
+  return name.endsWith('.exe') && (name.includes('-setup') || name.includes('_setup'));
+}
+
+/**
+ * Найти 7-Zip: переменная `AURORA_7Z`, затем PATH, затем обычные места установки.
+ * Годным считается только то, что ОТВЕТИЛО на вызов, а не просто лежит на диске.
+ */
+export function find7zip(env = process.env) {
+  const candidates = [];
+  if (env.AURORA_7Z) candidates.push(env.AURORA_7Z);
+  candidates.push('7z');
+  for (const base of [env.ProgramFiles, env['ProgramFiles(x86)'], 'C:\\Program Files', 'C:\\Program Files (x86)']) {
+    if (base) candidates.push(join(base, '7-Zip', '7z.exe'));
+  }
+  for (const candidate of candidates) {
+    const probe = spawnSync(candidate, ['i'], { stdio: 'ignore' });
+    if (!probe.error && probe.status === 0) return candidate;
+  }
+  return null;
+}
+
+/**
+ * Двоичные файлы ВЕРХНЕГО уровня установщика из вывода `7z l -slt`.
+ *
+ * Вложенные пропускаются намеренно: `_up_\sidecar\…` — спутники (движок расчёта), а не
+ * оболочка кабинетов, `$PLUGINSDIR` — служебное NSIS. `uninstall.exe` кода продукта не
+ * несёт. Разбор начинается после черты `----------`: до неё идёт описание самого архива,
+ * и его `Path = ` — путь к установщику, а не к содержимому.
+ */
+export function installerTopLevelExes(listing) {
+  const lines = String(listing || '').split(/\r?\n/);
+  const start = lines.findIndex((line) => line.trim() === '----------');
+  const names = [];
+  if (start === -1) return names;
+  for (const line of lines.slice(start + 1)) {
+    const m = line.match(/^Path = (.+)$/);
+    if (!m) continue;
+    const name = m[1].trim();
+    if (/[\\/]/.test(name)) continue;
+    const lower = name.toLowerCase();
+    if (!lower.endsWith('.exe') || lower === 'uninstall.exe') continue;
+    names.push(name);
+  }
+  return names;
+}
+
+/**
+ * Распаковать двоичные файлы верхнего уровня установщика во временный каталог.
+ * Возвращает `{ dir, files, type }` либо `{ error }` — отказ называется, а не глотается.
+ * Каталог принадлежит вызывающему: убрать его — его обязанность.
+ */
+export function unpackInstaller(installer, sevenZip) {
+  const listing = spawnSync(sevenZip, ['l', '-slt', installer], {
+    encoding: 'utf8', maxBuffer: 256 * 1024 * 1024,
+  });
+  if (listing.error || listing.status !== 0) {
+    return {
+      error: `7-Zip не смог прочитать установщик (код ${listing.status}): `
+        + `${(listing.stderr || listing.error?.message || '').trim() || 'причина не названа'}`,
+    };
+  }
+  const type = (listing.stdout.match(/^Type = (.+)$/m) || [])[1] || 'неизвестен';
+  const names = installerTopLevelExes(listing.stdout);
+  if (names.length === 0) {
+    return { error: `в установщике (тип ${type}) нет ни одного двоичного файла верхнего уровня, кроме программы удаления` };
+  }
+  const dir = mkdtempSync(join(tmpdir(), 'aurora-gateway-installer-'));
+  // `-r-`: только верхний уровень — одноимённый файл во вложенном каталоге не подменит проверяемый.
+  const unpack = spawnSync(sevenZip, ['e', '-y', '-r-', `-o${dir}`, installer, ...names], {
+    encoding: 'utf8', maxBuffer: 64 * 1024 * 1024,
+  });
+  const files = names.map((name) => join(dir, name));
+  if (unpack.error || unpack.status !== 0 || !files.every((file) => existsSync(file))) {
+    rmSync(dir, { recursive: true, force: true });
+    return {
+      error: `7-Zip не распаковал ${names.join(', ')} (код ${unpack.status}): `
+        + `${(unpack.stderr || unpack.error?.message || '').trim() || 'файлов после распаковки нет'}`,
+    };
+  }
+  return { dir, files, type };
+}
+
 /** Двоичные файлы продукта, пригодные к проверке, и отдельно — пропущенные с причиной. */
 export function collectBinaries(target) {
   const takeable = [];
@@ -116,8 +217,8 @@ export function collectBinaries(target) {
       skipped.push([file, 'программа удаления, кода продукта в ней нет']);
       return;
     }
-    if (name.includes('-setup') || name.includes('_setup')) {
-      skipped.push([file, 'установщик сжат — строк кода в нём не найти, проверять надо распакованный бинарь']);
+    if (isInstaller(file)) {
+      skipped.push([file, 'установщик при обходе каталога не проверяется — назовите его прямо, и сторож распакует его']);
       return;
     }
     takeable.push(file);
@@ -187,26 +288,56 @@ function main() {
     process.exit(1);
   }
 
-  const { takeable, skipped } = collectBinaries(target);
+  const byDirectory = statSync(target).isDirectory();
+  const byInstaller = !byDirectory && isInstaller(target);
+  let takeable;
+  let skipped = [];
+  /** Как назвать проверенный файл в выводе: у распакованного — через установщик. */
+  let shown = (file) => file;
+  if (byInstaller) {
+    const sevenZip = find7zip();
+    if (!sevenZip) {
+      console.error(`[состав поставки] ОТКАЗ: ${target} — установщик, а распаковать его нечем`);
+      console.error('[состав поставки] что делать: установите 7-Zip либо укажите путь к 7z.exe '
+        + 'переменной AURORA_7Z. «Не смогли заглянуть» не значит «шлюз на месте»');
+      process.exit(1);
+    }
+    const unpacked = unpackInstaller(target, sevenZip);
+    if (unpacked.error) {
+      console.error(`[состав поставки] ОТКАЗ: ${target}`);
+      console.error(`[состав поставки] ${unpacked.error}`);
+      process.exit(1);
+    }
+    // 🔴 Уборка — на выходе процесса, а не в `finally`: `process.exit()` ниже обрывает
+    // исполнение раньше, чем `finally` успел бы сработать, и каталог оставался бы в temp
+    // ровно на пути отказа.
+    process.on('exit', () => rmSync(unpacked.dir, { recursive: true, force: true }));
+    info(`установщик ${basename(target)} (тип ${unpacked.type}) распакован во временный каталог: `
+      + `${unpacked.files.map((file) => basename(file)).join(', ')}`);
+    takeable = unpacked.files;
+    shown = (file) => `${target} → ${basename(file)}`;
+  } else {
+    ({ takeable, skipped } = collectBinaries(target));
+  }
   for (const [file, why] of skipped) info(`пропущен ${basename(file)}: ${why}`);
   if (takeable.length === 0) {
     console.error(`[состав поставки] ОТКАЗ: проверять нечего — в ${target} нет двоичных файлов продукта`);
     console.error('[состав поставки] что делать: «нечего проверять» не значит «проверено». '
-      + 'Укажите распакованный бинарь продукта, а не установщик');
+      + 'Укажите установщик, распакованный бинарь продукта либо каталог сборки');
     process.exit(1);
   }
 
   // 🔴 Один и тот же исход читается по-разному в зависимости от того, ЧТО спросили.
   // Указали файл прямо — «это не бинарь продукта» есть отказ: спросили не о том. Обходим
-  // каталог — тот же исход есть пропуск с названной причиной: рядом с продуктом законно
-  // лежат его спутники (шлюз моделей, вспомогательные программы), и вердикт о составе
-  // поставки к ним не относится вовсе.
-  const byDirectory = statSync(target).isDirectory();
+  // каталог или содержимое установщика — тот же исход есть пропуск с названной причиной:
+  // рядом с продуктом законно лежат его спутники (шлюз моделей, вспомогательные программы),
+  // и вердикт о составе поставки к ним не относится вовсе.
+  const manyFiles = byDirectory || byInstaller;
   let bad = 0;
   let judged = 0;
   for (const file of takeable) {
     const verdict = judge(readFileSync(file));
-    if (verdict.state === 'проба-мимо' && byDirectory) {
+    if (verdict.state === 'проба-мимо' && manyFiles) {
       info(`пропущен ${basename(file)}: не бинарь продукта (${verdict.why})`);
       continue;
     }
@@ -215,11 +346,11 @@ function main() {
       + `«облачного режима нет»=${verdict.noCloud}, ${DIAGNOSTIC_MARK}=${verdict.diagnostic} (диагностика), `
       + `контроль=${verdict.control}`;
     if (verdict.state === 'шлюз-есть') {
-      info(`✓ ${file}: шлюз Авроры в поставке — ${numbers}`);
+      info(`✓ ${shown(file)}: шлюз Авроры в поставке — ${numbers}`);
       continue;
     }
     bad += 1;
-    console.error(`\n[состав поставки] ОТКАЗ: ${file}`);
+    console.error(`\n[состав поставки] ОТКАЗ: ${shown(file)}`);
     console.error(`[состав поставки] ${verdict.why}`);
     console.error(`[состав поставки] числа: ${numbers}`);
     if (verdict.state === 'шлюза-нет') {
@@ -245,7 +376,28 @@ function main() {
   info(`итог: шлюз на месте во всех проверенных файлах (${judged})`);
 }
 
+/**
+ * Запущен ли файл напрямую (а не импортирован набором проверок).
+ *
+ * 🔴 Сравнение «в лоб» ломается на junction и символической ссылке (находка пятого аудита
+ * build-cloud.mjs, тот же приём): `import.meta.url` Node отдаёт разыменованным, а
+ * `process.argv[1]` — как написано в командной строке. Из каталога, заведённого через
+ * `mklink /J`, сторож молча выходил бы кодом ноль, НЕ проверив ничего, — а шаг публикации
+ * прочёл бы это как «шлюз на месте».
+ */
+export function startedDirectly(entryPath) {
+  if (!entryPath) return false;
+  const self = fileURLToPath(import.meta.url);
+  const entry = resolve(entryPath);
+  if (self === entry) return true;
+  try {
+    return realpathSync(self) === realpathSync(entry);
+  } catch {
+    return false;
+  }
+}
+
 // Гард запуска: при импорте набором проверок main не выполняется.
-if (process.argv[1] && resolve(process.argv[1]) === resolve(fileURLToPath(import.meta.url))) {
+if (startedDirectly(process.argv[1])) {
   main();
 }

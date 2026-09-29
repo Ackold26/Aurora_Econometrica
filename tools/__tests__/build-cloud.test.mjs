@@ -12,7 +12,9 @@
 // умеет `git clone --branch`/`git ls-remote` что для локального пути, что для
 // удалённого URL.
 import { describe, it, expect, beforeAll, afterAll, vi } from 'vitest';
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync } from 'node:fs';
+import {
+  mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, utimesSync,
+} from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -33,7 +35,12 @@ import {
   lockedGatewayCommit,
   assertBuiltFromTag,
   startedDirectly,
+  buildChildEnv,
+  nsisBundleDir,
+  freshInstallers,
+  checkGatewayInArtifact,
 } from '../build-cloud.mjs';
+import { CLOUD_BUILD_ENV } from '../check-manifest-clean.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 
@@ -660,5 +667,151 @@ describe('startedDirectly (High пятого аудита: гард запуск
     } finally {
       if (made) rmSync(dirname(linkDir), { recursive: true, force: true });
     }
+  });
+});
+
+// ── N23/N24 s58: сторож состава по готовому установщику и своя облачная сборка ─────
+
+describe('buildChildEnv (N24: проверка манифеста узнаёт свою облачную сборку)', () => {
+  it('передаёт дочернему процессу номер процесса сборки и не теряет остального окружения', () => {
+    const env = buildChildEnv({ PATH: 'x', CARGO_TARGET_DIR: 'D:/t' }, 4242);
+    expect(env[CLOUD_BUILD_ENV]).toBe('4242');
+    expect(env.PATH).toBe('x');
+    expect(env.CARGO_TARGET_DIR).toBe('D:/t');
+  });
+
+  it('runBuild запускает сборку именно с этим окружением', () => {
+    const source = readFileSync(join(HERE, '..', 'build-cloud.mjs'), 'utf8');
+    expect(source).toMatch(/child = spawn\(cmd, args, \{[^}]*env: buildChildEnv\(\)/);
+  });
+});
+
+describe('nsisBundleDir', () => {
+  it('без CARGO_TARGET_DIR — target в корне рабочей области, а не src-tauri/target', () => {
+    expect(nsisBundleDir({}, 'D:/root')).toBe(join('D:/root', 'target', 'release', 'bundle', 'nsis'));
+  });
+
+  it('с CARGO_TARGET_DIR — туда', () => {
+    expect(nsisBundleDir({ CARGO_TARGET_DIR: 'D:/cargo-targets/ai-agency' }, 'D:/root'))
+      .toBe(join('D:/cargo-targets/ai-agency', 'release', 'bundle', 'nsis'));
+  });
+});
+
+describe('freshInstallers — судить только установщик ЭТОЙ сборки', () => {
+  const conf = { productName: 'Optimizer MMM', version: '2.5.9' };
+
+  it('берёт свой свежий, отбрасывает прежний той же версии, чужой продукт и переименованную копию', () => {
+    const dir = mkdtempSync(join(tmpdir(), 'fresh-installers-'));
+    try {
+      const since = Date.now() - 1000;
+      const ours = join(dir, 'Optimizer MMM_2.5.9_x64-setup.exe');
+      const stale = join(dir, 'Optimizer MMM_2.5.9_arm64-setup.exe');
+      const older = join(dir, 'Optimizer MMM_2.5.8_x64-setup.exe');
+      const alien = join(dir, 'Aurora AI Creative Center_0.10.9_x64-setup.exe');
+      const renamed = join(dir, 'Optimizer MMM_2.5.9_x64-setup.ПРЕЖНЯЯ.exe');
+      for (const file of [ours, stale, older, alien, renamed]) writeFileSync(file, 'x');
+      const hourAgo = (Date.now() - 3600 * 1000) / 1000;
+      utimesSync(stale, hourAgo, hourAgo);
+      expect(freshInstallers(dir, conf, since)).toEqual([ours]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('каталога нет — пустой список, а не исключение', () => {
+    expect(freshInstallers(join(tmpdir(), 'нет-такого-каталога-n23'), conf, 0)).toEqual([]);
+  });
+});
+
+describe('checkGatewayInArtifact (N23: сторож состава зовётся после сборки)', () => {
+  /** Корень-фикстура: настройка tauri, каталог установщиков и сторож с заданным кодом. */
+  function fixtureRoot({ guardCode = 0, withInstaller = true, withGuard = true } = {}) {
+    const root = mkdtempSync(join(tmpdir(), 'artifact-guard-'));
+    mkdirSync(join(root, 'src-tauri'));
+    writeFileSync(join(root, 'src-tauri', 'tauri.conf.json'),
+      JSON.stringify({ productName: 'Optimizer MMM', version: '9.9.9' }));
+    const nsis = join(root, 'target', 'release', 'bundle', 'nsis');
+    mkdirSync(nsis, { recursive: true });
+    const installer = join(nsis, 'Optimizer MMM_9.9.9_x64-setup.exe');
+    if (withInstaller) writeFileSync(installer, 'x');
+    const guard = join(root, 'guard.mjs');
+    if (withGuard) {
+      writeFileSync(guard, `if (!process.argv[2].endsWith('-setup.exe')) process.exit(3);\nprocess.exit(${guardCode});\n`);
+    }
+    return { root, guard, installer };
+  }
+
+  function check(fixture, startedAt = Date.now() - 1000) {
+    return withExitTrapped(() => checkGatewayInArtifact({
+      release: true, startedAt, env: {}, root: fixture.root, guard: fixture.guard,
+    }));
+  }
+
+  it('не на пути выпуска (--check/--test) ничего не делает', () => {
+    const { threw } = withExitTrapped(() => checkGatewayInArtifact({ release: false }));
+    expect(threw).toBeNull();
+  });
+
+  it('сторож подтвердил шлюз — проход', () => {
+    const fixture = fixtureRoot({ guardCode: 0 });
+    try {
+      expect(check(fixture).threw).toBeNull();
+    } finally {
+      rmSync(fixture.root, { recursive: true, force: true });
+    }
+  });
+
+  it('сторож отказал — отказ сборки и прямое «НЕ публиковать»', () => {
+    const fixture = fixtureRoot({ guardCode: 1 });
+    try {
+      const { threw, errors } = check(fixture);
+      expect(threw).not.toBeNull();
+      expect(errors).toMatch(/нет шлюза Авроры/);
+      expect(errors).toMatch(/НЕ публиковать/);
+    } finally {
+      rmSync(fixture.root, { recursive: true, force: true });
+    }
+  });
+
+  it('свежего установщика нет — отказ, а не «проверено»', () => {
+    const fixture = fixtureRoot({ withInstaller: false });
+    try {
+      const { threw, errors } = check(fixture);
+      expect(threw).not.toBeNull();
+      expect(errors).toMatch(/свежего установщика/);
+    } finally {
+      rmSync(fixture.root, { recursive: true, force: true });
+    }
+  });
+
+  it('установщик остался от прежней сборки — отказ', () => {
+    const fixture = fixtureRoot();
+    try {
+      const { threw } = check(fixture, Date.now() + 3600 * 1000);
+      expect(threw).not.toBeNull();
+    } finally {
+      rmSync(fixture.root, { recursive: true, force: true });
+    }
+  });
+
+  it('сторожа нет — отказ', () => {
+    const fixture = fixtureRoot({ withGuard: false });
+    try {
+      const { threw, errors } = check(fixture);
+      expect(threw).not.toBeNull();
+      expect(errors).toMatch(/сторож состава поставки не найден/);
+    } finally {
+      rmSync(fixture.root, { recursive: true, force: true });
+    }
+  });
+
+  it('main зовёт его на пути выпуска, после восстановления дерева и до «готово»', () => {
+    const source = readFileSync(join(HERE, '..', 'build-cloud.mjs'), 'utf8');
+    const restore = source.indexOf("restoreWorkspace('сборка закончена')");
+    const call = source.indexOf('checkGatewayInArtifact({ release: !checkOnly && !testOnly');
+    const done = source.indexOf("info('готово')");
+    expect(restore).toBeGreaterThan(-1);
+    expect(call).toBeGreaterThan(restore);
+    expect(done).toBeGreaterThan(call);
   });
 });

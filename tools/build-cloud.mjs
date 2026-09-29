@@ -42,7 +42,13 @@
  * Чего этот скрипт по-прежнему НЕ может: жёсткое убийство процесса (`taskkill /F`,
  * SIGKILL, гашение питания) обработчики не проходят. На этот исход остаётся
  * самовосстановление при следующем запуске плюс отдельная проверка чистоты манифеста
- * (`tools/check-manifest-clean.mjs`) — её можно позвать перед обычной сборкой.
+ * (`tools/check-manifest-clean.mjs`) — она стоит в `beforeBuildCommand` и потому идёт перед
+ * каждой сборкой через tauri, включая эту: свою облачную сборку она узнаёт по номеру
+ * процесса, который этот скрипт передаёт дочерним процессам (N24 s58, H-3 аудита плана).
+ *
+ * 🔴 После сборки установщика — сторож СОСТАВА (`tools/check-gateway-in-build.mjs`) по
+ * только что собранному установщику: рецепт проверен выше, но зелёный рецепт не доказывает,
+ * что шлюз доехал до файла, который уйдёт клиенту (CPD-115, N23 s58).
  *
  * Запуск: npm run tauri:build:cloud [-- доп-аргументы]
  *         npm run tauri:build:cloud -- --check   (только компиляция, без установщика)
@@ -51,11 +57,12 @@
 import { spawn, spawnSync } from 'node:child_process';
 import {
   existsSync, readFileSync, readdirSync, writeFileSync, copyFileSync, rmSync, mkdtempSync,
-  realpathSync,
+  realpathSync, statSync,
 } from 'node:fs';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
+import { CLOUD_BUILD_ENV } from './check-manifest-clean.mjs';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const TAURI_DIR = join(ROOT, 'src-tauri');
@@ -1238,6 +1245,104 @@ function recoverFromInterruptedRun() {
 }
 
 /**
+ * Окружение дочернего процесса сборки: номер НАШЕГО процесса, по которому проверка
+ * чистоты манифеста в `beforeBuildCommand` узнаёт свою облачную сборку (N24 s58).
+ *
+ * 🔴 Без этого `npm run check:manifest` внутри облачной сборки видит подменённый манифест,
+ * резерв и живой замок — и останавливает выпуск (H-3 аудита плана 2.5.9). Номер, а не
+ * голый флаг: проверка сверяет его с замком прогона и с тем, что процесс жив, поэтому
+ * случайно унаследованная или выставленная руками переменная ничего не снимает.
+ */
+export function buildChildEnv(env = process.env, pid = process.pid) {
+  return { ...env, [CLOUD_BUILD_ENV]: String(pid) };
+}
+
+/** Сторож состава поставки по готовому артефакту (CPD-115). */
+const GATEWAY_GUARD = join(ROOT, 'tools', 'check-gateway-in-build.mjs');
+
+/**
+ * Каталог установщиков NSIS этой сборки.
+ *
+ * 🔴 Рабочая область cargo — КОРЕНЬ дерева (`Cargo.toml` с `[workspace]`), поэтому без
+ * `CARGO_TARGET_DIR` сборка ложится в `<корень>/target`, а не в `src-tauri/target`, как
+ * пишет регламент публикации. Искать не там — значит не найти свежий установщик и
+ * отказать исправной сборке либо, хуже, найти старый.
+ */
+export function nsisBundleDir(env = process.env, root = ROOT) {
+  const target = env.CARGO_TARGET_DIR ? resolve(root, env.CARGO_TARGET_DIR) : join(root, 'target');
+  return join(target, 'release', 'bundle', 'nsis');
+}
+
+/**
+ * Установщики ЭТОЙ сборки: имя продукта и версия из настройки tauri, время записи — не
+ * раньше начала сборки.
+ *
+ * 🔴 Оба условия обязательны. Каталог сборки общий для линейки (`D:/cargo-targets/ai-agency`):
+ * в нём лежат установщики всех прежних версий и чужих продуктов. Без имени сторож судил бы
+ * чужой продукт, собранный параллельно; без времени — прежний установщик той же версии,
+ * если сборка не дошла до упаковки, а код возврата всё же нулевой.
+ */
+export function freshInstallers(dir, { productName, version }, sinceMs) {
+  if (!existsSync(dir)) return [];
+  const prefix = `${productName}_${version}_`.toLowerCase();
+  return readdirSync(dir)
+    .filter((name) => {
+      const lower = name.toLowerCase();
+      return lower.startsWith(prefix) && lower.endsWith('-setup.exe');
+    })
+    .map((name) => join(dir, name))
+    .filter((file) => statSync(file).mtimeMs >= sinceMs);
+}
+
+/**
+ * Проверить состав собранного установщика: шлюз Авроры внутри (N23 s58).
+ *
+ * 🔴 Рецепт сборки этот скрипт проверяет подробно, но рецепт — не артефакт: так уехал
+ * установщик 2.4.10 — сборка зелёная, все гейты зелёные, шлюза внутри нет (CPD-87,
+ * CPD-115). Сторож состава существовал, но не звался ниоткуда. Только на пути выпуска:
+ * `--check` и `--test` установщика не делают.
+ *
+ * Отказ здесь — после того как дерево восстановлено: установщик уже на диске, и сообщение
+ * обязано сказать прямо, что этот файл публиковать нельзя.
+ */
+export function checkGatewayInArtifact({
+  release = false, startedAt, env = process.env, root = ROOT, guard = GATEWAY_GUARD,
+} = {}) {
+  if (!release) return;
+  const conf = JSON.parse(readFileSync(join(root, 'src-tauri', 'tauri.conf.json'), 'utf8'));
+  const dir = nsisBundleDir(env, root);
+  // Запас в две секунды — на округление времени записи файловой системой, не больше:
+  // установщик прежней сборки старше на минуты.
+  const installers = freshInstallers(dir, conf, startedAt - 2000);
+  if (installers.length === 0) {
+    fail(
+      `сборка завершилась успешно, но свежего установщика ${conf.productName}_${conf.version}_*-setup.exe `
+        + `в ${dir} нет — проверять состав нечего`,
+      '«нечего проверять» не значит «шлюз на месте». Проверьте, куда легла сборка '
+        + '(CARGO_TARGET_DIR), и назовите установщик сторожу вручную: '
+        + 'node tools/check-gateway-in-build.mjs "<путь к установщику>"',
+    );
+  }
+  if (!existsSync(guard)) {
+    fail(
+      `сторож состава поставки не найден: ${guard}`,
+      'без него выпуск не подтверждён — молчание сторожа неотличимо от его согласия',
+    );
+  }
+  for (const installer of installers) {
+    info(`проверяю состав собранного установщика: ${installer}`);
+    const run = spawnSync(process.execPath, [guard, installer], { cwd: root, stdio: 'inherit' });
+    if (run.error || run.status !== 0) {
+      fail(
+        `в собранном установщике нет шлюза Авроры либо состав не распознан: ${installer}`,
+        'этот файл НЕ публиковать (CPD-115: поставка только со шлюзом). См. вывод сторожа выше',
+      );
+    }
+  }
+  info(`состав поставки проверен: шлюз Авроры в установщике (${installers.length})`);
+}
+
+/**
  * Запустить сборку и дождаться кода возврата, НЕ блокируя поток (E-1).
  *
  * 🔴 `useShell` обязателен для `npx` на Windows (находка внешнего аудита 2026-07-31).
@@ -1258,7 +1363,7 @@ function runBuild(cmd, args, useShell) {
     applied: args.some((a) => String(a).includes(basename(BUILD_CONFIG_OVERLAY))),
   });
   return new Promise((finish) => {
-    child = spawn(cmd, args, { cwd: ROOT, stdio: 'inherit', shell: useShell });
+    child = spawn(cmd, args, { cwd: ROOT, stdio: 'inherit', shell: useShell, env: buildChildEnv() });
     child.on('error', (e) => {
       console.error(`[облачная сборка] не удалось запустить ${cmd}: ${e.message}`);
       finish(1);
@@ -1365,6 +1470,7 @@ async function main() {
   // E-9: прежде в режиме проверки доп-аргументы молча пропадали.
   if (passThrough.length > 0) info(`доп-аргументы: ${passThrough.join(' ')}`);
 
+  const buildStartedAt = Date.now();
   const code = await runBuild(cmd, args, useShell);
   // 🔴 Сверка ДО восстановления: `restoreWorkspace` вернёт замок зависимостей из
   // резерва, и следа того, по какой записи собрано, не останется вовсе.
@@ -1378,6 +1484,9 @@ async function main() {
       'проверьте src-tauri/Cargo.toml: он не должен упоминать крейт шлюза. '
         + 'Вернуть можно командой git checkout -- src-tauri/Cargo.toml');
   }
+  // Сторож состава — по готовому установщику, ПОСЛЕ восстановления: он только читает
+  // артефакт, а его отказ не должен оставлять за собой подменённого дерева.
+  checkGatewayInArtifact({ release: !checkOnly && !testOnly, startedAt: buildStartedAt });
   info('готово');
 }
 
