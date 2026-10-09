@@ -224,6 +224,16 @@ def under_breakeven_phrase(kpi):
     return "mROAS < 1×"
 
 
+def marginal_metric_short(kpi):
+    """Подпись ПРЕДЕЛЬНОГО значения героя в прозе: для денежного KPI не в режиме
+    «доля» – «mROAS» (а не «ROI», который относится к среднему), иначе – как в
+    паспорте KPI. Не через is_legacy: он ложен для денежного режима `manual`.
+    Зеркалит aurora_html/sections.py:_marginal_metric_short."""
+    if kpi.get("kpi_kind", "monetary") == "monetary" and kpi.get("mode", "roi") != "effectiveness":
+        return table_metric_header(kpi)[0]
+    return kpi["metric_short"]
+
+
 def table_metric_header(kpi):
     """Returns (header, unit) для столбца метрики action_table.
 

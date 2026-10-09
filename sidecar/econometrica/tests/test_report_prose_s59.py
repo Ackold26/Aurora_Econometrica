@@ -34,18 +34,24 @@ _FIXTURE = os.path.join(_HERE, "fixtures", "kagocel_builder_payload.json")
 _DOMINATOR = "TRPs бренд (W 25-54)"
 
 
-def _payload(underperf: tuple[str, ...] = (), hero_is_leader: bool = False) -> dict:
+def _payload(underperf: tuple[str, ...] = (), hero_is_leader: bool = False,
+             no_cut_source: bool = False) -> dict:
     """Фикстура с управляемым числом отстающих (кроме источника сокращения).
 
-    Отстающие заданы согласованно для обоих строителей: вердикт канала (его читает
-    презентация) и `underperformer_names` фактов (его читает HTML).
+    s59 (P1 2510): «отстающие» – действие Cut или Reduce, худший mROAS первым, список
+    один для обоих строителей (engines.channel_action.underperformer_names), и в
+    «тянет/тянут» входит и источник сокращения (в фикстуре – «TRPs бренд (W 25-54)»,
+    Cut). `no_cut_source` делает его Hold – тогда отстающих нет, кроме заданных.
+    Вердикт и действие выставляются вместе (у данных адаптера это один ключ).
     """
     with open(_FIXTURE, encoding="utf-8") as f:
         data = json.load(f)
     data = copy.deepcopy(data)
     for c in data["channels"]:
         if c["name"] in underperf:
-            c["verdict"] = "Reduce"
+            c["verdict"] = c["action"] = "Reduce"
+        elif no_cut_source and c["name"] == _DOMINATOR:
+            c["verdict"] = c["action"] = "Hold"
     facts = data["narrative_facts"]
     facts["underperformer_names"] = list(underperf)
     if hero_is_leader:
@@ -118,12 +124,17 @@ def test_pptx_second_part_capitalized(pptx_one):
 
 # ─── N20: число глагола и условия HTML = условия презентации ───────────────
 
-@pytest.mark.parametrize("underperf, phrase", [
-    (("Banners",), "Banners тянет портфель вниз."),
-    (("Banners", "OLV"), "Banners, OLV тянут портфель вниз."),
-], ids=["one", "two"])
-def test_pull_verb_agrees_with_number(underperf, phrase):
-    data = _payload(underperf)
+@pytest.mark.parametrize("underperf, no_cut_source, phrase", [
+    ((), False, "TRPs бренд (W 25-54) тянет портфель вниз."),
+    (("Banners",), True, "Banners тянет портфель вниз."),
+    (("Banners",), False, "TRPs бренд (W 25-54), Banners тянут портфель вниз."),
+    # порядок – по возрастанию mROAS (OLV 1.54, Banners 1.67), а не по вкладу
+    (("Banners", "OLV"), False, "TRPs бренд (W 25-54), OLV, Banners тянут портфель вниз."),
+], ids=["one_cut_source", "one_reduce", "two", "three_by_mroas"])
+def test_pull_verb_agrees_with_number(underperf, no_cut_source, phrase):
+    # s59: ожидания изменены осознанно – источник сокращения теперь назван в
+    # «тянет/тянут» (раньше пропадал), порядок «худший mROAS первым».
+    data = _payload(underperf, no_cut_source=no_cut_source)
     for text in (_html_text(_html_page(data)), _pptx(data)):
         c = _complication(text)
         assert phrase in c, c
@@ -131,7 +142,7 @@ def test_pull_verb_agrees_with_number(underperf, phrase):
 
 def test_no_underperformers_no_pull_phrase_in_both():
     """Отстающих нет – ни «Слабые каналы тянут», ни «тянет» (раньше HTML печатал всегда)."""
-    data = _payload(())
+    data = _payload((), no_cut_source=True)
     for text in (_html_text(_html_page(data)), _pptx(data)):
         c = _complication(text)
         assert "тян" not in c, c
@@ -203,7 +214,8 @@ def test_html_hero_under_breakeven_two_decimals():
         c["mroas"] = min(float(c.get("mroas") or 0), 0.5)
     next(c for c in data["channels"] if c["name"] == "Social")["mroas"] = 0.85
     text = _html_text(_html_page(data))
-    assert "Social – лучший среди медиа, но всё ещё под breakeven (ROI 0.85×)" in text, \
+    # s59: у ПРЕДЕЛЬНОГО значения героя подпись «mROAS», не «ROI» (было «ROI 0.85×»).
+    assert "Social – лучший среди медиа, но всё ещё под breakeven (mROAS 0.85×)" in text, \
         [l for l in text.splitlines() if "breakeven" in l]
 
 

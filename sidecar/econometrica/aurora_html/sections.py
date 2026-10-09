@@ -379,6 +379,15 @@ def _under_breakeven_phrase(kpi: dict) -> str:
     return "mROAS < 1×"
 
 
+def _marginal_metric_short(kpi: dict) -> str:
+    """Подпись ПРЕДЕЛЬНОГО значения героя в прозе: для денежного KPI не в режиме
+    «доля» – «mROAS» (а не «ROI», который относится к среднему), иначе – как в
+    паспорте KPI. Не через is_legacy: он ложен для денежного режима `manual`."""
+    if kpi.get("kpi_kind", "monetary") == "monetary" and kpi.get("mode", "roi") != "effectiveness":
+        return _table_metric_header(kpi)[0]
+    return kpi["metric_short"]
+
+
 def _table_metric_header(kpi: dict) -> tuple:
     """Returns (header_label, unit_label) для столбца главной метрики action_table.
 
@@ -673,27 +682,39 @@ def render_executive_summary(ctx: dict) -> str:
             )
         # L14: complication uses budget_dominator (not leader). Fallback when
         # all channels balanced (no clear dominator OR balanced contribution).
-        if budget_dom and bd_spend_pct and abs(bd_spend_pct - bd_contrib_pct) >= 5.0:
-            complication = scqar["complication"]["template"].format(
+        # s59 (P1 2510): три НЕЗАВИСИМЫЕ части, как в презентации (aurora_pptx
+        # s09_scqar): [разрыв бюджет/вклад >= 5 пп] [герой опережает] [отстающие
+        # тянут]. Запасная фраза – только когда не набралось ни одной части.
+        complication_parts = []
+        if budget_dom and bd_spend_pct is not None and abs(bd_spend_pct - bd_contrib_pct) >= 5.0:
+            complication_parts.append(scqar["complication"]["template"].format(
                 budget_dominator=budget_dom,
                 budget_dom_spend_pct_fmt=_fmt_pct(bd_spend_pct),
                 budget_dom_contrib_pct_fmt=_fmt_share_pct(bd_contrib_pct),
-            )
-            # s58: «опережает» и «тянут» – по тем же условиям, что в презентации
-            # (aurora_pptx s09_scqar): герой не лидер и окупается; отстающие есть,
-            # глагол – по их числу. Раньше обе фразы печатались всегда.
-            if hero != leader and hero_m >= 1.0:
-                complication += " " + scqar["complication"]["hero_template"].format(
-                    metric_short="mROAS" if kpi["is_legacy"] else kpi["metric_short"],
-                    hero=hero,
-                    hero_metric_fmt=f"{hero_m:.2f}×" if kpi["is_legacy"] else _fmt_metric(hero_m, kpi),
-                )
-            _underperf_names = facts.get("underperformer_names") or []
-            if _underperf_names:
-                complication += " " + scqar["complication"]["underperf_template"].format(
-                    underperf=", ".join(_underperf_names),
-                    pull_verb="тянет" if len(_underperf_names) == 1 else "тянут",
-                )
+            ))
+        # s58: «опережает» и «тянут» – по тем же условиям, что в презентации:
+        # герой не лидер и окупается; отстающие есть, глагол – по их числу.
+        if hero != leader and hero_m >= 1.0:
+            complication_parts.append(scqar["complication"]["hero_template"].format(
+                metric_short=_marginal_metric_short(kpi),
+                hero=hero,
+                hero_metric_fmt=f"{hero_m:.2f}×" if kpi["is_legacy"] else _fmt_metric(hero_m, kpi),
+            ))
+        # Полный список отстающих (худший канал первым, включая источник
+        # сокращения): ОТВЕТ ниже использует список БЕЗ источника – там он назван
+        # отдельно. Факта нет – та же функция по каналам, что и у презентации.
+        from engines.channel_action import underperformer_names as _underperformer_names
+        _underperf_names = (
+            (facts["underperformer_names_all"] or []) if "underperformer_names_all" in facts
+            else _underperformer_names(ctx.get("channels"))
+        )
+        if _underperf_names:
+            complication_parts.append(scqar["complication"]["underperf_template"].format(
+                underperf=", ".join(_underperf_names),
+                pull_verb="тянет" if len(_underperf_names) == 1 else "тянут",
+            ))
+        if complication_parts:
+            complication = " ".join(complication_parts)
         else:
             complication = scqar.get("complication_fallback", {}).get(
                 "template", "Портфель сбалансирован."
@@ -907,17 +928,17 @@ def render_at_a_glance(ctx: dict) -> str:
         # effectiveness-mode исключён: там метрика — доля, breakeven неприменим (как
         # all_below_breakeven ниже).
         if hero_m < 1.0 and kpi["mode"] != "effectiveness":
-            f2 = f"{hero} – лучший среди медиа, но всё ещё под breakeven ({kpi['metric_short']} {hero_m_fmt})"
+            f2 = f"{hero} – лучший среди медиа, но всё ещё под breakeven ({_marginal_metric_short(kpi)} {hero_m_fmt})"
             f2_sup = f"{_under_breakeven_phrase(kpi)} означает что канал тратит больше чем приносит инкрементала"
         elif honest:
-            f2 = f"{hero} – единственный канал близкий к окупаемости ({kpi['metric_short']} {hero_m_fmt})"
+            f2 = f"{hero} – единственный канал близкий к окупаемости ({_marginal_metric_short(kpi)} {hero_m_fmt})"
             f2_sup = strings["findings_templates"]["f2_hero_support"].format(hero_spend_pct_fmt=_fmt_pct(hero_spend_pct))
         else:
             if kpi["is_legacy"]:
                 f2 = strings["findings_templates"]["f2_hero"].format(hero=hero, hero_mroas=hero_m)
             else:
                 # v1.3.2: replace «mROAS X.X×» в шаблоне на KPI-aware фразу.
-                f2 = f"{hero} – самый эффективный канал с {kpi['metric_short']} {hero_m_fmt}"
+                f2 = f"{hero} – самый эффективный канал с {_marginal_metric_short(kpi)} {hero_m_fmt}"
             f2_sup = strings["findings_templates"]["f2_hero_support"].format(hero_spend_pct_fmt=_fmt_pct(hero_spend_pct))
         findings.append((f2, f2_sup))
 

@@ -37,6 +37,9 @@ Public API:
   compute_channel_action(channel_dict, *, kpi_kind, vpcu, money_roi_unavailable,
                          metric_short, cpu_per_label) → ChannelAction
   build_action_summary(channels) → dict с counts + top_by_action_list
+  channel_mroas_sort_key(channel) → float - общий ключ «худший mROAS первым»
+  underperformer_names(channels, exclude=None) → list[str] - «отстающие» (Cut+Reduce,
+                         худший mROAS первым): один список для HTML и PPTX
 
 KPI-паспорт (Фаза 3, пласт 1 — 2026-07-11):
   Для СЧЁТНОЙ метрики (лиды/упаковки) mROAS = units/₽ ≈ 0.01–0.05.
@@ -96,6 +99,46 @@ VERDICT_DISPLAY_RU: dict[str, str] = {
     'Cut':       'Остановить',
     'Uncertain': 'Недостаточно данных',
 }
+
+
+# «Отстающие» каналы отчётов (HTML ЗАТРУДНЕНИЕ/ОТВЕТ, PPTX ПРОБЛЕМА/ОТВЕТ) - те,
+# по которым модель или оптимизатор рекомендует сократить. Watch (нет явного
+# сигнала) и Uncertain (мало данных) сюда НЕ входят: «тянет портфель вниз» про
+# них было бы утверждением без основания.
+UNDERPERFORMER_ACTIONS: tuple[str, ...] = ('Cut', 'Reduce')
+
+
+def channel_mroas_sort_key(channel: dict[str, Any]) -> float:
+    """Ключ сортировки «по возрастанию mROAS» (худший первым).
+
+    Единый для выбора источника сокращения (narrative_adapter.cut_source) и для
+    списка отстающих: голова списка всегда совпадает с cut_source. Нечисловой
+    или NaN mROAS считается 0.0.
+    """
+    try:
+        value = float(channel.get('mroas') or 0)
+    except (TypeError, ValueError):
+        return 0.0
+    return 0.0 if value != value else value
+
+
+def underperformer_names(
+    channels: list[dict[str, Any]] | None,
+    exclude: str | None = None,
+) -> list[str]:
+    """Имена «отстающих» каналов: действие Cut или Reduce, худший mROAS первым.
+
+    Действие читается из `action`, запасной ключ - `verdict` (у данных адаптера
+    они равны). При равном mROAS порядок входного списка сохраняется
+    (стабильная сортировка). `exclude` - имя канала, которое надо убрать из
+    результата (например, источник сокращения в ОТВЕТЕ).
+    """
+    picked = [
+        c for c in (channels or [])
+        if (c.get('action') or c.get('verdict')) in UNDERPERFORMER_ACTIONS
+    ]
+    picked.sort(key=channel_mroas_sort_key)
+    return [c['name'] for c in picked if c.get('name') and c.get('name') != exclude]
 
 
 def soften_verdict_display(verdict_key: str, reliability_verdict: str | None) -> tuple[str, str]:

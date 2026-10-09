@@ -702,8 +702,6 @@ def _derive_narrative_facts(
     top_2 = by_contrib[:2]
     top_2_contrib = sum(float(c.get("contribution") or 0) for c in top_2)
 
-    underperformers = [c for c in channels if c.get("verdict") in ("Cut", "Watch")]
-
     # Reallocation = net shift between current and optimal (half of absolute sum
     # to avoid double-counting the same dollar leaving X entering Y).
     # 5c followup (2026-05-24): prefer money-axis fields (current_spend_money /
@@ -789,7 +787,11 @@ def _derive_narrative_facts(
 
     # math-fix v1.0.14.1, B (audit-of-audit 2026-04-28): action summary -
     # counts portfolio actions для consistent f4 counts + commentary planning.
-    from engines.channel_action import build_action_summary
+    from engines.channel_action import (
+        build_action_summary,
+        channel_mroas_sort_key,
+        underperformer_names,
+    )
     action_summary = build_action_summary(channels)
 
     # L14 (math-fix v1.4 Section C, 2026-04-29): budget_dominator separate from
@@ -817,7 +819,7 @@ def _derive_narrative_facts(
     # «Перебалансировать из TRPs (mROAS 0.03×) в Social (mROAS 11.1×)» -
     # consistent с COMPLICATION «Social опережает».
     cut_candidate_chs = [c for c in channels if c.get("action") in ("Cut", "Reduce")]
-    cut_candidate_chs.sort(key=lambda c: float(c.get("mroas") or 0))  # asc - worst first
+    cut_candidate_chs.sort(key=channel_mroas_sort_key)  # asc - worst first (общий ключ со списком отстающих)
     scale_candidate_chs = [c for c in channels if c.get("action") == "Scale"]
     scale_candidate_chs.sort(key=lambda c: float(c.get("mroas") or 0), reverse=True)  # desc - best first
     cut_source = cut_candidate_chs[0].get("name") if cut_candidate_chs else None
@@ -829,8 +831,12 @@ def _derive_narrative_facts(
     # Post-fix: underperf list excludes cut_source (it's already named explicitly
     # в reallocation segment). Если remaining list empty → underperf section
     # пропускается template'ом.
-    underperformer_names_raw = [c.get("name") for c in underperformers if c.get("name")]
-    underperformer_names_dedup = [n for n in underperformer_names_raw if n != cut_source]
+    # s59 (P1 2510): состав «отстающих» - ОДНА функция для HTML и PPTX
+    # (Cut+Reduce, худший mROAS первым; Watch не входит). Полный список (с худшим
+    # каналом = cut_source) читают ЗАТРУДНЕНИЕ/ПРОБЛЕМА; список без cut_source -
+    # ОТВЕТ и заголовки слайдов (там источник называется отдельно).
+    underperformer_names_all = underperformer_names(channels)
+    underperformer_names_dedup = underperformer_names(channels, exclude=cut_source)
 
     return {
         "leader_channel": leader.get("name"),
@@ -852,6 +858,7 @@ def _derive_narrative_facts(
         "top_2_names": [c.get("name") for c in top_2],
         "top_2_contrib_pct": (top_2_contrib / total_contrib * 100) if total_contrib > 0 else None,
         "underperformer_names": underperformer_names_dedup,
+        "underperformer_names_all": underperformer_names_all,
         "reallocation_mln": reallocation / 1_000_000.0 if reallocation else 0.0,
         "expected_lift_pct": expected_lift,
         # Honest narrative inputs (Phase 0.7 - narrative_adapter v2)

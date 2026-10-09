@@ -144,6 +144,7 @@ from .kpi_helpers import (
     weighted_summary_phrase as _weighted_summary_phrase_pptx,
     under_breakeven_phrase as _under_breakeven_phrase_pptx,
     table_metric_header as _table_metric_header_pptx,
+    marginal_metric_short as _marginal_metric_short_pptx,
     lift_phrase as _lift_phrase_pptx,
     hero_vs_leader_quote as _hero_vs_leader_quote_pptx,
     contrib_scale as _contrib_scale_pptx,
@@ -970,7 +971,11 @@ class AuroraPPTXBuilder:
         baseline_pct = f.get("baseline_pct")
 
         by_mroas = sorted(self.channels, key=lambda c: float(c.get("mroas") or 0), reverse=True)
-        hero_ch = by_mroas[0] if by_mroas else {}
+        # s59: число героя – у канала с ИМЕНЕМ героя (как в HTML), иначе имя и число
+        # могли быть от разных каналов (у лучшего по mROAS может стоять unit_smell).
+        hero_ch = next((c for c in self.channels if c.get("name") == hero), None)
+        if hero_ch is None:
+            hero_ch = by_mroas[0] if by_mroas else {}
         hero_mroas = float(hero_ch.get("mroas") or 0)
         hero_spend_pct = None
         if self.facts and self.facts.get("total_budget_mln"):
@@ -1005,7 +1010,7 @@ class AuroraPPTXBuilder:
 
         # Finding 2 - hero channel by mROAS
         # v1.3.2: KPI-aware metric short label + breakeven phrase.
-        hero_metric_short = self.kpi["metric_short"]
+        hero_metric_short = _marginal_metric_short_pptx(self.kpi)
         hero_metric_fmt = (
             f"{hero_mroas:.2f}×" if self.kpi["is_legacy"]
             else _fmt_metric_pptx(hero_mroas, self.kpi)
@@ -2861,16 +2866,23 @@ class AuroraPPTXBuilder:
             # Hero mROAS
             hero_ch = next((c for c in self.channels if c.get("name") == hero), {})
             hero_m = float(hero_ch.get("mroas") or 0)
-            # Underperformer names. L23 fix (2026-04-29): dedup от cut_source -
-            # narrative_adapter уже исключил cut_source из underperformer_names
-            # в facts dict, но self.channels - raw merged list. Apply here
-            # locally for PPTX consistency (avoid «из TRPs ... остановить TRPs»).
+            # Underperformer names. s59 (P1 2510): состав и порядок – из facts
+            # (одна функция engines.channel_action.underperformer_names на HTML и
+            # PPTX), а не свой список. Два списка: полный (ПРОБЛЕМА – худший канал
+            # назван) и без источника сокращения (ОТВЕТ, L23: иначе «из TRPs ...
+            # остановить TRPs»). Факта нет – та же функция по каналам.
+            from engines.channel_action import underperformer_names
             cut_source_local = (self.facts or {}).get("cut_source_channel")
-            underperf = [
-                c.get("name") for c in self.channels
-                if c.get("verdict") in ("Cut", "Reduce") and c.get("name") != cut_source_local
-            ]
+            underperf_all = (
+                (f["underperformer_names_all"] or []) if "underperformer_names_all" in f
+                else underperformer_names(self.channels)
+            )
+            underperf = (
+                (f["underperformer_names"] or []) if "underperformer_names" in f
+                else underperformer_names(self.channels, exclude=cut_source_local)
+            )
             underperf_str = ", ".join(underperf) if underperf else "отстающие каналы"
+            underperf_all_str = ", ".join(underperf_all)
 
             # Stage C.5: McKinsey 3-scenario SCQAR action headline.
             # narrative_adapter.derive_action_headline handles:
@@ -2921,17 +2933,19 @@ class AuroraPPTXBuilder:
                     f"но даёт {_fmt_share_pct(bd_contrib_pct)} медиа-вклада"
                 )
             if hero != leader and hero_m >= 1.0:
-                # v1.3.2: KPI-aware metric label в complication.
-                if self.kpi["is_legacy"]:
-                    complication_parts.append(f"По mROAS {hero} опережает ({hero_m:.2f}×)")
-                else:
-                    metric_short = self.kpi["metric_short"]
-                    metric_fmt = _fmt_metric_pptx(hero_m, self.kpi)
-                    complication_parts.append(f"По {metric_short} {hero} опережает ({metric_fmt})")
-            if underperf:
+                # v1.3.2: KPI-aware metric label в complication. s59: подпись
+                # предельного значения героя – «mROAS» для денежного KPI.
+                metric_short = _marginal_metric_short_pptx(self.kpi)
+                metric_fmt = (
+                    f"{hero_m:.2f}×" if self.kpi["is_legacy"]
+                    else _fmt_metric_pptx(hero_m, self.kpi)
+                )
+                complication_parts.append(f"По {metric_short} {hero} опережает ({metric_fmt})")
+            if underperf_all:
                 # s58: число глагола – по числу отстающих («ТВ тянет», «ТВ, Радио тянут»).
-                _pull_verb = "тянет" if len(underperf) == 1 else "тянут"
-                complication_parts.append(f"{underperf_str} {_pull_verb} портфель вниз")
+                # s59: полный список (худший канал первым, включая источник сокращения).
+                _pull_verb = "тянет" if len(underperf_all) == 1 else "тянут"
+                complication_parts.append(f"{underperf_all_str} {_pull_verb} портфель вниз")
             # L15 (math-fix v1.4 Section C, 2026-04-29): use cut_source /
             # scale_destination from action_summary вместо leader/hero.
             # s47: через общее правило — тот же источник, что у сводки и слайда
@@ -2985,7 +2999,10 @@ class AuroraPPTXBuilder:
                 elif _scqar_subjects["kind"] == "cut_only":
                     answer_parts.append(f"Сократить {cut_source} ({format_realloc_mln(realloc)} млн ₽)")
                 if underperf:
-                    answer_parts.append(f"остановить {underperf_str}")
+                    # s59: как в HTML и в таблице действий – «сократить или остановить»
+                    # (в списке есть Reduce); первая часть ответа – с заглавной.
+                    _stop = "сократить или остановить" if answer_parts else "Сократить или остановить"
+                    answer_parts.append(f"{_stop} {underperf_str}")
                 answer_body = "; ".join(answer_parts) + "." if answer_parts else f"Сохранить текущую аллокацию по {leader} с контролем насыщения."
 
             # B1-fix R-13: вопрос согласован со сценарием — при hold-исходе
