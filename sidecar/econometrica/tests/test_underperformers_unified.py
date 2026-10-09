@@ -324,7 +324,14 @@ def test_problem_names_equal_in_html_and_pptx_and_ordered_by_mroas(name):
     b = _built(name)
     html_names, html_verb = _pull(b.html["ЗАТРУДНЕНИЕ"])
     pptx_names, pptx_verb = _pull(b.pptx["ПРОБЛЕМА"])
-    assert html_names == pptx_names == b.facts["underperformer_names_all"], (html_names, pptx_names)
+    # s59 (P3 2510, H4): герой, названный «опережает», в «тянут» не входит (в факте адаптера
+    # он остаётся: [all_cut] – Social, mROAS 27.03, действие Cut). Остальные параметры
+    # героя в списке не содержат – ожидание для них прежнее.
+    hero = b.facts["hero_channel"]
+    hero_m = float(next(c["mroas"] for c in b.channels if c["name"] == hero))
+    hero_named = hero != b.facts["leader_channel"] and hero_m >= 1.0
+    expected = [n for n in b.facts["underperformer_names_all"] if not (hero_named and n == hero)]
+    assert html_names == pptx_names == expected, (html_names, pptx_names)
     assert html_names, name
     mroas = {c["name"]: float(c["mroas"]) for c in b.channels}
     assert [mroas[n] for n in html_names] == sorted(mroas[n] for n in html_names)  # худший первым

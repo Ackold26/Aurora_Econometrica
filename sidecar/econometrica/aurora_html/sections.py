@@ -694,7 +694,8 @@ def render_executive_summary(ctx: dict) -> str:
             ))
         # s58: «опережает» и «тянут» – по тем же условиям, что в презентации:
         # герой не лидер и окупается; отстающие есть, глагол – по их числу.
-        if hero != leader and hero_m >= 1.0:
+        _hero_named = hero != leader and hero_m >= 1.0
+        if _hero_named:
             complication_parts.append(scqar["complication"]["hero_template"].format(
                 metric_short=_marginal_metric_short(kpi),
                 hero=hero,
@@ -704,10 +705,13 @@ def render_executive_summary(ctx: dict) -> str:
         # сокращения): ОТВЕТ ниже использует список БЕЗ источника – там он назван
         # отдельно. Факта нет – та же функция по каналам, что и у презентации.
         from engines.channel_action import underperformer_names as _underperformer_names
+        from engines.channel_action import drop_named_hero as _drop_named_hero
         _underperf_names = (
             (facts["underperformer_names_all"] or []) if "underperformer_names_all" in facts
             else _underperformer_names(ctx.get("channels"))
         )
+        # s59 (P3 2510, H4): герой, названный «опережает», в «тянут» не входит.
+        _underperf_names = _drop_named_hero(_underperf_names, hero, _hero_named)
         if _underperf_names:
             complication_parts.append(scqar["complication"]["underperf_template"].format(
                 underperf=", ".join(_underperf_names),

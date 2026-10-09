@@ -226,11 +226,19 @@ class AuroraPPTXBuilder:
         self.deep_40  = hex_to_rgb(deep.get("40",  "#94A3B8"))
         self.deep_20  = hex_to_rgb(deep.get("20",  "#CBD5E1"))
         self.gold       = hex_to_rgb(gold.get("primary", "#C5A46D"))
-        self.gold_muted = hex_to_rgb(gold.get("muted",   "#B8975D"))
+        self.gold_muted = hex_to_rgb(gold.get("muted",   "#8C7142"))
         self.rule_color = hex_to_rgb(brand.get("rule", "#E5E7EB"))
         self.lime       = hex_to_rgb(sig.get("lime", "#CCFF00"))
         self.white      = hex_to_rgb(bg.get("white", "#FFFFFF"))
-        self.bg_quiet   = hex_to_rgb(bg.get("quiet", "#F7F7F7"))
+        self.bg_quiet   = hex_to_rgb(bg.get("quiet", "#F7F5EE"))
+        # s59 (P3 2510, H1): запасные значения gold_muted/bg_quiet выровнены с боевыми
+        # токенами (#8C7142, #F7F5EE) – без сгенерированного aurora_tokens текст не
+        # откатывается к нечитаемому #B8975D (2,75:1).
+        # Золотой primary как ТЕКСТ на светлом даёт 2,36:1 на белом –
+        # текст идёт через gold_muted (4,61:1, см. _ink). На плашке bg_quiet gold_muted
+        # даёт 4,23:1, поэтому для трёх надписей на плашке – производный цвет (золотой
+        # primary x 0,66 = #826C48, 4,60:1 на #F7F5EE). Только внутри aurora_pptx.
+        self.gold_on_quiet = RGBColor(*(round(ch * 0.66) for ch in self.gold))
 
         # v2.1.0 (пилот 2026-05-17): defensive access - fallback TYPOGRAPHY мог не
         # содержать nested ключи. PPTX export ранее падал KeyError 'fontFamily'.
@@ -550,6 +558,12 @@ class AuroraPPTXBuilder:
     def _blank(self):
         return self.prs.slides.add_slide(self.prs.slide_layouts[6])
 
+    def _ink(self, color):
+        """Цвет ШРИФТА: золотой primary на светлом фоне нечитаем (2,36:1) –
+        для текста подменяется на gold_muted. Линии, заливки и декор идут мимо
+        этого помощника и остаются золотыми."""
+        return self.gold_muted if color is not None and color == self.gold else color
+
     def _text(self, slide, x, y, w, h, text, *,
               font=None, size=12, bold=False, italic=False,
               color=None, align=None, line_spacing=None):
@@ -571,7 +585,7 @@ class AuroraPPTXBuilder:
         f.bold = bold
         f.italic = italic
         if color:
-            f.color.rgb = color
+            f.color.rgb = self._ink(color)
         return tb
 
     def _rich(self, slide, x, y, w, h, runs, *, line_spacing=1.3, align=None):
@@ -593,7 +607,7 @@ class AuroraPPTXBuilder:
             f.size = Pt(opts.get("size", 12))
             f.bold = opts.get("bold", False)
             f.italic = opts.get("italic", False)
-            f.color.rgb = opts.get("color", self.deep_100)
+            f.color.rgb = self._ink(opts.get("color", self.deep_100))
         return tb
 
     def _paragraphs(self, slide, x, y, w, h, lines, *, line_spacing=1.35):
@@ -616,7 +630,7 @@ class AuroraPPTXBuilder:
             f.size = Pt(opts.get("size", 11))
             f.bold = opts.get("bold", False)
             f.italic = opts.get("italic", False)
-            f.color.rgb = opts.get("color", self.deep_100)
+            f.color.rgb = self._ink(opts.get("color", self.deep_100))
         return tb
 
     def _hairline(self, slide, x, y, width, *, weight=0.5, color=None):
@@ -1490,7 +1504,7 @@ class AuroraPPTXBuilder:
         self._rect(slide, side_x, side_y, side_w, 4.0, fill=self.bg_quiet)
         self._text(
             slide, side_x + 0.2, side_y + 0.2, side_w - 0.4, 0.25,
-            "ЧТЕНИЕ", font=self.sans, size=8, bold=True, color=self.gold,
+            "ЧТЕНИЕ", font=self.sans, size=8, bold=True, color=self.gold_on_quiet,
         )
         self._hairline(slide, side_x + 0.2, side_y + 0.47, 1.0, weight=0.5, color=self.gold)
 
@@ -2343,7 +2357,9 @@ class AuroraPPTXBuilder:
             "Hold":   (self.deep_60, False),
             "Watch":  (self.deep_60, False),
             "Reduce": (self.gold_muted, True),
-            "Cut":    (self.gold, True),
+            # s59 (P3 2510, H3b): Cut – не золотой (после _ink слился бы с Reduce).
+            # Семантический «stop» #ED2124 даёт 4,34:1 на белом (< 4,5) – deep_100 жирным.
+            "Cut":    (self.deep_100, True),
         }
         # Волна 1 пункт 3 (2026-06-20, перенесено 2026-08-04): рус-локализация +
         # honesty-смягчение вердикта — единый источник
@@ -2881,6 +2897,12 @@ class AuroraPPTXBuilder:
                 (f["underperformer_names"] or []) if "underperformer_names" in f
                 else underperformer_names(self.channels, exclude=cut_source_local)
             )
+            # s59 (P3 2510, H4): герой, названный «опережает», в «тянут» не входит.
+            # Список – после получения (факт адаптера не меняется), условие – то же,
+            # что печатает часть «опережает» ниже.
+            from engines.channel_action import drop_named_hero
+            _hero_named = hero != leader and hero_m >= 1.0
+            underperf_all = drop_named_hero(underperf_all, hero, _hero_named)
             underperf_str = ", ".join(underperf) if underperf else "отстающие каналы"
             underperf_all_str = ", ".join(underperf_all)
 
@@ -2932,7 +2954,7 @@ class AuroraPPTXBuilder:
                     f"{budget_dom} занимает {_fmt_pct(bd_spend_pct)} бюджета, "
                     f"но даёт {_fmt_share_pct(bd_contrib_pct)} медиа-вклада"
                 )
-            if hero != leader and hero_m >= 1.0:
+            if _hero_named:
                 # v1.3.2: KPI-aware metric label в complication. s59: подпись
                 # предельного значения героя – «mROAS» для денежного KPI.
                 metric_short = _marginal_metric_short_pptx(self.kpi)
@@ -3538,7 +3560,7 @@ class AuroraPPTXBuilder:
         self._text(
             slide, card_x + 0.35, card_y + 0.3, card_w - 0.7, 0.25,
             "ОЦЕНКА КАЧЕСТВА МОДЕЛИ (MQS)",
-            font=self.sans, size=10, bold=True, color=self.gold,
+            font=self.sans, size=10, bold=True, color=self.gold_on_quiet,
         )
 
         # 2026-07-26, «нет числа — нет подписи» на карточке слайда. Прежде при
@@ -3614,7 +3636,7 @@ class AuroraPPTXBuilder:
             self._text(
                 slide, card_x + 0.35, card_y + 3.40, card_w - 0.7, 0.42,
                 reliability_statement(_card_tier_key, refused=True),
-                font=self.sans, size=8, italic=True, color=self.gold,
+                font=self.sans, size=8, italic=True, color=self.gold_on_quiet,
             )
 
         # 4 key metrics inside card (2x2)

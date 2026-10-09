@@ -141,6 +141,19 @@ def underperformer_names(
     return [c['name'] for c in picked if c.get('name') and c.get('name') != exclude]
 
 
+def drop_named_hero(names: list[str], hero: str | None, hero_named: bool) -> list[str]:
+    """Убирает героя из списка «тянут портфель вниз», если он назван «опережает».
+
+    Канал не может быть и лидером («опережает»), и «тянущим» в одной фразе.
+    `hero_named` - печатается ли часть «опережает» (герой не лидер и mROAS >= 1):
+    если нет, список возвращается как есть. Общая точка для HTML (ЗАТРУДНЕНИЕ) и
+    PPTX (ПРОБЛЕМА); факты адаптера, ОТВЕТ и таблица действий не меняются.
+    """
+    if not hero_named or not hero:
+        return list(names)
+    return [n for n in names if n != hero]
+
+
 def soften_verdict_display(verdict_key: str, reliability_verdict: str | None) -> tuple[str, str]:
     """Honesty-потолок (решение 2a, Антон): глобальная надёжность модели смягчает
     ДИРЕКТИВНОСТЬ канального вердикта по МОДАЛЬНОСТИ, сохраняя НАПРАВЛЕНИЕ.

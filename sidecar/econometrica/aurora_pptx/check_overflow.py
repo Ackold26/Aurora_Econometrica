@@ -239,6 +239,150 @@ def check(pptx_path, verbose=False):
     return issues, total_slides
 
 
+# ---------------------------------------------------------------------------
+# s59 (P3 2510, H3): гигиена оформления по XML слайдов – контраст текста и реестр
+# кеглей. Только чтение готового файла; в журнал – номер слайда и вид нарушения,
+# фрагментов клиентского текста там нет.
+#   - контраст: цвет шрифта против фона (белый слайд или заливка плашки под текстом);
+#     обычный текст >= 4,5:1, крупный (>= 18 pt или >= 14 pt жирный) >= 3:1;
+#     отточия оглавления (только точки) не считаются;
+#   - кегль: итог «текст < 9 pt» и «текст < 10 pt» (без ролей) – реестр для решения,
+#     не гейт: размеры этим сторожем не правятся.
+# ---------------------------------------------------------------------------
+CONTRAST_NORMAL = 4.5
+CONTRAST_LARGE = 3.0
+LARGE_PT = 18.0
+LARGE_BOLD_PT = 14.0
+SIZE_FLOOR_STRICT_PT = 9.0
+SIZE_FLOOR_SOFT_PT = 10.0
+_PAGE_BG = "FFFFFF"
+_MIN_PLATE_EMU = int(Inches(0.3))
+
+
+def _rel_luminance(hex6):
+    chans = []
+    for i in (0, 2, 4):
+        c = int(hex6[i:i + 2], 16) / 255.0
+        chans.append(c / 12.92 if c <= 0.03928 else ((c + 0.055) / 1.055) ** 2.4)
+    return 0.2126 * chans[0] + 0.7152 * chans[1] + 0.0722 * chans[2]
+
+
+def contrast_ratio(fg_hex, bg_hex):
+    """Контраст WCAG 2.x двух цветов (строки RRGGBB)."""
+    la, lb = _rel_luminance(fg_hex), _rel_luminance(bg_hex)
+    return (max(la, lb) + 0.05) / (min(la, lb) + 0.05)
+
+
+def _solid_fill_hex(shape):
+    try:
+        if shape.fill.type == 1:  # MSO_FILL.SOLID
+            return str(shape.fill.fore_color.rgb)
+    except Exception:
+        pass
+    return None
+
+
+def _run_color_hex(run):
+    try:
+        if run.font.color is not None and run.font.color.type is not None:
+            return str(run.font.color.rgb)
+    except Exception:
+        pass
+    return None
+
+
+def _plates(slide):
+    """Залитые автофигуры-плашки слайда: (x0, y0, x1, y1, цвет)."""
+    from pptx.enum.shapes import MSO_SHAPE_TYPE
+    plates = []
+    for shape in slide.shapes:
+        if shape.shape_type != MSO_SHAPE_TYPE.AUTO_SHAPE:
+            continue
+        fill = _solid_fill_hex(shape)
+        if fill and _emu(shape.width) > _MIN_PLATE_EMU and _emu(shape.height) > _MIN_PLATE_EMU:
+            plates.append((_emu(shape.left), _emu(shape.top),
+                           _emu(shape.left) + _emu(shape.width),
+                           _emu(shape.top) + _emu(shape.height), fill))
+    return plates
+
+
+def _background_for(shape, plates):
+    """Фон под текстовым боксом: своя заливка, иначе самая малая плашка с его центром, иначе белый."""
+    own = _solid_fill_hex(shape)
+    if own:
+        return own
+    cx = _emu(shape.left) + _emu(shape.width) // 2
+    cy = _emu(shape.top) + _emu(shape.height) // 2
+    best = None
+    for x0, y0, x1, y1, fill in plates:
+        if x0 <= cx <= x1 and y0 <= cy <= y1:
+            area = (x1 - x0) * (y1 - y0)
+            if best is None or area < best[0]:
+                best = (area, fill)
+    return best[1] if best else _PAGE_BG
+
+
+def check_hygiene(pptx_path):
+    """Контраст и реестр кеглей по XML слайдов.
+
+    Возвращает {"slides": N, "contrast": [(слайд, "CONTRAST", деталь)],
+    "small9": {слайд: число прогонов < 9 pt}, "small10": {слайд: < 10 pt}}.
+    """
+    prs = Presentation(pptx_path)
+    contrast, small9, small10 = [], {}, {}
+    for sidx, slide in enumerate(prs.slides, start=1):
+        plates = _plates(slide)
+        for shape in slide.shapes:
+            if not getattr(shape, "has_text_frame", False) or not shape.has_text_frame:
+                continue
+            bg = _background_for(shape, plates)
+            for para in shape.text_frame.paragraphs:
+                for run in para.runs:
+                    text = (run.text or "").strip()
+                    if not text:
+                        continue
+                    size = _pt(run.font.size)
+                    if size is not None:
+                        if size < SIZE_FLOOR_STRICT_PT:
+                            small9[sidx] = small9.get(sidx, 0) + 1
+                        if size < SIZE_FLOOR_SOFT_PT:
+                            small10[sidx] = small10.get(sidx, 0) + 1
+                    fg = _run_color_hex(run)
+                    if fg is None or all(c in ".\u00b7 \t\u2026" for c in text):
+                        continue
+                    sz = size if size is not None else DEFAULT_SIZE_PT
+                    large = sz >= LARGE_PT or (sz >= LARGE_BOLD_PT and bool(run.font.bold))
+                    need = CONTRAST_LARGE if large else CONTRAST_NORMAL
+                    ratio = contrast_ratio(fg, bg)
+                    if ratio < need:
+                        contrast.append((sidx, "CONTRAST",
+                                         f"{ratio:.2f}:1 < {need}:1, {sz:g} pt, {fg} на {bg}"))
+    return {"slides": len(prs.slides), "contrast": contrast, "small9": small9, "small10": small10}
+
+
+def guard_summary(pptx_path):
+    """Итог сторожа по готовому файлу: (есть_нарушения, одна_строка, подробности).
+
+    Строка – для журнала одной записью на выгрузку: переполнение/наложение,
+    контраст, реестр кеглей. Подробности (по одной на нарушение) – номер слайда
+    и вид, без текста клиента."""
+    issues, total = check(pptx_path)
+    hyg = check_hygiene(pptx_path)
+    n_over = sum(1 for _, k, _ in issues if k == "OVERFLOW")
+    n_lap = sum(1 for _, k, _ in issues if k == "OVERLAP")
+    n_con = len(hyg["contrast"])
+    n9, n10 = sum(hyg["small9"].values()), sum(hyg["small10"].values())
+    line = (f"pptx_guard: слайдов={total}; переполнение={n_over}, наложение={n_lap} "
+            f"(слайды {sorted({s for s, _, _ in issues}) or '-'}); "
+            f"контраст ниже порога={n_con} (слайды {sorted({s for s, _, _ in hyg['contrast']}) or '-'}); "
+            f"кегль <9 pt: {n9} на {len(hyg['small9'])} сл., <10 pt: {n10} на {len(hyg['small10'])} сл.")
+    details = (
+        [f"слайд {s} {k}" for s, k, _ in issues]
+        + [f"слайд {s} {k} {d.split(',')[0]}" for s, k, d in hyg["contrast"]]
+    )
+    return bool(n_over or n_lap or n_con or n9 or n10), line, details
+
+
 def report(pptx_path, verbose=False):
     """CLI-обёртка: печатает отчёт, возвращает код возврата 0/1."""
     issues, total_slides = check(pptx_path, verbose=verbose)

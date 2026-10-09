@@ -130,6 +130,24 @@ def build_pptx(
                 f"build_pptx: свойства файла не переписаны ({_stamp_err}); "
                 f"колода сохранена и пригодна, но поле «Приложение» осталось шаблонным"
             )
+        # s59 (P3 2510, H2): сторож оформления по готовому файлу – только журнал,
+        # одна запись на выгрузку. Свой try: исключение сторожа не должно уйти в общий
+        # except ниже (выгрузка вернула бы error при существующем на диске файле).
+        # Файл и ответ API сторож не меняет; фрагментов текста клиента в журнал не пишет.
+        try:
+            try:
+                from econometrica.aurora_pptx import check_overflow as _guard
+            except ImportError:
+                from aurora_pptx import check_overflow as _guard
+            _has_findings, _guard_line, _guard_details = _guard.guard_summary(str(final_path))
+            if _has_findings:
+                logger.warning(_guard_line)
+            else:
+                logger.info(_guard_line)
+            for _d in _guard_details:
+                logger.debug(f"pptx_guard: {_d}")
+        except Exception as _guard_err:
+            logger.warning(f"build_pptx: сторож оформления не отработал ({_guard_err}); файл не затронут")
         slides_count = len(prs.slides)
         logger.info(f"build_pptx OK: slides={slides_count} path={final_path}")
         return {
