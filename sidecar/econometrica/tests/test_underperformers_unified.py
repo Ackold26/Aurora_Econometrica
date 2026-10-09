@@ -79,6 +79,8 @@ def _scenario_data(spec=None, optimize=None, balanced=False, kpi_patch=None, fac
 
 
 _SCENARIOS = {
+    "no_budget_share": dict(facts_patch={"budget_dominator_spend_pct": None, "leader_share_spend_pct": None,
+                                          "budget_dominator_contrib_pct": 40.0}),
     # естественная фикстура: отстающий один – источник сокращения, разрыв 89 против 15.3
     "fixture": dict(),
     "gap_ge5_two_reduce": dict(spec={"Banners": {"action": "Reduce"}, "OLV": {"action": "Reduce"}}),
@@ -491,3 +493,12 @@ def test_no_em_dash_in_scqar_texts(name):
     b = _built(name)
     for text in list(b.html.values()) + list(b.pptx.values()):
         assert "—" not in text, text
+
+
+def test_missing_budget_share_prints_no_gap_part_in_either_format():
+    """Аудит s59: без доли бюджета в фактах HTML не печатает «0% бюджета, но даёт N%»
+    (раньше `or 0` превращал None в 0, а условие `is not None` пропускало часть)."""
+    b = _built("no_budget_share")
+    assert "бюджета, но даёт" not in b.html["ЗАТРУДНЕНИЕ"], b.html["ЗАТРУДНЕНИЕ"]
+    assert "бюджета, но даёт" not in b.pptx["ПРОБЛЕМА"], b.pptx["ПРОБЛЕМА"]
+    assert "0% бюджета" not in b.html["ЗАТРУДНЕНИЕ"]

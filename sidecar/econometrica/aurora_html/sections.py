@@ -634,7 +634,10 @@ def render_executive_summary(ctx: dict) -> str:
         mqs_fmt = _fmt_num(ctx.get("diagnostics", {}).get("mqs_score"))
         leader = facts.get("leader_channel") or "-"
         hero = facts.get("hero_channel") or leader
-        leader_pct = facts.get("leader_share_spend_pct") or 0
+        # s59: без «or 0» – отсутствие доли бюджета остаётся None, как в презентации
+        # (aurora_pptx s09_scqar): часть «занимает X% бюджета» при `is not None` ниже
+        # иначе печаталась бы с «0% бюджета».
+        leader_pct = facts.get("leader_share_spend_pct")
         hero_m = 0.0
         for c in ctx.get("channels", []):
             if c.get("name") == hero:
