@@ -16,6 +16,8 @@ import os
 import sys
 from pathlib import Path
 
+import pytest
+
 _HERE = Path(__file__).resolve().parent
 _SIDECAR_ROOT = _HERE.parent
 
@@ -134,3 +136,104 @@ def test_without_explicit_sources_reads_pyinstaller_args(tmp_path, monkeypatch):
         ["server.py", "--add-data", f"{tmp_path / 'aurora_html'}:aurora_html"],
     )
     assert find_stale_sources(tmp_path, started) == [strings]
+
+
+# ── s60 (бэклог 2.5.10, п.6): нет Standards – сборка не идёт со старыми цветами ──
+#
+# `regenerate_tokens` считает кандидатов от `ROOT`, поэтому тест подменяет ROOT на
+# временное дерево (ничего не нужно выносить в параметр) и вызывает настоящую
+# функцию. Боевой генератор не запускается: в варианте (в) вместо него лежит
+# крошечный `build.py`, пишущий три файла в `--product-root`.
+
+_ALLOW_ENV = "AURORA_ALLOW_STALE_TOKENS"
+
+_FAKE_GENERATOR = '''\
+import argparse
+from pathlib import Path
+
+p = argparse.ArgumentParser()
+p.add_argument("--target")
+p.add_argument("--product")
+p.add_argument("--product-root")
+a = p.parse_args()
+base = Path(a.product_root) / "sidecar" / "econometrica"
+for rel in ("aurora_tokens.py", "aurora_html/templates/aurora_html.css",
+            "aurora_html/templates/aurora_html_tokens.js"):
+    f = base / rel
+    f.parent.mkdir(parents=True, exist_ok=True)
+    f.write_text("generated\\n", encoding="utf-8")
+'''
+
+
+def _fake_tree(tmp_path: Path, with_standards: bool) -> Path:
+    """Дерево `Aurora_Ai/Dev/prod/sidecar/econometrica`; возвращает его как ROOT."""
+    ai = tmp_path / "Aurora_Ai"
+    root = ai / "Dev" / "prod" / "sidecar" / "econometrica"
+    root.mkdir(parents=True)
+    if with_standards:
+        gen = ai / "Dev" / "Standards" / "tokens" / "build.py"
+        gen.parent.mkdir(parents=True)
+        gen.write_text(_FAKE_GENERATOR, encoding="utf-8")
+    else:
+        assert not (ai / "Dev" / "Standards").exists()
+        assert not (ai / "Standards").exists()
+    return root
+
+
+def test_missing_standards_aborts_build(tmp_path, monkeypatch, capsys):
+    import build_sidecar
+
+    monkeypatch.setattr(build_sidecar, "ROOT", _fake_tree(tmp_path, with_standards=False))
+    monkeypatch.delenv(_ALLOW_ENV, raising=False)
+
+    with pytest.raises(SystemExit) as exc:
+        build_sidecar.regenerate_tokens()
+
+    assert exc.value.code == 1
+    err = capsys.readouterr().err
+    assert "ERROR" in err and "Standards/tokens/build.py" in err
+    assert _ALLOW_ENV in err          # подсказка про обход
+    assert "—" not in err        # без длинного тире
+
+
+def test_missing_standards_with_override_warns_loudly(tmp_path, monkeypatch, capsys):
+    import build_sidecar
+
+    monkeypatch.setattr(build_sidecar, "ROOT", _fake_tree(tmp_path, with_standards=False))
+    monkeypatch.setenv(_ALLOW_ENV, "1")
+
+    assert build_sidecar.regenerate_tokens() is None   # без исключения
+
+    err = capsys.readouterr().err
+    assert "WARNING" in err and "СТАРЫМИ" in err and _ALLOW_ENV in err
+    assert "ERROR" not in err
+    assert "—" not in err
+
+
+def test_override_requires_exact_value_one(tmp_path, monkeypatch):
+    """Пустое значение или «0» – не разрешение (случайно оставленная переменная)."""
+    import build_sidecar
+
+    monkeypatch.setattr(build_sidecar, "ROOT", _fake_tree(tmp_path, with_standards=False))
+    for value in ("", "0", "true"):
+        monkeypatch.setenv(_ALLOW_ENV, value)
+        with pytest.raises(SystemExit) as exc:
+            build_sidecar.regenerate_tokens()
+        assert exc.value.code == 1
+
+
+def test_found_standards_still_regenerates(tmp_path, monkeypatch, capsys):
+    """Standards найден – прежнее поведение: генератор запущен, три файла записаны."""
+    import build_sidecar
+
+    root = _fake_tree(tmp_path, with_standards=True)
+    monkeypatch.setattr(build_sidecar, "ROOT", root)
+    monkeypatch.delenv(_ALLOW_ENV, raising=False)
+
+    build_sidecar.regenerate_tokens()
+
+    out = capsys.readouterr().out
+    assert "Regenerating tokens artifacts" in out
+    for rel in ("aurora_tokens.py", "aurora_html/templates/aurora_html.css",
+                "aurora_html/templates/aurora_html_tokens.js"):
+        assert (root / rel).read_text(encoding="utf-8") == "generated\n"

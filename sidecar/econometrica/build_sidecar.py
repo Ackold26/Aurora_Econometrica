@@ -265,8 +265,24 @@ def regenerate_tokens():
             standards_build = candidate
             break
     if standards_build is None:
-        print('WARNING: Standards/tokens/build.py not found - tokens may be stale')
-        return
+        # Без генератора сборка забрала бы лежащий рядом старый aurora_tokens.py
+        # (молча уехали бы прежние цвета) или упала бы позже на --add-data.
+        # Поэтому по умолчанию – отказ; обход только явный, для разработки.
+        if os.environ.get('AURORA_ALLOW_STALE_TOKENS') == '1':
+            print('!' * 72, file=sys.stderr)
+            print('WARNING: Standards/tokens/build.py not found - tokens NOT regenerated.\n'
+                  '         AURORA_ALLOW_STALE_TOKENS=1: сборка продолжается со СТАРЫМИ\n'
+                  '         aurora_tokens.py / aurora_html.css / aurora_html_tokens.js.\n'
+                  '         Только для разработки; поставку клиенту так не собирать.',
+                  file=sys.stderr)
+            print('!' * 72, file=sys.stderr)
+            return
+        print('ERROR: Standards/tokens/build.py not found - сборка остановлена: цвета '
+              'оформления не обновить, поставка уехала бы со старыми.\n'
+              '       Искали: Dev/Standards и Aurora_Ai/Standards рядом с деревом продукта.\n'
+              '       Для разработки (НЕ для поставки): AURORA_ALLOW_STALE_TOKENS=1',
+              file=sys.stderr)
+        sys.exit(1)
     print(f'Regenerating tokens artifacts from tokens.json ({standards_build})...')
     tokens_target = ROOT / 'aurora_tokens.py'
     html_css_target = ROOT / 'aurora_html' / 'templates' / 'aurora_html.css'
