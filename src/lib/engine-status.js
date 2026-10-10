@@ -1,10 +1,10 @@
 /**
  * Состояние модуля расчётов (движка) для подвала конвейера.
  *
- * Команда `econ_sidecar_wait_ready` возвращает:
- *  - сейчас: bool – `true` готов, `false` не дождались;
- *  - позже (после жизненного цикла в Rust): строку `'ready'` / `'stopped'` / `'starting'`.
- * Модуль понимает оба вида ответа. Исключение из `invoke` считается «ещё не готов».
+ * Команда `econ_sidecar_wait_ready` возвращает строку `'ready'` / `'stopped'` / `'starting'`
+ * (жизненный цикл в Rust). Прежний вид ответа – bool (`true` готов, `false` не дождались) –
+ * оставлен для совместимости: модуль понимает оба вида. Исключение из `invoke` считается
+ * «ещё не готов».
  *
  * Состояние – перечисление, а не текст: подвал красится по `ENGINE.*`, а не по сравнению строки.
  */
@@ -25,7 +25,9 @@ export const ENGINE = Object.freeze({
  */
 export function engineLabel(state) {
   if (state === ENGINE.READY) return 'Модуль расчётов: готов';
-  if (state === ENGINE.FAILED) return 'Модуль расчётов не запустился – перезапустите программу';
+  if (state === ENGINE.FAILED) {
+    return 'Модуль расчётов не отвечает – программа пробует его запустить; если не заработает, перезапустите программу';
+  }
   return 'Модуль расчётов: запускается…';
 }
 
@@ -159,6 +161,77 @@ export function waitEngineReady(invokeFn, options = {}) {
       return ENGINE.FAILED;
     } finally {
       if (current === run) current = null;
+    }
+  })();
+
+  return run.promise;
+}
+
+/**
+ * Идущее фоновое восстановление – одно на всё приложение.
+ * @type {{ promise: Promise<EngineState>, subscribers: Subscriber[] } | null}
+ */
+let recovering = null;
+
+/**
+ * Фоновое восстановление после FAILED (`'stopped'` или исчерпанные раунды): погибший движок позже
+ * поднимает сторож или `ensure_alive` при первом запросе, и подвал не должен залипать красным.
+ *
+ * Раз в `everyMs` повторяет одну проверку (`waitEngineReady` с одним раундом) – не более
+ * `maxRounds` проверок. Пауза нарезана, как у `waitEngineReady`: отмена мгновенная, таймеров
+ * больше одного не бывает. При переходе в READY вызывает `onState(READY)` и заканчивает; пока
+ * движок не отвечает, `onState` не вызывается (подвал остаётся FAILED, без мигания «запускается»).
+ *
+ * Одно восстановление на приложение: пока оно идёт, повторный вызов присоединяется к нему и
+ * возвращает то же обещание (`everyMs` и `maxRounds` – от первого вызова); второй цикл не заводится.
+ * Цикл останавливается, когда отменены все подписчики.
+ *
+ * Возвращает READY (поднялся), FAILED (раунды исчерпаны) или STARTING (отменено).
+ *
+ * @param {(cmd: string, args?: any) => Promise<any>} invokeFn
+ * @param {{
+ *   onState?: (state: EngineState) => void,
+ *   isCancelled?: () => boolean,
+ *   everyMs?: number,
+ *   maxRounds?: number,
+ * }} [options]
+ * @returns {Promise<EngineState>}
+ */
+export function watchEngineRecovery(invokeFn, options = {}) {
+  const { onState, isCancelled, everyMs = 30000, maxRounds = 20 } = options;
+  /** @type {Subscriber} */
+  const sub = { onState, isCancelled };
+
+  if (recovering) {
+    recovering.subscribers.push(sub);
+    return recovering.promise;
+  }
+
+  /** @type {{ promise: Promise<EngineState>, subscribers: Subscriber[] }} */
+  const run = { promise: /** @type {any} */ (null), subscribers: [sub] };
+  recovering = run;
+
+  const allCancelled = () => run.subscribers.every(subscriberCancelled);
+
+  run.promise = (async () => {
+    try {
+      for (let round = 0; round < maxRounds; round++) {
+        await pause(everyMs, allCancelled);
+        if (allCancelled()) return ENGINE.STARTING;
+
+        const state = await waitEngineReady(invokeFn, { rounds: 1, isCancelled: allCancelled });
+        if (allCancelled()) return ENGINE.STARTING;
+
+        if (state === ENGINE.READY) {
+          for (const s of run.subscribers) {
+            if (s.onState && !subscriberCancelled(s)) s.onState(ENGINE.READY);
+          }
+          return ENGINE.READY;
+        }
+      }
+      return ENGINE.FAILED;
+    } finally {
+      if (recovering === run) recovering = null;
     }
   })();
 

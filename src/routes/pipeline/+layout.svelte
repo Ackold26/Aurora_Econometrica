@@ -28,7 +28,7 @@
     importData,
     validateSubStep,
   } from '$lib/project-state.js';
-  import { ENGINE, engineLabel, waitEngineReady } from '$lib/engine-status.js';
+  import { ENGINE, engineLabel, waitEngineReady, watchEngineRecovery } from '$lib/engine-status.js';
   import { openFeedbackForm, feedbackErrorText } from '$lib/feedback.js';
   import PipelineStepper from '$lib/components/pipeline/PipelineStepper.svelte';
   import InsightsPanel from '$lib/components/pipeline/InsightsPanel.svelte';
@@ -217,18 +217,14 @@
   // Выставляется при размонтировании: ожидание движка прекращается без записи в сторы.
   let engineWaitCancelled = false;
 
-  async function initSidecar() {
-    const engineState = await waitEngineReady(invoke, {
-      onState: (state) => {
-        sidecarHealthy.set(state === ENGINE.READY);
-        sidecarStatus.set(state);
-      },
-      isCancelled: () => engineWaitCancelled,
-    });
-    // Дальше – только при готовом движке: иначе сбой запроса стёр бы задачу обучения.
-    if (engineState !== ENGINE.READY || engineWaitCancelled) return;
+  /** @param {string} state */
+  function reportEngineState(state) {
+    sidecarHealthy.set(state === ENGINE.READY);
+    sidecarStatus.set(state);
+  }
 
-    // Crash recovery: if training was in progress but sidecar restarted
+  // Crash recovery: if training was in progress but sidecar restarted
+  async function recoverTrainingTask() {
     const savedTask = typeof localStorage !== 'undefined' ? localStorage.getItem('econ-training-task') : null;
     if (savedTask) {
       try {
@@ -241,6 +237,30 @@
         localStorage.removeItem('econ-training-task');
       }
     }
+  }
+
+  async function initSidecar() {
+    const engineState = await waitEngineReady(invoke, {
+      onState: reportEngineState,
+      isCancelled: () => engineWaitCancelled,
+    });
+    if (engineWaitCancelled) return;
+
+    // Движок не поднялся: сторож или `ensure_alive` могут поднять его позже, поэтому подвал
+    // не залипает на FAILED – редкий фоновый повтор до готовности (или ухода со страницы).
+    // Блок восстановления после сбоя тогда выполняется при первом READY, пусть и поздно.
+    // Дальше – только при готовом движке: иначе сбой запроса стёр бы задачу обучения.
+    if (engineState === ENGINE.FAILED) {
+      const later = await watchEngineRecovery(invoke, {
+        onState: reportEngineState,
+        isCancelled: () => engineWaitCancelled,
+      });
+      if (later !== ENGINE.READY || engineWaitCancelled) return;
+    } else if (engineState !== ENGINE.READY) {
+      return;
+    }
+
+    await recoverTrainingTask();
   }
 
   onMount(() => {

@@ -4,7 +4,7 @@
  * рендер-тесты компонентов обходит (см. `src/tests/nav2-footer-gate.test.js`).
  */
 import { describe, it, expect, vi, afterEach } from 'vitest';
-import { ENGINE, engineLabel, waitEngineReady } from '../engine-status.js';
+import { ENGINE, engineLabel, waitEngineReady, watchEngineRecovery } from '../engine-status.js';
 
 /**
  * invoke, отвечающий по очереди; после конца очереди повторяет последний ответ.
@@ -174,6 +174,160 @@ describe('waitEngineReady', () => {
   });
 });
 
+describe('watchEngineRecovery', () => {
+  it("'stopped', затем 'ready' в следующем раунде фона → READY и onState(READY)", async () => {
+    vi.useFakeTimers();
+    const invokeFn = scriptedInvoke(['stopped', 'ready']);
+    expect(await waitEngineReady(invokeFn, { pauseMs: 1 })).toBe(ENGINE.FAILED);
+    expect(invokeFn).toHaveBeenCalledTimes(1);
+
+    const states = /** @type {string[]} */ ([]);
+    const p = watchEngineRecovery(invokeFn, { onState: (s) => states.push(s), everyMs: 30000 });
+    await vi.advanceTimersByTimeAsync(29000); // до срока проверки нет
+    expect(invokeFn).toHaveBeenCalledTimes(1);
+    expect(states).toEqual([]);
+    await vi.advanceTimersByTimeAsync(2000); // срок наступил: проверка отработала
+    expect(await p).toBe(ENGINE.READY);
+    expect(invokeFn).toHaveBeenCalledTimes(2);
+    expect(invokeFn).toHaveBeenLastCalledWith('econ_sidecar_wait_ready', { timeoutMs: 30000 });
+    expect(states).toEqual([ENGINE.READY]);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('пока движок не отвечает, onState не вызывается (подвал не мигает «запускается»)', async () => {
+    vi.useFakeTimers();
+    const invokeFn = scriptedInvoke(['stopped', 'stopped', 'stopped', 'ready']);
+    const states = /** @type {string[]} */ ([]);
+    const p = watchEngineRecovery(invokeFn, { onState: (s) => states.push(s), everyMs: 1000 });
+    await vi.advanceTimersByTimeAsync(3500);
+    expect(invokeFn).toHaveBeenCalledTimes(3); // три «stopped» подряд, onState молчит
+    expect(states).toEqual([]);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(await p).toBe(ENGINE.READY);
+    expect(states).toEqual([ENGINE.READY]);
+  });
+
+  it('maxRounds исчерпан → остаётся FAILED, ровно N вызовов, дальше тишина', async () => {
+    vi.useFakeTimers();
+    const invokeFn = scriptedInvoke(['stopped']);
+    const onState = vi.fn();
+    const p = watchEngineRecovery(invokeFn, { onState, everyMs: 1000, maxRounds: 3 });
+    await vi.advanceTimersByTimeAsync(10000);
+    expect(await p).toBe(ENGINE.FAILED);
+    expect(invokeFn).toHaveBeenCalledTimes(3);
+    expect(onState).not.toHaveBeenCalled();
+    await vi.advanceTimersByTimeAsync(60000);
+    expect(invokeFn).toHaveBeenCalledTimes(3);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('исключение из invoke – «ещё не отвечает», следующий раунд идёт', async () => {
+    vi.useFakeTimers();
+    const invokeFn = scriptedInvoke([new Error('boom'), true]);
+    const p = watchEngineRecovery(invokeFn, { everyMs: 1000 });
+    await vi.advanceTimersByTimeAsync(2500);
+    expect(await p).toBe(ENGINE.READY);
+    expect(invokeFn).toHaveBeenCalledTimes(2);
+  });
+
+  it('отмена: после неё вызовов нет, onState не вызывается, таймеры не висят', async () => {
+    vi.useFakeTimers();
+    let cancelled = false;
+    const invokeFn = scriptedInvoke(['stopped']);
+    const onState = vi.fn();
+    const p = watchEngineRecovery(invokeFn, {
+      onState, isCancelled: () => cancelled, everyMs: 1000, maxRounds: 10,
+    });
+    await vi.advanceTimersByTimeAsync(1100); // первая проверка прошла
+    expect(invokeFn).toHaveBeenCalledTimes(1);
+    cancelled = true;
+    await vi.advanceTimersByTimeAsync(300); // не дольше одного куска паузы
+    expect(await p).toBe(ENGINE.STARTING);
+    await vi.advanceTimersByTimeAsync(20000);
+    expect(invokeFn).toHaveBeenCalledTimes(1);
+    expect(onState).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('отмена во время проверки в последнем раунде → STARTING (не FAILED) и onState молчит', async () => {
+    vi.useFakeTimers();
+    let cancelled = false;
+    const invokeFn = /** @type {any} */ (vi.fn(async () => {
+      cancelled = true; // ушли со страницы, пока шла проверка
+      return 'ready';
+    }));
+    const onState = vi.fn();
+    const p = watchEngineRecovery(invokeFn, {
+      onState, isCancelled: () => cancelled, everyMs: 1000, maxRounds: 1,
+    });
+    await vi.advanceTimersByTimeAsync(1500);
+    expect(await p).toBe(ENGINE.STARTING);
+    expect(invokeFn).toHaveBeenCalledTimes(1);
+    expect(onState).not.toHaveBeenCalled();
+  });
+
+  it('отмена до срока первой проверки → ни одного вызова', async () => {
+    vi.useFakeTimers();
+    let cancelled = false;
+    const invokeFn = scriptedInvoke([true]);
+    const p = watchEngineRecovery(invokeFn, { isCancelled: () => cancelled, everyMs: 30000 });
+    await vi.advanceTimersByTimeAsync(5000);
+    cancelled = true;
+    await vi.advanceTimersByTimeAsync(300);
+    expect(await p).toBe(ENGINE.STARTING);
+    await vi.advanceTimersByTimeAsync(60000);
+    expect(invokeFn).not.toHaveBeenCalled();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('одновременный повторный вызов не создаёт второй цикл: общее обещание, один вызов на раунд', async () => {
+    vi.useFakeTimers();
+    const invokeFn = scriptedInvoke(['stopped', 'ready']);
+    const first = /** @type {string[]} */ ([]);
+    const second = /** @type {string[]} */ ([]);
+    const a = watchEngineRecovery(invokeFn, { onState: (s) => first.push(s), everyMs: 1000 });
+    const b = watchEngineRecovery(invokeFn, { onState: (s) => second.push(s), everyMs: 1000 });
+    expect(b).toBe(a);
+    await vi.advanceTimersByTimeAsync(2500);
+    expect(await a).toBe(ENGINE.READY);
+    expect(await b).toBe(ENGINE.READY);
+    expect(invokeFn).toHaveBeenCalledTimes(2); // два раунда, а не четыре
+    expect(first).toEqual([ENGINE.READY]);
+    expect(second).toEqual([ENGINE.READY]);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('первый подписчик отменён, второй продолжает цикл и получает итог', async () => {
+    vi.useFakeTimers();
+    let firstCancelled = false;
+    const invokeFn = scriptedInvoke(['stopped', 'ready']);
+    const first = vi.fn();
+    const second = vi.fn();
+    const a = watchEngineRecovery(invokeFn, {
+      onState: first, isCancelled: () => firstCancelled, everyMs: 1000,
+    });
+    firstCancelled = true; // ушли со страницы и вернулись: новый монтаж присоединился
+    const b = watchEngineRecovery(invokeFn, { onState: second, everyMs: 1000 });
+    await vi.advanceTimersByTimeAsync(2500);
+    expect(await Promise.all([a, b])).toEqual([ENGINE.READY, ENGINE.READY]);
+    expect(first).not.toHaveBeenCalled();
+    expect(second).toHaveBeenCalledWith(ENGINE.READY);
+  });
+
+  it('защита сбрасывается по завершении: после исчерпания раундов новый вызов начинает заново', async () => {
+    vi.useFakeTimers();
+    const failing = scriptedInvoke(['stopped']);
+    const p1 = watchEngineRecovery(failing, { everyMs: 500, maxRounds: 2 });
+    await vi.advanceTimersByTimeAsync(2000);
+    expect(await p1).toBe(ENGINE.FAILED);
+    const healthy = scriptedInvoke([true]);
+    const p2 = watchEngineRecovery(healthy, { everyMs: 500, maxRounds: 2 });
+    await vi.advanceTimersByTimeAsync(700);
+    expect(await p2).toBe(ENGINE.READY);
+    expect(healthy).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe('engineLabel', () => {
   const states = [ENGINE.STARTING, ENGINE.READY, ENGINE.FAILED, '', undefined, null, 'мусор'];
 
@@ -185,6 +339,14 @@ describe('engineLabel', () => {
       expect(text).not.toMatch(/sidecar/i);
       expect(text).not.toContain('—');
     }
+  });
+
+  it('FAILED не обещает «не запустился»: движок ещё могут поднять, подпись это говорит', () => {
+    const text = engineLabel(ENGINE.FAILED);
+    expect(text).toContain('не отвечает');
+    expect(text).toContain('пробует');
+    expect(text).toContain('перезапустите программу');
+    expect(text).not.toContain('не запустился');
   });
 
   it('три состояния дают три разные подписи', () => {

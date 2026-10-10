@@ -170,17 +170,31 @@ def is_underperformer(channel: dict[str, Any] | None) -> bool:
 HERO_CUT_CLAUSE = 'но оптимизатор рекомендует сократить бюджет канала'
 
 
-def hero_cut_clause_applies(facts: dict[str, Any] | None, hero_channel: dict[str, Any] | None) -> bool:
+def hero_cut_clause_applies(
+    facts: dict[str, Any] | None,
+    hero_channel: dict[str, Any] | None,
+    respect_convergence: bool = True,
+) -> bool:
     """Печатать ли хвост `HERO_CUT_CLAUSE` у героя.
 
     Нужны оба условия: у героя действие Cut/Reduce И отчёт сам говорит, что
-    рекомендации оптимизатора есть. Модель отказала (`model_refused`) или
-    оптимизация не сошлась (`optimization_converged`) - ОТВЕТ в обоих форматах
-    пишет, что рекомендаций нет, и хвост «оптимизатор рекомендует» им бы
-    противоречил. Ключи те же, что читают ОТВЕТ презентации и HTML.
+    рекомендации оптимизатора есть. Когда рекомендаций нет, хвост «оптимизатор
+    рекомендует» противоречил бы ОТВЕТУ того же отчёта, поэтому гейт хвоста
+    повторяет гейт ОТВЕТА своего формата:
+      * HTML (`respect_convergence=True`, по умолчанию): ОТВЕТ читает оба признака –
+        отказ модели (`model_refused`) и несошедшуюся оптимизацию
+        (`optimization_converged`, при несошедшейся пишет «Оптимизация не
+        сошлась…»); хвоста нет при любом из них.
+      * PPTX (`respect_convergence=False`): ОТВЕТ презентации читает только
+        `model_refused` и при несошедшейся оптимизации по-прежнему даёт директиву
+        («сократить или остановить …»); хвост гейтится так же – только по
+        `model_refused`, иначе ПРОБЛЕМА хвалила бы канал, который ОТВЕТ велит
+        сократить. Расхождение ответов двух форматов – прежнее, здесь не меняется.
     """
     f = facts or {}
-    if f.get('model_refused') or not f.get('optimization_converged', True):
+    if f.get('model_refused'):
+        return False
+    if respect_convergence and not f.get('optimization_converged', True):
         return False
     return is_underperformer(hero_channel)
 

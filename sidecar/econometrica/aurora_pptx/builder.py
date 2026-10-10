@@ -1769,7 +1769,7 @@ class AuroraPPTXBuilder:
                     # опускаем: оптимизатор рекомендует сократить этот канал.
                     from engines.channel_action import hero_cut_clause_applies
                     _hero_ch = next((c for c in self.channels if c.get("name") == hero), {})
-                    _signal = "" if hero_cut_clause_applies(self.facts, _hero_ch) else " Сигнал к перераспределению части бюджета."
+                    _signal = "" if hero_cut_clause_applies(self.facts, _hero_ch, respect_convergence=False) else " Сигнал к перераспределению части бюджета."
                     quote_txt = f"{_hero_vs_leader_quote_pptx(hero, leader, self.kpi)}{_signal}"
                 else:
                     quote_txt = (
@@ -2028,6 +2028,7 @@ class AuroraPPTXBuilder:
         #   auto-multiplies by 100. Sort desc - лидер по доле.
         _undefined: list[str] = []
         _nonpositive: list[str] = []
+        _cutoff: list[str] = []  # каналы с определённым значением за срезом [:10]
         if self.channels:
             kpi_mode = self.kpi["mode"]
             kpi_kind = self.kpi["kpi_kind"]
@@ -2060,15 +2061,20 @@ class AuroraPPTXBuilder:
                     for c in valid
                 ]
                 annotated.sort(key=lambda t: t[1])  # ascending CPU
+                _cutoff = [" ".join(str(n or "-").split()) for n, _ in annotated[10:]]
                 annotated = annotated[:10]
                 bar_labels = [name for name, _ in annotated]
                 bar_values = [cpu for _, cpu in annotated]
             else:
-                by_mroas = sorted(
+                _sorted_valid = sorted(
                     valid,
                     key=lambda c: float(c.get("mroas") or 0),
                     reverse=True,
-                )[:10]
+                )
+                # Порядок – по убыванию mROAS: срез отрезает худшие, в том числе
+                # отрицательные (худшую новость портфеля) – их называем в сноске.
+                _cutoff = [" ".join(str(c.get("name") or "-").split()) for c in _sorted_valid[10:]]
+                by_mroas = _sorted_valid[:10]
                 bar_labels = [c.get("name") or "-" for c in by_mroas]
                 bar_values = [float(c.get("mroas") or 0) for c in by_mroas]
         else:
@@ -2259,9 +2265,17 @@ class AuroraPPTXBuilder:
                 _notes.append(
                     f"Не показаны: {_names_list(_undefined)} – значение не определено."
                 )
+            # Каналы за срезом [:10] (аудит s60, находка 3): без дублей имён с
+            # прежними сносками и друг с другом, порядок – как на диаграмме.
+            _already = set(_nonpositive) | set(_undefined)
+            _cut_names = [n for n in dict.fromkeys(_cutoff) if n not in _already]
+            if _cut_names:
+                _notes.append(
+                    f"Не показаны (за пределами первых десяти): {_names_list(_cut_names)}."
+                )
             if _notes:
                 self._text(
-                    slide, bar_area_x, bar_area_y + bar_area_h + 0.08, bar_area_w, 0.5,
+                    slide, bar_area_x, bar_area_y + bar_area_h + 0.08, bar_area_w, 0.9,
                     " ".join(_notes),
                     font=self.sans, size=9, italic=True, color=self.deep_60,
                 )
@@ -3058,10 +3072,12 @@ class AuroraPPTXBuilder:
                     else _fmt_metric_pptx(hero_m, self.kpi)
                 )
                 # s60 (г): герой с Cut/Reduce – с хвостом, иначе ПРОБЛЕМА хвалит канал,
-                # который ОТВЕТ и таблица действий велят сократить. Без хвоста при
-                # отказе модели / несошедшейся оптимизации (рекомендаций нет).
+                # который ОТВЕТ и таблица действий велят сократить. Без хвоста только
+                # при отказе модели: ОТВЕТ презентации читает один `model_refused`,
+                # при несошедшейся оптимизации он по-прежнему директивен
+                # (respect_convergence=False).
                 from engines.channel_action import HERO_CUT_CLAUSE, hero_cut_clause_applies
-                _hero_tail = f", {HERO_CUT_CLAUSE}" if hero_cut_clause_applies(f, hero_ch) else ""
+                _hero_tail = f", {HERO_CUT_CLAUSE}" if hero_cut_clause_applies(f, hero_ch, respect_convergence=False) else ""
                 complication_parts.append(f"По {metric_short} {hero} опережает ({metric_fmt}){_hero_tail}")
             if underperf_all:
                 # s58: число глагола – по числу отстающих («ТВ тянет», «ТВ, Радио тянут»).

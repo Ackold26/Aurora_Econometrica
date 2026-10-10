@@ -401,3 +401,139 @@ def test_undefined_value_is_not_drawn_as_zero_and_is_named(bad_value):
     notes = [t for t in texts if _NOTE_HEAD in t]
     assert len(notes) == 1 and _NEG in notes[0] and _NOTE_UNDEF in notes[0]
     assert _NOTE_NONPOS not in notes[0]
+
+
+# ─── (аудит s60, находка 3) каналы за срезом [:10] названы в сноске ─────────
+
+_NOTE_CUT = "Не показаны (за пределами первых десяти):"
+
+
+def _many(n: int, *, kind: str | None = None, neg: tuple[float, ...] = (), extra: dict | None = None) -> dict:
+    """Фикстура с n каналами: пять штатных (mROAS 0.5…) и «Доп0…» с mROAS 0.40 + i*0.01; `neg` –
+    значения mROAS последних каналов (отрицательные – худшая новость портфеля)."""
+    data = _payload(kind=kind)
+    base = data["channels"][0]
+    i = 0
+    while len(data["channels"]) < n:
+        c = copy.deepcopy(base)
+        c["name"] = f"Доп{i}"
+        c["mroas"] = 0.40 + i * 0.01
+        data["channels"].append(c)
+        i += 1
+    data["channels"] = data["channels"][:n]
+    for c, v in zip(reversed(data["channels"]), neg):
+        c["mroas"] = v
+    for name, v in (extra or {}).items():
+        for c in data["channels"]:
+            if c["name"] == name:
+                c["mroas"] = v
+    return data
+
+
+def _cut_note(texts: list[str]) -> list[str]:
+    return [t for t in texts if _NOTE_CUT in t]
+
+
+def _names_of_cut_note(note: str) -> list[str]:
+    body = note.split(_NOTE_CUT, 1)[1].strip()
+    body = body.split(". ", 1)[0].rstrip(".")
+    return [n.strip() for n in body.split(",")]
+
+
+def test_money_12_channels_two_negative_cut_names_are_in_footnote():
+    data = _many(12, neg=(-0.9, -0.4))
+    prs, _ = _roundtrip(copy.deepcopy(data))
+    slide, texts = _slide(prs, _T_MONEY)
+    cats, _v = _display(_bar_chart_xml(slide))
+    assert len(cats) == 10
+    ordered = [n for n, _ in _expected_desc(data)]
+    beyond = ordered[10:]
+    assert len(beyond) == 2 and set(beyond) == {c["name"] for c in data["channels"] if float(c["mroas"]) < 0}
+    notes = _cut_note(texts)
+    assert len(notes) == 1
+    assert _names_of_cut_note(notes[0]) == beyond            # названы именно отрезанные, по порядку
+    assert not set(_names_of_cut_note(notes[0])) & set(cats)  # ни одного показанного в сноске
+    assert "—" not in notes[0]
+
+
+@pytest.mark.parametrize("n, n_cut", [(10, 0), (11, 1), (13, 3)])
+def test_money_cut_footnote_by_channel_count(n, n_cut):
+    data = _many(n)
+    prs, _ = _roundtrip(copy.deepcopy(data))
+    slide, texts = _slide(prs, _T_MONEY)
+    cats, _v = _display(_bar_chart_xml(slide))
+    assert len(cats) == min(n, 10)
+    notes = _cut_note(texts)
+    if n_cut == 0:
+        assert not notes and not any(_NOTE_HEAD in t for t in texts)   # 10 каналов – сноски нет
+    else:
+        beyond = [nm for nm, _ in _expected_desc(data)][10:]
+        assert len(notes) == 1 and _names_of_cut_note(notes[0]) == beyond and len(beyond) == n_cut
+
+
+def test_count_kpi_cut_footnote_names_the_costliest_channels():
+    data = _many(12, kind="count")
+    prs, _ = _roundtrip(copy.deepcopy(data))
+    slide, texts = _slide(prs, _T_COUNT)
+    cats, _v = _display(_bar_chart_xml(slide))
+    assert len(cats) == 10
+    by_cpu = [c["name"] for c in sorted(data["channels"], key=lambda c: 1.0 / float(c["mroas"]))]
+    notes = _cut_note(texts)
+    assert len(notes) == 1 and _names_of_cut_note(notes[0]) == by_cpu[10:]
+    assert cats == by_cpu[:10]
+
+
+def test_cut_footnote_merges_with_nonpositive_and_undefined_without_duplicate_names():
+    # штучный KPI: два канала ≤ 0 (названы прежней сноской), 11 положительных → один за срезом
+    data = _many(13, kind="count", neg=(-0.35, 0.0))
+    prs, _ = _roundtrip(copy.deepcopy(data))
+    slide, texts = _slide(prs, _T_COUNT)
+    notes = [t for t in texts if _NOTE_HEAD in t or _NOTE_CUT in t]
+    assert len(notes) == 1                                   # одна надпись, сноски объединены
+    note = notes[0]
+    assert _NOTE_NONPOS in note and _NOTE_CUT in note
+    cut_part = note.split(_NOTE_CUT, 1)[1]
+    nonpos = [c["name"] for c in data["channels"] if float(c["mroas"]) <= 0]
+    assert len(nonpos) == 2 and not any(n in cut_part for n in nonpos)
+    # значение «не определено» (денежный KPI) + 11 определённых: без дублей имён
+    d2 = _many(12, extra={"Доп0": None})
+    prs2, _ = _roundtrip(copy.deepcopy(d2))
+    _s, texts2 = _slide(prs2, _T_MONEY)
+    note2 = " ".join(t for t in texts2 if _NOTE_HEAD in t or _NOTE_CUT in t)
+    assert _NOTE_UNDEF in note2 and _NOTE_CUT in note2
+    assert note2.count("Доп0") == 1
+
+
+def test_cut_footnote_does_not_repeat_a_name_already_named_as_nonpositive():
+    """Имена каналов неуникальны: канал за срезом с тем же именем, что у исключённого по ≤ 0, во второй
+    раз не называется (без дублей имён между сносками)."""
+    data = _many(13, kind="count", neg=(-0.35,))
+    cpu_order = [c["name"] for c in sorted((c for c in data["channels"] if float(c["mroas"]) > 0),
+                                           key=lambda c: 1.0 / float(c["mroas"]))]
+    cut_name = cpu_order[10]                                  # 12 положительных, за срезом – два
+    data["channels"][-1]["name"] = cut_name                   # отрицательный канал – тёзка срезанного
+    prs, _ = _roundtrip(copy.deepcopy(data))
+    _s, texts = _slide(prs, _T_COUNT)
+    note = " ".join(t for t in texts if _NOTE_HEAD in t or _NOTE_CUT in t)
+    assert _NOTE_NONPOS in note
+    assert note.count(cut_name) == 1, note
+    assert cpu_order[11] in note                              # второй срезанный канал назван
+
+
+def test_cut_footnote_is_shortened_beyond_eight_names():
+    data = _many(21)
+    prs, _ = _roundtrip(copy.deepcopy(data))
+    _s, texts = _slide(prs, _T_MONEY)
+    note = _cut_note(texts)[0]
+    assert "и ещё 3" in note                                   # 11 отрезанных: восемь названы, три – числом
+    assert len(_names_of_cut_note(note.replace(" и ещё 3", ""))) == 8
+
+
+def test_guard_overflow_clean_with_cut_footnote(tmp_path):
+    """Сноска о каналах за срезом (вместе с прочими) не переполняет слайд."""
+    for name, data in {"money21": _many(21), "count_mix": _many(20, kind="count", neg=(-0.35, 0.0))}.items():
+        _prs, raw = _roundtrip(data)
+        path = tmp_path / f"{name}.pptx"
+        path.write_bytes(raw)
+        bad, line, details = guard_summary(str(path))
+        assert not bad, (name, line, details)

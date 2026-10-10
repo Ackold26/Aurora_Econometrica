@@ -8,8 +8,9 @@
     (веб-отчёт) к части «опережает» добавлен хвост «но оптимизатор рекомендует сократить бюджет
     канала»; заголовок слайда mROAS и заголовок раздела рекомендаций (веб-отчёт) не зовут
     «нарастить» этот канал; цитата «Каждый рубль … Сигнал к перераспределению…» теряет вторую
-    фразу. Хвост и эти правки – ТОЛЬКО когда отчёт сам не говорит, что рекомендаций нет
-    (модель не отказала, оптимизация сошлась).
+    фразу. Хвост и эти правки – ТОЛЬКО когда отчёт сам не говорит, что рекомендаций нет:
+    в веб-отчёте – модель не отказала И оптимизация сошлась; в презентации (её ОТВЕТ читает
+    один `model_refused`) – модель не отказала (аудит s60, находка 2).
 
 Тексты проверяются ДОСЛОВНО; сценарии строятся штатно (факты – через адаптер поверх фикстуры).
 Помощники – из `test_underperformers_unified` (`_scenario_data`, блоки HTML и PPTX).
@@ -307,9 +308,12 @@ def test_hero_part_absent_when_hero_mroas_missing_or_zero(mroas):
     assert b.facts["hero_channel"] == "Social"
     for text in (b.html["ЗАТРУДНЕНИЕ"], b.pptx["ПРОБЛЕМА"]):
         assert "опережает" not in text, text
-    assert "рекомендует сократить бюджет канала" not in b.deck + b.flat
-    assert "лучший канал по mROAS" not in b.deck + b.flat
+    assert "рекомендует сократить бюджет канала" not in b.deck
+    assert "лучший канал по mROAS" not in b.deck
     assert not (b.headline("mroas") or "").startswith("Social – лучший")
+    # Заголовок раздела рекомендаций в веб-отчёте порога по mROAS не имеет: герой Reduce –
+    # не «нарастить» (аудит s60, находка 1).
+    assert "нарастить" not in b.flat.casefold()
 
 
 def test_hero_clause_reads_verdict_fallback():
@@ -372,17 +376,18 @@ def test_mroas_headline_hero_scale_unchanged():
 
 @pytest.mark.parametrize("m, hero_cut", [(1.2, True), (1.19, False)])
 def test_mroas_headline_hero_cut_threshold(m, hero_cut):
-    """Граница 1.2 – и у заголовка слайда mROAS (функция), и у заголовка раздела рекомендаций (HTML)."""
+    """Граница 1.2 – только у заголовка слайда mROAS в презентации (функция). Заголовок раздела
+    рекомендаций в веб-отчёте порога не имеет (аудит s60, находка 1): герой Reduce – не «нарастить»
+    при любом mROAS."""
     data = U._scenario_data(spec={"Social": _ch("Reduce", mroas=m)}, facts_patch={"hero_channel": "Social"})
     h = derive_action_headline(data["channels"], data["narrative_facts"], "mroas") or ""
     page = U._flat(build_html(copy.deepcopy(data)))
     if hero_cut:
         assert h == f"Social – лучший канал по mROAS ({m:.2f}×), {_CLAUSE}", h
-        assert _HTML_TITLE_HERO_CUT in page
     else:
         assert h == "Сбалансировать портфель по mROAS – один канал не доминирует", h  # ниже порога 1.2
-        assert _HTML_TITLE_HERO_CUT not in page
-        assert "Aurora рекомендует нарастить Social" in page
+    assert _HTML_TITLE_HERO_CUT in page
+    assert "нарастить social" not in page.casefold()
 
 
 def test_hero_part_count_kpi_real_scale_is_absent():
@@ -395,8 +400,12 @@ def test_hero_part_count_kpi_real_scale_is_absent():
         kpi_patch={"kpi_kind": "count", "derived_mode": "roi", "kpi_type": "leads"})
     for text in (b.html["ЗАТРУДНЕНИЕ"], b.pptx["ПРОБЛЕМА"]):
         assert "опережает" not in text, text
-    assert "рекомендует сократить бюджет канала" not in b.deck + b.flat
-    assert "лучший канал по mROAS" not in b.deck + b.flat
+    assert "рекомендует сократить бюджет канала" not in b.deck
+    assert "лучший канал по mROAS" not in b.deck
+    # Штучный KPI (аудит s60, находка 1): сырой mROAS ≪ 1.2, но «нарастить» героя Reduce нет
+    # нигде на странице веб-отчёта.
+    assert "нарастить" not in b.flat.casefold()
+    assert _HTML_TITLE_HERO_CUT in b.flat
 
 
 # ─── (г): заголовок раздела рекомендаций (веб-отчёт) ────────────────────────
@@ -443,16 +452,48 @@ def test_hero_cut_texts_absent_when_model_refused():
     assert _SIGNAL in b.deck.replace("\n", " ") and _SIGNAL in b.flat  # цитата прежняя: правка гейтится так же
 
 
-def test_hero_cut_texts_absent_when_optimization_not_converged():
-    """Оптимизация не сошлась: HTML ОТВЕТ «Оптимизация не сошлась …» – хвоста и заголовка «лучший канал»
-    нет ни в презентации, ни в веб-отчёте."""
+def test_hero_cut_texts_when_optimization_not_converged_follow_each_answer():
+    """Оптимизация не сошлась (аудит s60, находка 2): гейт хвоста повторяет гейт ОТВЕТА своего формата.
+    Веб-отчёт: ОТВЕТ «Оптимизация не сошлась …» – хвоста, заголовка «лучший канал» и «нарастить» нет.
+    Презентация: ОТВЕТ читает один `model_refused` и по-прежнему директивен («сократить или остановить
+    Social») – хвост в ПРОБЛЕМЕ и заголовок слайда mROAS «…, но оптимизатор рекомендует сократить»
+    есть, «Нарастить Social» нет."""
     b = _build(spec={"Social": _ch("Reduce")}, facts_patch={"optimization_converged": False})
+    # веб-отчёт
     assert b.html["ОТВЕТ"].startswith("Оптимизация не сошлась.")
-    assert _HERO_PLAIN_PART in b.pptx["ПРОБЛЕМА"] and _HERO_PLAIN_PART in b.html["ЗАТРУДНЕНИЕ"]
-    assert "рекомендует сократить бюджет канала" not in b.deck + b.flat
-    assert "лучший канал по mROAS" not in b.deck + b.flat
+    assert _HERO_PLAIN_PART in b.html["ЗАТРУДНЕНИЕ"]
+    assert "рекомендует сократить бюджет канала" not in b.flat
+    assert "лучший канал по mROAS" not in b.flat
     assert _HTML_TITLE_HERO_CUT not in b.flat
+    assert "нарастить" not in b.flat.casefold()
     assert _SIGNAL in b.flat
+    # презентация
+    assert _HERO_CUT_PART in b.pptx["ПРОБЛЕМА"]
+    assert "сократить или остановить Social" in b.pptx["ОТВЕТ"]
+    assert b.headline("mroas") == _MROAS_HERO_CUT
+    assert _MROAS_HERO_CUT in b.deck
+    assert "Нарастить Social" not in b.deck
+    assert _SIGNAL not in b.deck.replace("\n", " ")
+
+
+def test_html_title_never_says_grow_for_cut_hero_whatever_the_gate():
+    """Герой Cut/Reduce: заголовок раздела рекомендаций не зовёт «нарастить» ни с хвостом (рекомендации
+    есть), ни без него (отказ модели, несошедшаяся оптимизация) – `s09_hold_leader`."""
+    for kw in ({}, {"facts_patch": {"optimization_converged": False}}, {"optimize": _REFUSED}):
+        b = _build(spec={"Social": _ch("Reduce")}, **kw)
+        assert "нарастить social" not in b.flat.casefold(), kw
+    b = _build(spec={"Social": _ch("Reduce")}, facts_patch={"optimization_converged": False})
+    assert "Aurora рекомендует сохранить приоритет Performance с учётом насыщения" in b.flat
+
+
+@pytest.mark.parametrize("m", [1.1, 1.0, 1.19])
+def test_html_title_hero_reduce_below_old_threshold_is_not_grow(m):
+    """Находка 1 аудита s60: герой Reduce с mROAS в [1.0; 1.2) получал «нарастить» (порог 1.2) при
+    ЗАТРУДНЕНИИ «но оптимизатор рекомендует сократить» – теперь заголовок с хвостом, «нарастить» нет."""
+    b = _build(spec={"Social": _ch("Reduce", mroas=m)}, facts_patch={"hero_channel": "Social"})
+    assert _HERO_CUT_PART.replace("27.03", f"{m:.2f}") in b.html["ЗАТРУДНЕНИЕ"]
+    assert _HTML_TITLE_HERO_CUT in b.flat
+    assert "нарастить" not in b.flat.casefold()
 
 
 # ─── помощники движка ───────────────────────────────────────────────────────
@@ -473,3 +514,8 @@ def test_hero_cut_clause_applies_gates():
     assert not hero_cut_clause_applies({"model_refused": True}, cut)
     assert not hero_cut_clause_applies({"optimization_converged": False}, cut)
     assert not hero_cut_clause_applies({"optimization_converged": None}, cut)  # как `not converged` в ОТВЕТЕ
+    # Презентация (аудит s60, находка 2): ОТВЕТ читает один `model_refused`.
+    assert hero_cut_clause_applies({"optimization_converged": False}, cut, respect_convergence=False)
+    assert hero_cut_clause_applies({"optimization_converged": None}, cut, respect_convergence=False)
+    assert not hero_cut_clause_applies({"model_refused": True}, cut, respect_convergence=False)
+    assert not hero_cut_clause_applies(ok, scale, respect_convergence=False)

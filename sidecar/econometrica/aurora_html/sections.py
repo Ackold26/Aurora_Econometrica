@@ -1641,13 +1641,18 @@ def render_recommendation(ctx: dict) -> str:
         leader = facts.get("leader_channel") or "-"
         hero = facts.get("hero_channel") or leader
         # s60 (г): герой с Cut/Reduce – не «нарастить»: оптимизатор рекомендует его
-        # сократить. Условия те же, что у заголовка слайда mROAS в презентации
-        # (порог 1.2, `hero_cut_clause_applies`); без имени бренда в заголовке.
-        from engines.channel_action import HERO_CUT_CLAUSE, hero_cut_clause_applies
+        # сократить. Условие – только `hero_cut_clause_applies`, без порога по mROAS:
+        # порог 1.2 пропускал героя с mROAS в [1.0; 1.2) и любого героя штучного KPI
+        # (сырой mROAS ≪ 1) к «нарастить», хотя ЗАТРУДНЕНИЕ и ОТВЕТ того же отчёта
+        # уже велят его сократить (аудит s60, находка 1). Без имени бренда в заголовке.
+        # Когда у героя Cut/Reduce, но хвоста нет (отказ модели, несошедшаяся
+        # оптимизация – рекомендаций нет), «нарастить» героя тоже не звучит: заголовок
+        # – `s09_hold_leader`, как при герое-лидере.
+        from engines.channel_action import HERO_CUT_CLAUSE, hero_cut_clause_applies, is_underperformer
         _hero_ch = next((c for c in channels if c.get("name") == hero), {}) or {}
-        if float(_hero_ch.get("mroas") or 0) >= 1.2 and hero_cut_clause_applies(facts, _hero_ch):
+        if hero_cut_clause_applies(facts, _hero_ch):
             title = strings["action_titles"]["s09_hero_cut"].format(hero=hero, hero_cut_clause=HERO_CUT_CLAUSE)
-        elif hero != leader:
+        elif hero != leader and not is_underperformer(_hero_ch):
             title = strings["action_titles"]["s09_scale_hero"].format(hero=hero, leader=leader)
         else:
             title = strings["action_titles"]["s09_hold_leader"].format(leader=leader)
