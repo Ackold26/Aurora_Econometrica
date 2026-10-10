@@ -27,6 +27,10 @@
     completeStep, setStepError, lockStep, pipelineStepMeta, pipelineCurrentStep,
     // NAV-2/3A Minimal-plus (2026-06-05): чистые предикаты вместо inline-логики.
     cppSatisfied, shouldRelockModel,
+    // s61 круг 2 (А-2): гейт кнопки «Далее ▶» по плану развязки пар.
+    cppSatisfiedForPairPlan,
+    // s61 круг 2 (А-3, А-4): обновления карты включённости – чистые функции.
+    applyExpressPairPlan, applyPairSelectionToEnabledMap,
     // v2.1.0 (rc2 U-05): sync subStep в store для InsightsPanel routing.
     validateSubStep,
     // v2.1.0 (пилот 2026-05-17): persist KPI выбор → ConfigPanel.
@@ -60,6 +64,8 @@
     unitCosts, unitCostInflation, unitCostInputMode, budgetInputs,
     // ПАРЫ: невыбранная половина пары выключается из модели тумблером канала.
     modelChannelEnabled,
+    // s61 (А2): тот же фильтр включённости, что у шапки шага (один источник числа).
+    isModelColumnEnabled,
   } from '$lib/project-state.js';
   import KPISelector from './KPISelector.svelte';
   import ValuePerCountUnitInput from './ValuePerCountUnitInput.svelte';
@@ -81,7 +87,7 @@
   // caches в localStorage, falls back к embedded patterns если backend down.
   // Replaces previous v2.0.1 hotfix inline MONETARY_RE/PHYSICAL_RE - теперь
   // single source of truth с column_detection.py.
-  import { detectChannelUnitType as detectChannelType } from '$lib/services/classifier-patterns.js';
+  import { detectChannelUnitType as detectChannelType, patternsReady } from '$lib/services/classifier-patterns.js';
   import { TriangleAlert } from 'lucide-svelte';
   import { formatMediaPlanSpan, ruPlanPeriodsForm } from '$lib/period-format.js';
 
@@ -403,11 +409,21 @@
   // Один клик вместо 5 под-шагов, когда автоматика настроила всё безопасно
   // (денежный KPI, чистая валидация, все каналы в рублях). Гейты и план —
   // в чистом модуле express-validate.js (юнит-тесты без рендера).
+  // s61 круг 3 (А3-1): классификатор «физическая по детектору» для плана экспресса.
+  // Шаблоны детектора грузятся асинхронно – после загрузки классификатор
+  // пересоздаётся, и план пересчитывается.
+  const expressIsPhysical = $derived.by(() => {
+    void $patternsReady;
+    return (/** @type {string} */ name) => detectChannelType(name) === 'physical';
+  });
   const expressPlan = $derived(buildExpressPlan({
     validateResult: $validateData?.result ?? null,
     currentKPI,
     kpiUnavailable,
     kpiKind: currentKpiKind,
+    // s61 круг 3 (А3-1): страховка «физическая по детектору» – экран её раньше не
+    // передавал, и колонка вроде olv_views принималась экспрессом как рубли.
+    isPhysicalChannel: expressIsPhysical,
   }));
   const showExpressConfirm = $derived(
     subStep === -2 && !kpiConfirmed && expressPlan.eligible
@@ -423,19 +439,31 @@
     currentPerChannel = expressPlan.uniform;
     perChannelInput.set(expressPlan.uniform);
     // ПАРЫ: физ-половины пар (tv_trp при принятом tv_spend) — вне модели в ROI.
-    if (expressPlan.disable?.length) {
-      modelChannelEnabled.update((mapping) => {
-        const next = { ...mapping };
-        for (const col of expressPlan.disable) next[col] = false;
-        return next;
-      });
+    // s61 круг 2 (А-3, аудит №2): план экспресса применяет чистая applyExpressPairPlan –
+    // она ещё и ВКЛЮЧАЕТ денежные половины парных каналов. Раньше ставился только
+    // `false` физическим: если до экспресса для канала выбирали физическую метрику
+    // (его денежная половина уже `false`), выключенными оставались обе половины и
+    // канал молча выпадал из модели.
+    const pairedMoney = Object.values(availableMetricsByChannel)
+      .filter((o) => (o?.physical ?? []).length > 0)
+      .flatMap((o) => o?.monetary ?? []);
+    if (pairedMoney.length || expressPlan.disable?.length) {
+      modelChannelEnabled.update((mapping) =>
+        applyExpressPairPlan(mapping, availableMetricsByChannel, expressPlan.disable));
       persistPairToggles(); // Д-6: durable, иначе ConfigPanel перетрёт развязку
     }
     analysisMode.set('roi');
     const m = deriveModeWithExplanation(expressPlan.uniform);
     derivedMode.set(/** @type {'roi' | 'effectiveness' | 'manual'} */ (m.mode));
     // Как в handlePerChannelConfirm: единственная точка разлочивания Модели.
-    completeStep(1);
+    // s61 (А0): отказ хранителя не молчаливый. Баннер про незаданную цену единицы
+    // рисуется только на подшаге «Метрики каналов», а карточка экспресса к этому
+    // моменту уже скрыта (kpiConfirmed) – переводим туда, а не на «Подтверждение».
+    if (!completeStep(1)) {
+      subStep = 2;
+      expertCppMissing = true;
+      return;
+    }
     subStep = 3;
   }
 
@@ -609,14 +637,15 @@
     // из модели тумблером — все потребители (cpp-гейт, unit_costs, train-config)
     // остаются на именах колонок.
     const baseSel = /** @type {Record<string, 'monetary' | 'physical'>} */ (selection);
-    const { perColumn, disable } = resolvePairSelection(availableMetricsByChannel, baseSel);
+    const { perColumn } = resolvePairSelection(availableMetricsByChannel, baseSel);
     const typed = perColumn;
-    modelChannelEnabled.update((mapping) => {
-      const next = { ...mapping };
-      for (const col of Object.keys(perColumn)) next[col] = true;
-      for (const col of disable) next[col] = false;
-      return next;
-    });
+    // s61 круг 2 (А-4, аудит №3): `true` – только колонкам каналов, у которых есть
+    // вторая половина пары. У одиночного канала значение карты не трогаем: иначе
+    // автоотключённый разреженный канал и канал, снятый галочкой на «Модели», молча
+    // включались бы обратно при каждом «Далее» (через обратную синхронизацию это
+    // доезжает до панели обучения).
+    modelChannelEnabled.update((mapping) =>
+      applyPairSelectionToEnabledMap(mapping, availableMetricsByChannel, baseSel));
     persistPairToggles(); // Д-6: без durable ConfigPanel пересоберёт карту из
                           // project.model_channel_enabled и перетёр бы развязку
     currentPerChannel = typed;
@@ -647,7 +676,13 @@
     // подшагов/CPP-гейта невозможен. Финальный переход подшаг 3 → Модель делает футерная
     // «Далее» (контентная кнопка в ModeDerivedExplanation убрана — инфо-строка), поэтому
     // completeStep здесь, а НЕ в handleContinue (он не привязан к кнопке = мёртв).
-    completeStep(1);
+    // s61 (А0): хранитель отказал (домен каналов у него шире, чем у раннего выхода
+    // выше) → остаёмся на подшаге «Метрики каналов» с баннером, а не показываем
+    // «Подтверждение» при запертой «Модели».
+    if (!completeStep(1)) {
+      expertCppMissing = true;
+      return;
+    }
     subStep = 3;
   }
 
@@ -807,8 +842,11 @@
     if (!result) return null;
     const cols = Array.isArray(result.columns) ? result.columns : [];
     /** Active media + control каналы (без excluded). */
+    // s61 (А2): медиа – только включённые в модель, как в validationHeaderMetrics.
+    // До развязки пар в карте нет `false` – число прежнее; после возврата на «Роли
+    // колонок» оно совпадает с шапкой шага (иначе два числа одной величины).
     const activeCols = cols.filter((/** @type {any} */ c) =>
-      c?.role === 'media' || c?.role === 'control'
+      (c?.role === 'media' && isModelColumnEnabled($modelChannelEnabled, c?.name)) || c?.role === 'control'
     );
     const nPredictors = activeCols.length;
     const nObs = result.file?.rows ?? result.detected?.n_rows ?? 0;
@@ -830,7 +868,13 @@
     const weakMedia = cols.filter((/** @type {any} */ c) =>
       c?.role === 'media' && Number(c?.stats?.zeros_pct ?? 0) > 50
     );
-    const nAfter = nPredictors - weakMedia.length;
+    // s61 (А2): слабый канал, уже выключенный из модели (автоотключение при доле
+    // нулей > 80 %), в nPredictors не входит – второй раз его не вычитаем, иначе
+    // «запас после исключения» вышел бы завышенным.
+    const weakEnabledCount = weakMedia.filter((/** @type {any} */ c) =>
+      isModelColumnEnabled($modelChannelEnabled, c?.name)
+    ).length;
+    const nAfter = nPredictors - weakEnabledCount;
     const afterExclude = nAfter > 0
       ? effectiveRatio(nObs, result.detected, $modelEngine, nAfter, $useHolidays, $disabledHolidays.length)
       : null;
@@ -1042,19 +1086,37 @@
     }
   });
 
+  // s61 круг 2 (А-2, живой проход П12): выбор «канал → метрика» режима менеджера
+  // строится ОДНИМ местом – и для гейта кнопки «Далее ▶», и для самого нажатия.
+  // Правило то же, что у сводки на этом подшаге (AppliedModeSummary): выбор,
+  // сохранённый по колонкам пары, важнее детектора имени – кнопка применяет то,
+  // что показано, и ранее выбранная физическая половина без цены держит её закрытой.
+  const managerBaseSelection = $derived.by(() => {
+    /** @type {Record<string, 'monetary' | 'physical'>} */
+    const snapshot = {};
+    for (const name of channels) {
+      const t = selectionByBase[name] ?? $perChannelInput?.[name] ?? detectChannelType(name);
+      snapshot[name] = /** @type {'monetary' | 'physical'} */ (t === 'physical' ? 'physical' : 'monetary');
+    }
+    return snapshot;
+  });
+  // Гейт кнопки – по ПЛАНУ развязки: по колонкам, которые останутся включёнными
+  // после нажатия. allChannelsConfigured считает включёнными обе половины каждой
+  // пары (физические без цены его закрывают), а выключает их только это нажатие –
+  // кнопка запирала сама себя. allChannelsConfigured и перезапирание выше не менялись.
+  const managerPlanConfigured = $derived(cppSatisfiedForPairPlan(
+    availableMetricsByChannel,
+    managerBaseSelection,
+    { perChannelInput: $perChannelInput, unitCosts: $unitCosts, analysisMode: $analysisMode },
+  ));
+
   /**
    * U-01/4d (пилот 2026-05-16): подтверждение метрик каналов в Manager mode.
    * Формирует currentPerChannel из perChannelInput store (или auto-detected типов)
    * и вызывает handlePerChannelConfirm → subStep = 3.
    */
   function confirmMetricsAndProceed() {
-    /** @type {Record<string, 'monetary' | 'physical'>} */
-    const snapshot = {};
-    for (const name of channels) {
-      const t = $perChannelInput?.[name] ?? detectChannelType(name);
-      snapshot[name] = /** @type {'monetary' | 'physical'} */ (t === 'physical' ? 'physical' : 'monetary');
-    }
-    handlePerChannelConfirm(snapshot);
+    handlePerChannelConfirm(managerBaseSelection);
   }
 
   // v2.0.1-rc2 REORDER: КPI preflight first (subStep=-2), Roles preflight
@@ -1463,8 +1525,8 @@
           type="button"
           class="substep-next-btn"
           onclick={confirmMetricsAndProceed}
-          disabled={!allChannelsConfigured}
-          title={allChannelsConfigured
+          disabled={!managerPlanConfigured}
+          title={managerPlanConfigured
             ? 'Перейти к подтверждению режима анализа'
             : 'Укажите стоимость 1 единицы (CPP) для всех физических каналов в ROI-режиме'}
         >

@@ -7,8 +7,10 @@
    * @component ConfigPanel
    */
   import { invoke } from '@tauri-apps/api/core';
-  import { activeProjectId, activeProject, pipelineState, importData, isComputing, computeStatus, expertMode, unitCosts, modelEngine, channelCategories, modelChannelEnabled, disabledHolidays, useHolidays, useSeasonality, lastTrainedConfig, chosenKpiColumn, kpiType, valuePerCountUnit, kpiKind, analysisMode, perChannelInput, cppSatisfied, analysisModeIsPersisted, resolveChannelEnabled } from '$lib/project-state.js';
+  import { activeProjectId, activeProject, pipelineState, importData, isComputing, computeStatus, expertMode, unitCosts, modelEngine, channelCategories, modelChannelEnabled, disabledHolidays, useHolidays, useSeasonality, lastTrainedConfig, chosenKpiColumn, kpiType, valuePerCountUnit, kpiKind, analysisMode, perChannelInput, cppSatisfied, analysisModeIsPersisted, resolveChannelEnabled, mergeLiveChannelEnabled } from '$lib/project-state.js';
   import { get } from 'svelte/store';
+  import { untrack } from 'svelte';
+  import { pluralizeRu } from '$lib/utils/i18n.js';
   import { buildTrainConfig } from '$lib/train-config.js';
   import { calibrations, loadCalibrations } from '$lib/calibration-store.js';
   import CalibrationPanel from '$lib/components/pipeline/CalibrationPanel.svelte';
@@ -112,7 +114,14 @@
       // LOAD-1 (2026-06-07): seed ВКЛ/ВЫКЛ из DURABLE persisted toggle (приоритет над
       // zeros>80% default) → ручной disabled low-zeros канал не ре-включается на reload.
       // persisted truth = activeProject.model_channel_enabled (persist в trainModel ниже).
-      const enabled = resolveChannelEnabled(media, get(activeProject)?.model_channel_enabled);
+      // s61 (К1): живая карта (общий стор) – ПОВЕРХ сохранённой. Развязка пар на
+      // «Валидации» пишет стор и диск, но стор activeProject не обновляет: повторная
+      // инициализация (смена ролей, KPI) собрала бы карту из устаревшего проекта и
+      // затёрла развязку – в обучение ушли бы обе половины пары.
+      const enabled = resolveChannelEnabled(media, {
+        ...(get(activeProject)?.model_channel_enabled ?? {}),
+        ...get(modelChannelEnabled),
+      });
       /** @type {Record<string, string>} */
       const adstock = {};
       for (const ch of media) {
@@ -131,6 +140,22 @@
   // (все), показывал «10 медиаканалов» когда юзер оставил только 7.
   $effect(() => {
     modelChannelEnabled.set({ ...channelEnabled });
+  });
+
+  // s61 (К1): обратная синхронизация стор → панель. Панель смонтирована с момента
+  // открытия конвейера, а развязка пар («бюджет + физическая метрика») происходит
+  // на «Валидации» и пишет только стор – без этого эффекта локальная карта оставалась
+  // «все 8 включены» и в обучение уходили обе половины каждой пары.
+  // Защита от петли с эффектом выше: зависимость здесь ОДНА – стор (локальная карта
+  // читается и пишется внутри untrack), а mergeLiveChannelEnabled возвращает тот же
+  // объект, когда отличий нет, – присваивания не происходит, и эффект выше повторно
+  // не запускается.
+  $effect(() => {
+    const live = $modelChannelEnabled;
+    untrack(() => {
+      const merged = mergeLiveChannelEnabled(channelEnabled, live);
+      if (merged !== channelEnabled) channelEnabled = merged;
+    });
   });
 
   // ── Adstock auto-select (marketer mode) ──
@@ -785,7 +810,7 @@ Weibull (плавный нарастающий эффект):
   {#if selectedKpi && Object.values(channelEnabled).filter(Boolean).length > 0}
     <div class="config-summary">
       <span class="summary-label">Конфигурация:</span>
-      KPI: <strong>{selectedKpi}</strong> | {Object.values(channelEnabled).filter(Boolean).length} каналов | Остаточный эффект: авто
+      KPI: <strong>{selectedKpi}</strong> | {Object.values(channelEnabled).filter(Boolean).length} {pluralizeRu(Object.values(channelEnabled).filter(Boolean).length, ['канал', 'канала', 'каналов'])} | Остаточный эффект: авто
     </div>
   {/if}
 

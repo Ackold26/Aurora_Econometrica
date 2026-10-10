@@ -42,10 +42,17 @@ export function parseChannelMetric(name) {
  * Группировка media-колонок в каналы с доступными метриками.
  * Колонка без распознанного суффикса — самостоятельный канал (metric считается
  * monetary, прежнее поведение +page).
+ * s61 круг 3 (А3-1): необязательный классификатор `isPhysicalName` – для имени
+ * БЕЗ распознанного суффикса вердикт «физическая» даёт он (детектор шаблонов
+ * знает слова, которых нет в разборе пар: `olv_views`, `youtube_views`). Без него
+ * такая колонка попадала в «денежные», план развязки писал ей явное 'monetary', и
+ * гейт цены единицы её больше не проверял. Без параметра поведение прежнее;
+ * модуль остаётся без импортов – классификатор передаёт вызывающий.
  * @param {string[]} mediaColumnNames
+ * @param {((name: string) => boolean)|null} [isPhysicalName]
  * @returns {{ channels: string[], byChannel: Record<string, {monetary: string[], physical: string[]}> }}
  */
-export function groupChannelColumns(mediaColumnNames) {
+export function groupChannelColumns(mediaColumnNames, isPhysicalName) {
   /** @type {Record<string, {monetary: string[], physical: string[]}>} */
   const byChannel = {};
   /** @type {string[]} */
@@ -56,7 +63,9 @@ export function groupChannelColumns(mediaColumnNames) {
       byChannel[base] = { monetary: [], physical: [] };
       channels.push(base);
     }
-    byChannel[base][metric ?? 'monetary'].push(name);
+    const kind = metric
+      ?? (typeof isPhysicalName === 'function' && isPhysicalName(name) ? 'physical' : 'monetary');
+    byChannel[base][kind].push(name);
   }
   return { channels, byChannel };
 }

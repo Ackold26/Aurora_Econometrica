@@ -15,14 +15,17 @@
  * Единая константа «+13 всегда» соврала бы для OLS ровно настолько, насколько
  * сырой знаменатель врал для байеса. Поэтому сторож проверяет ОБА режима.
  */
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterEach } from 'vitest';
 import { get } from 'svelte/store';
 import {
   effectiveParamCount,
   effectiveRatio,
 } from '../ratio-classifier.js';
 import { validateInsights, modelPreTrainingInsights } from '../insights-rules.js';
-import { validateData, validationHeaderMetrics, modelEngine } from '../project-state.js';
+import { validateData, validationHeaderMetrics, modelEngine, modelChannelEnabled, resolveChannelEnabled } from '../project-state.js';
+// s61 (А2): исходник экрана «Валидация» как текст – карточка запаса на подшаге
+// «Роли колонок» обязана считать медиа тем же фильтром, что и шапка.
+import validateStepSrc from '../components/pipeline/ValidateStepV13.svelte?raw';
 
 /** 52 наблюдения, 8 медиа + 2 контроля — состав как отдаёт validator.py. */
 function makeResult() {
@@ -151,5 +154,120 @@ describe('P0.3: знаменатель «Запаса данных» — оди�
     expect(effectiveParamCount(legacy, 'bayesian')).toBe(23);
     // Для OLS новых полей нет — собираем консервативно, без праздников.
     expect(effectiveParamCount(legacy, 'ols')).toBe(11);
+  });
+});
+
+/**
+ * s61 (А2): один источник числа каналов / переменных / запаса данных.
+ *
+ * Корень. Пары «бюджет + физическая метрика»: в обучение идёт одна половина пары,
+ * вторая выключается картой включённости, но роль у неё остаётся `media`. Шапка
+ * шага считала по ролям – «8 каналов, 11 переменных, запас 1.9 – критически
+ * мало», а обучение получало 4 канала и запас 2.3. Теперь счёт – по включённым.
+ */
+describe('А2: шапка считает медиа по ВКЛЮЧЁННЫМ в модель колонкам', () => {
+  afterEach(() => {
+    modelChannelEnabled.set({});
+    modelEngine.set('bayesian');
+  });
+
+  /** @returns {any} */
+  const header = () => /** @type {any} */ (get(validationHeaderMetrics));
+
+  it('пары: 8 медиа-ролей, 4 выключены → 4 канала, 6 переменных, запас по 6', () => {
+    const result = makeResult();
+    modelEngine.set('bayesian');
+    validateData.set(asValidateData(result));
+    modelChannelEnabled.set({ media_4: false, media_5: false, media_6: false, media_7: false });
+
+    const h = header();
+    expect(h.activeMedia).toBe(4);
+    expect(h.activeControls).toBe(2);
+    expect(h.nPredictors).toBe(6);
+    // 6 назначенных + 12 праздников + свободный член = 19 параметров.
+    expect(h.nParamsEffectivePretrain).toBe(19);
+    expect(h.ratio).toBeCloseTo(52 / 19, 6);
+    expect(h.ratio.toFixed(1)).toBe('2.7');
+    expect(h.ratio).toBeCloseTo(effectiveRatio(52, result.detected, 'bayesian', 6), 6);
+    expect(h.ratioRaw).toBeCloseTo(52 / 6, 6);
+  });
+
+  it('тот же проект в режиме OLS: 52 / (6 + 1) = 7.4', () => {
+    validateData.set(asValidateData(makeResult()));
+    modelChannelEnabled.set({ media_4: false, media_5: false, media_6: false, media_7: false });
+    modelEngine.set('ols');
+    expect(header().nPredictors).toBe(6);
+    expect(header().ratio).toBeCloseTo(52 / 7, 6);
+  });
+
+  it('пустая карта и карта без false → счёт прежний (нет ключа = включена)', () => {
+    const result = makeResult();
+    modelEngine.set('bayesian');
+    validateData.set(asValidateData(result));
+
+    modelChannelEnabled.set({});
+    expect(header().activeMedia).toBe(8);
+    expect(header().nPredictors).toBe(10);
+    expect(header().ratio).toBeCloseTo(52 / 23, 6);
+
+    // Развязка до выбора: часть ключей true, остальных ключей нет вовсе.
+    modelChannelEnabled.set({ media_0: true, media_1: true });
+    expect(header().activeMedia).toBe(8);
+    expect(header().nPredictors).toBe(10);
+  });
+
+  it('реагирует на смену карты без смены результата проверки', () => {
+    validateData.set(asValidateData(makeResult()));
+    modelChannelEnabled.set({});
+    expect(header().activeMedia).toBe(8);
+    modelChannelEnabled.set({ media_0: false });
+    expect(header().activeMedia).toBe(7);
+    modelChannelEnabled.set({ media_0: true });
+    expect(header().activeMedia).toBe(8);
+  });
+
+  it('файл без пар с разреженным каналом (нулей > 80 %): автоотключение меняет число уже на «Валидации»', () => {
+    // Для владельца: это правда о будущем обучении – панель обучения такой канал
+    // по умолчанию не включает, и шапка теперь показывает то же, что уйдёт в модель.
+    const result = makeResult();
+    result.columns[7].stats = { zeros_pct: 92, vif: 2 }; // media_7 – разреженный
+    modelEngine.set('bayesian');
+    validateData.set(asValidateData(result));
+    const media = result.columns.filter((c) => c.role === 'media');
+    const map = resolveChannelEnabled(media, {});
+    expect(map.media_7).toBe(false);
+    modelChannelEnabled.set(map);
+
+    const h = header();
+    expect(h.activeMedia).toBe(7);
+    expect(h.nPredictors).toBe(9);
+    expect(h.ratio).toBeCloseTo(52 / 22, 6); // 9 + 12 + 1
+    // Тот же файл, пока карта не выставлена: прежние 8 каналов и 2.3.
+    modelChannelEnabled.set({});
+    expect(header().activeMedia).toBe(8);
+    expect(header().ratio).toBeCloseTo(52 / 23, 6);
+  });
+
+  it('все медиа выключены → каналов 0, готовность данных не выше 20', () => {
+    const result = makeResult();
+    validateData.set(asValidateData(result));
+    modelChannelEnabled.set(Object.fromEntries(
+      result.columns.filter((c) => c.role === 'media').map((c) => [c.name, false]),
+    ));
+    expect(header().activeMedia).toBe(0);
+    expect(header().mqs).toBeLessThanOrEqual(20);
+  });
+
+  it('карточка запаса на «Ролях колонок» считает медиа тем же фильтром включённости', () => {
+    const card = validateStepSrc.slice(
+      validateStepSrc.indexOf('const ratioCardData'),
+      validateStepSrc.indexOf('const ratioBlockedReason'),
+    );
+    expect(card.length).toBeGreaterThan(0);
+    // Мутация «вернуть счёт по ролям» красит этот тест.
+    expect(card).toMatch(/activeCols\s*=\s*cols\.filter\([\s\S]{0,120}c\?\.role === 'media' && isModelColumnEnabled\(\$modelChannelEnabled, c\?\.name\)/);
+    // Слабый канал, уже выключенный из модели, второй раз не вычитается.
+    expect(card).toMatch(/weakEnabledCount\s*=\s*weakMedia\.filter\([\s\S]{0,120}isModelColumnEnabled\(\$modelChannelEnabled, c\?\.name\)/);
+    expect(card).toMatch(/const nAfter = nPredictors - weakEnabledCount;/);
   });
 });

@@ -11,13 +11,40 @@
  */
 
 /**
+ * Слова частоты, которые отдаёт движок (`detected.date_frequency`), → буква.
+ * @type {Record<string, string>}
+ */
+const ENGINE_FREQUENCY_WORDS = {
+  DAILY: 'D',
+  WEEKLY: 'W',
+  MONTHLY: 'M',
+  QUARTERLY: 'Q',
+};
+
+/**
+ * Приводит частоту к букве: слова движка (`daily` / `weekly` / `monthly` /
+ * `quarterly`) → `D` / `W` / `M` / `Q`; буквы – как есть, в верхнем регистре;
+ * `null` / `undefined` → `W` (прежнее поведение). Нераспознанное
+ * (`unknown`, пустая строка, мусор) НЕ превращается в `W`: возвращается как
+ * есть в верхнем регистре, и справочники ниже дают для него «пер» / 52.
+ *
+ * @param {Granularity | null | undefined} granularity
+ * @returns {string}
+ */
+export function normalizeGranularity(granularity) {
+  if (granularity === null || granularity === undefined) return 'W';
+  const g = String(granularity).trim().toUpperCase();
+  return ENGINE_FREQUENCY_WORDS[g] ?? g;
+}
+
+/**
  * Текстовая единица периода («нед» / «мес» / «кв» / «пер») для данной гранулярности.
  *
  * @param {Granularity | null | undefined} granularity
  * @returns {string}
  */
 export function periodUnit(granularity) {
-  const g = (granularity ?? 'W').toUpperCase();
+  const g = normalizeGranularity(granularity);
   if (g === 'W') return 'нед';
   if (g === 'M') return 'мес';
   if (g === 'Q') return 'кв';
@@ -32,7 +59,7 @@ export function periodUnit(granularity) {
  * @returns {number}
  */
 export function periodThreshold(granularity) {
-  const g = (granularity ?? 'W').toUpperCase();
+  const g = normalizeGranularity(granularity);
   if (g === 'W') return 52;
   if (g === 'M') return 24;
   if (g === 'Q') return 8;

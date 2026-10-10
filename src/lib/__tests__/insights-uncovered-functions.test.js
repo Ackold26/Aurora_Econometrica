@@ -323,7 +323,7 @@ describe('C. validateKpiInsights', () => {
     const txt = joinText(out);
     // Нет конкретных сигналов — режимные инсайты не должны появляться
     // (moneyCount === 0 && physCount === 0 → ни одна из 3 ветвей не сработает)
-    expect(txt).not.toContain('идеальный кейс для **ROI режима**');
+    expect(txt).not.toContain('идеальный кейс для ROI режима');
     expect(txt).not.toContain('физических метриках');
     expect(txt).not.toContain('смешано');
   });
@@ -435,7 +435,7 @@ describe('E. validateMetricsInsights', () => {
       unitCosts: { ch: 500 },
       unitCostInputMode: { ch: 'unit' },
     });
-    expect(joinText(out.filter(i => i.severity === 'success'))).toContain('готовы');
+    expect(joinText(out.filter(i => i.severity === 'success'))).toMatch(/готов/);
   });
 
   it('physical, unitCosts={ch:500}, unitCostInputMode={ch:budget}, budgetInputs={ch:100000} → success', () => {
@@ -446,7 +446,7 @@ describe('E. validateMetricsInsights', () => {
       unitCostInputMode: { ch: 'budget' },
       budgetInputs: { ch: 100000 },
     });
-    expect(joinText(out.filter(i => i.severity === 'success'))).toContain('готовы');
+    expect(joinText(out.filter(i => i.severity === 'success'))).toMatch(/готов/);
   });
 
   it('mode=effectiveness → info «доли вклада»', () => {
@@ -498,12 +498,19 @@ describe('F. validateConfirmInsights', () => {
 
 describe('G. modelPreTrainingInsights', () => {
   it('базовый (1 kpi + 2 media, rows=100) → success «Готово к обучению» + образовательные info', () => {
-    const out = modelPreTrainingInsights(/** @type {any} */ (mkTrainResult({ kpi: 1, media: 2, rows: 100 })));
+    // s61 Б5: число авто-праздников приходит из ответа движка (detected.n_holidays_auto)
+    const N_HOLIDAYS_AUTO = 13;
+    const out = modelPreTrainingInsights(/** @type {any} */ ({
+      ...mkTrainResult({ kpi: 1, media: 2, rows: 100 }),
+      detected: { n_holidays_auto: N_HOLIDAYS_AUTO },
+    }));
     const txt = joinText(out);
     expect(txt).toContain('Готово к обучению');
     expect(txt).toContain('Что происходит');
     expect(txt).toContain('adstock');
-    expect(txt).toContain('12 праздников РФ');
+    expect(txt).toContain(`${N_HOLIDAYS_AUTO} праздников РФ`);
+    expect(txt).not.toContain('12 праздников');
+    expect(txt).not.toContain(' auto');
     expect(txt).toContain('После обучения смотрим');
   });
 

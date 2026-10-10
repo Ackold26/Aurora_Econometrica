@@ -37,7 +37,7 @@
     validateKpiInsights, validateRolesInsights, validateMetricsInsights, validateConfirmInsights,
   } from '$lib/insights-rules.js';
   // v2.1.0 (rc2 U-05): subStep store для контекстной маршрутизации.
-  import { validateSubStep, analysisMode, perChannelInput, unitCosts, unitCostInputMode, budgetInputs, modelEnabledMediaNames, validationHeaderMetrics, modelEngine, useHolidays, disabledHolidays } from '$lib/project-state.js';
+  import { validateSubStep, analysisMode, perChannelInput, unitCosts, unitCostInputMode, budgetInputs, modelEnabledMediaNames, modelChannelEnabled, validationHeaderMetrics, modelEngine, useHolidays, disabledHolidays } from '$lib/project-state.js';
   // Шаг «Планирование»: план на будущее из файла + исход его поиска + горизонт.
   import { mediaPlanDetected, mediaPlanProbeStatus, forecastConfig } from '$lib/project-state.js';
   // Живое состояние шага «Планирование» (прогноз базового плана и варианты) –
@@ -178,7 +178,10 @@
     const result = $validateData?.result;
     if (!result) return;
     if ($pipelineCurrentStep !== 1) return;
-    syncStepLockAfterValidate(result);
+    // s61 К2-6: карта включённости читается ЗДЕСЬ через подписку `$modelChannelEnabled`,
+    // иначе эффект не реагирует на развязку пар без смены результата проверки.
+    const enabledMap = $modelChannelEnabled;
+    syncStepLockAfterValidate(result, enabledMap);
   });
 
   /**
@@ -187,8 +190,9 @@
    * If status becomes ok/warning → step 1 complete, step 2 ready (unlocks "Далее").
    * If status becomes error → step 1 error, step 2 locked.
    * @param {any} result
+   * @param {Record<string, boolean>} [enabledMap]  карта включённости колонок; не передана – читается из стора
    */
-  function syncStepLockAfterValidate(result) {
+  function syncStepLockAfterValidate(result, enabledMap = undefined) {
     if (!result) return;
     // Only sync if we're actually ON the validation step
     const step = $pipelineCurrentStep;
@@ -197,7 +201,9 @@
     // колонок (не stale result.status). Согласовано с validateInsights.
     const cols = Array.isArray(result.columns) ? result.columns : [];
     const kpiCount = cols.filter(/** @param {any} c */ c => c?.role === 'kpi').length;
-    const mediaCount = cols.filter(/** @param {any} c */ c => c?.role === 'media').length;
+    // s61 Б-1: медиа – по включённым колонкам, как в шапке и в панели выводов.
+    const enabledMapNow = enabledMap ?? get(modelChannelEnabled);
+    const mediaCount = cols.filter(/** @param {any} c */ c => c?.role === 'media' && enabledMapNow?.[c.name] !== false).length;
     const controlCount = cols.filter(/** @param {any} c */ c => c?.role === 'control').length;
     const rows = result.file?.rows ?? result.detected?.rows ?? 0;
     // 🔴 Третья формула убрана (внешний аудит починки, Medium, 2026-08-03).
@@ -305,12 +311,14 @@
         };
         if (sub === -2) return validateKpiInsights(val?.result, ctx);
         if (sub === 2)  return validateMetricsInsights(val?.result, ctx);
-        if (sub === 3)  return validateConfirmInsights(val?.result, ctx, $modelEngine, $useHolidays, $disabledHolidays.length);
+        // s61 Б2: число каналов – по включённым колонкам (карта, не имена: «нет ключа = включена»).
+        if (sub === 3)  return validateConfirmInsights(val?.result, ctx, $modelEngine, $useHolidays, $disabledHolidays.length, $modelChannelEnabled);
         // -1 (Роли колонок) и 0 / 1 (legacy) - общая validateInsights logic
         // Внешний аудит (High, 2026-08-03): режим и мастер-переключатель
         // праздников доезжают до под-шага «Роли колонок» — раньше он молча
         // считал по байесовскому знаменателю и противоречил шапке над собой.
-        return validateRolesInsights(val?.result, objective, $modelEngine, $useHolidays, $disabledHolidays.length);
+        // s61 Б-1: карта включённости – роли считают каналы так же, как шапка шага.
+        return validateRolesInsights(val?.result, objective, $modelEngine, $useHolidays, $disabledHolidays.length, $modelChannelEnabled);
       }
       case STEP.MODEL: {
         // If training hasn't produced diagnostics yet → educational/context insights.

@@ -6,6 +6,7 @@
  */
 import { describe, it, expect } from 'vitest';
 import {
+  normalizeGranularity,
   periodUnit, periodThreshold, formatPeriodLabel, ruPeriodForm,
   formatPeriodSpan, formatMediaPlanSpan, ruPlanPeriodsForm,
 } from '../period-format.js';
@@ -32,6 +33,65 @@ describe('formatPeriodLabel — метка наблюдений', () => {
   it('недельный: 36 нед', () => expect(formatPeriodLabel(36, 'W')).toBe('36 нед'));
   it('месячный: 12 мес', () => expect(formatPeriodLabel(12, 'M')).toBe('12 мес'));
   it('квартальный: 8 кв', () => expect(formatPeriodLabel(8, 'Q')).toBe('8 кв'));
+});
+
+// s61 Б1: движок отдаёт СЛОВА (`detected.date_frequency` = daily/weekly/monthly/
+// quarterly/unknown), а справочник знал только буквы – месячные данные
+// получали «пер» / 52. Неизвестная частота не должна становиться «неделями».
+describe('normalizeGranularity – слова движка и буквы (s61 Б1)', () => {
+  it('слова движка → буквы', () => {
+    expect(normalizeGranularity('daily')).toBe('D');
+    expect(normalizeGranularity('weekly')).toBe('W');
+    expect(normalizeGranularity('monthly')).toBe('M');
+    expect(normalizeGranularity('quarterly')).toBe('Q');
+  });
+  it('регистр не важен: Monthly, MONTHLY, m, q', () => {
+    expect(normalizeGranularity('Monthly')).toBe('M');
+    expect(normalizeGranularity('MONTHLY')).toBe('M');
+    expect(normalizeGranularity('m')).toBe('M');
+    expect(normalizeGranularity('q')).toBe('Q');
+  });
+  it('буквы D/W/M/Q – как есть', () => {
+    for (const l of ['D', 'W', 'M', 'Q']) expect(normalizeGranularity(l)).toBe(l);
+  });
+  it('null / undefined → W (прежнее поведение)', () => {
+    expect(normalizeGranularity(null)).toBe('W');
+    expect(normalizeGranularity(undefined)).toBe('W');
+  });
+  it('unknown, пустая строка и мусор – НЕ W', () => {
+    for (const bad of ['unknown', '', '   ', 'yearly?', 'xyz']) {
+      expect(normalizeGranularity(bad)).not.toBe('W');
+    }
+  });
+});
+
+describe('словарь частоты принимает слова движка (s61 Б1)', () => {
+  it('monthly → мес / 24 / «48 мес»', () => {
+    expect(periodUnit('monthly')).toBe('мес');
+    expect(periodThreshold('monthly')).toBe(24);
+    expect(formatPeriodLabel(48, 'monthly')).toBe('48 мес');
+  });
+  it('weekly → нед / 52', () => {
+    expect(periodUnit('weekly')).toBe('нед');
+    expect(periodThreshold('weekly')).toBe(52);
+    expect(formatPeriodLabel(40, 'weekly')).toBe('40 нед');
+  });
+  it('quarterly → кв / 8', () => {
+    expect(periodUnit('quarterly')).toBe('кв');
+    expect(periodThreshold('quarterly')).toBe(8);
+    expect(formatPeriodLabel(6, 'quarterly')).toBe('6 кв');
+  });
+  it('daily → пер / 52 (как и буква D)', () => {
+    expect(periodUnit('daily')).toBe('пер');
+    expect(periodThreshold('daily')).toBe(52);
+  });
+  it('unknown и пустая строка → «пер» / 52, а не «нед»', () => {
+    for (const bad of ['unknown', '']) {
+      expect(periodUnit(bad)).toBe('пер');
+      expect(periodThreshold(bad)).toBe(52);
+      expect(formatPeriodLabel(10, bad)).toBe('10 пер');
+    }
+  });
 });
 
 describe('ruPeriodForm — склонение «период»', () => {

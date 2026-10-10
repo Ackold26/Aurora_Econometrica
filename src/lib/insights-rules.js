@@ -42,12 +42,36 @@ import {
 // коррелированы by-design (r≈0.99 через закупочную цену) — инсайт-слой обязан
 // говорить о них то же, что heatmap (ожидаемо, в модель идёт одна колонка),
 // а не пугать «Мультиколлинеарностью» на встроенном примере.
-import { declaredPairKeys, isDeclaredPair } from './channel-pairs.js';
+import { declaredPairKeys, isDeclaredPair, groupChannelColumns } from './channel-pairs.js';
+// s61 Б4: частота данных, порог и единица периода – из общего справочника, а не
+// из числа строк.
+import { normalizeGranularity, periodUnit, periodThreshold } from './period-format.js';
 import { DEFAULT_TRAINING_ESTIMATE } from './training-estimate.js';
 // s50 (аудит M-1): доля канала в медиа-вкладе — везде одна десятая, единый
 // формат с DecomposeStep/ReportStep (не toFixed(0) — расхождение со строкой
 // таблицы, см. format-numbers.js:formatChannelSharePct).
 import { formatChannelSharePct } from './format-numbers.js';
+
+/**
+ * s61 Б8: доля бюджета, с которой перекладка считается значимой. Одно число с
+ * «Главной рекомендацией» шага «Оптимизация» (`OptimizeStep.svelte`: пропуск,
+ * если `shiftAmount / totalSpend < 0.01`). Сторож – `insights-texts-s61.test.js`
+ * читает исходник шага и сверяет число.
+ */
+export const OPTIMIZE_SHIFT_MIN_SHARE = 0.01;
+
+/** s61 Б4/Д1: ниже стольких наблюдений данных «очень мало» при любой частоте (граница движка). */
+const OBS_VERY_LOW = 24;
+
+/** s61 Б6: число + слово в верной форме («1 медиаканал», «4 медиаканала», «5 медиаканалов»). */
+const mediaChannelsForm = (/** @type {number} */ n) =>
+  `${n} ${pluralizeRu(n, ['медиаканал', 'медиаканала', 'медиаканалов'])}`;
+/** s61 Б6: число + «контрольная» в верной форме. */
+const controlsForm = (/** @type {number} */ n) =>
+  `${n} ${pluralizeRu(n, ['контрольная', 'контрольные', 'контрольных'])}`;
+/** s61 Б6: число + «канал» в верной форме. */
+const channelsForm = (/** @type {number} */ n) =>
+  `${n} ${pluralizeRu(n, ['канал', 'канала', 'каналов'])}`;
 
 /**
  * Resolve KPI view с default legacy fallback.
@@ -188,7 +212,28 @@ export function validateKpiInsights(result, context = {}) {
   const cols = Array.isArray(result.columns) ? result.columns : [];
   const kpiCandidates = cols.filter(/** @param {any} c */ c => c.role === 'kpi');
   const totalRows = result.file?.rows ?? result.detected?.rows ?? 0;
-  const granularity = totalRows <= 60 ? 'месячная' : totalRows <= 260 ? 'недельная' : 'дневная';
+  // s61 Б4: частота – из ответа движка (daily / weekly / monthly / quarterly /
+  // unknown), а не угадывается по числу строк. Нет поля или unknown – частота
+  // неизвестна: в тексте её не называем, порог и единица – по справочнику.
+  const gran = normalizeGranularity(result.detected?.date_frequency ?? 'unknown');
+  const granWord = /** @type {Record<string, string>} */ ({
+    D: 'дневные', W: 'недельные', M: 'месячные', Q: 'квартальные',
+  })[gran];
+  const granPart = granWord ? ` (${granWord} данные)` : '';
+  const obsThreshold = periodThreshold(gran);
+  const obsUnit = periodUnit(gran);
+  const obsThresholdText = obsUnit === 'пер'
+    ? `${obsThreshold} наблюдений`
+    : `${obsThreshold} ${obsUnit}`;
+  // Рекомендованный минимум в подсказке «очень мало» не ниже самой границы.
+  const obsRecommended = Math.max(OBS_VERY_LOW, obsThreshold);
+  const obsRecommendedText = obsUnit === 'пер'
+    ? `${obsRecommended} наблюдений`
+    : `${obsRecommended} ${obsUnit}`;
+  const obsWord = pluralizeRu(totalRows, ['наблюдение', 'наблюдения', 'наблюдений']);
+  // Вердикт движка о сроке данных: элемент `{ type: 'short_period', message, severity }` в `result.warnings`.
+  const engineSaysShortPeriod = Array.isArray(result.warnings)
+    && result.warnings.some(/** @param {any} w */ w => w?.type === 'short_period');
 
   // 1. Распознавание KPI колонки
   if (kpiCandidates.length === 1) {
@@ -219,12 +264,12 @@ export function validateKpiInsights(result, context = {}) {
   if (moneyCount > 0 && physCount === 0) {
     out.push({
       severity: 'success',
-      text: `Все ваши медиа-данные – в рублях (${moneyCount} бюджетных колонок). Это идеальный кейс для **ROI режима** – модель сразу даст ответ «сколько ₽ принёс канал».`,
+      text: `Все ваши медиа-данные – в рублях (${moneyCount} бюджетных колонок). Это идеальный кейс для ROI режима – модель сразу даст ответ «сколько ₽ принёс канал».`,
     });
   } else if (moneyCount === 0 && physCount > 0) {
     out.push({
       severity: 'info',
-      text: `Все ваши медиа-данные – в физических метриках (${physCount} колонок: TRP / показы / клики). Без бюджетов ROI считать не получится – выбирайте **Эффективность режим** или укажите цену единицы на следующем шаге для конверсии в ₽.`,
+      text: `Все ваши медиа-данные – в физических метриках (${physCount} колонок: TRP / показы / клики). Без бюджетов ROI считать не получится – выбирайте Эффективность режим или укажите цену единицы на следующем шаге для конверсии в ₽.`,
     });
   } else if (moneyCount > 0 && physCount > 0) {
     out.push({
@@ -237,27 +282,36 @@ export function validateKpiInsights(result, context = {}) {
   // 3. Якорь на типичный выбор
   out.push({
     severity: 'info',
-    text: '90% MMM-проектов используют **ROI режим** – он понятнее менеджменту компании и легко переводим в эффективность одной кнопкой.',
+    text: '90% MMM-проектов используют ROI режим – он понятнее менеджменту компании и легко переводим в эффективность одной кнопкой.',
     tip: 'Эффективность режим оправдан когда бюджеты не вполне прозрачны (агентские скидки, доступ только к GRP/показам без рублёвых данных) – в этом случае модель выдаёт «доли вклада в %», не рубли.',
   });
 
   // 4. Период данных
   if (totalRows > 0) {
-    if (totalRows < 24) {
+    // Нижняя граница «очень мало» – 24 наблюдения для ВСЕХ частот, как у движка
+    // (`validator.py`: `elif n_rows < 24` – «Рекомендуем ≥24 периода»).
+    if (totalRows < OBS_VERY_LOW) {
       out.push({
         severity: 'warning',
-        text: `${totalRows} наблюдений (${granularity} гранулярность) – очень мало для надёжной MMM. Модель запустится, но результаты будут с большой неопределённостью.`,
-        tip: 'Рекомендуется ≥24 месяцев / ≥104 недель данных. Перейдите на недельную гранулярность если есть исходники – это в 4× больше точек.',
+        text: `${totalRows} ${obsWord}${granPart} – очень мало для надёжной MMM. Модель запустится, но результаты будут с большой неопределённостью.`,
+        tip: `Рекомендуется не меньше ${obsRecommendedText} данных.${gran === 'W' || gran === 'D' ? '' : ' Если есть исходники с более частыми данными (например, недельными) – используйте их: точек будет больше.'}`,
       });
-    } else if (totalRows < 52) {
+    } else if (totalRows < obsThreshold) {
       out.push({
         severity: 'info',
-        text: `${totalRows} наблюдений (${granularity} гранулярность) – приемлемо для пилота. Для production рекомендуется ≥52 наблюдений (год недельных или 2 года месячных).`,
+        text: `${totalRows} ${obsWord}${granPart} – приемлемо для пилота. Для рабочих решений рекомендуется не меньше ${obsThresholdText}.`,
+      });
+    } else if (engineSaysShortPeriod) {
+      // s61 Б-2: строк хватает, но движок судит по календарному сроку (меньше
+      // года, `validator.py`: `short_period`) – «достаточно» не печатаем.
+      out.push({
+        severity: 'info',
+        text: `${totalRows} ${obsWord}${granPart} – приемлемо для пилота. Календарный срок данных меньше года: сезонность и долгие эффекты каналов оцениваются ненадёжно.`,
       });
     } else {
       out.push({
         severity: 'success',
-        text: `${totalRows} наблюдений (${granularity} гранулярность) – достаточно для надёжной MMM.`,
+        text: `${totalRows} ${obsWord}${granPart} – достаточно для надёжной MMM.`,
       });
     }
   }
@@ -279,10 +333,13 @@ export function validateKpiInsights(result, context = {}) {
  * @param {string} [objective]
  * @param {'bayesian'|'ols'|string} [engine]
  * @param {boolean} [useHolidays]
+ * @param {number} [disabledHolidaysCount]
+ * @param {Record<string, boolean> | null | undefined} [enabledMap]  s61 Б-1: карта
+ *   включённости колонок модели; без неё (не передана) счёт по ролям, как раньше.
  * @returns {Insight[]}
  */
-export function validateRolesInsights(result, objective = 'roi', engine = 'bayesian', useHolidays = true, disabledHolidaysCount = 0) {
-  return validateInsights(result, objective, engine, useHolidays, disabledHolidaysCount);
+export function validateRolesInsights(result, objective = 'roi', engine = 'bayesian', useHolidays = true, disabledHolidaysCount = 0, enabledMap = undefined) {
+  return validateInsights(result, objective, engine, useHolidays, disabledHolidaysCount, enabledMap);
 }
 
 /**
@@ -303,6 +360,9 @@ export function validateMetricsInsights(result, context = {}) {
 
   const cols = Array.isArray(result.columns) ? result.columns : [];
   const mediaCols = cols.filter(/** @param {any} c */ c => c.role === 'media');
+  // s61 Б6: каналов столько, сколько на экране после группировки пар
+  // «бюджет + физическая метрика» (колонок в такой паре две, канал один).
+  const channelCount = groupChannelColumns(mediaCols.map(/** @param {any} c */ c => c.name)).channels.length;
   const mode = context.analysisMode || 'roi';
   const perChannel = context.perChannelInput || {};
   const unitCosts = context.unitCosts || {};
@@ -340,24 +400,24 @@ export function validateMetricsInsights(result, context = {}) {
     if (needsConversion.length > 0) {
       out.push({
         severity: 'warning',
-        text: `${needsConversion.length} канал${needsConversion.length === 1 ? '' : 'ов'} с физическими метриками без цены единицы. В ROI режиме нужно указать CPP/CPM для конверсии в ₽, иначе модель не посчитает ROI этих каналов.`,
+        text: `${channelsForm(needsConversion.length)} с физическими метриками без цены единицы. В ROI режиме нужно указать CPP/CPM для конверсии в ₽, иначе модель не посчитает ROI этих каналов.`,
         tip: 'Если не знаете точно – укажите средний CPP/CPM по рынку для вашей категории.',
       });
     } else {
       out.push({
         severity: 'success',
-        text: `Все ${mediaCols.length} каналов готовы: бюджеты в ₽ или физические с конверсией. Можно идти к подтверждению.`,
+        text: `${channelCount === 1 ? 'Канал готов' : `Все ${channelsForm(channelCount)} готовы`}: бюджеты в ₽ или физические с конверсией. Можно идти к подтверждению.`,
       });
     }
   } else if (mode === 'effectiveness') {
     out.push({
       severity: 'info',
-      text: `Эффективность режим: все ${mediaCols.length} каналов будут поданы в физических метриках. Модель посчитает доли вклада в KPI (%), без оценки ROI.`,
+      text: `Эффективность режим: ${channelCount === 1 ? 'единственный канал будет подан' : `все ${channelsForm(channelCount)} будут поданы`} в физических метриках. Модель посчитает доли вклада в KPI (%), без оценки ROI.`,
     });
   } else {
     out.push({
       severity: 'warning',
-      text: `Смешанный режим: ${mediaCols.length} каналов. Точность ROI ±10-25% из-за смешения единиц измерения.`,
+      text: `Смешанный режим: ${channelsForm(channelCount)}. Точность ROI ±10-25% из-за смешения единиц измерения.`,
     });
   }
 
@@ -374,15 +434,19 @@ export function validateMetricsInsights(result, context = {}) {
  * @param {{ analysisMode?: string }} [context]
  * @param {'bayesian'|'ols'|string} [engine]  режим моделирования
  * @param {boolean} [useHolidays]  мастер-переключатель праздников
+ * @param {number} [disabledHolidaysCount]  число отключённых поштучно праздников
+ * @param {Record<string, boolean> | null | undefined} [enabledMap]  s61 Б2: карта
+ *   включённости колонок модели (`modelChannelEnabled`). Колонка включена, если
+ *   ключа нет или он не `false` – то же определение, что у числа каналов на экране.
  * @returns {Insight[]}
  */
-export function validateConfirmInsights(result, context = {}, engine = 'bayesian', useHolidays = true, disabledHolidaysCount = 0) {
+export function validateConfirmInsights(result, context = {}, engine = 'bayesian', useHolidays = true, disabledHolidaysCount = 0, enabledMap = undefined) {
   /** @type {Insight[]} */
   const out = [];
   if (!result) return out;
 
   const cols = Array.isArray(result.columns) ? result.columns : [];
-  const mediaCount = cols.filter(/** @param {any} c */ c => c.role === 'media').length;
+  const mediaCount = cols.filter(/** @param {any} c */ c => c.role === 'media' && enabledMap?.[c.name] !== false).length;
   const controlCount = cols.filter(/** @param {any} c */ c => c.role === 'control').length;
   const rows = result.file?.rows ?? 0;
   // 🔴 Единый источник знаменателя (внешний аудит починки, High, 2026-08-03).
@@ -395,7 +459,7 @@ export function validateConfirmInsights(result, context = {}, engine = 'bayesian
 
   out.push({
     severity: 'success',
-    text: `Готово к обучению: ${mediaCount} медиаканал${mediaCount > 4 ? 'ов' : mediaCount > 1 ? 'а' : ''}${controlCount > 0 ? ` + ${controlCount} контрольн${controlCount === 1 ? 'ая' : 'ых'}` : ''}, режим **${(context.analysisMode || 'roi').toUpperCase()}**. Обучение займёт ${DEFAULT_TRAINING_ESTIMATE} (полная модель) или ~5 секунд (упрощённый режим).`,
+    text: `Готово к обучению: ${mediaChannelsForm(mediaCount)}${controlCount > 0 ? ` + ${controlsForm(controlCount)}` : ''}, режим ${(context.analysisMode || 'roi').toUpperCase()}. Обучение займёт ${DEFAULT_TRAINING_ESTIMATE} (полная модель) или ~5 секунд (упрощённый режим).`,
   });
 
   if (ratio < 4) {
@@ -421,9 +485,12 @@ export function validateConfirmInsights(result, context = {}, engine = 'bayesian
  *   запаса данных считается по нему (байес заводит авто-праздники, OLS нет).
  * @param {boolean} [useHolidays]  мастер-переключатель «Учитывать праздники РФ»:
  *   при ВЫКЛ авто-праздники не заводятся ни в одном режиме.
+ * @param {number} [disabledHolidaysCount]  число отключённых поштучно праздников
+ * @param {Record<string, boolean> | null | undefined} [enabledMap]  s61 Б-1: карта
+ *   включённости колонок модели; без неё (не передана) счёт по ролям, как раньше.
  * @returns {Insight[]}
  */
-export function validateInsights(result, objective = 'roi', engine = 'bayesian', useHolidays = true, disabledHolidaysCount = 0) {
+export function validateInsights(result, objective = 'roi', engine = 'bayesian', useHolidays = true, disabledHolidaysCount = 0, enabledMap = undefined) {
   /** @type {Insight[]} */
   const out = [];
   if (!result) return out;
@@ -435,7 +502,9 @@ export function validateInsights(result, objective = 'roi', engine = 'bayesian',
   /** @type {any[]} */
   const colsCheck = Array.isArray(result.columns) ? result.columns : [];
   const kpiCount = colsCheck.filter(/** @param {any} c */ c => c?.role === 'kpi').length;
-  const mediaCount = colsCheck.filter(/** @param {any} c */ c => c?.role === 'media').length;
+  // s61 Б-1: медиа – по включённым колонкам (нет карты или ключа = включена),
+  // как в шапке шага и карточке запаса данных: одно число одной величины.
+  const mediaCount = colsCheck.filter(/** @param {any} c */ c => c?.role === 'media' && enabledMap?.[c.name] !== false).length;
   const controlCount = colsCheck.filter(/** @param {any} c */ c => c?.role === 'control').length;
   const rowsCheck = result.file?.rows ?? result.detected?.rows ?? 0;
   // P0.3: единый источник знаменателя — ratio-classifier.effectiveParamCount.
@@ -560,7 +629,7 @@ export function validateInsights(result, objective = 'roi', engine = 'bayesian',
   // ── Распознанные роли колонок ──
   const cols = result.columns ?? [];
   const kpiCols = cols.filter(/** @param {any} c */ c => c.role === 'kpi');
-  const mediaCols = cols.filter(/** @param {any} c */ c => c.role === 'media');
+  const mediaCols = cols.filter(/** @param {any} c */ c => c.role === 'media' && enabledMap?.[c.name] !== false);
   const controlCols = cols.filter(/** @param {any} c */ c => c.role === 'control');
   const dateCols = cols.filter(/** @param {any} c */ c => c.role === 'date');
 
@@ -794,6 +863,8 @@ export function validateInsights(result, objective = 'roi', engine = 'bayesian',
   for (const c of cols) {
     // Skip excluded columns - user-applied actions should not resurface them in insights
     if (c.role === 'unused') continue;
+    // s61 Б-1: выключенная из модели медиа-колонка в анализе каналов не участвует.
+    if (c.role === 'media' && enabledMap?.[c.name] === false) continue;
     const upper = (c.name ?? '').toUpperCase();
     // Extract channel prefix: everything before the metric keyword, canonicalized
     let prefix = '';
@@ -1128,6 +1199,18 @@ export function modelPreTrainingInsights(validateResult, enabledMediaNames = und
   // медиа-ролям — потому число назначенных передаём явно; авто-часть приходит
   // из ответа движка и зависит от режима (у OLS праздников нет).
   const userVisibleParams = mediaCount + controlCount;
+  // s61 Б5: число авто-праздников – из ответа движка (`detected.n_holidays_auto`),
+  // за вычетом отключённых поштучно (то же правило, что в запасе данных).
+  // Праздники выключены или режим OLS – числа нет вовсе; поля нет в ответе
+  // (старый сохранённый проект) – число не выдумываем, фраза без него.
+  const noHolidays = engine === 'ols' || useHolidays === false;
+  const nHolidaysRaw = validateResult.detected?.n_holidays_auto;
+  /** @type {number | null} */
+  const nHolidaysAuto = !noHolidays && nHolidaysRaw != null && Number.isFinite(Number(nHolidaysRaw))
+    ? Math.max(Number(nHolidaysRaw) - Math.max(Number(disabledHolidaysCount) || 0, 0), 0)
+    : null;
+  const holidaysWord = (/** @type {number} */ n) =>
+    `${n} ${pluralizeRu(n, ['праздник', 'праздника', 'праздников'])} РФ`;
   const paramCount = effectiveParamCount(validateResult.detected, engine, userVisibleParams, useHolidays, disabledHolidaysCount);
   const ratio = effectiveRatio(rows, validateResult.detected, engine, userVisibleParams, useHolidays, disabledHolidaysCount);
 
@@ -1135,10 +1218,11 @@ export function modelPreTrainingInsights(validateResult, enabledMediaNames = und
   if (kpiNames.length > 0 && mediaCount > 0) {
     out.push({
       severity: 'success',
-      // F-009 pilot (2026-05-18): explicit «+ 12 праздников РФ auto» чтобы
+      // F-009 pilot (2026-05-18): явное «+ N праздников РФ автоматически» чтобы
       // counter на Model не расходился с Validation (где holidays bundle не
       // считается). Customer видит откуда возможная разница.
-      text: `Готово к обучению: KPI «${kpiNames[0]}», ${mediaCount} медиаканал${mediaCount > 4 ? 'ов' : mediaCount > 1 ? 'а' : ''}${controlCount > 0 ? `, ${controlCount} контрольн${controlCount === 1 ? 'ая' : 'ых'} переменн${controlCount === 1 ? 'ая' : 'ых'} (+ 12 праздников РФ auto)` : ' (+ 12 праздников РФ auto)'}.`,
+      // s61 Б5: N – из данных движка; без числа и без «auto» по-английски.
+      text: `Готово к обучению: KPI «${kpiNames[0]}», ${mediaChannelsForm(mediaCount)}${controlCount > 0 ? `, ${controlCount} ${pluralizeRu(controlCount, ['контрольная переменная', 'контрольные переменные', 'контрольных переменных'])}` : ''}${noHolidays || nHolidaysAuto === 0 ? '' : nHolidaysAuto == null ? ' (+ праздники РФ автоматически)' : ` (+ ${holidaysWord(nHolidaysAuto)} автоматически)`}.`,
     });
   }
 
@@ -1159,11 +1243,25 @@ export function modelPreTrainingInsights(validateResult, enabledMediaNames = und
   // ── 3b. v2.1.0 (пилот 2026-05-17): явная информация про auto-injected
   // holidays. Backend modeler.py:267 добавляет 12 РФ праздников как control
   // (ADR-019 §5). Юзер не выбирал их и удивляется когда видит в декомпозиции.
-  out.push({
-    severity: 'info',
-    text: 'К контрольным переменным автоматически добавляется 12 праздников РФ (Новый год, 23 февраля, 8 марта, майские, 1 сентября и др.). Это нужно чтобы модель не приписывала сезонные скачки продаж рекламе.',
-    tip: 'Если не нужно учитывать праздники – перейдите в Эксперт-режим и снимите соответствующие галочки в Расширенных настройках. Праздники проходят как обычные controls с собственным коэффициентом.',
-  });
+  // s61 Б5: число – из данных; при выключенных праздниках / OLS фраза «добавляется»
+  // была бы неправдой – говорим, что не добавляются.
+  if (noHolidays) {
+    out.push({
+      severity: 'info',
+      text: 'Праздники РФ автоматически не добавляются: они выключены в настройках или не используются в этом режиме моделирования.',
+    });
+  } else if (nHolidaysAuto === 0) {
+    out.push({
+      severity: 'info',
+      text: 'Праздники РФ автоматически не добавляются: все они уже учтены вашими колонками или отключены.',
+    });
+  } else {
+    out.push({
+      severity: 'info',
+      text: `К контрольным переменным автоматически ${nHolidaysAuto == null ? 'добавляются праздники РФ' : `${pluralizeRu(nHolidaysAuto, ['добавляется', 'добавляются', 'добавляется'])} ${holidaysWord(nHolidaysAuto)}`} (Новый год, 23 февраля, 8 марта, майские, 1 сентября и др.). Это нужно чтобы модель не приписывала сезонные скачки продаж рекламе.`,
+      tip: 'Если не нужно учитывать праздники – перейдите в Эксперт-режим и снимите соответствующие галочки в Расширенных настройках. Праздники проходят как обычные controls с собственным коэффициентом.',
+    });
+  }
 
   // ── 4. Ratio-based warning - v2.1.0 (пилот 2026-05-16): SSOT classifyRatio
   // вернёт label/description согласованные с RatioInfoCard и Контроль качества.
@@ -1418,11 +1516,22 @@ export function modelInsights(data, ratioOverride = undefined) {
       text: `MQS = ${mqs.toFixed(0)} (${label}). ${RELIABILITY_STATEMENT_REFUSED}${thinSuffix}`,
       tip: 'Показатель качества считается и при несошедшемся расчёте, поэтому высокий балл здесь не противоречит отказу. Увеличьте число итераций или упростите модель и переобучите – после этого рекомендации по переброске снова станут доступны.',
     });
-  } else if (mqsIsDependable(mqs)) {
+  } else if (mqsIsDependable(mqs) && !isThin && d.honesty_verdict !== 'uncertain') {
     out.push({
       severity: 'success',
       text: `MQS = ${mqs.toFixed(0)} (${label}) – высокое качество модели. Результаты надёжны для принятия решений.${thinSuffix}`,
       tip: 'Перейдите к Декомпозиции, чтобы увидеть вклад каждого канала, и к Оптимизации – для перераспределения бюджета.',
+    });
+  } else if (mqsIsDependable(mqs)) {
+    // s61 Б7: оценка качества высокая, но данных мало и/или модель помечена
+    // ориентировочной (`honesty_verdict = 'uncertain'`; 'unreliable' сюда не
+    // доходит – его снимает ветка отказа выше). Фразу «Результаты надёжны»
+    // не печатаем: баннер «Модель помечена как ориентировочная» рядом
+    // говорит обратное (`DecomposeStep.svelte`).
+    out.push({
+      severity: 'warning',
+      text: `MQS = ${mqs.toFixed(0)} (${label}) – оценка качества хорошая, но ${isThin ? 'на ограниченных данных выводы ориентировочные' : 'модель помечена как ориентировочная – выводы используйте как ориентир'}.${thinSuffix}`,
+      tip: 'Перейдите к Декомпозиции и Оптимизации, но относитесь к ROI и вкладу каналов как к ориентиру. Чтобы выводы стали устойчивее, нужно больше истории или меньше каналов.',
     });
   } else if (mqsTierInfo(mqs)?.tier === 'acceptable') {
     out.push({
@@ -1442,12 +1551,15 @@ export function modelInsights(data, ratioOverride = undefined) {
 
   // ── 2. Convergence - positive signals ──
   if (rHat > 0 && rHat <= 1.01 && divergences === 0) {
+    // s61 Д4: при вердикте «uncertain» (модель помечена ориентировочной) фраза о
+    // надёжности выводов не печатается – сходимость при этом технически идеальна.
+    const isUncertain = d.honesty_verdict === 'uncertain';
     const convergenceText = isThin
       ? `Модель сошлась технически (показатель сходимости R-hat = ${rHat.toFixed(3)}, дивергенций = 0), но это не гарантирует содержательной надёжности на коротких данных.`
-      : `Модель сошлась идеально: показатель сходимости R-hat = ${rHat.toFixed(3)}, дивергенций = 0. Результаты надёжны для оценки ROI и диапазонов.`;
+      : `Модель сошлась идеально: показатель сходимости R-hat = ${rHat.toFixed(3)}, дивергенций = 0. ${isUncertain ? 'Выводы ориентировочные: модель помечена как ориентировочная.' : 'Результаты надёжны для оценки ROI и диапазонов.'}`;
     const convergenceTip = isThin
       ? 'Сэмплер корректно исследовал пространство параметров, но при Ratio < 4:1 «пространство» само по себе слабо ограничено данными. Модель могла сойтись к переобученному решению.'
-      : 'R-hat ≤ 1.01 означает, что независимые цепи сошлись к одному распределению. 0 дивергенций – сэмплер исследовал всё пространство параметров без скачков. Апостериорное распределение надёжно для оценки ROI и диапазонов значений.';
+      : `R-hat ≤ 1.01 означает, что независимые цепи сошлись к одному распределению. 0 дивергенций – сэмплер исследовал всё пространство параметров без скачков. ${isUncertain ? 'Используйте оценку ROI и диапазонов как ориентир.' : 'Апостериорное распределение надёжно для оценки ROI и диапазонов значений.'}`;
     out.push({
       severity: isThin ? 'info' : 'success',
       text: convergenceText,
@@ -2628,6 +2740,44 @@ export function planningInsights(ctx = {}) {
 }
 
 /**
+ * s61 Б8: перекладка бюджета значима? Тот же признак, что у «Главной
+ * рекомендации» шага «Оптимизация» (`OptimizeStep.svelte`, `primaryOptimizeRecommendation`):
+ * расчёт сошёлся, нет упора в ограничения и нет «сходимости в текущем плане»;
+ * есть сокращение и/или наращивание. Порог `OPTIMIZE_SHIFT_MIN_SHARE` общего
+ * бюджета применяется только когда есть И то и другое (перекладка из одного канала
+ * в другой); «только наращивание» и «только сокращение» дают рекомендацию без
+ * порога. Порог ДРУГОГО правила этого модуля (`Math.abs(c.deltaPct) > 5`)
+ * сюда не относится.
+ *
+ * @param {any} opt
+ * @returns {boolean}
+ */
+export function optimizeShiftIsSignificant(opt) {
+  if (!opt?.channels?.length) return false;
+  if (opt.optimization_converged === false) return false;
+  if (opt.binding_constraints) return false;
+  if (opt.converged_at_current) return false;
+  let totalSpend = 0;
+  let maxCut = 0;
+  let maxScale = 0;
+  for (const ch of opt.channels) {
+    const current = Number(ch?.current_spend ?? 0);
+    const optimal = Number(ch?.optimal_spend ?? 0);
+    if (!Number.isFinite(current) || !Number.isFinite(optimal)) continue;
+    totalSpend += current;
+    const delta = optimal - current;
+    if (delta < 0) maxCut = Math.max(maxCut, -delta);
+    if (delta > 0) maxScale = Math.max(maxScale, delta);
+  }
+  if (maxCut === 0 && maxScale === 0) return false;
+  if (maxCut > 0 && maxScale > 0) {
+    const shiftAmount = Math.min(maxCut, maxScale);
+    if (totalSpend > 0 && shiftAmount / totalSpend < OPTIMIZE_SHIFT_MIN_SHARE) return false;
+  }
+  return true;
+}
+
+/**
  * Report step insights - structured per-stage summary + recommendations.
  * Каждый этап пайплайна получает свой key insight с recко, чтобы пользователь
  * увидел итоговую картину одним взглядом.
@@ -2700,10 +2850,13 @@ export function reportInsights(ctx = {}) {
       tip: 'Показатель качества считается и при несошедшемся расчёте, поэтому высокий балл здесь не противоречит отказу. Цифры отчёта остаются на месте – но переброска бюджета по ним не строится, пока модель не переобучена.',
     });
   } else if (mqsIsDependable(mqs) && !isThin) {
+    // s61 Д4: модель помечена ориентировочной – «результаты надёжны» не печатаем.
+    const reportUncertain = opt?.model_reliability?.verdict === 'uncertain'
+      || mod?.diagnostics?.honesty_verdict === 'uncertain';
     out.push({
-      severity: 'success',
-      text: `🎯 Модель: ${mqsParts.join(' · ')}. Результаты надёжны.`,
-      tip: `Рекомендация: используйте выводы отчёта для бюджетных решений. Спецификация модели, priors и правдоподобные диапазоны экспортируются в PPTX/MD/XLSX для воспроизводимости.\n\nВалидационный критерий: посмотрите график «Факт vs Прогноз» в отчёте – линии должны накладываться без систематического смещения.`,
+      severity: reportUncertain ? 'warning' : 'success',
+      text: `🎯 Модель: ${mqsParts.join(' · ')}. ${reportUncertain ? 'Выводы ориентировочные.' : 'Результаты надёжны.'}`,
+      tip: `Рекомендация: ${reportUncertain ? 'относитесь к выводам отчёта как к ориентиру при бюджетных решениях' : 'используйте выводы отчёта для бюджетных решений'}. Спецификация модели, priors и правдоподобные диапазоны экспортируются в PPTX/MD/XLSX для воспроизводимости.\n\nВалидационный критерий: посмотрите график «Факт vs Прогноз» в отчёте – линии должны накладываться без систематического смещения.`,
     });
   } else if (isThin) {
     out.push({
@@ -2789,6 +2942,19 @@ export function reportInsights(ctx = {}) {
         severity: 'info',
         text: `📊 Оптимизация: +${lift.toFixed(1)}% – план почти оптимален.`,
         tip: 'Рекомендация: существенного потенциала в рамках текущего бюджета нет. Для роста нужен либо увеличенный бюджет (What-if), либо пересмотр медиа-микса (новый канал, обновление креатива).',
+      });
+    } else if (optimizeShiftIsSignificant(opt)) {
+      // s61 Б8: прирост малый, но перекладка значима (та же, что в «Главной
+      // рекомендации» шага «Оптимизация») – «план уже оптимален» было бы неправдой.
+      // s61 Б-3: при нулевом или отрицательном приросте положительный процент не печатаем.
+      out.push({
+        severity: 'info',
+        text: lift > 0
+          ? `📊 Оптимизация: +${lift.toFixed(1)}% при изменении распределения бюджета.`
+          : '📊 Оптимизация: расчёт предлагает изменить распределение бюджета, но прогнозный прирост не положителен.',
+        tip: lift > 0
+          ? 'Рекомендация: прирост небольшой, но перекладка есть – сверьтесь с «Главной рекомендацией» на шаге «Оптимизация». Для заметного роста нужен либо увеличенный бюджет (What-if), либо пересмотр медиа-микса (новый канал, обновление креатива).'
+          : 'Рекомендация: прогноз не обещает прироста от такой перекладки – не меняйте план, пока не проверите её: сверьтесь с «Главной рекомендацией» на шаге «Оптимизация» и с ограничениями по каналам. Для роста нужен либо увеличенный бюджет (What-if), либо пересмотр медиа-микса (новый канал, обновление креатива).',
       });
     } else {
       out.push({

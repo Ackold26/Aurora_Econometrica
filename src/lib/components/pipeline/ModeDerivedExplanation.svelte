@@ -19,11 +19,14 @@
    * @component ModeDerivedExplanation
    */
 
-  import { validateData, perChannelInput, unitCosts, analysisMode, kpiType, validationMetrics } from '$lib/project-state.js';
+  import { validateData, perChannelInput, unitCosts, analysisMode, kpiType, validationMetrics, modelChannelEnabled, isModelColumnEnabled } from '$lib/project-state.js';
+  // s61 (А1): единица по умолчанию – из имени колонки, а не «деньги».
+  import { parseChannelMetric } from '$lib/channel-pairs.js';
+  import { detectChannelUnitType } from '$lib/services/classifier-patterns.js';
   // v2.1.0 (пилот 2026-05-16): SSOT-классификатор ratio для согласованности
   // меток в Контроле качества с RatioInfoCard и sticky header.
   import { classifyRatio, severityTo3Tier } from '$lib/ratio-classifier.js';
-  import { periodUnit, periodThreshold } from '$lib/period-format.js';
+  import { periodUnit, periodThreshold, normalizeGranularity } from '$lib/period-format.js';
   import RatioInfoCard from './RatioInfoCard.svelte';
 
   /** @typedef {'roi' | 'effectiveness' | 'mixed'} AnalysisMode */
@@ -80,7 +83,12 @@
   );
 
   // Медиа-каналы (role='media')
-  const mediaColumns = $derived(allColumns.filter(c => c?.role === 'media'));
+  // s61 (А1): только ВКЛЮЧЁННЫЕ в модель. Выключенная половина пары «бюджет +
+  // физическая метрика» в обучение не идёт – показывать её здесь значит обещать
+  // 8 каналов там, где модель получит 4.
+  const mediaColumns = $derived(
+    allColumns.filter(c => c?.role === 'media' && isModelColumnEnabled($modelChannelEnabled, c?.name))
+  );
 
   // Controls (role='control')
   const controlColumns = $derived(allColumns.filter(c => c?.role === 'control'));
@@ -134,7 +142,14 @@
   const mediaTableRows = $derived.by(() => {
     return mediaColumns.map((col) => {
       const name = col.name ?? '';
-      const unitType = $perChannelInput?.[name] ?? 'monetary';
+      // s61 (А1): колонка без записи о метрике – единица из имени (tv_trp, *_clicks
+      // – физические), а не молча «деньги»: иначе показы и клики подписывались
+      // рублями и складывались в «ИТОГО».
+      // s61 круг 3 (А3-1): физическая, если так считает разбор пар ИЛИ детектор
+      // шаблонов (olv_views) – то же правило, что у гейта цены единицы.
+      const unitType = $perChannelInput?.[name]
+        ?? (parseChannelMetric(name).metric === 'physical' || detectChannelUnitType(name) === 'physical'
+          ? 'physical' : 'monetary');
       const cost = $unitCosts?.[name] ?? null;
       const rawSum = col?.stats?.sum ?? null;
 
@@ -163,6 +178,10 @@
   /** Есть ли хоть одна строка с рублёвым итогом */
   const hasAnyRub = $derived(mediaTableRows.some(r => r.totalRub != null));
 
+  /** s61 (А1): есть ли строки в физических единицах (без рублёвого итога) – в
+   *  «ИТОГО медиа» они не входят, и подпись говорит об этом прямо. */
+  const hasUnitRows = $derived(mediaTableRows.some(r => r.totalRub == null && r.rawSum != null));
+
   /** Форматирование числа → читаемый вид */
   /** @param {number} n */
   function fmtNumber(n) {
@@ -187,12 +206,32 @@
 
   // ─── Предупреждение по периоду ─────────────────────────────────────
   // F-A1-6: единица и порог из гранулярности, не хардкод «52 нед».
+  // s61 круг 2 (А-6): частоты в результате нет (сохранённый результат старого
+  // формата) → «неизвестная», а не недели: подпись нейтральная, единица «пер».
   const granularity = $derived(
-    $validateData?.result?.detected?.date_frequency ?? 'W'
+    $validateData?.result?.detected?.date_frequency ?? 'unknown'
   );
   const granPeriodUnit = $derived(periodUnit(granularity));
   const granPeriodThreshold = $derived(periodThreshold(granularity));
   const periodWarn = $derived(nObs > 0 && nObs < granPeriodThreshold);
+  // s61 (А3): подпись карточки истории – из частоты данных. Раньше «Недель
+  // истории 48 нед / < 52 нед» печаталось и для месячных данных, где норма
+  // (24 месяца) выполнена вдвое. Дневные и неизвестная частота – нейтрально.
+  /** @type {Record<string, string>} */
+  const HISTORY_LABELS = {
+    M: 'Месяцев истории',
+    W: 'Недель истории',
+    Q: 'Кварталов истории',
+  };
+  const historyLabel = $derived(HISTORY_LABELS[normalizeGranularity(granularity)] ?? 'Наблюдений истории');
+  // s61 круг 2 (А-5): вердикт движка о сроке данных – предупреждение
+  // `{ type: 'short_period' }` в `result.warnings` (движок судит по календарному
+  // сроку: 60 дневных строк – два месяца, 16 квартальных – мало точек). Зелёные
+  // «Достаточно» / «Отлично» с ним не спорят.
+  const engineShortPeriod = $derived(
+    Array.isArray($validateData?.result?.warnings)
+      && $validateData.result.warnings.some((/** @type {any} */ w) => w?.type === 'short_period')
+  );
 </script>
 
 <div class="preflight-summary">
@@ -290,7 +329,12 @@
           {#if hasAnyRub && mediaTableRows.length > 1}
             <tfoot>
               <tr class="row-total">
-                <td colspan={hasAnyRub ? 3 : 3}>ИТОГО медиа</td>
+                <td colspan={hasAnyRub ? 3 : 3}>
+                  ИТОГО медиа
+                  {#if hasUnitRows}
+                    <span class="total-note">только каналы в рублях; каналы в физических единицах в итог не входят</span>
+                  {/if}
+                </td>
                 <td class="col-right">
                   {#if totalMediaRub > 0}
                     {fmtNumber(totalMediaRub)} ₽
@@ -362,10 +406,10 @@
       </div>
 
       <!-- Период -->
-      <div class="quality-card {periodWarn ? 'tone-warn' : 'tone-ok'}" aria-label="Недель истории для обучения">
-        <span class="qc-label">Недель истории</span>
-        <span class="qc-value">{nObs > 0 ? nObs + ' нед' : '–'}</span>
-        <span class="qc-status">{periodWarn ? '< 52 нед' : nObs >= 104 ? 'Отлично' : 'Достаточно'}</span>
+      <div class="quality-card {periodWarn || engineShortPeriod ? 'tone-warn' : 'tone-ok'}" aria-label="{historyLabel} для обучения">
+        <span class="qc-label">{historyLabel}</span>
+        <span class="qc-value">{nObs > 0 ? `${nObs} ${granPeriodUnit}` : '–'}</span>
+        <span class="qc-status">{periodWarn ? `< ${granPeriodThreshold} ${granPeriodUnit}` : engineShortPeriod ? 'мало для надёжной оценки' : nObs >= 2 * granPeriodThreshold ? 'Отлично' : 'Достаточно'}</span>
       </div>
 
       <!-- Каналы -->
@@ -653,6 +697,14 @@
     color: var(--text-primary, #f1f5f9);
     font-size: 13px;
     font-variant-numeric: tabular-nums;
+  }
+  .media-table tfoot .row-total .total-note {
+    display: block;
+    margin-top: 2px;
+    font-size: 10.5px;
+    font-weight: 400;
+    text-transform: none;
+    letter-spacing: 0;
   }
 
   /* chips */

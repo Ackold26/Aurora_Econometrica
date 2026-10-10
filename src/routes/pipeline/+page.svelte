@@ -18,6 +18,8 @@
   import FirstRunTour from '$lib/components/FirstRunTour.svelte';
   import { useDerivedModeUX, validateData } from '$lib/project-state.js';
   import { groupChannelColumns } from '$lib/channel-pairs.js';
+  // s61 круг 3 (А3-1): разбор пар не мягче детектора шаблонов.
+  import { detectChannelUnitType, patternsReady } from '$lib/services/classifier-patterns.js';
   import { onMount } from 'svelte';
 
   const FIRST_RUN_TOUR_KEY = 'aurora.firstRunTourCompleted';
@@ -50,7 +52,10 @@
     const media = cols
       .filter((/** @type {any} */ c) => c?.role === 'media')
       .map((/** @type {any} */ c) => String(c.name));
-    return groupChannelColumns(media);
+    // s61 круг 3 (А3-1): шаблоны детектора грузятся асинхронно – читаем признак
+    // готовности, чтобы группировка пересчиталась после их загрузки.
+    void $patternsReady;
+    return groupChannelColumns(media, (name) => detectChannelUnitType(name) === 'physical');
   });
   const channels = $derived(pairGroups.channels);
   const availableMetricsByChannel = $derived(pairGroups.byChannel);

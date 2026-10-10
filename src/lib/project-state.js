@@ -19,8 +19,11 @@ import {
 // MQS SSOT (2026-07-26): прогнозный MQS (до обучения) — та же клиентская шкала,
 // что и посчитанный MQS, поэтому уровень берём из канона, а не своим порогом.
 import { mqsTierInfo } from './mqs-tiers.js';
-import { applyProjectRolesToColumns } from './column-roles.js';
+import { applyProjectRolesToColumns, restoreExcludedColumns } from './column-roles.js';
 import { detectChannelUnitType } from './services/classifier-patterns.js';
+// s61 круг 2 (А-1, А-2): разбор имени колонки и план развязки пар – тот же, по
+// которому пары выключают физическую половину.
+import { parseChannelMetric, resolvePairSelection } from './channel-pairs.js';
 
 /** @type {import('svelte/store').Writable<string|null>} Active project ID */
 export const activeProjectId = writable(null);
@@ -413,6 +416,69 @@ export function resolveChannelEnabled(mediaColumns, persistedToggle) {
 }
 
 /**
+ * s61 (А1/А2): колонка включена в модель, если в карте нет явного `false`.
+ * Нет карты или нет ключа = включена – то же определение, что у компонентного
+ * гейта (`ValidateStepV13.activeModelColumns`) и у хранителя `cppSatisfied`.
+ * Отказ в безопасную сторону: неизвестная колонка считается участвующей в модели.
+ * @param {Record<string, boolean>|null|undefined} map
+ * @param {string} name
+ * @returns {boolean}
+ */
+export function isModelColumnEnabled(map, name) {
+  return map?.[name] !== false;
+}
+
+/**
+ * s61 (А0, К1): перенос живой карты включённости (общий стор) в локальную карту
+ * панели обучения. Переносятся только БУЛЕВЫ значения и только по ключам, которые
+ * в локальной карте УЖЕ есть (чужие ключи не добавляются: состав каналов панели
+ * задаёт результат проверки, а не стор). Если отличий нет – возвращается ТОТ ЖЕ
+ * объект `local`: вызывающий эффект сравнивает по ссылке и не присваивает, иначе
+ * два встречных эффекта стор ↔ панель зациклились бы.
+ * @param {Record<string, boolean>} local
+ * @param {Record<string, boolean>|null|undefined} live
+ * @returns {Record<string, boolean>}
+ */
+export function mergeLiveChannelEnabled(local, live) {
+  if (!live) return local;
+  /** @type {Record<string, boolean>|null} */
+  let next = null;
+  for (const name of Object.keys(local)) {
+    const value = live[name];
+    if (typeof value !== 'boolean' || value === local[name]) continue;
+    if (!next) next = { ...local };
+    next[name] = value;
+  }
+  return next ?? local;
+}
+
+// s61 (А1): гидрация карты включённости из DURABLE project.json – ТОЛЬКО при СМЕНЕ
+// проекта (защита по id, образец – count-KPI subscribe ниже). activeProject
+// переписывается посреди сессии (панели праздников, сезонности, категорий, цен
+// единицы шлют project_update и кладут ответ в стор), а карта пишется на диск
+// только при обучении и при развязке пар – без защиты снятая на «Модели» галочка
+// молча включалась бы обратно. При смене проекта карта ставится ВСЕГДА (нет поля
+// или пусто = `{}`): чужая карта прежнего проекта не должна прятать от хранителя
+// физический канал нового. Подписка стоит ПОСЛЕ объявления modelChannelEnabled
+// (мёртвая зона инициализации).
+let _lastChannelEnabledProjectId = /** @type {string|null} */ (null);
+activeProject.subscribe((p) => {
+  if (!p) {
+    _lastChannelEnabledProjectId = null;
+    modelChannelEnabled.set({});
+    return;
+  }
+  if (p.id === _lastChannelEnabledProjectId) return;  // тот же проект (mid-session set) → не клоббить
+  _lastChannelEnabledProjectId = p.id;
+  /** @type {Record<string, boolean>} */
+  const saved = {};
+  for (const [name, value] of Object.entries(p.model_channel_enabled ?? {})) {
+    if (typeof value === 'boolean') saved[name] = value;
+  }
+  modelChannelEnabled.set(saved);
+});
+
+/**
  * Derived: names of active media channels on шаге Модель (filter по
  * modelChannelEnabled === true). Источник правды для insights / adstock /
  * time estimate.
@@ -510,7 +576,7 @@ activeProject.subscribe((p) => {
   }
 });
 
-export const validationHeaderMetrics = derived([validateData, modelEngine, useHolidays, disabledHolidays], ([$vd, $engine, $useHolidays, $disabledHolidays]) => {
+export const validationHeaderMetrics = derived([validateData, modelEngine, useHolidays, disabledHolidays, modelChannelEnabled], ([$vd, $engine, $useHolidays, $disabledHolidays, $channelEnabled]) => {
   const result = $vd?.result;
   if (!result) return null;
 
@@ -521,7 +587,11 @@ export const validationHeaderMetrics = derived([validateData, modelEngine, useHo
   // Согласовано с ValidateStepV13.ratioCardData (single source of truth).
   const nObs = Number(result.file?.rows ?? result.detected?.n_rows ?? 0) || 0;
   const cols = /** @type {any[]} */ (result.columns ?? []);
-  const mediaCols = cols.filter(c => c.role === 'media');
+  // s61 (А2): медиа – только ВКЛЮЧЁННЫЕ в модель колонки (выключенная половина пары
+  // «бюджет + физическая метрика» и автоотключённый разреженный канал в обучение
+  // не идут). Раньше счёт шёл по ролям: шапка показывала 8 каналов и запас 1.9,
+  // а обучение получало 4 канала и запас 2.3.
+  const mediaCols = cols.filter(c => c.role === 'media' && isModelColumnEnabled($channelEnabled, c.name));
   const activeMedia = mediaCols.length;
   const controlCols = cols.filter(c => c.role === 'control');
   const activeControls = controlCols.length;
@@ -1391,8 +1461,31 @@ async function restoreProjectResults(pid) {
     if (hasDecompose) decomposeData.set(r.decomposition);
     if (hasOptimize) optimizeData.set(r.optimization);
     if (hasValidation) {
+      // s61 (А4): сохранённый результат проверки хранит роли «как отдал движок», а
+      // выбор пользователя «не использовать» лежит отдельно – в excluded_columns
+      // проекта. Без применения исключённых при возврате в проект колонка,
+      // исключённая до обучения, возвращалась в роль media: «Декомпозиция
+      // устарела… Медиа-каналы: было 4, стало 8» и повторное обучение на обеих
+      // половинах пары. `info` – как в hydrateRolesFromProjectIfEmpty: стор, если он
+      // уже догнал pid, иначе чтение с диска и сверка, что проект всё ещё активен.
+      let validation = r.validation;
+      if (Array.isArray(validation.columns)) {
+        let info = /** @type {any} */ (get(activeProject));
+        if (info?.id !== pid) {
+          // Чтение проекта не удалось → роли остаются «как отдал движок» (прежнее
+          // поведение); сам результат проверки терять из-за этого нельзя.
+          try {
+            info = /** @type {any} */ (await invoke('project_get', { projectId: pid }));
+          } catch {
+            info = null;
+          }
+          if (get(activeProjectId) !== pid) return;
+        }
+        const columns = restoreExcludedColumns(validation.columns, info?.excluded_columns);
+        if (columns !== validation.columns) validation = { ...validation, columns };
+      }
       validateData.set({
-        result: r.validation,
+        result: validation,
         correlationMatrix: r.validation?.full_correlation_matrix ?? null,
         columnHistograms: null, // histograms не сохраняются отдельно
       });
@@ -1556,22 +1649,37 @@ export function resetDownstream(fromStep) {
  *   columns?: any[]|null,
  *   perChannelInput?: Record<string, string>|null,
  *   unitCosts?: Record<string, number>|null,
- *   analysisMode?: string
+ *   analysisMode?: string,
+ *   modelChannelEnabled?: Record<string, boolean>|null
  * }} snapshot
  * @returns {boolean}
  */
 export function cppSatisfied(snapshot) {
+  // s61 (А0): в ветке `columns` колонка с явным `false` в карте включённости в
+  // модель не идёт (выключенная половина пары «бюджет + физическая метрика»,
+  // автоотключённый разреженный канал) – хранитель её не проверяет. Нет карты или
+  // нет ключа = включена: включённый физический канал без цены по-прежнему
+  // блокирует. Ветка `channels` не фильтруется – туда приходит уже готовый список.
   const channels = Array.isArray(snapshot?.channels)
     ? snapshot.channels
     : (Array.isArray(snapshot?.columns)
-        ? snapshot.columns.filter(c => c?.role === 'media').map(c => c?.name)
+        ? snapshot.columns
+            .filter(c => c?.role === 'media' && isModelColumnEnabled(snapshot.modelChannelEnabled, c?.name))
+            .map(c => c?.name)
         : []);
   if (channels.length === 0) return true;  // пустой список → разрешаем (mirror :787)
   const mode = snapshot?.analysisMode;
   const costs = snapshot?.unitCosts ?? {};
   const pci = snapshot?.perChannelInput ?? {};
   for (const name of channels) {
-    const detectedType = pci?.[name] ?? detectChannelUnitType(name);
+    // s61 круг 2 (А-1, аудит №1): гейт не мягче разбора пар. Колонку без записи о
+    // метрике считаем физической, если так считает разбор пар (parseChannelMetric –
+    // по нему физическая половина и была выключена) ИЛИ детектор шаблонов. Раньше
+    // судил один детектор, а на запасном наборе шаблонов он беднее разбора пар:
+    // включённая галочкой `ooh_contacts` доходила до обучения как рубли с ценой 1.0.
+    // Явная запись пользователя по-прежнему важнее имени.
+    const detectedType = pci?.[name]
+      ?? (parseChannelMetric(name).metric === 'physical' ? 'physical' : detectChannelUnitType(name));
     if (detectedType === 'physical' && mode === 'roi') {
       // physical в ROI mode: нужен unit_cost > 0 (иначе ROI-артефакт)
       const uc = costs[name];
@@ -1583,9 +1691,88 @@ export function cppSatisfied(snapshot) {
 }
 
 /**
+ * s61 круг 2 (А-2): CPP-гейт по ПЛАНУ развязки пар – по колонкам, которые останутся
+ * включёнными ПОСЛЕ применения выбора «канал → деньги | физическая метрика».
+ * Нужен кнопке «Далее ▶» режима менеджера на «Метриках каналов»: гейт по всем
+ * колонкам пар считал включёнными и физические половины (цены у них нет), а
+ * выключает их только нажатие этой же кнопки – замкнутый круг. План строит та же
+ * `resolvePairSelection`, что и само нажатие, поэтому кнопка судит ровно то, что
+ * будет применено. Канал с одной лишь физической колонкой и выбранная физическая
+ * половина без цены в ROI по-прежнему дают `false`.
+ *
+ * @param {Record<string, {monetary: string[], physical: string[]}>} byChannel
+ * @param {Record<string, 'monetary'|'physical'>|null|undefined} baseSelection
+ * @param {{
+ *   perChannelInput?: Record<string, string>|null,
+ *   unitCosts?: Record<string, number>|null,
+ *   analysisMode?: string
+ * }} stores
+ * @returns {boolean}
+ */
+export function cppSatisfiedForPairPlan(byChannel, baseSelection, stores) {
+  const { perColumn, enable } = resolvePairSelection(byChannel, baseSelection ?? {});
+  return cppSatisfied({
+    channels: enable,
+    perChannelInput: { ...(stores?.perChannelInput ?? {}), ...perColumn },
+    unitCosts: stores?.unitCosts,
+    analysisMode: stores?.analysisMode,
+  });
+}
+
+/**
+ * s61 круг 2 (А-3, аудит №2): применить план экспресс-подтверждения к карте
+ * включённости. Денежные половины парных каналов (есть и денежная, и физическая
+ * колонка) ВКЛЮЧАЮТСЯ, физические половины из `disable` выключаются. Включение
+ * нужно, когда до экспресса для канала выбирали физическую метрику: его денежная
+ * половина уже `false`, и одного выключения физической хватало, чтобы канал молча
+ * выпал из модели целиком. Одиночные каналы не трогаются. Чистая функция.
+ * @param {Record<string, boolean>|null|undefined} mapping
+ * @param {Record<string, {monetary: string[], physical: string[]}>|null|undefined} byChannel
+ * @param {string[]|null|undefined} disable
+ * @returns {Record<string, boolean>}
+ */
+export function applyExpressPairPlan(mapping, byChannel, disable) {
+  /** @type {Record<string, boolean>} */
+  const next = { ...(mapping ?? {}) };
+  for (const opts of Object.values(byChannel ?? {})) {
+    if ((opts?.physical ?? []).length === 0) continue;
+    for (const col of opts?.monetary ?? []) next[col] = true;
+  }
+  for (const col of disable ?? []) next[col] = false;
+  return next;
+}
+
+/**
+ * s61 круг 2 (А-4, аудит №3): применить выбор «канал → метрика» подшага «Метрики
+ * каналов» к карте включённости. У ПАРНОГО канала выбранная половина включается,
+ * вторая выключается. У одиночного канала (одна колонка либо колонки одной
+ * метрики) значение карты НЕ трогается: автоотключённый разреженный канал и канал,
+ * снятый галочкой на «Модели», не должны молча включаться обратно. Чистая функция.
+ * @param {Record<string, boolean>|null|undefined} mapping
+ * @param {Record<string, {monetary: string[], physical: string[]}>|null|undefined} byChannel
+ * @param {Record<string, 'monetary'|'physical'>|null|undefined} baseSelection
+ * @returns {Record<string, boolean>}
+ */
+export function applyPairSelectionToEnabledMap(mapping, byChannel, baseSelection) {
+  /** @type {Record<string, boolean>} */
+  const next = { ...(mapping ?? {}) };
+  const groups = byChannel ?? {};
+  const paired = new Set();
+  for (const opts of Object.values(groups)) {
+    if ((opts?.monetary ?? []).length > 0 && (opts?.physical ?? []).length > 0) {
+      for (const col of [...opts.monetary, ...opts.physical]) paired.add(col);
+    }
+  }
+  const { enable, disable } = resolvePairSelection(groups, baseSelection ?? {});
+  for (const col of enable) if (paired.has(col)) next[col] = true;
+  for (const col of disable) next[col] = false;
+  return next;
+}
+
+/**
  * Снимок сторов для `cppSatisfied` в императивном контексте (guard внутри
  * `completeStep`, где нет реактивного `$`-доступа). Собирается через `get()`.
- * @returns {{columns: any[], perChannelInput: Record<string, string>, unitCosts: Record<string, number>, analysisMode: string}}
+ * @returns {{columns: any[], perChannelInput: Record<string, string>, unitCosts: Record<string, number>, analysisMode: string, modelChannelEnabled: Record<string, boolean>}}
  */
 export function currentGateSnapshot() {
   return {
@@ -1593,6 +1780,7 @@ export function currentGateSnapshot() {
     perChannelInput: /** @type {Record<string, string>} */ (get(perChannelInput) ?? {}),
     unitCosts: get(unitCosts) ?? {},
     analysisMode: get(analysisMode),
+    modelChannelEnabled: get(modelChannelEnabled) ?? {},
   };
 }
 
@@ -1618,6 +1806,9 @@ export function shouldRelockModel({ subStep, cppSatisfied, status }) {
  * Mark a step complete and unlock the next step.
  * Does NOT auto-advance - user clicks "Далее" manually to review results.
  * @param {number} step - step index (0-5)
+ * @returns {boolean} s61 (А0): `false` – только когда шаг 1 заблокирован
+ *   хранителем (CPP-гейт); `true` – на обычном пути для любого шага. Вызывающий
+ *   подшаг «Валидации» по `false` показывает причину, а не молча идёт дальше.
  */
 export function completeStep(step) {
   // NAV-2/3A chokepoint-guard (Minimal-plus 2026-06-05): completeStep(1) —
@@ -1644,7 +1835,7 @@ export function completeStep(step) {
   // handlePerChannelConfirm перечисляли все media). Только step===1.
   if (step === 1 && !cppSatisfied(currentGateSnapshot())) {
     console.warn('[gate] completeStep(1) заблокирован: CPP-гейт не удовлетворён (physical+ROI канал без unit_cost) — защита от ROI-артефакта');
-    return;
+    return false;
   }
   pipelineStepMeta.update(steps => {
     const copy = steps.map(s => ({ ...s }));
@@ -1655,6 +1846,29 @@ export function completeStep(step) {
 
   const pid = get(activeProjectId);
   savePipelineMeta(pid, { currentStep: get(pipelineCurrentStep), steps: get(pipelineStepMeta) });
+
+  // s61 (А0, К2): гейт обучения (ConfigPanel.trainModel) спрашивает
+  // analysisModeIsPersisted(), а признак раньше поднимался только при смене проекта
+  // с режимом уже на диске. Свежий проект создаётся без analysis_mode, экспресс
+  // ставит 'roi' поверх уже стоящего 'roi' – подписчик-писатель не срабатывает, и
+  // в первой сессии гейт обучения молчал. Хранитель выше теперь пропускает колонки
+  // с `false` в карте (в т.ч. автоотключённый разреженный физический канал без
+  // пары): если пользователь включит такой канал галочкой на «Модели», остановить
+  // его может только гейт обучения. Поэтому на УСПЕШНОМ проходе «Валидации» режим
+  // и метрики каналов уходят на диск, и признак поднимается сразу. Запись «по
+  // возможности» (ошибку глотаем); без активного проекта – ничего не пишем и
+  // признак не поднимаем. Проекты, не проходившие «Валидацию» в этой сессии,
+  // остаются без гейта, как прежде (D-2 fail-open).
+  if (step === 1 && pid) {
+    const mode = get(analysisMode);
+    _activeProjectHasPersistedMode = true;
+    _amLastWritten = mode;
+    invoke('project_update', {
+      projectId: pid,
+      updates: { analysis_mode: mode, per_channel_input: get(perChannelInput) ?? {} },
+    }).catch(() => { /* persist best-effort; trainModel тоже пишет */ });
+  }
+  return true;
 }
 
 /**
