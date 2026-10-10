@@ -118,14 +118,15 @@ def test_parse_dates_xlsx_column(tmp_path):
 
 def test_parse_dates_not_a_date_is_nat():
     # «12:30» pandas берёт за сегодняшнюю дату, «23 Jan» – за год 1: год без
-    # четырёх цифр не выдумываем.
-    s = pd.Series(["2023-01-02", "Итого", "Среднее", "23 Jan", "12:30", "2016-W37", None, 5],
+    # четырёх цифр не выдумываем. Переписан осознанно (s60): «2016-W37» – неделя
+    # ISO, теперь дата (test_iso_week_s60.py), из списка «не дата» убрана.
+    s = pd.Series(["2023-01-02", "Итого", "Среднее", "23 Jan", "12:30", None, 5],
                   dtype=object)
     parsed = parse_dates(s)
     assert parsed.iloc[0] == pd.Timestamp("2023-01-02")
     assert parsed.iloc[1:].isna().all()
     assert unparsed_examples(s, parsed) == ["Итого", "Среднее", "23 Jan"]
-    assert unparsed_examples(s, parsed, limit=5) == ["Итого", "Среднее", "23 Jan", "12:30", "2016-W37"]
+    assert unparsed_examples(s, parsed, limit=5) == ["Итого", "Среднее", "23 Jan", "12:30", "5"]
 
 
 def test_parse_dates_numeric_column_is_nat():

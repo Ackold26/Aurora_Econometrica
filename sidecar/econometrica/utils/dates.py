@@ -26,6 +26,15 @@ pandas выводил формат по первой ячейке без пра�
   если ряд таких ячеек монотонен: недельное «Jan-02, Jan-09 …» (месяц и
   день) иначе стало бы годами 2002, 2009 … (L-2 AUDIT_259) – тогда NaT;
 - квартал «23Q1», «2023Q1», «23-Q1» – первый день квартала (M-2 AUDIT_259);
+- неделя ISO «2023-W01», «2023W1», «2023-w01» – понедельник этой недели;
+  «2023-W01-3» (день недели через дефис) – этот день; хвост в скобках
+  «2023-W01 (нед. с 02.01.2023)» разрешён, и если дата в скобках не попадает
+  в эту неделю (понедельник – воскресенье), ячейка нечитаема: неделя посчитана
+  не по ISO (системы, где неделя идёт с воскресенья или «неделя 1» – с 1
+  января), отказ с номером строки честнее молчаливого сдвига на 1–8 дней.
+  Недели, которой нет в календаре ISO («2021-W53», «2023-W00»), – NaT.
+  Граница: номер недели БЕЗ хвоста с датой читается строго по ISO 8601 – по
+  строке не отличить неделю по американскому счёту («2021-W01» с 27.12.2020);
 - год из двух цифр – 20ГГ, но ГГ больше «текущий год + 10» – 19ГГ
   («01.12.99» – 1999, L-1 AUDIT_259);
 - пояс «+03:00» снимается с сохранением местного времени ячейки (не
@@ -63,6 +72,12 @@ _DAY_MONTH_YEAR_RE = re.compile(
 )
 # Квартал: «23Q1», «2023Q1», «23-Q1», «2023 Q1».
 _QUARTER_RE = re.compile(r"(\d{4}|\d{2})\s*[-/.]?\s*[Qq]\s*([1-4])")
+# Неделя ISO: «2023-W01», «2023W1», «2023-w01», «2023-W01-3» (день недели –
+# только через дефис: без него «2023-W12» читалось бы как неделя 1, день 2),
+# «2023-W01 (нед. с 02.01.2023)». Разбирается только ЦЕЛОЙ строкой.
+_ISO_WEEK_RE = re.compile(r"(\d{4})\s*-?\s*[Ww]\s*(\d{1,2})(?:-([1-7]))?(?:\s*\((.*)\))?")
+# Первая дата в хвосте недели ISO: «2023-01-02», «02.01.2023», «02.01.23».
+_ISO_TAIL_DATE_RE = re.compile(r"\d{4}[./-]\d{1,2}[./-]\d{1,2}|\d{1,2}[./-]\d{1,2}[./-]\d{2,4}")
 _FOUR_DIGITS_RE = re.compile(r"\d{4}")
 # Окно века для двузначного года: ГГ больше текущего года + 10 – прошлый век.
 _CENTURY_WINDOW = 10
@@ -148,6 +163,25 @@ def _dmy_order(matches: dict[Any, re.Match]) -> tuple[bool, bool]:
     return True, True
 
 
+def _iso_week(m: re.Match, day_first: bool) -> pd.Timestamp:
+    """Ячейка «ГГГГ-Wнн[-д][ (хвост)]» → дата недели ISO (по умолчанию
+    понедельник); несуществующая неделя или хвост с датой не из этой недели –
+    NaT."""
+    day = int(m.group(3) or 1)
+    try:
+        ts = _plain(pd.Timestamp(_dt.date.fromisocalendar(int(m.group(1)), int(m.group(2)), day)))
+    except ValueError:
+        return pd.NaT
+    tail = _ISO_TAIL_DATE_RE.search(m.group(4) or "")
+    if pd.isna(ts) or tail is None:
+        return ts
+    written = _parse_string(tail.group(0), day_first)
+    monday = ts - pd.Timedelta(days=day - 1)
+    if pd.isna(written) or not monday <= written.normalize() <= monday + pd.Timedelta(days=6):
+        return pd.NaT
+    return ts
+
+
 def _parse_string(s: str, day_first: bool) -> pd.Timestamp:
     m = _DMY_RE.fullmatch(s)
     if m:
@@ -169,6 +203,9 @@ def _parse_string(s: str, day_first: bool) -> pd.Timestamp:
     if m:
         month = _month_number(m.group(2))
         return pd.NaT if month is None else _make(_year(m.group(3)), month, int(m.group(1)))
+    m = _ISO_WEEK_RE.fullmatch(s)
+    if m:
+        return _iso_week(m, day_first)
     # Без четырёхзначного года pandas подставил бы год сам («23 Jan» –
     # текущий, «Jan 23» – год 1).
     if not _FOUR_DIGITS_RE.search(s):
