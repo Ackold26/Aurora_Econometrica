@@ -3911,10 +3911,19 @@ fn start_parser_server() {
     }
 }
 
+/// Пассивное ожидание движка для подвала конвейера (`src/lib/engine-status.js`): один раунд
+/// не дольше `timeout_ms` (по умолчанию 30 с, в пределах 1–60 с) от вызова.
+/// Ответ: `"ready"` – готов, `"stopped"` – процесс движка завершился, `"starting"` – раунд
+/// вышел, движок, возможно, ещё запускается (интерфейс решает, повторять ли).
 #[tauri::command]
-async fn econ_sidecar_wait_ready(timeout_ms: Option<u64>) -> bool {
-    let _ = timeout_ms; // reserved for future use
-    econ_sidecar::wait_for_sidecar_ready().await
+async fn econ_sidecar_wait_ready(timeout_ms: Option<u64>) -> String {
+    let timeout_ms = timeout_ms.unwrap_or(30_000).clamp(1_000, 60_000);
+    match econ_sidecar::wait_ready_within(timeout_ms).await {
+        econ_sidecar::WaitOutcome::Ready => "ready",
+        econ_sidecar::WaitOutcome::Died => "stopped",
+        econ_sidecar::WaitOutcome::StillStarting => "starting",
+    }
+    .to_string()
 }
 
 /// Force-restart the econometrica sidecar. Called from UI "Перезапустить модуль" button.

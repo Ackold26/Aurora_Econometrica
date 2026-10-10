@@ -25,9 +25,9 @@
 //! Always use Stdio::null() - piped() без чтения deadlock'ит sidecar.
 
 use std::process::{Child, Command, Stdio};
-use std::sync::atomic::{AtomicU16, AtomicU32, AtomicU64, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU16, AtomicU32, AtomicU64, Ordering};
 use std::sync::{Mutex, OnceLock};
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use log::{debug, error, info, warn};
 use tauri::{AppHandle, Manager};
@@ -93,12 +93,36 @@ const WATCHDOG_FAIL_THRESHOLD: u32 = 3;
 const WATCHDOG_STARTUP_DELAY_SECS: u64 = 30;
 const HEALTH_TIMEOUT_SECS: u64 = 2;
 
+/// Срок холодного старта движка, отсчитываемый от МОМЕНТА ПОРОЖДЕНИЯ процесса (не от вызова
+/// ожидания). Пока процесс жив, ещё ни разу не ответил после этого порождения и срок не вышел,
+/// движок «запускается»: сторож не считает неудачи, `ensure_alive` не снимает его, а ждёт.
+///
+/// Обоснование значения – журнал установленной 2.5.9 (`Optimizer MMM.log`, 10.08–29.09.2026):
+/// худший записанный старт ≈ 79 с от порождения (29.09, порождение 15:36:06, ответ 15:37:25);
+/// 120 с – запас ×1,5. Худший откат правки ограничен этим же сроком: процесс, зависший на
+/// старте, снимется не позже чем через 120 с + три проверки сторожа.
+const COLD_START_GRACE_SECS: u64 = 120;
+/// Срок ожидания, когда момент порождения неизвестен (переиспользован движок прошлого сеанса,
+/// своего порождения в этом сеансе не было).
+const UNKNOWN_SPAWN_WAIT_SECS: u64 = 45;
+
 static SIDECAR_PROCESS: OnceLock<Mutex<Option<Child>>> = OnceLock::new();
 static APP_HANDLE: OnceLock<AppHandle> = OnceLock::new();
 static RESPAWN_LOCK: OnceLock<AsyncMutex<()>> = OnceLock::new();
 static HEALTH_CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
 static CONSECUTIVE_FAILS: AtomicU32 = AtomicU32::new(0);
 static BANNED_UNTIL: AtomicU64 = AtomicU64::new(0);
+
+/// Эпоха монотонных часов процесса программы. Монотонные, а не `SystemTime`: перевод системных
+/// часов назад дал бы на `now_secs()` вечное «запускается».
+static SPAWN_EPOCH: OnceLock<Instant> = OnceLock::new();
+/// Момент последнего порождения движка, мс от `SPAWN_EPOCH`; 0 = в этом сеансе не порождали.
+/// Выставляется ТОЛЬКО в `store_child` – через него проходят все три пути порождения.
+/// Это не флаг «запускается», который надо снимать: состояние выводится из момента порождения,
+/// поэтому ранний возврат или паника между порождением и ожиданием ничего не оставляют висеть.
+static SPAWNED_AT_MS: AtomicU64 = AtomicU64::new(0);
+/// Движок ответил на рукопожатие после последнего порождения.
+static READY_SINCE_SPAWN: AtomicBool = AtomicBool::new(false);
 
 /// Текущий порт. 0 = не назначен, читать legacy_port.
 static CURRENT_PORT: AtomicU16 = AtomicU16::new(0);
@@ -174,7 +198,16 @@ fn now_secs() -> u64 {
         .unwrap_or(0)
 }
 
+/// Монотонные миллисекунды от `SPAWN_EPOCH`.
+fn now_ms() -> u64 {
+    SPAWN_EPOCH.get_or_init(Instant::now).elapsed().as_millis() as u64
+}
+
 fn store_child(child: Child) {
+    // Сначала «ещё не готов», потом момент порождения: читатель, увидевший новый момент,
+    // обязан увидеть и сброшенную готовность (иначе на миг – «устоялся» вместо «запускается»).
+    READY_SINCE_SPAWN.store(false, Ordering::SeqCst);
+    SPAWNED_AT_MS.store(now_ms().max(1), Ordering::SeqCst);
     if let Ok(mut lock) = process_lock().lock() {
         *lock = Some(child);
     }
@@ -182,6 +215,94 @@ fn store_child(child: Child) {
 
 fn take_child() -> Option<Child> {
     process_lock().lock().ok().and_then(|mut l| l.take())
+}
+
+// ── Cold start phase ─────────────────────────────────────────────────────────
+
+/// Что известно о собственном дочернем процессе движка.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ChildState {
+    /// Процесс жив (`try_wait` → `Ok(None)`).
+    Alive,
+    /// Процесс завершился, с кодом выхода, если система его сообщила.
+    Exited(Option<i32>),
+    /// Своего процесса нет (переиспользован движок прошлого сеанса, ячейку опустошил
+    /// `take_child`), блокировка отравлена или система не ответила.
+    Unknown,
+}
+
+/// Состояние дочернего процесса. `process_lock` держится только на сам `try_wait` и
+/// отпускается до возврата – вызывать можно откуда угодно, но не под `process_lock`.
+fn child_state() -> ChildState {
+    let Ok(mut lock) = process_lock().lock() else {
+        return ChildState::Unknown;
+    };
+    match lock.as_mut() {
+        None => ChildState::Unknown,
+        Some(child) => match child.try_wait() {
+            Ok(None) => ChildState::Alive,
+            Ok(Some(status)) => ChildState::Exited(status.code()),
+            Err(_) => ChildState::Unknown,
+        },
+    }
+}
+
+/// Фаза жизненного цикла движка с точки зрения «можно ли его снимать».
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Phase {
+    /// Жив, после порождения ещё не отвечал, срок холодного старта не вышел – не снимать, ждать.
+    Starting,
+    /// Всё прочее, включая «неизвестно» – прежнее поведение сторожа и восстановления.
+    Settled,
+    /// Собственный процесс завершился – ждать нечего.
+    Died,
+}
+
+/// Чистое решение о фазе: все входы параметрами, без глобалов.
+fn cold_start_phase(
+    now_ms: u64,
+    spawned_at_ms: u64,
+    ready: bool,
+    child: ChildState,
+    grace_ms: u64,
+) -> Phase {
+    match child {
+        ChildState::Exited(_) => Phase::Died,
+        ChildState::Alive
+            if !ready && spawned_at_ms > 0 && now_ms.saturating_sub(spawned_at_ms) < grace_ms =>
+        {
+            Phase::Starting
+        }
+        _ => Phase::Settled,
+    }
+}
+
+/// Фаза движка сейчас – добывание входов для [`cold_start_phase`].
+fn current_phase() -> Phase {
+    cold_start_phase(
+        now_ms(),
+        SPAWNED_AT_MS.load(Ordering::SeqCst),
+        READY_SINCE_SPAWN.load(Ordering::SeqCst),
+        child_state(),
+        COLD_START_GRACE_SECS * 1000,
+    )
+}
+
+/// Один шаг сторожа: (неудач подряд, здоров ли, фаза, порог) → (новый счётчик, перезапускать ли).
+/// Цикл сторожа только исполняет это решение – так его можно проверить без процессов.
+fn watchdog_step(fails: u32, healthy: bool, phase: Phase, threshold: u32) -> (u32, bool) {
+    if healthy {
+        return (0, false);
+    }
+    if phase == Phase::Starting {
+        return (0, false);
+    }
+    let fails = fails + 1;
+    if fails >= threshold {
+        (0, true)
+    } else {
+        (fails, false)
+    }
 }
 
 fn set_current_port(p: u16) {
@@ -623,10 +744,11 @@ pub fn start_sidecar(app_handle: &AppHandle) {
             // Background task: ждём когда sidecar будет health-ready, синхронизируем
             // CURRENT_SESSION + state file с настоящим session_id от Python-sidecar'а.
             tauri::async_runtime::spawn(async move {
-                if wait_for_sidecar_ready().await {
-                    info!("Cold start handshake complete - state synced");
-                } else {
-                    warn!("Cold start handshake timeout - next restart may force-respawn");
+                match wait_for_sidecar_ready().await {
+                    WaitOutcome::Ready => info!("Cold start handshake complete - state synced"),
+                    other => warn!(
+                        "Cold start handshake not complete ({other:?}) - next restart may force-respawn"
+                    ),
                 }
             });
         }
@@ -662,19 +784,42 @@ fn write_initial_state(port: u16, pid: u32, session_id: &str) -> Result<(), Stri
     write_state_file(&SIDECAR_CONFIG, &state).map_err(|e| e.to_string())
 }
 
-/// Wait for sidecar to be healthy. Returns true if ready within timeout.
-/// После успеха обновляет sidecar.json с session_id от sidecar'а (он может
-/// отличаться от нашего если произошёл respawn внутри того же GUI).
-pub async fn wait_for_sidecar_ready() -> bool {
-    let delays_ms = [300, 500, 1000, 1000, 2000, 2000, 3000, 3000, 5000, 5000];
-    let port = current_port();
-    let client = handshake_client();
+/// Итог ожидания готовности движка.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WaitOutcome {
+    /// Рукопожатие прошло.
+    Ready,
+    /// Собственный процесс движка завершился – ждать нечего.
+    Died,
+    /// Срок вышел, процесс жив (или его нет) – движок, возможно, ещё запускается.
+    StillStarting,
+}
 
-    for (attempt, &delay_ms) in delays_ms.iter().enumerate() {
+/// Ожидание готовности до крайнего срока `deadline_ms` (монотонные мс, см. [`now_ms`]).
+///
+/// На каждом шаге: рукопожатие на ТЕКУЩЕМ порту (`current_port()` перечитывается – порт мог
+/// смениться при перезапуске) → гибель собственного процесса (сразу `Died`, срок не ждём) →
+/// крайний срок (`StillStarting`, это `warn!`, не ошибка) → пауза 300 мс, затем по 2 с.
+/// ERROR пишется только при гибели процесса.
+///
+/// `respawn_lock` здесь не берётся, `process_lock` – только внутри `child_state()` без `.await`.
+/// После успеха обновляет sidecar.json с session_id от движка (он может отличаться от нашего,
+/// если произошёл перезапуск внутри того же сеанса).
+async fn wait_until(deadline_ms: u64) -> WaitOutcome {
+    let client = handshake_client();
+    let mut attempt: u32 = 0;
+    loop {
+        attempt += 1;
+        let port = current_port();
+        // Готовность отмечаем за ТЕМ порождением, при котором пробу начинали: если за время
+        // пробы движок успели перепородить, отметка «ответил» новому порождению не достаётся.
+        let spawn_mark = SPAWNED_AT_MS.load(Ordering::SeqCst);
         if let Some(info) = verify_handshake(port, &SIDECAR_CONFIG, &client).await {
+            if SPAWNED_AT_MS.load(Ordering::SeqCst) == spawn_mark {
+                READY_SINCE_SPAWN.store(true, Ordering::SeqCst);
+            }
             info!(
-                "Econometrica sidecar healthy after {} attempt(s), session={}…",
-                attempt + 1,
+                "Econometrica sidecar healthy after {attempt} attempt(s), session={}…",
                 &info.session_id[..8.min(info.session_id.len())]
             );
             // Обновить session_id - используем то что сказал sidecar (source of truth)
@@ -684,16 +829,47 @@ pub async fn wait_for_sidecar_ready() -> bool {
                 state.version = info.version.clone();
                 let _ = write_state_file(&SIDECAR_CONFIG, &state);
             }
-            return true;
+            return WaitOutcome::Ready;
         }
-        if attempt == 0 {
+        if attempt == 1 {
             info!("Waiting for econometrica sidecar on :{port} to start...");
         }
-        tokio::time::sleep(Duration::from_millis(delay_ms)).await;
+        if let ChildState::Exited(code) = child_state() {
+            error!(
+                "Модуль расчётов завершился при запуске (код выхода {code:?}) - ожидание прекращено"
+            );
+            return WaitOutcome::Died;
+        }
+        let now = now_ms();
+        if now >= deadline_ms {
+            warn!(
+                "Модуль расчётов запускается дольше обычного: за отведённый срок не ответил на \
+                 :{port} (попыток {attempt}); процесс не снимаем"
+            );
+            return WaitOutcome::StillStarting;
+        }
+        let pause_ms: u64 = if attempt == 1 { 300 } else { 2000 };
+        tokio::time::sleep(Duration::from_millis(pause_ms.min(deadline_ms - now))).await;
     }
+}
 
-    error!("Econometrica sidecar did not become healthy within timeout");
-    false
+/// Ожидание готовности после порождения (`start_sidecar`, `ensure_alive`, `force_restart`):
+/// срок – от момента порождения (`SPAWNED_AT_MS + COLD_START_GRACE_SECS`), а не от вызова.
+/// Порождения в этом сеансе не было – `now + UNKNOWN_SPAWN_WAIT_SECS`.
+pub async fn wait_for_sidecar_ready() -> WaitOutcome {
+    let spawned_at = SPAWNED_AT_MS.load(Ordering::SeqCst);
+    let deadline = if spawned_at == 0 {
+        now_ms() + UNKNOWN_SPAWN_WAIT_SECS * 1000
+    } else {
+        spawned_at + COLD_START_GRACE_SECS * 1000
+    };
+    wait_until(deadline).await
+}
+
+/// Пассивное ожидание для интерфейса: свой короткий раунд `timeout_ms` от вызова. Повторы
+/// раундов – забота вызывающего (`src/lib/engine-status.js`).
+pub async fn wait_ready_within(timeout_ms: u64) -> WaitOutcome {
+    wait_until(now_ms() + timeout_ms).await
 }
 
 /// Ensure sidecar is alive; respawn if not. Idempotent, thread-safe, bounded retries.
@@ -723,6 +899,15 @@ pub async fn ensure_alive() -> bool {
     if is_healthy().await {
         CONSECUTIVE_FAILS.store(0, Ordering::Relaxed);
         return true;
+    }
+
+    // 🔴 Стартующий движок не снимаем: ждём его до конца срока от порождения. Проверка стоит
+    // ПОСЛЕ блокировки и повторной проверки здоровья и ДО счётчика неудач, пробы TCP (ветка
+    // снятия держателя порта) и `take_child` – иначе два вызова гонятся, а снять можно было бы
+    // ещё стартующий процесс. Счётчик неудач при этом не растёт.
+    if current_phase() == Phase::Starting {
+        info!("Модуль расчётов ещё запускается – жду его, не перезапуская");
+        return wait_for_sidecar_ready().await == WaitOutcome::Ready;
     }
 
     let fails = CONSECUTIVE_FAILS.fetch_add(1, Ordering::Relaxed) + 1;
@@ -774,7 +959,7 @@ pub async fn ensure_alive() -> bool {
         }
     }
 
-    let healthy = wait_for_sidecar_ready().await;
+    let healthy = wait_for_sidecar_ready().await == WaitOutcome::Ready;
     if healthy {
         CONSECUTIVE_FAILS.store(0, Ordering::Relaxed);
         info!("Sidecar respawn successful");
@@ -830,7 +1015,7 @@ pub async fn force_restart() -> Result<(), String> {
     store_child(child);
     let _ = write_initial_state(new_port, pid, "");
 
-    if wait_for_sidecar_ready().await {
+    if wait_for_sidecar_ready().await == WaitOutcome::Ready {
         Ok(())
     } else {
         Err("Sidecar did not become healthy within timeout".to_string())
@@ -843,24 +1028,44 @@ pub fn spawn_watchdog() {
         tokio::time::sleep(Duration::from_secs(WATCHDOG_STARTUP_DELAY_SECS)).await;
 
         let mut consecutive_fails = 0u32;
+        // Порождение, про ожидание которого сторож уже написал в журнал (одна строка на порождение).
+        let mut starting_noted_for = 0u64;
         loop {
             tokio::time::sleep(Duration::from_secs(WATCHDOG_INTERVAL_SECS)).await;
 
-            if is_healthy().await {
-                if consecutive_fails > 0 {
+            let healthy = is_healthy().await;
+            let phase = current_phase();
+            let was_failing = consecutive_fails > 0;
+            // Решение – только здесь, цикл его лишь исполняет.
+            let (next_fails, restart) =
+                watchdog_step(consecutive_fails, healthy, phase, WATCHDOG_FAIL_THRESHOLD);
+            consecutive_fails = next_fails;
+
+            if healthy {
+                if was_failing {
                     info!("Watchdog: sidecar recovered");
                 }
-                consecutive_fails = 0;
                 continue;
             }
 
-            consecutive_fails += 1;
-            warn!("Watchdog: sidecar unhealthy ({consecutive_fails}/{WATCHDOG_FAIL_THRESHOLD})");
+            if phase == Phase::Starting {
+                let spawned_at = SPAWNED_AT_MS.load(Ordering::SeqCst);
+                if starting_noted_for != spawned_at {
+                    starting_noted_for = spawned_at;
+                    info!(
+                        "Watchdog: сторож ждёт запуска модуля расчётов (с порождения {} с, срок {COLD_START_GRACE_SECS} с)",
+                        now_ms().saturating_sub(spawned_at) / 1000
+                    );
+                }
+                continue;
+            }
 
-            if consecutive_fails >= WATCHDOG_FAIL_THRESHOLD {
+            if restart {
+                warn!("Watchdog: sidecar unhealthy ({WATCHDOG_FAIL_THRESHOLD}/{WATCHDOG_FAIL_THRESHOLD})");
                 info!("Watchdog triggering respawn");
                 let _ = ensure_alive().await;
-                consecutive_fails = 0;
+            } else {
+                warn!("Watchdog: sidecar unhealthy ({consecutive_fails}/{WATCHDOG_FAIL_THRESHOLD})");
             }
         }
     });
@@ -993,6 +1198,279 @@ mod identifier_dir_tests {
         assert!(
             !src.contains("identifier_dir: \"com.aurora.econometrica\""),
             "identifier_dir снова захардкожен строковым литералом — регресс общего state-файла редакций"
+        );
+    }
+}
+
+/// Ч2 «Не снимать стартующий движок»: решения о фазе и шаге сторожа, проводка этих решений в
+/// `ensure_alive` / `spawn_watchdog` / `force_restart` и отметка порождения в `store_child`.
+///
+/// Тесты чистых функций сами по себе зеленеют, даже если вызов решения из цикла удалить (урок
+/// `classify_expected_image` выше), поэтому проводку держит структурный тест по исходнику.
+#[cfg(test)]
+mod cold_start_tests {
+    use super::{
+        child_state, cold_start_phase, current_phase, set_current_port, store_child, take_child,
+        wait_until, watchdog_step, now_ms, ChildState, Phase, WaitOutcome, READY_SINCE_SPAWN,
+        SPAWNED_AT_MS,
+    };
+    use std::sync::atomic::Ordering;
+    use std::time::{Duration, Instant};
+
+    const GRACE: u64 = 120_000;
+
+    #[test]
+    fn cold_start_phase_table() {
+        use ChildState::{Alive, Exited, Unknown};
+        use Phase::{Died, Settled, Starting};
+        // (now, spawned_at, ready, child) → фаза
+        let cases: &[(u64, u64, bool, ChildState, Phase, &str)] = &[
+            (10_000, 1, false, Alive, Starting, "живой и молодой"),
+            (10_000, 1, true, Alive, Settled, "живой, молодой, но уже отвечал"),
+            (200_000, 1, false, Alive, Settled, "живой и старый"),
+            (10_000, 1, false, Exited(Some(3)), Died, "погиб молодым"),
+            (500_000, 1, false, Exited(None), Died, "погиб старым"),
+            (10_000, 1, true, Exited(Some(0)), Died, "погиб после готовности"),
+            (10_000, 1, false, Unknown, Settled, "своего процесса нет"),
+            (10_000, 0, false, Alive, Settled, "порождения в сеансе не было"),
+            (1_000 + GRACE, 1_000, false, Alive, Settled, "ровно на границе срока"),
+            (1_000 + GRACE - 1, 1_000, false, Alive, Starting, "за миг до границы"),
+        ];
+        for &(now, spawned, ready, child, want, label) in cases {
+            assert_eq!(
+                cold_start_phase(now, spawned, ready, child, GRACE),
+                want,
+                "{label}: now={now} spawned={spawned} ready={ready} child={child:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn watchdog_never_restarts_while_starting() {
+        let mut fails = 0;
+        for tick in 0..10 {
+            let (next, restart) = watchdog_step(fails, false, Phase::Starting, 3);
+            assert!(!restart, "шаг {tick}: стартующий движок перезапускать нельзя");
+            fails = next;
+        }
+        assert_eq!(fails, 0, "пока движок запускается, неудачи не копятся");
+    }
+
+    #[test]
+    fn watchdog_restarts_on_third_settled_failure() {
+        assert_eq!(watchdog_step(0, false, Phase::Settled, 3), (1, false));
+        assert_eq!(watchdog_step(1, false, Phase::Settled, 3), (2, false));
+        assert_eq!(watchdog_step(2, false, Phase::Settled, 3), (0, true));
+        // Погибший движок считается так же, как прежде.
+        assert_eq!(watchdog_step(2, false, Phase::Died, 3), (0, true));
+    }
+
+    #[test]
+    fn watchdog_health_resets_counter() {
+        assert_eq!(watchdog_step(2, true, Phase::Settled, 3), (0, false));
+        assert_eq!(watchdog_step(2, true, Phase::Starting, 3), (0, false));
+    }
+
+    // ── Структура исходника ──────────────────────────────────────────────────
+
+    /// Боевая часть файла без комментариев и с вычищенным содержимым строковых литералов:
+    /// имя функции в тексте журнала или в комментарии не должно сойти за её вызов.
+    fn production_code() -> String {
+        let src = include_str!("econ_sidecar.rs");
+        let cut = src
+            .find("#[cfg(test)]")
+            .expect("в файле должен быть модуль тестов");
+        code_only(&src[..cut])
+    }
+
+    /// Убирает `//` и `/* */` комментарии, содержимое строк заменяет пробелами (кавычки остаются).
+    /// Сырых строк и символьного литерала `'"'` в боевой части файла нет.
+    fn code_only(src: &str) -> String {
+        let chars: Vec<char> = src.chars().collect();
+        let mut out = String::with_capacity(src.len());
+        let mut i = 0;
+        while i < chars.len() {
+            let c = chars[i];
+            if c == '"' {
+                out.push('"');
+                i += 1;
+                while i < chars.len() {
+                    if chars[i] == '\\' && i + 1 < chars.len() {
+                        out.push_str("  ");
+                        i += 2;
+                        continue;
+                    }
+                    if chars[i] == '"' {
+                        out.push('"');
+                        i += 1;
+                        break;
+                    }
+                    out.push(if chars[i] == '\n' { '\n' } else { ' ' });
+                    i += 1;
+                }
+            } else if c == '/' && chars.get(i + 1) == Some(&'/') {
+                while i < chars.len() && chars[i] != '\n' {
+                    i += 1;
+                }
+            } else if c == '/' && chars.get(i + 1) == Some(&'*') {
+                i += 2;
+                while i + 1 < chars.len() && !(chars[i] == '*' && chars[i + 1] == '/') {
+                    i += 1;
+                }
+                i += 2;
+            } else {
+                out.push(c);
+                i += 1;
+            }
+        }
+        out
+    }
+
+    /// Тело функции (между парными фигурными скобками) по её объявлению.
+    fn fn_body<'a>(code: &'a str, signature: &str) -> &'a str {
+        let start = code
+            .find(signature)
+            .unwrap_or_else(|| panic!("в исходнике нет `{signature}`"));
+        let open = start + code[start..].find('{').expect("нет открывающей скобки");
+        let mut depth = 0usize;
+        for (k, ch) in code[open..].char_indices() {
+            match ch {
+                '{' => depth += 1,
+                '}' => {
+                    depth -= 1;
+                    if depth == 0 {
+                        return &code[open..open + k + 1];
+                    }
+                }
+                _ => {}
+            }
+        }
+        panic!("у `{signature}` нет закрывающей скобки");
+    }
+
+    fn pos(body: &str, needle: &str, func: &str) -> usize {
+        body.find(needle)
+            .unwrap_or_else(|| panic!("в теле `{func}` нет `{needle}`"))
+    }
+
+    /// 🔴 Проверка фазы в `ensure_alive` стоит после блокировки перезапуска и ДО счётчика неудач,
+    /// пробы TCP (ветка снятия держателя порта) и `take_child`.
+    #[test]
+    fn ensure_alive_checks_phase_before_any_kill_path() {
+        let code = production_code();
+        let body = fn_body(&code, "pub async fn ensure_alive(");
+        let phase = pos(body, "current_phase()", "ensure_alive");
+        let lock = pos(body, "respawn_lock()", "ensure_alive");
+        assert!(lock < phase, "проверка фазы обязана идти после взятия respawn_lock");
+        for later in ["CONSECUTIVE_FAILS.fetch_add", "tcp_responsive(", "take_child()"] {
+            assert!(
+                phase < pos(body, later, "ensure_alive"),
+                "проверка фазы обязана стоять раньше `{later}`"
+            );
+        }
+        let current = fn_body(&code, "fn current_phase(");
+        assert!(
+            current.contains("cold_start_phase("),
+            "current_phase обязана решать через cold_start_phase"
+        );
+    }
+
+    #[test]
+    fn watchdog_decides_only_through_step() {
+        let code = production_code();
+        let body = fn_body(&code, "pub fn spawn_watchdog(");
+        assert!(body.contains("watchdog_step("), "сторож обязан решать через watchdog_step");
+        assert!(body.contains("current_phase()"), "сторож обязан знать фазу движка");
+        assert!(
+            !body.contains("consecutive_fails += 1"),
+            "счётчик неудач сторожа считается только в watchdog_step"
+        );
+    }
+
+    /// Ручной перезапуск снимает всегда, в том числе стартующий движок.
+    #[test]
+    fn force_restart_does_not_check_phase() {
+        let code = production_code();
+        let body = fn_body(&code, "pub async fn force_restart(");
+        assert!(!body.contains("cold_start_phase("));
+        assert!(!body.contains("current_phase()"));
+    }
+
+    /// Отметка порождения ставится ровно в одном месте – в `store_child`.
+    #[test]
+    fn spawn_mark_is_set_only_in_store_child() {
+        let code = production_code();
+        let body = fn_body(&code, "fn store_child(");
+        assert!(body.contains("SPAWNED_AT_MS.store("));
+        assert!(body.contains("READY_SINCE_SPAWN.store(false"));
+        assert_eq!(
+            code.matches("SPAWNED_AT_MS.store(").count(),
+            1,
+            "момент порождения выставляется только в store_child"
+        );
+    }
+
+    // ── Поведение на настоящем процессе ──────────────────────────────────────
+
+    /// Настоящий дочерний процесс, который сразу завершается с кодом 3: `store_child` ставит
+    /// отметку порождения и сбрасывает готовность, `child_state` видит код выхода, фаза – `Died`,
+    /// а ожидание с далёким сроком возвращает `Died` за секунды, не дожидаясь срока.
+    /// Глобальное состояние трогает только этот тест, поэтому всё – в одной функции.
+    #[test]
+    fn exited_child_is_died_fast_and_spawn_is_marked() {
+        #[cfg(windows)]
+        let child = std::process::Command::new("cmd")
+            .args(["/C", "exit 3"])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .expect("cmd должен запускаться");
+        #[cfg(not(windows))]
+        let child = std::process::Command::new("sh")
+            .args(["-c", "exit 3"])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .expect("sh должен запускаться");
+
+        READY_SINCE_SPAWN.store(true, Ordering::SeqCst);
+        store_child(child);
+        assert!(
+            SPAWNED_AT_MS.load(Ordering::SeqCst) > 0,
+            "store_child обязан ставить момент порождения"
+        );
+        assert!(
+            !READY_SINCE_SPAWN.load(Ordering::SeqCst),
+            "store_child обязан сбрасывать готовность"
+        );
+
+        let started = Instant::now();
+        let mut state = child_state();
+        while state == ChildState::Alive && started.elapsed() < Duration::from_secs(10) {
+            std::thread::sleep(Duration::from_millis(50));
+            state = child_state();
+        }
+        assert_eq!(state, ChildState::Exited(Some(3)));
+        assert_eq!(current_phase(), Phase::Died);
+
+        // Порт, на котором заведомо никто не слушает: заняли и сразу отпустили.
+        let free_port = std::net::TcpListener::bind("127.0.0.1:0")
+            .and_then(|l| l.local_addr())
+            .map(|a| a.port())
+            .expect("свободный порт");
+        set_current_port(free_port);
+        let rt = tokio::runtime::Runtime::new().expect("runtime");
+        let t0 = Instant::now();
+        let outcome = rt.block_on(wait_until(now_ms() + 60_000));
+        let took = t0.elapsed();
+
+        let _ = take_child();
+        set_current_port(0);
+
+        assert_eq!(outcome, WaitOutcome::Died);
+        assert!(
+            took < Duration::from_secs(15),
+            "гибель процесса обязана обнаруживаться сразу, не по сроку: заняло {took:?}"
         );
     }
 }
