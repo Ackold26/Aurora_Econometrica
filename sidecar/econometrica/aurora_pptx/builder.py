@@ -239,6 +239,13 @@ class AuroraPPTXBuilder:
         # даёт 4,23:1, поэтому для трёх надписей на плашке – производный цвет (золотой
         # primary x 0,66 = #826C48, 4,60:1 на #F7F5EE). Только внутри aurora_pptx.
         self.gold_on_quiet = RGBColor(*(round(ch * 0.66) for ch in self.gold))
+        # s60: цвет «стоп» из боевых токенов (semantic.stop) – для полос с
+        # отрицательной отдачей на слайде mROAS. Запасное значение – то же, что
+        # в aurora_pptx/tokens.py, и только когда токенов нет вовсе.
+        _sem = c.get("semantic", {}) if isinstance(c, dict) else {}
+        self.stop = hex_to_rgb(
+            (_sem.get("stop") if isinstance(_sem, dict) else None) or "#DC2626"
+        )
 
         # v2.1.0 (пилот 2026-05-17): defensive access - fallback TYPOGRAPHY мог не
         # содержать nested ключи. PPTX export ранее падал KeyError 'fontFamily'.
@@ -2019,11 +2026,33 @@ class AuroraPPTXBuilder:
         #   cost first = hero is best).
         # - effectiveness: keep as fraction (0..1); native '0.0%' format
         #   auto-multiplies by 100. Sort desc - лидер по доле.
+        _undefined: list[str] = []
+        _nonpositive: list[str] = []
         if self.channels:
             kpi_mode = self.kpi["mode"]
             kpi_kind = self.kpi["kpi_kind"]
-            valid = [c for c in self.channels if float(c.get("mroas") or 0) > 0]
-            if kpi_kind == "count" and kpi_mode != "effectiveness":
+            # s60 (INV-50): денежный KPI и доля показывают ВСЕ каналы – канал с
+            # нулевой или отрицательной отдачей (худшая новость портфеля) не
+            # исчезает с графика. Значение «не определено» (нет числа, NaN)
+            # на полосу не ставится и называется в сноске. Штучный KPI:
+            # стоимость единицы = 1/mROAS при mROAS ≤ 0 не определена – такие
+            # каналы не показаны, но названы в сноске под диаграммой.
+            _is_cpu = kpi_kind == "count" and kpi_mode != "effectiveness"
+            valid = []
+            for c in self.channels:
+                _raw = c.get("mroas")
+                _name = " ".join(str(c.get("name") or "-").split())
+                try:
+                    _v = float(_raw) if _raw is not None else math.nan
+                except (TypeError, ValueError):
+                    _v = math.nan
+                if not math.isfinite(_v):
+                    _undefined.append(_name)
+                elif _is_cpu and _v <= 0:
+                    _nonpositive.append(_name)
+                else:
+                    valid.append(c)
+            if _is_cpu:
                 # CPU semantics: lowest CPU = best. Compute CPU = 1/raw_mroas,
                 # sort ascending (best first → hero at index 0).
                 annotated = [
@@ -2054,11 +2083,20 @@ class AuroraPPTXBuilder:
         # add_chart падал «chart data contains no categories», выгрузка PPTX
         # не строилась вовсе (HTML того же набора строился). Вместо диаграммы –
         # честная надпись.
+        # s60: надпись M-5 – только штучный KPI (там при отдаче ≤ 0 полосы нет
+        # по определению). Денежный KPI и доля строят диаграмму и с
+        # отрицательными полосами; пустой набор там – только когда ни у одного
+        # канала нет определённого значения.
         if not bar_labels:
+            if _nonpositive:
+                _empty_text = ("Ни у одного канала нет положительной отдачи в этой модели – "
+                               "сравнивать на диаграмме нечего.")
+            else:
+                _empty_text = ("Значения по каналам не определены – "
+                               "сравнивать на диаграмме нечего.")
             self._text(
                 slide, bar_area_x, bar_area_y, bar_area_w, 0.6,
-                "Ни у одного канала нет положительной отдачи в этой модели – "
-                "сравнивать на диаграмме нечего.",
+                _empty_text,
                 font=self.sans, size=11, color=self.deep_80,
             )
         else:
@@ -2084,10 +2122,27 @@ class AuroraPPTXBuilder:
             series = chart.plots[0].series[0]
             # reversed order - hero is at index len-1
             reversed_hero = len(bar_values) - 1 - hero_idx
+            # s60: отрицательная полоса – цвет «стоп» из токенов; золотая «героя»
+            # только у положительного значения (при отдаче ≤ 0 лучшего канала
+            # нет, золотом его не выделяем). invertIfNegative = 0 – иначе
+            # PowerPoint перекрашивает отрицательную сплошную заливку в белую.
+            from pptx.oxml.ns import qn as _qn
+            series.invert_if_negative = False
+            _rev_values = list(reversed(bar_values))
             for i, point in enumerate(series.points):
                 point.format.fill.solid()
-                point.format.fill.fore_color.rgb = self.gold if i == reversed_hero else self.deep_40
+                if _rev_values[i] < 0:
+                    _fill = self.stop
+                elif i == reversed_hero and _rev_values[i] > 0:
+                    _fill = self.gold
+                else:
+                    _fill = self.deep_40
+                point.format.fill.fore_color.rgb = _fill
                 point.format.line.fill.background()
+            for _dpt in series._element.findall(_qn("c:dPt")):
+                if _dpt.find(_qn("c:invertIfNegative")) is None:
+                    _inv = _dpt.makeelement(_qn("c:invertIfNegative"), {"val": "0"})
+                    _dpt.find(_qn("c:idx")).addnext(_inv)
 
             # Data labels on bar ends - v1.3.2 audit fix (B1): format per KPI.
             # - effectiveness: native '0.0%' format auto-multiplies fraction by 100
@@ -2140,6 +2195,21 @@ class AuroraPPTXBuilder:
                 val_axis.major_unit = 0.5
                 val_axis.maximum_scale = max(2.2, _max_v * 1.15)
 
+            # s60: отрицательные полосы идут влево от нуля. Ось уходит ниже нуля
+            # с запасом под подпись значения у конца полосы; подписи категорий –
+            # у левого края (LOW), а не у нулевой линии, иначе их закрывают
+            # отрицательные полосы и подписи значений.
+            _min_v = min(bar_values) if bar_values else 0.0
+            if _min_v < 0:
+                from pptx.enum.chart import XL_TICK_LABEL_POSITION
+                _unit = val_axis.major_unit
+                if _max_v <= 0:
+                    val_axis.maximum_scale = _unit
+                val_axis.minimum_scale = -math.ceil(
+                    (abs(_min_v) + 0.15 * (abs(_min_v) + val_axis.maximum_scale)) / _unit
+                ) * _unit
+                cat_axis.tick_label_position = XL_TICK_LABEL_POSITION.LOW
+
             # Gap between bars
             from pptx.oxml.ns import qn
             ser = series._element
@@ -2173,6 +2243,28 @@ class AuroraPPTXBuilder:
                 font=self.sans, size=7, italic=True, color=self.deep_60,
                 align=PP_ALIGN.RIGHT,
             )
+            # s60: каналы, которых нет на полосах, названы под диаграммой – ни
+            # один канал не исчезает молча (INV-50). Нулевая или отрицательная
+            # отдача – только штучный KPI (1/mROAS не определено); «значение не
+            # определено» – любой KPI.
+            def _names_list(names: list[str]) -> str:
+                shown = ", ".join(names[:8])
+                return shown + (f" и ещё {len(names) - 8}" if len(names) > 8 else "")
+            _notes = []
+            if _nonpositive:
+                _notes.append(
+                    f"Не показаны: {_names_list(_nonpositive)} – отдача нулевая или отрицательная."
+                )
+            if _undefined:
+                _notes.append(
+                    f"Не показаны: {_names_list(_undefined)} – значение не определено."
+                )
+            if _notes:
+                self._text(
+                    slide, bar_area_x, bar_area_y + bar_area_h + 0.08, bar_area_w, 0.5,
+                    " ".join(_notes),
+                    font=self.sans, size=9, italic=True, color=self.deep_60,
+                )
 
         # Source at bottom (unified position max low to footer hairline)
         _src_text = (
