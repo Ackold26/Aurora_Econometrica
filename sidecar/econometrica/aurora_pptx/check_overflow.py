@@ -365,7 +365,12 @@ def guard_summary(pptx_path):
 
     Строка – для журнала одной записью на выгрузку: переполнение/наложение,
     контраст, реестр кеглей. Подробности (по одной на нарушение) – номер слайда
-    и вид, без текста клиента."""
+    и вид, без текста клиента.
+
+    Первое значение – есть ли «настоящие» нарушения (переполнение, наложение,
+    контраст ниже порога): от него зависит уровень записи в журнале (WARNING).
+    Реестр мелкого шрифта (<9 / <10 pt) в него не входит: он есть в каждой
+    выгрузке, остаётся в строке итога, но уровень записи не поднимает."""
     issues, total = check(pptx_path)
     hyg = check_hygiene(pptx_path)
     n_over = sum(1 for _, k, _ in issues if k == "OVERFLOW")
@@ -380,7 +385,7 @@ def guard_summary(pptx_path):
         [f"слайд {s} {k}" for s, k, _ in issues]
         + [f"слайд {s} {k} {d.split(',')[0]}" for s, k, d in hyg["contrast"]]
     )
-    return bool(n_over or n_lap or n_con or n9 or n10), line, details
+    return bool(n_over or n_lap or n_con), line, details
 
 
 def report(pptx_path, verbose=False):

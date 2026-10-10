@@ -430,15 +430,17 @@ def _slide_xml(path):
         return {n: z.read(n) for n in sorted(z.namelist()) if n.startswith("ppt/slides/slide")}
 
 
-def test_h2_export_logs_one_warning_line_and_returns_ok(tmp_path, monkeypatch, caplog):
+def test_h2_export_logs_one_info_line_and_returns_ok(tmp_path, monkeypatch, caplog):
+    """Штатная выгрузка: из нарушений только реестр мелкого шрифта – одна запись уровня INFO (не WARNING)."""
     import logging
     caplog.set_level(logging.DEBUG, logger="econometrica")
     res = _export(tmp_path, monkeypatch)
     assert res["status"] == "ok" and os.path.exists(res["path"]), res
     lines = [r for r in caplog.records if r.getMessage().startswith("pptx_guard:") and r.levelno >= logging.INFO]
-    assert len(lines) == 1 and lines[0].levelno == logging.WARNING, [r.getMessage() for r in lines]
+    assert len(lines) == 1 and lines[0].levelno == logging.INFO, [r.getMessage() for r in lines]
     msg = lines[0].getMessage()
     assert "слайдов=12" in msg and "контраст ниже порога=0" in msg, msg
+    assert "переполнение=0, наложение=0" in msg and "<9 pt: 0" not in msg, msg   # реестр шрифта непуст, уровень не поднял
     for r in caplog.records:                                     # ни в одной записи нет текста клиента
         assert "Kagocel" not in r.getMessage() or r.getMessage().startswith("build_pptx OK")
     assert "Social" not in msg and "TRPs" not in msg
@@ -476,6 +478,69 @@ def test_h2_details_go_to_debug_not_warning(tmp_path, monkeypatch, caplog):
         (logging.WARNING, "pptx_guard: итог"),
         (logging.DEBUG, "pptx_guard: слайд 1 CONTRAST 2.36:1"),
         (logging.DEBUG, "pptx_guard: слайд 2 OVERFLOW")]
+
+
+# ─── уровень записи итога: INFO – только реестр мелкого шрифта, WARNING – настоящие нарушения ───
+
+def _export_synthetic(tmp_path, monkeypatch, runs, name="syn.pptx"):
+    """Боевая выгрузка (`build_pptx` -> штамп -> сторож), но сборщик отдаёт заранее заданную колоду."""
+    import aurora_pptx
+    import engines.pptx_export as px
+    src = _synthetic_deck(str(tmp_path / ("src_" + name)), runs)
+    monkeypatch.setattr(aurora_pptx, "build_pptx", lambda data, lang="ru": Presentation(src))
+    monkeypatch.setattr(px, "_map_pipeline_to_builder_data", lambda *a, **k: {})
+    return px.build_pptx({}, {}, {}, str(tmp_path / name))
+
+
+def _guard_records(caplog):
+    import logging
+    return [r for r in caplog.records
+            if r.getMessage().startswith("pptx_guard:") and r.levelno >= logging.INFO]
+
+
+def test_h2_level_info_when_only_small_font_registry(tmp_path, monkeypatch, caplog):
+    import logging
+    caplog.set_level(logging.DEBUG, logger="econometrica")
+    res = _export_synthetic(tmp_path, monkeypatch, [("мелкий 8", 8, False, "0A1628"), ("мелкий 9,5", 9.5, False, "0A1628")])
+    assert res["status"] == "ok", res
+    recs = _guard_records(caplog)
+    assert len(recs) == 1 and recs[0].levelno == logging.INFO, [(r.levelno, r.getMessage()) for r in recs]
+    msg = recs[0].getMessage()
+    assert "переполнение=0, наложение=0" in msg and "контраст ниже порога=0" in msg, msg
+    assert "<9 pt: 1" in msg and "<10 pt: 2" in msg, msg          # реестр в строке остался, формат прежний
+
+
+def test_h2_level_warning_when_overflow(tmp_path, monkeypatch, caplog):
+    import logging
+    caplog.set_level(logging.DEBUG, logger="econometrica")
+    runs = [(f"заполнитель {i}", 8, False, "0A1628") for i in range(10)]
+    runs.append(("низ слайда", 40, False, "0A1628"))
+    res = _export_synthetic(tmp_path, monkeypatch, runs)
+    assert res["status"] == "ok", res
+    recs = _guard_records(caplog)
+    assert len(recs) == 1 and recs[0].levelno == logging.WARNING, [(r.levelno, r.getMessage()) for r in recs]
+    msg = recs[0].getMessage()
+    assert "переполнение=0" not in msg and "контраст ниже порога=0" in msg, msg
+
+
+def test_h2_level_warning_when_contrast_below_threshold(tmp_path, monkeypatch, caplog):
+    import logging
+    caplog.set_level(logging.DEBUG, logger="econometrica")
+    res = _export_synthetic(tmp_path, monkeypatch, [("золото обычное", 10, False, "C5A46D")])
+    assert res["status"] == "ok", res
+    recs = _guard_records(caplog)
+    assert len(recs) == 1 and recs[0].levelno == logging.WARNING, [(r.levelno, r.getMessage()) for r in recs]
+    msg = recs[0].getMessage()
+    assert "контраст ниже порога=1" in msg and "переполнение=0, наложение=0" in msg, msg
+
+
+def test_h3_guard_summary_flag_ignores_small_font_registry(tmp_path):
+    """Первое значение guard_summary – «настоящие» нарушения: реестр мелкого шрифта его не поднимает."""
+    only_small = _synthetic_deck(str(tmp_path / "small.pptx"), [("a", 8, False, "0A1628")])
+    has, line, _ = guard.guard_summary(only_small)
+    assert has is False and "<9 pt: 1" in line, (has, line)
+    clean = _synthetic_deck(str(tmp_path / "clean.pptx"), [("a", 12, False, "0A1628")])
+    assert guard.guard_summary(clean)[0] is False
 
 
 # ═══ H4: «опережает» и «тянут» ══════════════════════════════════════════════
