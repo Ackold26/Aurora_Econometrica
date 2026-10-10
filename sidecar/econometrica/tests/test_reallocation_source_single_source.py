@@ -268,6 +268,27 @@ def test_slide_headline_never_names_leader_as_cut_side(hint, overrides, случ
     )
 
 
+def test_scqar_risk_branch_reached_at_leader_scale_never_names_leader_as_cut_side():
+    """s60 (в): порог «Риска» – только по Cut (с источником, строго «>»), поэтому случай «половина портфеля
+    отстаёт» выше (два Cut из четырёх, список отстающих – факт) ветку «Риск» больше НЕ достигает и
+    правило s47 в ней не проверяет. Здесь ветка достигается при лидере-Scale: шесть каналов, четыре Cut
+    (ТВ, Наружная реклама, Радио, Пресса) > max(2, 3). Заголовок – «Сократить …», лидер ни стороной
+    сокращения, ни вообще в нём не назван."""
+    channels = _channels() + [
+        {"name": "Радио", "spend": 300_000_000, "contribution": 250_000_000,
+         "mroas": 0.5, "roi": 0.5, "action": "Cut", "verdict": "Cut"},
+        {"name": "Пресса", "spend": 200_000_000, "contribution": 150_000_000,
+         "mroas": 0.6, "roi": 0.6, "action": "Cut", "verdict": "Cut"},
+    ]
+    facts = _facts(n_active_channels=6)
+    facts.pop("underperformer_names")  # фактов-списков нет: имена – по каналам той же функцией
+    headline = derive_action_headline(channels, facts, "scqar") or ""
+    assert headline.startswith("Сократить ") and "сфокусировать" in headline, headline
+    assert headline == f"Сократить {CUT_SOURCE}, Радио и сфокусировать бюджет на {SCALE_DEST}", headline
+    assert LEADER not in headline
+    assert not _named_as_cut_side(headline, LEADER)
+
+
 def test_slide_headline_stays_silent_about_cut_when_source_unknown():
     """Источник не определён → заголовок вообще не говорит про сокращение."""
     headline = derive_action_headline(

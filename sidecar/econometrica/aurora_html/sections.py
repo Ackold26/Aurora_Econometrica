@@ -639,9 +639,11 @@ def render_executive_summary(ctx: dict) -> str:
         # иначе печаталась бы с «0% бюджета».
         leader_pct = facts.get("leader_share_spend_pct")
         hero_m = 0.0
+        hero_ch: dict = {}
         for c in ctx.get("channels", []):
             if c.get("name") == hero:
                 hero_m = float(c.get("mroas") or 0)
+                hero_ch = c
                 break
         realloc = facts.get("reallocation_mln") or 0
         underperf = ", ".join(facts.get("underperformer_names") or []) or "-"
@@ -699,10 +701,14 @@ def render_executive_summary(ctx: dict) -> str:
         # герой не лидер и окупается; отстающие есть, глагол – по их числу.
         _hero_named = hero != leader and hero_m >= 1.0
         if _hero_named:
+            # s60 (г): герой с Cut/Reduce – с хвостом, как в презентации; без него
+            # при отказе модели / несошедшейся оптимизации (рекомендаций нет).
+            from engines.channel_action import HERO_CUT_CLAUSE, hero_cut_clause_applies
             complication_parts.append(scqar["complication"]["hero_template"].format(
                 metric_short=_marginal_metric_short(kpi),
                 hero=hero,
                 hero_metric_fmt=f"{hero_m:.2f}×" if kpi["is_legacy"] else _fmt_metric(hero_m, kpi),
+                hero_tail=f", {HERO_CUT_CLAUSE}" if hero_cut_clause_applies(facts, hero_ch) else "",
             ))
         # Полный список отстающих (худший канал первым, включая источник
         # сокращения): ОТВЕТ ниже использует список БЕЗ источника – там он назван
@@ -1200,10 +1206,12 @@ def render_key_message(ctx: dict) -> str:
 
             if hero != leader:
                 # Пласт 2 (2026-07-11): KPI-aware, не хардкодить «рубль» для count/effectiveness.
-                quote = (
-                    f"{_hero_vs_leader_quote(hero, leader, kpi)} "
-                    "Сигнал к перераспределению части бюджета."
-                )
+                # s60 (г): герой с Cut/Reduce – вторую фразу («Сигнал к перераспределению…»,
+                # читается как «переложить в героя») опускаем, как в презентации.
+                from engines.channel_action import hero_cut_clause_applies
+                _hero_ch = next((c for c in (ctx.get("channels") or []) if c.get("name") == hero), {})
+                _signal = "" if hero_cut_clause_applies(facts, _hero_ch) else " Сигнал к перераспределению части бюджета."
+                quote = f"{_hero_vs_leader_quote(hero, leader, kpi)}{_signal}"
             else:
                 quote = f"{leader} – лидер и по вкладу, и по эффективности. Бюджет стоит сохранить до признаков насыщения."  # П8-1
     else:
@@ -1632,7 +1640,14 @@ def render_recommendation(ctx: dict) -> str:
     if facts and channels:
         leader = facts.get("leader_channel") or "-"
         hero = facts.get("hero_channel") or leader
-        if hero != leader:
+        # s60 (г): герой с Cut/Reduce – не «нарастить»: оптимизатор рекомендует его
+        # сократить. Условия те же, что у заголовка слайда mROAS в презентации
+        # (порог 1.2, `hero_cut_clause_applies`); без имени бренда в заголовке.
+        from engines.channel_action import HERO_CUT_CLAUSE, hero_cut_clause_applies
+        _hero_ch = next((c for c in channels if c.get("name") == hero), {}) or {}
+        if float(_hero_ch.get("mroas") or 0) >= 1.2 and hero_cut_clause_applies(facts, _hero_ch):
+            title = strings["action_titles"]["s09_hero_cut"].format(hero=hero, hero_cut_clause=HERO_CUT_CLAUSE)
+        elif hero != leader:
             title = strings["action_titles"]["s09_scale_hero"].format(hero=hero, leader=leader)
         else:
             title = strings["action_titles"]["s09_hold_leader"].format(leader=leader)

@@ -472,7 +472,6 @@ def derive_action_headline(
     realloc = facts.get("reallocation_mln") or 0.0
     leader = facts.get("leader_channel")
     hero = facts.get("hero_channel") or leader
-    underperf = facts.get("underperformer_names") or []
 
     # Честность отчётов (09.08): модель unreliable (refused) → директивный
     # заголовок не строим ни на одном слайде. Тот же флаг, что UI читает в
@@ -522,7 +521,29 @@ def derive_action_headline(
     # Now requires at least half the channels to be flagged, with a floor
     # of 2 (a single underperformer out of 2+ is not a "portfolio-wide risk").
     total_ch = len(channels) or 1
-    all_underperf = len(underperf) >= max(2, (total_ch + 1) // 2)
+    # s60 (в): порог «Риска» – только по Cut. После s59 в список отстающих входят
+    # и Reduce (в т.ч. прибыльные насыщенные, mROAS >= 1): их большинство – это
+    # насыщение, а не убыточный портфель, и заголовок обязан остаться
+    # количественным («Перераспределить N млн руб … – +X пп»). Считаются ВСЕ Cut,
+    # включая источник сокращения: список `underperformer_names` источник не
+    # содержит, и при источнике-Reduce порог инвертировался (прибыльные Cut –
+    # «Риск», убыточные – нет). Строгое «>» сохраняет прежнюю строгость порога
+    # (раньше источник не считался). Следствие: портфель из 2 каналов «Риск» не
+    # получает. Нет факта – те же имена по каналам; нет и каналов – «Риска» нет.
+    from engines.channel_action import (
+        HERO_CUT_CLAUSE,
+        hero_cut_clause_applies,
+        underperformer_names as _underperformer_names,
+    )
+    _action_by_name: dict = {}
+    for _c in channels:  # первое вхождение имени – как hero_ch ниже и в сборщиках
+        _action_by_name.setdefault(_c.get("name"), _c.get("action") or _c.get("verdict"))
+    _under_all = (
+        (facts["underperformer_names_all"] or []) if "underperformer_names_all" in facts
+        else _underperformer_names(channels)
+    )
+    loss_all = [n for n in _under_all if _action_by_name.get(n) == "Cut"]
+    all_underperf = len(loss_all) > max(2, (total_ch + 1) // 2)
 
     # 🔴 s47 (14.09.2026): стороны переброски здесь брались из leader/hero — той
     # же пары, что подвела сводку веб-отчёта. Заголовки слайдов спорили с текстом
@@ -543,6 +564,13 @@ def derive_action_headline(
     scale_dest = subjects["scale_destination"]
 
     if slide_hint == "mroas":
+        # s60 (г): герой с действием Cut/Reduce – не «Нарастить»/«Защитить»: таблица
+        # действий и ОТВЕТ велят его сократить. Хвост – тот же, что в ПРОБЛЕМЕ;
+        # «канал» после «лучший» – чтобы не зависеть от рода имени («Наружная
+        # реклама – лучший …»). При отказе модели / несошедшейся оптимизации
+        # хвоста нет (hero_cut_clause_applies) – прежние ветки ниже.
+        if hero and hero_m >= 1.2 and hero_cut_clause_applies(facts, hero_ch):
+            return f"{hero} – лучший канал по mROAS ({hero_m:.2f}×), {HERO_CUT_CLAUSE}"
         # s06: action = grow hero / rebalance against leader
         if hero and leader and hero != leader and hero_m >= 1.2:
             if has_lift:
@@ -627,7 +655,8 @@ def derive_action_headline(
             # Поэтому заголовок перечислял кого угодно, кроме реального канала к
             # сокращению, и мог поставить туда лидера по вкладу. Ставим настоящий
             # источник первым, отстающих — следом.
-            _cut_names = [n for n in ([cut_source] + list(underperf)) if n]
+            # s60 (в): имена – источник, затем остальные Cut (Reduce в «Риск» не называем).
+            _cut_names = [n for n in ([cut_source] + [m for m in loss_all if m != cut_source]) if n]
             names = ", ".join(_cut_names[:2])
             _grow = scale_dest or hero
             return f"Сократить {names} и сфокусировать бюджет на {_grow}"

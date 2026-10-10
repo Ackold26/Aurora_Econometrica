@@ -154,6 +154,37 @@ def drop_named_hero(names: list[str], hero: str | None, hero_named: bool) -> lis
     return [n for n in names if n != hero]
 
 
+def is_underperformer(channel: dict[str, Any] | None) -> bool:
+    """Рекомендует ли модель или оптимизатор сократить канал (Cut или Reduce).
+
+    Действие читается из `action`, запасной ключ - `verdict`; нет канала или
+    действия - False. То же правило и тот же кортеж, что у `underperformer_names`.
+    """
+    ch = channel or {}
+    return (ch.get('action') or ch.get('verdict')) in UNDERPERFORMER_ACTIONS
+
+
+# Хвост части «герой опережает» (и заголовков, где герой назван лучшим), когда у
+# героя действие Cut/Reduce: без него ПРОБЛЕМА хвалит канал, который ОТВЕТ и
+# таблица действий велят сократить. Единственный источник текста для PPTX и HTML.
+HERO_CUT_CLAUSE = 'но оптимизатор рекомендует сократить бюджет канала'
+
+
+def hero_cut_clause_applies(facts: dict[str, Any] | None, hero_channel: dict[str, Any] | None) -> bool:
+    """Печатать ли хвост `HERO_CUT_CLAUSE` у героя.
+
+    Нужны оба условия: у героя действие Cut/Reduce И отчёт сам говорит, что
+    рекомендации оптимизатора есть. Модель отказала (`model_refused`) или
+    оптимизация не сошлась (`optimization_converged`) - ОТВЕТ в обоих форматах
+    пишет, что рекомендаций нет, и хвост «оптимизатор рекомендует» им бы
+    противоречил. Ключи те же, что читают ОТВЕТ презентации и HTML.
+    """
+    f = facts or {}
+    if f.get('model_refused') or not f.get('optimization_converged', True):
+        return False
+    return is_underperformer(hero_channel)
+
+
 def soften_verdict_display(verdict_key: str, reliability_verdict: str | None) -> tuple[str, str]:
     """Honesty-потолок (решение 2a, Антон): глобальная надёжность модели смягчает
     ДИРЕКТИВНОСТЬ канального вердикта по МОДАЛЬНОСТИ, сохраняя НАПРАВЛЕНИЕ.

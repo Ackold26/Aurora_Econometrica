@@ -220,7 +220,9 @@ def test_derive_action_headline_underperf_threshold():
     assert_not_in("3-ch 1-underperf scqar is NOT risk", "Сократить C и сфокусировать", h)
 
     # 4-channel, 2 underperf (50%) → risk.
-    chs4 = [{"name": c, "mroas": 1.5} for c in ("A", "B", "C", "D")]
+    # s60 (в): порог «Риска» считает Cut ВКЛЮЧАЯ источник сокращения, строго «>» (3 из 4);
+    # «2 отстающих» в факте – это C, D без источника B.
+    chs4 = [{"name": c, "mroas": 1.5, **({"action": "Cut"} if c in ("B", "C", "D") else {})} for c in ("A", "B", "C", "D")]
     facts2 = {"leader_channel": "A", "hero_channel": "A", "expected_lift_pct": 3,
               "reallocation_mln": 0, "underperformer_names": ["C", "D"]}
     h2 = derive_action_headline(chs4, facts2, "scqar") or ""

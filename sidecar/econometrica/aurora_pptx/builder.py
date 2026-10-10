@@ -1757,10 +1757,13 @@ class AuroraPPTXBuilder:
                 # Pull quote - hero outperforms leader, reallocate signal
                 # Пласт 2 (2026-07-11): KPI-aware, не хардкодить «рубль/ROAS» для count/effectiveness.
                 if hero != leader:
-                    quote_txt = (
-                        f"{_hero_vs_leader_quote_pptx(hero, leader, self.kpi)} "
-                        "Сигнал к перераспределению части бюджета."
-                    )
+                    # s60 (г): герой с Cut/Reduce – вторую фразу («Сигнал к
+                    # перераспределению…», читается как «переложить в героя»)
+                    # опускаем: оптимизатор рекомендует сократить этот канал.
+                    from engines.channel_action import hero_cut_clause_applies
+                    _hero_ch = next((c for c in self.channels if c.get("name") == hero), {})
+                    _signal = "" if hero_cut_clause_applies(self.facts, _hero_ch) else " Сигнал к перераспределению части бюджета."
+                    quote_txt = f"{_hero_vs_leader_quote_pptx(hero, leader, self.kpi)}{_signal}"
                 else:
                     quote_txt = (
                         f"{leader} – единственный лидер и по вкладу, и по эффективности. "
@@ -2962,7 +2965,12 @@ class AuroraPPTXBuilder:
                     f"{hero_m:.2f}×" if self.kpi["is_legacy"]
                     else _fmt_metric_pptx(hero_m, self.kpi)
                 )
-                complication_parts.append(f"По {metric_short} {hero} опережает ({metric_fmt})")
+                # s60 (г): герой с Cut/Reduce – с хвостом, иначе ПРОБЛЕМА хвалит канал,
+                # который ОТВЕТ и таблица действий велят сократить. Без хвоста при
+                # отказе модели / несошедшейся оптимизации (рекомендаций нет).
+                from engines.channel_action import HERO_CUT_CLAUSE, hero_cut_clause_applies
+                _hero_tail = f", {HERO_CUT_CLAUSE}" if hero_cut_clause_applies(f, hero_ch) else ""
+                complication_parts.append(f"По {metric_short} {hero} опережает ({metric_fmt}){_hero_tail}")
             if underperf_all:
                 # s58: число глагола – по числу отстающих («ТВ тянет», «ТВ, Радио тянут»).
                 # s59: полный список (худший канал первым, включая источник сокращения).

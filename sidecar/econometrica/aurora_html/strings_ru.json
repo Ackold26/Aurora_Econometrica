@@ -91,7 +91,7 @@
     "complication": {
       "label": "ЗАТРУДНЕНИЕ",
       "template": "{budget_dominator} занимает {budget_dom_spend_pct_fmt} бюджета, но даёт {budget_dom_contrib_pct_fmt} медиа-вклада.",
-      "hero_template": "По {metric_short} {hero} опережает ({hero_metric_fmt}).",
+      "hero_template": "По {metric_short} {hero} опережает ({hero_metric_fmt}){hero_tail}.",
       "underperf_template": "{underperf} {pull_verb} портфель вниз."
     },
     "complication_fallback": {
@@ -162,6 +162,7 @@
     "s08_leader": "{leader}-всплески выделяются на устойчивой базе – медиа-активность видна во времени",
     "s09_scale_hero": "Aurora рекомендует нарастить {hero} и пересмотреть позицию {leader}",
     "s09_hold_leader": "Aurora рекомендует сохранить приоритет {leader} с учётом насыщения",
+    "s09_hero_cut": "{hero} – лучший канал по mROAS, {hero_cut_clause}",
     "s10_methodology": "Байесовская MMM с отложенным эффектом (adstock) и Hill-насыщением – NUTS NumPyro, 4 цепи × 2000 итераций",
     "s10_methodology_ols": "OLS MMM с отложенным эффектом (adstock) и Hill-насыщением – closed-form, bootstrap n=200",
     "s13_glossary": "Терминология, необходимая для чтения отчёта",

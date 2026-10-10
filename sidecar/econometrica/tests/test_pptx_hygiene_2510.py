@@ -556,15 +556,18 @@ def _build_both(spec=None, **kw):
 
 _HERO = "Social"
 _HERO_PART = "По mROAS Social опережает (27.03×)."
+# s60 (г): у героя с действием Cut/Reduce часть «опережает» идёт с хвостом (engines.channel_action.HERO_CUT_CLAUSE)
+_HERO_PART_CUT = "По mROAS Social опережает (27.03×), но оптимизатор рекомендует сократить бюджет канала."
 
 
 def test_h4_hero_not_leader_with_reduce_is_dropped_from_pull_list_in_both_formats():
-    """Герой – Reduce с mROAS 27 (насыщение), лидер – Performance: «опережает» печатается, из «тянут» герой убран,
-    глагол пересчитан: «TRPs ... тянет» (один), а не «тянут»."""
+    """Герой – Reduce с mROAS 27 (насыщение), лидер – Performance: «опережает» печатается (с хвостом s60:
+    оптимизатор рекомендует сократить канал), из «тянут» герой убран, глагол пересчитан: «TRPs ... тянет»
+    (один), а не «тянут»."""
     data, html, pptx, *_ = _build_both(spec={_HERO: {"action": "Reduce"}})
     assert data["narrative_facts"]["underperformer_names_all"] == [U._TRPS, _HERO]   # факт адаптера не меняется
     for text in (html["ЗАТРУДНЕНИЕ"], pptx["ПРОБЛЕМА"]):
-        assert _HERO_PART in text, text
+        assert _HERO_PART_CUT in text, text
         assert U._pull(text) == ([U._TRPS], "тянет"), text
 
 
@@ -574,7 +577,7 @@ def test_h4_hero_as_cut_in_all_cut_is_dropped_in_both_formats():
     for text in (html["ЗАТРУДНЕНИЕ"], pptx["ПРОБЛЕМА"]):
         names, verb = U._pull(text)
         assert _HERO not in names and verb == "тянут" and len(names) == 4, text
-        assert _HERO_PART in text
+        assert _HERO_PART_CUT in text
 
 
 def test_h4_hero_that_is_leader_is_not_dropped():
@@ -590,9 +593,9 @@ def test_h4_hero_that_is_leader_is_not_dropped():
 def test_h4_hero_only_underperformer_pull_part_disappears_and_html_not_fallback():
     """Единственный отстающий – герой: части «тянут» нет; HTML не уходит в запасную фразу (есть «опережает»)."""
     _, html, pptx, *_ = _build_both(balanced=True, spec={U._TRPS: {"action": "Hold"}, _HERO: {"action": "Reduce"}})
-    assert html["ЗАТРУДНЕНИЕ"] == _HERO_PART, html["ЗАТРУДНЕНИЕ"]
+    assert html["ЗАТРУДНЕНИЕ"] == _HERO_PART_CUT, html["ЗАТРУДНЕНИЕ"]
     assert html["ЗАТРУДНЕНИЕ"] != U._FALLBACK
-    assert pptx["ПРОБЛЕМА"].startswith(_HERO_PART), pptx["ПРОБЛЕМА"]
+    assert pptx["ПРОБЛЕМА"].startswith(_HERO_PART_CUT), pptx["ПРОБЛЕМА"]
     for text in (html["ЗАТРУДНЕНИЕ"], pptx["ПРОБЛЕМА"]):
         assert "тянет" not in text and "тянут" not in text, text
 
