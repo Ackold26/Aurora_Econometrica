@@ -639,6 +639,64 @@ def _build_methodology_certificate(
         }
 
 
+def _dates_retrain_warning(
+    model_path: Path,
+    project_path: Path,
+    df: pd.DataFrame,
+    date_col: str,
+) -> str | None:
+    """N7 (2.5.10): предупреждение «Переобучите модель» по расхождению дат.
+
+    Проект, обученный версией 2.5.8 и ранее на CSV «ДД.ММ.ГГГГ», хранит модель,
+    подобранную на датах, прочитанных месяцем вперёд («01.02.2021» – 2 января).
+    С 2.5.9 декомпозиция читает файл верно и ставит праздники на верные даты, а
+    коэффициенты остались прежними – числа молча перестают быть согласованными.
+
+    Сторож смотрит на ДАННЫЕ, а не на версию (версии разбора дат в модели нет):
+    даты из `results/model-diagnostics.json` (`actual_vs_predicted.dates`, их
+    пишут оба движка) против `parse_dates` файла сейчас. `df` – тот же, что в
+    расчёте: уже отфильтрован по непустому KPI, как и ряд при обучении.
+
+    Молчит при: другом пути модели (у архивного поколения диагностика чужая),
+    отсутствии файла или поля, разной длине рядов (это другой случай – файл
+    менялся после обучения), любой ошибке чтения. Сторож не должен ронять расчёт.
+    """
+    try:
+        if model_path.resolve() != (project_path / 'models' / 'latest.pkl').resolve():
+            return None
+        diag_file = project_path / 'results' / 'model-diagnostics.json'
+        if not diag_file.exists() or date_col not in df.columns:
+            return None
+        diag = json.loads(diag_file.read_text(encoding='utf-8'))
+        trained = (diag.get('actual_vs_predicted') or {}).get('dates')
+        if not isinstance(trained, list) or not trained or len(trained) != len(df):
+            return None
+        from utils.dates import parse_dates, ru_date_words
+        now = parse_dates(df[date_col])
+        for pos, (was, ts) in enumerate(zip(trained, now.tolist())):
+            if was is None or pd.isna(ts) or str(was)[:10] == ts.strftime('%Y-%m-%d'):
+                continue
+            # Первая расходящаяся пара – пример для клиента: ячейка файла и обе даты словами.
+            try:
+                example = (
+                    f'например, «{str(df[date_col].iloc[pos]).strip()[:10]}» при обучении прочитано как '
+                    f'{ru_date_words(pd.Timestamp(str(was)[:10]))}, а сейчас читается как {ru_date_words(ts)}'
+                )
+            except Exception:  # noqa: BLE001 – пример не стоит самого предупреждения
+                example = None
+            lead = 'Даты, на которых обучена модель, не совпадают с датами файла сейчас'
+            lead += f': {example}.' if example else '.'
+            return (
+                f'{lead} Так бывает после обновления программы или правки файла данных. '
+                'Праздники и сезонность привязаны к другим датам, поэтому вклады каналов '
+                'и окупаемость могут быть искажены. Переобучите модель – числа изменятся.'
+            )
+        return None
+    except Exception as exc:  # noqa: BLE001 – сторож не роняет декомпозицию
+        logger.warning('Сторож дат модели не отработал (%s)', type(exc).__name__)
+        return None
+
+
 def decompose(
     project_dir: str,
     unit_costs_override: dict | None = None,
@@ -1424,6 +1482,11 @@ def decompose(
             'Эта модель обучена до Phase 1.9 - посterior samples отсутствуют. '
             'Правдоподобные диапазоны недоступны. Переобучите модель для поддержки правдоподобных диапазонов.'
         )
+
+    # N7 (2.5.10): даты обучения против дат файла сейчас – ПЕРЕД прежним предупреждением.
+    _dates_warning = _dates_retrain_warning(model_path, project_path, df, date_col)
+    if _dates_warning:
+        model_warning = f'{_dates_warning} {model_warning}' if model_warning else _dates_warning
 
     # v1.3.0: load KPI settings from project state (per ADR-016, ADR-017).
     v13_kpi = _load_v13_kpi_settings(project_path)
