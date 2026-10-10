@@ -28,6 +28,7 @@
     importData,
     validateSubStep,
   } from '$lib/project-state.js';
+  import { ENGINE, engineLabel, waitEngineReady } from '$lib/engine-status.js';
   import { openFeedbackForm, feedbackErrorText } from '$lib/feedback.js';
   import PipelineStepper from '$lib/components/pipeline/PipelineStepper.svelte';
   import InsightsPanel from '$lib/components/pipeline/InsightsPanel.svelte';
@@ -212,16 +213,20 @@
   });
 
   // C5: Start sidecar and track its status in footer
+  // Состояние – перечисление ENGINE (engine-status.js), не текст: подвал красится по нему.
+  // Выставляется при размонтировании: ожидание движка прекращается без записи в сторы.
+  let engineWaitCancelled = false;
+
   async function initSidecar() {
-    sidecarStatus.set('Запуск...');
-    try {
-      await invoke('econ_sidecar_wait_ready', { timeoutMs: 15000 });
-      sidecarHealthy.set(true);
-      sidecarStatus.set('Готов');
-    } catch (/** @type {any} */ err) {
-      sidecarHealthy.set(false);
-      sidecarStatus.set(`Ошибка: ${err}`);
-    }
+    const engineState = await waitEngineReady(invoke, {
+      onState: (state) => {
+        sidecarHealthy.set(state === ENGINE.READY);
+        sidecarStatus.set(state);
+      },
+      isCancelled: () => engineWaitCancelled,
+    });
+    // Дальше – только при готовом движке: иначе сбой запроса стёр бы задачу обучения.
+    if (engineState !== ENGINE.READY || engineWaitCancelled) return;
 
     // Crash recovery: if training was in progress but sidecar restarted
     const savedTask = typeof localStorage !== 'undefined' ? localStorage.getItem('econ-training-task') : null;
@@ -343,7 +348,10 @@
     // C5: initialise sidecar
     initSidecar();
 
-    return () => window.removeEventListener('resize', onResize);
+    return () => {
+      engineWaitCancelled = true;
+      window.removeEventListener('resize', onResize);
+    };
   });
 
   // v2.1.0 (пилот 2026-05-16): на под-шаге «Роли колонок» (subStep === -1)
@@ -525,12 +533,12 @@
       <!-- C5: Sidecar status dot -->
       <div
         class="sidecar-status"
-        class:healthy={$sidecarHealthy}
-        class:errored={!$sidecarHealthy && $sidecarStatus !== 'Запуск...'}
-        title="Python sidecar: {$sidecarStatus}"
+        class:healthy={$sidecarStatus === ENGINE.READY}
+        class:errored={$sidecarStatus === ENGINE.FAILED}
+        title={engineLabel($sidecarStatus)}
       >
         <span class="sidecar-dot"></span>
-        <span class="sidecar-label">Python: {$sidecarStatus || '...'}</span>
+        <span class="sidecar-label">{engineLabel($sidecarStatus)}</span>
       </div>
     </div>
   </div>

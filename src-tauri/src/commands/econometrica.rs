@@ -612,19 +612,24 @@ async fn post_json(path: &str, body: &Value, client: &reqwest::Client) -> Result
         Err(e) if e.is_connect() || e.is_timeout() => {
             warn!("Sidecar unreachable on {path} ({e}) - attempting auto-respawn");
             if !econ_sidecar::ensure_alive().await {
-                return Err(format!(
-                    "Вычислительный модуль недоступен и не удалось автоматически перезапустить. \
-                     Попробуй нажать «Перезапустить модуль» или проверь логи sidecar: {e}"
-                ));
+                warn!("Sidecar unavailable on {path} and auto-respawn failed: {e}");
+                return Err(
+                    "Модуль расчётов не отвечает. Если программа только что запущена, \
+                     подождите минуту и повторите действие; если не поможет – \
+                     перезапустите программу."
+                        .to_string(),
+                );
             }
             send_once(client, econ_url(path)).await.map_err(|e2| {
                 warn!("Retry after respawn failed on {path}: {e2}");
-                format!("Модуль перезапущен, но запрос всё ещё не проходит: {e2}")
+                "Модуль расчётов перезапущен, но запрос не прошёл. \
+                 Повторите действие через минуту."
+                    .to_string()
             })?
         }
         Err(e) => {
             warn!("Econometrica sidecar request failed: {e}");
-            return Err(format!("Ошибка запроса к модулю: {e}"));
+            return Err("Не удалось связаться с модулем расчётов. Повторите действие.".to_string());
         }
     };
 
@@ -636,11 +641,11 @@ async fn post_json(path: &str, body: &Value, client: &reqwest::Client) -> Result
         );
         // ensure_alive делает /health verify_handshake + respawn если чужой
         if !econ_sidecar::ensure_alive().await {
-            return Err("Session mismatch: модуль не удалось переинициализировать".to_string());
+            return Err("Модуль расчётов не удалось переподключить. Перезапустите программу.".to_string());
         }
         let resp2 = send_once(client, econ_url(path)).await.map_err(|e| {
             warn!("Retry after 409 failed on {path}: {e}");
-            format!("Запрос не прошёл после re-handshake: {e}")
+            "Запрос не прошёл после переподключения модуля расчётов. Повторите действие.".to_string()
         })?;
         return parse_resp(resp2, path).await;
     }
@@ -1028,7 +1033,7 @@ async fn parse_resp(resp: reqwest::Response, path: &str) -> Result<Value, String
                     .get("message")
                     .and_then(|m| m.as_str())
                     .unwrap_or("неизвестная ошибка");
-                return Err(format!("Ошибка sidecar ({status}): {msg}"));
+                return Err(format!("Ошибка модуля расчётов ({status}): {msg}"));
             }
             Ok(v)
         }
@@ -1089,5 +1094,141 @@ mod resolve_project_dir_tests {
             "путь должен оканчиваться на project_id"
         );
         assert!(path.to_string_lossy().contains("projects"));
+    }
+}
+
+/// Клиентские тексты ошибок (INV-50): без вендор-слов, англицизмов и несуществующей кнопки.
+/// Проверяются только строковые литералы боевого кода: комментарии и вызовы журнала
+/// (`warn!`/`info!`/... – туда по замыслу пишется сырая ошибка) вырезаются до сверки.
+#[cfg(test)]
+mod client_text_tests {
+    /// Боевая часть файла: всё до первого `#[cfg(test)]`.
+    fn production_source() -> &'static str {
+        let src = include_str!("econometrica.rs");
+        let cut = src
+            .find("#[cfg(test)]")
+            .expect("в файле должен быть модуль тестов");
+        &src[..cut]
+    }
+
+    /// Убирает `//`-комментарии и `/* */`, оставляя строковые литералы нетронутыми.
+    fn strip_comments(src: &str) -> String {
+        let chars: Vec<char> = src.chars().collect();
+        let mut out = String::with_capacity(src.len());
+        let mut i = 0;
+        while i < chars.len() {
+            let c = chars[i];
+            if c == '"' {
+                out.push(c);
+                i += 1;
+                while i < chars.len() {
+                    out.push(chars[i]);
+                    if chars[i] == '\\' && i + 1 < chars.len() {
+                        out.push(chars[i + 1]);
+                        i += 2;
+                        continue;
+                    }
+                    if chars[i] == '"' {
+                        i += 1;
+                        break;
+                    }
+                    i += 1;
+                }
+            } else if c == '/' && chars.get(i + 1) == Some(&'/') {
+                while i < chars.len() && chars[i] != '\n' {
+                    i += 1;
+                }
+            } else if c == '/' && chars.get(i + 1) == Some(&'*') {
+                i += 2;
+                while i + 1 < chars.len() && !(chars[i] == '*' && chars[i + 1] == '/') {
+                    i += 1;
+                }
+                i += 2;
+            } else {
+                out.push(c);
+                i += 1;
+            }
+        }
+        out
+    }
+
+    /// Вырезает вызовы макросов журнала целиком (до парной закрывающей скобки).
+    fn strip_log_macros(src: &str) -> String {
+        const MACROS: [&str; 5] = ["warn!(", "info!(", "error!(", "debug!(", "trace!("];
+        let mut text = src.to_string();
+        loop {
+            let found = MACROS
+                .iter()
+                .filter_map(|m| text.find(m).map(|pos| (pos, m.len())))
+                .min_by_key(|(pos, _)| *pos);
+            let Some((start, len)) = found else { break };
+            let chars: Vec<(usize, char)> = text[start + len..].char_indices().collect();
+            let mut depth = 1usize;
+            let mut k = 0;
+            let mut end_rel = text.len() - (start + len);
+            while k < chars.len() {
+                let ch = chars[k].1;
+                if ch == '"' {
+                    k += 1;
+                    while k < chars.len() && chars[k].1 != '"' {
+                        if chars[k].1 == '\\' {
+                            k += 1;
+                        }
+                        k += 1;
+                    }
+                } else if ch == '(' {
+                    depth += 1;
+                } else if ch == ')' {
+                    depth -= 1;
+                    if depth == 0 {
+                        end_rel = chars[k].0 + 1;
+                        break;
+                    }
+                }
+                k += 1;
+            }
+            text.replace_range(start..start + len + end_rel, "");
+        }
+        text
+    }
+
+    fn client_visible_source(src: &str) -> String {
+        strip_log_macros(&strip_comments(src))
+    }
+
+    const FORBIDDEN: [&str; 5] = [
+        "Ошибка sidecar",
+        "логи sidecar",
+        "re-handshake",
+        "Session mismatch:",
+        "Перезапустить модуль",
+    ];
+
+    #[test]
+    fn client_texts_have_no_forbidden_phrases() {
+        let visible = client_visible_source(production_source());
+        for phrase in FORBIDDEN {
+            assert!(
+                !visible.contains(phrase),
+                "в клиентском тексте не должно быть «{phrase}»"
+            );
+        }
+        // Страховка от пустой проверки: правленые тексты на месте.
+        assert!(visible.contains("Ошибка модуля расчётов ("));
+        assert!(visible.contains("Модуль расчётов не отвечает."));
+    }
+
+    #[test]
+    fn scanner_flags_client_literal_but_skips_log_and_comment() {
+        let sample = "fn f() {\n\
+            warn!(\"Ошибка sidecar {e} (x)\"); // re-handshake\n\
+            /* логи sidecar */\n\
+            Err(format!(\"Session mismatch: {e}\"))\n\
+        }";
+        let visible = client_visible_source(sample);
+        assert!(!visible.contains("Ошибка sidecar"), "журнал должен вырезаться");
+        assert!(!visible.contains("re-handshake"), "комментарий должен вырезаться");
+        assert!(!visible.contains("логи sidecar"), "блочный комментарий должен вырезаться");
+        assert!(visible.contains("Session mismatch:"), "клиентский литерал должен остаться");
     }
 }
