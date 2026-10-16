@@ -1,6 +1,6 @@
 # Промт следующей сессии – s65 (после s64, 17.10.2026)
 
-## 🔴🔴 ВХОД s65 – ЧИТАТЬ ПЕРВЫМ (состояние на 17.10.2026 ~01:30, сессия s64: **2.5.11 СОБРАНА И ПРОВЕРЕНА, НЕ ОПУБЛИКОВАНА – ждёт решения владельца**)
+## 🔴🔴 ВХОД s65 – ЧИТАТЬ ПЕРВЫМ (состояние на 17.10.2026 ~02:20, сессия s64: **2.5.11 ОПУБЛИКОВАНА 17.10 без примечания** – GH `aurora-releases` v2.5.11 (SHA `f4375786…` скачан обратно и совпал), обе строки `app_versions` + `app-update` по ключам `aurora-econometrica-gui` и `econometrica` = 2.5.11, `rosst-updates` `2c42302`, метка `v2.5.11` → `80ee068c`, реестр `aurora-meta` `32c9dad`; откат и «Было» – `Projects/_s64/PUBLISH_s64.md`. **Публикацию в разделах ниже читать как ВЫПОЛНЕННУЮ**; в s65: наблюдение за клиентами, 2.5.12 по `BACKLOG_s64.md`, записи промта s65 отправить в `origin` по слову владельца)
 
 cwd = `D:\Docs\Aurora_Ai\Dev\Aurora_Econometrica_thinwt`, ветка `master`. Материалы s64 – `Projects/_s64/` (в `.gitignore`, только эта машина): `BUILD_2511.txt`, `PREBUILD_2511.md`, `PROBE_2511.txt`, `SAMPLES_s64.txt`, `PACK_2511.txt`, `notes_evidence_out.txt`, `notes_line_2511.txt`, `audit_c7f_out.txt`, `price_out.txt`, `ci_cmp_out.txt`, `BACKLOG_s64.md` (бэклог 2.5.12).
 **Публикация – Opus 5.5 high** (протокол остановки): по образцу `Projects/_s62/PUBLISH_s62.md`, скилл `aurora-release-update`, запись реестра `aurora-meta` – через `git commit-tree` поверх `origin/main`.
