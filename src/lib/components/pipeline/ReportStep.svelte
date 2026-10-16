@@ -29,6 +29,7 @@
   import { shouldShowOnboarding } from '$lib/onboarding-state.js';
   import { unitCosts, activeProject, valuePerCountUnit, kpiKind } from '$lib/project-state.js';
   import { mqsView, ratioView } from '$lib/metric-views.js';
+  import { optimizeFlatLiftVerdict, optimizeNotConvergedVerdict } from '$lib/insights-rules.js';
   import { mqsTierInfo, mqsTone, MQS_TIERS } from '$lib/mqs-tiers.js';
   import { periodUnit, periodThreshold, ruPeriodForm } from '$lib/period-format.js';
   import Tooltip from '$lib/components/Tooltip.svelte';
@@ -284,7 +285,11 @@
     if (lift != null) {
       if (lift > 5) parts.push(`Оптимизация обещает +${lift.toFixed(1)}% KPI при текущем бюджете.`);
       else if (lift > 0.5) parts.push(`Оптимизация: +${lift.toFixed(1)}% - план близок к оптимальному.`);
-      else parts.push(`Оптимизация: прирост ≈0% - план уже оптимален в заданных ограничениях.`);
+      else {
+        // s63 (№15): те же честные ветки, что у «Выводов» (сошёлся ли расчёт, упор в рамки, значимость перекладки)
+        const v = optimizeFlatLiftVerdict(oData, lift);
+        if (v) parts.push(v.summary);
+      }
     }
     return parts.join(' ');
   });
@@ -412,10 +417,20 @@
       else if (lift > 3) parts.push(`**Оптимизация даст умеренный прирост: +${lift.toFixed(1)}% KPI.** Текущий план в целом адекватный, но можно выжать ещё.`);
       else if (lift > 0.5 && !liftDrownsInBase) parts.push(`**Прирост +${lift.toFixed(1)}%** - план близок к оптимальному. Крупных неэффективностей нет.`);
       else if (liftDrownsInBase) {
-        const share = Math.max(lift / /** @type {number} */ (mediaLift) * 100, 1);
-        parts.push(`**Итоговый прирост KPI ≈${lift.toFixed(1)}%, но эффективность медиа растёт на +${/** @type {number} */ (mediaLift).toFixed(1)}%** при перераспределении бюджета. Низкий итоговый процент – потому что органическая база доминирует (медиа даёт лишь ~${share.toFixed(0)}% продаж), а **не** потому что план уже оптимален. Действенный рычаг – структура медиа-сплита; перераспределение каналов реально улучшает медиа-отдачу.`);
+        // s63 (№15): при несошедшемся расчёте «перераспределение реально улучшает медиа-отдачу» не говорим
+        const notConverged = optimizeNotConvergedVerdict(oData);
+        if (notConverged) {
+          parts.push(`**${notConverged.text}** ${notConverged.tip}`);
+        } else {
+          const share = Math.max(lift / /** @type {number} */ (mediaLift) * 100, 1);
+          parts.push(`**Итоговый прирост KPI ≈${lift.toFixed(1)}%, но эффективность медиа растёт на +${/** @type {number} */ (mediaLift).toFixed(1)}%** при перераспределении бюджета. Низкий итоговый процент – потому что органическая база доминирует (медиа даёт лишь ~${share.toFixed(0)}% продаж), а **не** потому что план уже оптимален. Действенный рычаг – структура медиа-сплита; перераспределение каналов реально улучшает медиа-отдачу.`);
+        }
       }
-      else parts.push(`**Прирост ≈0%** - план уже оптимален в заданных ограничениях. Чтобы получить больше, нужно либо менять min/max % по каналам, либо увеличивать общий бюджет.`);
+      else {
+        // s63 (№15): см. resultsSummary – формулировки в optimizeFlatLiftVerdict
+        const v = optimizeFlatLiftVerdict(oData, lift);
+        if (v) parts.push(`**${v.text}** ${v.tip}`);
+      }
     }
     if (underfundedChannels.length > 0) {
       const names = underfundedChannels.map(/** @param {any} c */ c => `«${escapeHtml(dispName(c))}»`).join(', ');
@@ -535,10 +550,24 @@
           a: `Теоретически да, но на практике - через пилот. Возьмите 20-30% бюджета, переложите по рекомендациям оптимизатора, замерьте факт через 4-6 недель. Если прогноз сошёлся (±3%) - масштабируйте. Если нет - модель нужно дообучить.`,
         });
       } else if (lift <= 0.5) {
-        items.push({
-          q: `Lift ≈0% - модель не нашла как улучшить план?`,
-          a: `В рамках заданных ограничений (min/max % по каналам) - не нашла. Это значит план уже близок к оптимальному. Чтобы увеличить прирост: 1) снять ограничения (min=0, max=300%), 2) рассмотреть изменение общего бюджета (блок C - «Другой бюджет»), 3) добавить новый канал в медиа-микс.`,
-        });
+        // s63 (№15): ответ по тем же веткам, что сводка и текст отчёта (optimizeFlatLiftVerdict);
+        // вступление своё, рекомендация – общая
+        const v = optimizeFlatLiftVerdict(oData, lift);
+        /** @type {Record<string, string>} */
+        const faqLead = {
+          not_converged: 'Нет, вывод сделать нельзя: расчёт не сошёлся, поэтому судить, оптимален ли план, рано.',
+          binding: 'Заданные рамки Мин/Макс % по каналам не оставили места для значимого прироста: расчёт упёрся в границы, а оптимальность плана этим не доказана.',
+          shift: 'Нет, это не «план уже оптимален»: расчёт предлагает изменить распределение бюджета, но прогнозный прирост небольшой или не положителен.',
+          optimal: 'Расчёт сошёлся и в заданных рамках значимой перекладки бюджета не нашёл – план в этих рамках уже оптимален.',
+        };
+        if (v) {
+          items.push({
+            q: lift >= 0
+              ? `Lift ≈0% - модель не нашла как улучшить план?`
+              : `Прогнозный прирост оптимизации отрицателен - что это значит?`,
+            a: `${faqLead[v.kind]} ${v.tip}`,
+          });
+        }
       }
     }
 
