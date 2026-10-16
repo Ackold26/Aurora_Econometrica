@@ -755,6 +755,11 @@ def render_executive_summary(ctx: dict) -> str:
         from engines.channel_action import OPT_NOT_CONVERGED_QUESTION, optimization_not_converged
         if optimization_not_converged(facts):
             question = OPT_NOT_CONVERGED_QUESTION
+        # s63 Б1: отказ модели – ВОПРОС, ОТВЕТ и итог те же, что в презентации (общие константы).
+        refused = bool(facts.get("model_refused"))
+        if refused:
+            from engines.channel_action import MODEL_REFUSED_QUESTION
+            question = MODEL_REFUSED_QUESTION
         # N3 (Phase 0.1): consistent answer logic with f3 + Action 01.
         # math-fix v1.0.14.1 (2026-04-28): + converged_at_current state - SLSQP
         # вернул current allocation без binding (false convergence). Honest
@@ -762,7 +767,11 @@ def render_executive_summary(ctx: dict) -> str:
         binding = bool(facts.get("binding_constraints"))
         converged = facts.get("optimization_converged", True)
         converged_at_current = bool(facts.get("converged_at_current"))
-        if not converged:
+        if refused:
+            from engines.channel_action import MODEL_REFUSED_ANSWER, MODEL_REFUSED_RECOMMENDATION
+            answer = MODEL_REFUSED_ANSWER
+            recommendation = MODEL_REFUSED_RECOMMENDATION
+        elif not converged:
             from engines.channel_action import OPT_NOT_CONVERGED_ANSWER, OPT_NOT_CONVERGED_RECOMMENDATION
             answer = OPT_NOT_CONVERGED_ANSWER
             recommendation = OPT_NOT_CONVERGED_RECOMMENDATION
@@ -973,6 +982,8 @@ def render_at_a_glance(ctx: dict) -> str:
         # s47: стороны переброски — из общего правила, не из локальной эвристики.
         from utils.optimizer_honesty import reallocation_subjects, format_realloc_mln
         from engines.channel_action import (
+            MODEL_REFUSED_FINDING,
+            MODEL_REFUSED_FINDING_SUPPORT,
             OPT_NOT_CONVERGED_FINDING,
             OPT_NOT_CONVERGED_FINDING_SUPPORT,
             optimization_not_converged,
@@ -989,7 +1000,11 @@ def render_at_a_glance(ctx: dict) -> str:
         # N3 (Phase 0.1): if optimizer hit binding constraints, surface that
         # explicitly - otherwise narrative says "сохранить аллокацию" while
         # the real story is "оптимизатор не получил места для манёвра".
-        if honest and all_below_breakeven:
+        if facts.get("model_refused"):
+            # s63 Б1: отказ модели – как находка 3 презентации (общие константы).
+            f3 = MODEL_REFUSED_FINDING
+            f3_sup = MODEL_REFUSED_FINDING_SUPPORT
+        elif honest and all_below_breakeven:
             f3 = "Все медиа-каналы под breakeven – рассмотреть сокращение медиа или диагностику данных"
             if kpi["is_legacy"]:
                 f3_sup = "При weighted ROI < 1× оптимизация перераспределением не вернёт прибыльность"
@@ -1697,7 +1712,12 @@ def render_recommendation(ctx: dict) -> str:
 
         # N3 - Action 01: derived from optimizer state, not heuristics.
         # math-fix v1.0.14.1: + converged_at_current branch (false convergence).
-        if not converged:
+        # s63 Б1: отказ модели – действие 01 и «Ожидаемый эффект» как в презентации.
+        refused = bool(facts.get("model_refused"))
+        if refused:
+            from engines.channel_action import MODEL_REFUSED_ACTION_01
+            action_01_text = MODEL_REFUSED_ACTION_01
+        elif not converged:
             from engines.channel_action import OPT_NOT_CONVERGED_ACTION_01
             action_01_text = OPT_NOT_CONVERGED_ACTION_01
         elif binding:
@@ -1809,7 +1829,10 @@ def render_recommendation(ctx: dict) -> str:
 
         # s63 пакет (п.4): при несошедшейся оптимизации заголовок действия 01 – общая с
         # презентацией константа; тело уже «Оптимизация не сошлась – …».
-        if not converged:
+        if refused:
+            from engines.channel_action import MODEL_REFUSED_ACTION_01_TITLE
+            action_01_title = MODEL_REFUSED_ACTION_01_TITLE
+        elif not converged:
             from engines.channel_action import OPT_NOT_CONVERGED_ACTION_01_TITLE
             action_01_title = OPT_NOT_CONVERGED_ACTION_01_TITLE
         else:
@@ -1822,7 +1845,7 @@ def render_recommendation(ctx: dict) -> str:
         lift_val = lift if lift is not None else 0
         # s63 пакет (п.6): оптимизация не сошлась – прироста для показа нет («Не определён»,
         # как «Ожидаемый эффект» презентации).
-        if not converged:
+        if not converged or refused:
             lift_val = None
     else:
         title = "Рекомендация появится после оптимизации"

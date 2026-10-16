@@ -428,11 +428,13 @@ def test_pptx_answer_capitalized_when_stop_clause_is_first():
 
 
 def test_model_refused_known_divergence_is_recorded_not_cured():
-    """Расхождение вне объёма (записано в FIX1_2510.md): при отказе модели PPTX отключает
-    переброску в ОТВЕТЕ, HTML – нет. Тест фиксирует факт, чтобы правка не прошла мимо."""
+    """Было (FIX1_2510.md, вне объёма): при отказе модели PPTX отключал переброску в ОТВЕТЕ, а HTML –
+    нет; тест фиксировал расхождение (`"Модель не завершила" not in b.html["ОТВЕТ"]`). Стало (s63 Б1):
+    расхождение закрыто – ОТВЕТ веб-отчёта тот же, что у презентации (общая константа)."""
+    from engines.channel_action import MODEL_REFUSED_ANSWER
     b = _built("refused")
     assert b.pptx["ОТВЕТ"].startswith("Модель не завершила расчёт корректно"), b.pptx["ОТВЕТ"]
-    assert "Модель не завершила" not in b.html["ОТВЕТ"], b.html["ОТВЕТ"]
+    assert b.html["ОТВЕТ"] == b.pptx["ОТВЕТ"] == MODEL_REFUSED_ANSWER, b.html["ОТВЕТ"]
     # а ПРОБЛЕМА/ЗАТРУДНЕНИЕ при этом совпадают
     assert _pull(b.html["ЗАТРУДНЕНИЕ"]) == _pull(b.pptx["ПРОБЛЕМА"])
 

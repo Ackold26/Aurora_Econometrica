@@ -5,6 +5,8 @@
 п.2: заголовок без получателя переброски («… – явного канала для роста нет») – тело слайда с ним
     согласовано: ПРОБЛЕМА, ВОПРОС, действие 01, действие 03, «Ожидаемый эффект» (и находка 3 на s02).
 п.3: слайд mROAS при «все отстающие» – тот же страж, что на s09.
+Б1 (добавочный аудит): отказ модели – тело слайда «Рекомендация», находка 3 и веб-отчёт без суммы,
+    «+X пп» и директивы переброски (как заголовок и ОТВЕТ «переброска отключена»), общие константы.
 п.4–п.6: несошедшаяся оптимизация – заголовок действия 01, ВОПРОС, находка 3, «Ожидаемый эффект» и цитата
     «Ключевого сообщения» в веб-отчёте – те же, что в презентации (общие константы).
 Везде регрессия: при значимой переброске с получателем и при сходящемся расчёте тексты прежние.
@@ -32,6 +34,14 @@ import test_underperformers_unified as U  # noqa: E402
 from aurora_html import build_html  # noqa: E402
 from aurora_pptx.builder import AuroraPPTXBuilder  # noqa: E402
 from engines.channel_action import (  # noqa: E402
+    MODEL_REFUSED_ACTION_01,
+    MODEL_REFUSED_ACTION_01_TITLE,
+    MODEL_REFUSED_ANSWER,
+    MODEL_REFUSED_COMPLICATION_TAIL,
+    MODEL_REFUSED_FINDING,
+    MODEL_REFUSED_FINDING_SUPPORT,
+    MODEL_REFUSED_QUESTION,
+    MODEL_REFUSED_RECOMMENDATION,
     OPT_NOT_CONVERGED_ACTION_01_TITLE,
     OPT_NOT_CONVERGED_FINDING,
     OPT_NOT_CONVERGED_FINDING_SUPPORT,
@@ -61,7 +71,7 @@ def _cut(m):
 
 # ─── сборка ─────────────────────────────────────────────────────────────────
 
-def _data(names, spec=None, insignificant=False, nc=False, extra=None, kpi_patch=None):
+def _data(names, spec=None, insignificant=False, nc=False, extra=None, kpi_patch=None, refused=False):
     data = U._scenario_data(spec=spec, kpi_patch=kpi_patch)
     chans = [c for c in data["channels"] if c["name"] in names]
     for e in extra or []:  # шестой канал – копия Banners под другим именем
@@ -74,7 +84,10 @@ def _data(names, spec=None, insignificant=False, nc=False, extra=None, kpi_patch
     if insignificant:  # оптимальные траты = текущим – адаптер даёт сумму переброски 0
         for c in data["channels"]:
             c["optimal_spend"] = c["current_spend"]
-    derived = _derive_narrative_facts(data["channels"], {"expected_lift_pct": 7.1}, None, None)
+    optimize = {"expected_lift_pct": 7.1}
+    if refused:  # признак – штатно через адаптер, как от ненадёжной модели
+        optimize["model_reliability"] = {"verdict": "unreliable", "refused": True}
+    derived = _derive_narrative_facts(data["channels"], optimize, None, None)
     keep = {k: data["narrative_facts"][k] for k in
             ("total_sales", "baseline_pct", "media_contribution_pct", "honest_narrative")}
     data["narrative_facts"] = {**data["narrative_facts"], **derived, **keep}
@@ -105,8 +118,10 @@ def _scqar(prs) -> dict:
 def _s02_f3(prs) -> tuple[str, str]:
     """Находка 3 презентации: текст и подпись под ним."""
     for texts in _slides(prs):
+        if "Пять находок" not in texts:  # текст отказа модели совпадает с заголовком s09 – только слайд находок
+            continue
         for i, t in enumerate(texts):
-            if t.startswith("Рекомендация:") or t == OPT_NOT_CONVERGED_FINDING:
+            if t.startswith("Рекомендация:") or t in (OPT_NOT_CONVERGED_FINDING, MODEL_REFUSED_FINDING):
                 return t, texts[i + 1]
     raise AssertionError("находка 3 не найдена")
 
@@ -154,6 +169,10 @@ _SCEN = {
     "N2 2Cut nc": dict(names=[_T, "OLV"], spec={"OLV": _cut(0.6)}, nc=True),
     "N5 герой-Reduce nc": dict(names=_ALL, spec={"Social": H._ch("Reduce")}, nc=True),
     "N5 герой-Reduce": dict(names=_ALL, spec={"Social": H._ch("Reduce")}),
+    "N5 1Cut refused": dict(names=_ALL, refused=True),
+    "N3 2Cut refused": dict(names=[_T, "OLV", "Social"], spec={"OLV": _cut(0.6)}, refused=True),
+    "N2 2Cut refused": dict(names=[_T, "OLV"], spec={"OLV": _cut(0.6)}, refused=True),
+    "N5 1Cut refused nc": dict(names=_ALL, refused=True, nc=True),
     "N6 3Cut незн": dict(names=_ALL, spec={"OLV": _cut(0.6), "Banners": _cut(0.5)}, insignificant=True,
                          extra=[{"name": "Radio", "action": "Hold", "mroas": 1.3}]),
 }
@@ -420,3 +439,62 @@ def test_key_message_signal_when_not_converged_and_hero_reduce_html_equals_pptx(
 def test_key_message_signal_when_converged_unchanged():
     assert _SIGNAL not in _b("N5 герой-Reduce").html["цитата"]  # герой Reduce, сошлась – как и было
     assert _b("N5 1Cut").html["цитата"].endswith(_SIGNAL)       # герой Scale – фраза на месте
+
+
+# ─── Б1: отказ модели ───────────────────────────────────────────────────────
+
+_PP = re.compile(r"\+\d+(?:[.,]\d+)?\s*пп")
+
+
+@pytest.mark.parametrize("key", ["N5 1Cut refused", "N3 2Cut refused", "N2 2Cut refused", "N5 1Cut refused nc"])
+def test_refused_recommendation_slide_body_is_not_directive(key):
+    """Было (Б1): заголовок и ОТВЕТ «переброска отключена», а ВОПРОС «Как перераспределить…», 01
+    «Перераспределить бюджет. 130 млн ₽ из … в Social», 03 и эффект «+7 пп», s02 «Рекомендация:
+    перераспределить 130 млн…» и «+7.1 пп». Стало – общие константы отказа модели."""
+    b = _b(key)
+    s = b.s09
+    assert b.facts["model_refused"] is True
+    assert b.headline("scqar") == "Модель не завершила расчёт корректно – переброска бюджета отключена"
+    assert s["ОТВЕТ"] == MODEL_REFUSED_ANSWER
+    assert s["ПРОБЛЕМА"].endswith(MODEL_REFUSED_COMPLICATION_TAIL)
+    assert "требует перебалансировки" not in s["ПРОБЛЕМА"]
+    assert s["ВОПРОС"] == MODEL_REFUSED_QUESTION
+    assert s["01"] == (MODEL_REFUSED_ACTION_01_TITLE, MODEL_REFUSED_ACTION_01)
+    assert not _PP.search(s["03"][1])
+    assert s["ЭФФЕКТ"] == "Не определён"
+    assert not _PP.search(s["slide"]) and "млн ₽ из" not in s["slide"]
+    assert b.s02 == (MODEL_REFUSED_FINDING, MODEL_REFUSED_FINDING_SUPPORT)
+
+
+@pytest.mark.parametrize("key", ["N5 1Cut refused", "N2 2Cut refused", "N5 1Cut refused nc"])
+def test_refused_html_equals_pptx(key):
+    """Веб-отчёт при отказе модели: те же ВОПРОС, ОТВЕТ, находка 3, действие 01 и эффект, что у
+    презентации; итог SCQAR – без «+X пп» (было: «Перебалансировать 130 млн ₽ из …», «+7 пп»)."""
+    b = _b(key)
+    h = b.html
+    assert h["ВОПРОС"] == b.s09["ВОПРОС"] == MODEL_REFUSED_QUESTION
+    assert h["ОТВЕТ"] == b.s09["ОТВЕТ"] == MODEL_REFUSED_ANSWER
+    assert h["РЕКОМЕНДАЦИЯ"] == MODEL_REFUSED_RECOMMENDATION
+    assert h["f3"] == b.s02 == (MODEL_REFUSED_FINDING, MODEL_REFUSED_FINDING_SUPPORT)
+    assert h["01"] == (MODEL_REFUSED_ACTION_01_TITLE, MODEL_REFUSED_ACTION_01)
+    assert h["ЭФФЕКТ"] == "Не определён" == b.s09["ЭФФЕКТ"]
+
+
+def test_refused_finding_wins_over_honest_all_below_breakeven():
+    """Отказ модели важнее «все каналы под breakeven» (как в заголовке: отказ проверяется первым)."""
+    data = _data(_ALL, refused=True, spec={n: {"mroas": 0.5} for n in _ALL})
+    data["narrative_facts"].update(honest_narrative=True, media_contribution_pct=5.0, baseline_pct=95.0)
+    b = Built(data)
+    assert b.s02 == (MODEL_REFUSED_FINDING, MODEL_REFUSED_FINDING_SUPPORT)
+    assert b.html["f3"] == (MODEL_REFUSED_FINDING, MODEL_REFUSED_FINDING_SUPPORT)
+
+
+def test_not_refused_texts_unchanged():
+    """Регрессия: без отказа модели – прежние тексты (сошёлся – директивные, не сошёлся – константы nc)."""
+    b = _b("N5 1Cut")
+    assert b.s09["ОТВЕТ"].startswith(f"Перераспределить 130 млн ₽ из {_T} в Social")
+    assert b.html["РЕКОМЕНДАЦИЯ"] == "Ожидаемый прирост ROAS: +7 пп."
+    assert b.s02[0].startswith("Рекомендация: перераспределить 130 млн")
+    nc = _b("N5 1Cut nc")
+    assert nc.s09["01"][0] == OPT_NOT_CONVERGED_ACTION_01_TITLE
+    assert nc.s02 == (OPT_NOT_CONVERGED_FINDING, OPT_NOT_CONVERGED_FINDING_SUPPORT)

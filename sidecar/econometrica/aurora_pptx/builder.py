@@ -1112,6 +1112,8 @@ class AuroraPPTXBuilder:
         # s47: стороны переброски — общее правило, одно на HTML и на колоду.
         from utils.optimizer_honesty import reallocation_subjects, format_realloc_mln
         from engines.channel_action import (
+            MODEL_REFUSED_FINDING,
+            MODEL_REFUSED_FINDING_SUPPORT,
             OPT_NOT_CONVERGED_FINDING,
             OPT_NOT_CONVERGED_FINDING_SUPPORT,
             optimization_not_converged,
@@ -1130,7 +1132,12 @@ class AuroraPPTXBuilder:
             and self.kpi["mode"] != "effectiveness"
             and all((float(c.get("mroas") or c.get("roi") or 0) < 1.0) for c in self.channels)
         )
-        if honest and all_below_breakeven:
+        if f.get("model_refused"):
+            # s63 Б1: отказ модели – переброска отключена (как заголовок и ОТВЕТ слайда
+            # «Рекомендация»): ни суммы, ни прироста «+X пп». Важнее прочих веток, как в заголовке.
+            f3 = MODEL_REFUSED_FINDING
+            s3 = MODEL_REFUSED_FINDING_SUPPORT
+        elif honest and all_below_breakeven:
             f3 = "Рекомендация: все каналы под breakeven – сократить медиа или диагностика данных"
             if self.kpi["is_legacy"]:
                 s3 = "При weighted ROI < 1× оптимизация перераспределением не вернёт прибыльность"
@@ -3248,13 +3255,20 @@ class AuroraPPTXBuilder:
             # s63 №1: несошедшаяся оптимизация – ни «требует перебалансировки», ни
             # «насыщение каналов» (оба утверждения опираются на её результат).
             from engines.channel_action import (
+                MODEL_REFUSED_ANSWER,
+                MODEL_REFUSED_COMPLICATION_TAIL,
+                MODEL_REFUSED_QUESTION,
                 OPT_NOT_CONVERGED_ANSWER,
                 OPT_NOT_CONVERGED_COMPLICATION_TAIL,
                 OPT_NOT_CONVERGED_QUESTION,
                 optimization_not_converged,
             )
             _not_converged = optimization_not_converged(f)
-            if _not_converged:
+            # s63 Б1: отказ модели – ни «требует перебалансировки», ни «насыщение каналов».
+            _refused = bool(f.get("model_refused"))
+            if _refused:
+                _compl_tail = MODEL_REFUSED_COMPLICATION_TAIL
+            elif _not_converged:
                 _compl_tail = OPT_NOT_CONVERGED_COMPLICATION_TAIL
             elif _no_recipient:
                 # s63 пакет (п.2): заголовок «… – явного канала для роста нет» –
@@ -3277,8 +3291,8 @@ class AuroraPPTXBuilder:
             # выше через derive_action_headline (model_refused) - здесь узел
             # свой, отдельный от derive_action_headline, гейт дублируется
             # намеренно (тот же флаг, оба узла независимо формируют директиву).
-            if f.get("model_refused"):
-                answer_body = "Модель не завершила расчёт корректно – рекомендации по переброске отключены."
+            if _refused:
+                answer_body = MODEL_REFUSED_ANSWER
             elif _not_converged:
                 # s63 №1: текст ОТВЕТА веб-отчёта (общая константа) – без суммы,
                 # без «сократить или остановить»: рекомендаций оптимизатора нет.
@@ -3317,7 +3331,10 @@ class AuroraPPTXBuilder:
             # «как перераспределить» обещал то, чего ответ не даёт.
             # s63 пакет (п.5): при несошедшейся оптимизации – общая с веб-отчётом константа;
             # (п.2) без получателя переброски «как перераспределить» тоже не спрашиваем.
-            if _not_converged:
+            if _refused:
+                # s63 Б1: отказ модели – общая с веб-отчётом константа, не «как перераспределить».
+                _question_body = MODEL_REFUSED_QUESTION
+            elif _not_converged:
                 _question_body = OPT_NOT_CONVERGED_QUESTION
             else:
                 _question_body = (
@@ -3405,16 +3422,23 @@ class AuroraPPTXBuilder:
                     # действия 01 веб-отчёта (общая константа), без суммы переброски;
                     # прироста «+X пп» (действие 03) тоже нет.
                     from engines.channel_action import (
+                        MODEL_REFUSED_ACTION_01,
+                        MODEL_REFUSED_ACTION_01_TITLE,
                         OPT_NOT_CONVERGED_ACTION_01,
                         OPT_NOT_CONVERGED_ACTION_01_TITLE,
                         optimization_not_converged,
                     )
                     _rec_not_converged = optimization_not_converged(f)
+                    # s63 Б1: отказ модели – действие 01 без суммы и директивы переброски,
+                    # действие 03 без «+X пп» (общие с веб-отчётом константы).
+                    _rec_refused = bool(f.get("model_refused"))
 
                     # s63 пакет (п.4): заголовок действия 01 при несошедшейся оптимизации –
                     # общая с веб-отчётом константа (тело уже «Оптимизация не сошлась – …»);
                     # (п.2) без получателя переброски – про сокращение названных каналов.
-                    if _rec_not_converged:
+                    if _rec_refused:
+                        action_01_title = MODEL_REFUSED_ACTION_01_TITLE
+                    elif _rec_not_converged:
                         action_01_title = OPT_NOT_CONVERGED_ACTION_01_TITLE
                     elif _no_recipient:
                         action_01_title = (
@@ -3422,7 +3446,9 @@ class AuroraPPTXBuilder:
                         )
                     else:
                         action_01_title = "Перераспределить бюджет."
-                    if _rec_not_converged:
+                    if _rec_refused:
+                        action_01_body = f" {MODEL_REFUSED_ACTION_01}"
+                    elif _rec_not_converged:
                         action_01_body = f" {OPT_NOT_CONVERGED_ACTION_01}"
                     elif _no_recipient:
                         # s63 пакет (п.2): те же каналы и суммы, что в ОТВЕТЕ этого слайда.
@@ -3475,7 +3501,8 @@ class AuroraPPTXBuilder:
                     # Пласт 2 (2026-07-11): KPI-aware lift fragment — для count/effectiveness «ROAS» не применим.
                     _lift_frag = (
                         f" {_lift_phrase_pptx(lift, self.kpi)} – проверить фактом."
-                        if (lift is not None and lift >= 0.5 and not _rec_not_converged and not _no_recipient)
+                        if (lift is not None and lift >= 0.5 and not _rec_not_converged and not _no_recipient
+                            and not _rec_refused)
                         else " Проверить, что фактические продажи соответствуют прогнозу модели."
                     )
                     actions = [
@@ -3537,6 +3564,9 @@ class AuroraPPTXBuilder:
         # s63 №1: несошедшаяся оптимизация – прироста для показа нет.
         from engines.channel_action import optimization_not_converged
         if self.facts and optimization_not_converged(self.facts):
+            _lift_box = None
+        # s63 Б1: отказ модели – прироста для показа тоже нет.
+        if self.facts and self.facts.get("model_refused"):
             _lift_box = None
         # s63 пакет (п.2): заголовок без получателя переброски («явного канала для роста
         # нет») – прирост переброски внутри бюджета к рекомендации слайда не относится.
