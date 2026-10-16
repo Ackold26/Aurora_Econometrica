@@ -649,10 +649,17 @@ describe('Б8: «план уже оптимален» не печатается 
     expect(t).not.toContain('+0.4%');
   });
   it('расчёт не сошёлся / упор в ограничения / «сошёлся в текущем плане» → признак не выполнен', () => {
-    for (const extra of [{ optimization_converged: false }, { binding_constraints: ['TV'] }, { converged_at_current: true }]) {
-      const t = reportText(optRes({ extra }));
-      expect(t).toContain('план уже оптимален');
-    }
+    // s62 (аудит К3-1, М2): «план уже оптимален» и «перекладки нет» – только когда расчёт
+    // сошёлся; при отказе и упоре в ограничения – свой текст, перекладка в таблице остаётся.
+    const notConv = reportText(optRes({ extra: { optimization_converged: false } }));
+    expect(notConv).toContain('расчёт не сошёлся');
+    expect(notConv).not.toContain('оптимален в заданных');
+    expect(notConv).not.toContain('перекладки бюджета нет');
+    const binding = reportText(optRes({ extra: { binding_constraints: ['TV'] } }));
+    expect(binding).toContain('упирается в рамки Мин/Макс %');
+    expect(binding).not.toContain('план уже оптимален');
+    expect(binding).not.toContain('перекладки бюджета нет');
+    expect(reportText(optRes({ extra: { converged_at_current: true } }))).toContain('план уже оптимален');
   });
   it('только наращивание / только сокращение – признак выполнен без порога (как у «Главной рекомендации»)', () => {
     const onlyScale = optRes({ shift: 1 * M });
