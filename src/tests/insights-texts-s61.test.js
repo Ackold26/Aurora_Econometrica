@@ -440,6 +440,33 @@ describe('Б-1: validateRolesInsights – то же число каналов и
   it('ключ без записи = включена: карта с другим ключом ничего не меняет', () => {
     expect(texts(res(five, sparse), { other: false })).toEqual(texts(res(five, sparse)));
   });
+  const NL = String.fromCharCode(10);
+  // Сравнение «с картой» и «без карты» друг с другом не ловит ошибку правила «нет ключа = выключена»:
+  // оба варианта ломаются одинаково (ноль каналов). Поэтому здесь проверяется содержание итога.
+  it('ключ есть не у всех: колонки без записи включены, ошибки «Нет активных медиа-каналов» нет', () => {
+    // у sparse_spend ключ false, у остальных четырёх записи нет: включены четыре, а не ноль
+    const t = texts(res(five, sparse), { sparse_spend: false }).join(NL);
+    expect(t, 'колонки без ключа в карте посчитаны выключенными').not.toContain('Нет активных медиа-каналов');
+    expect(t).toContain('Данные готовы к обучению модели');
+  });
+  it('карта не передана, равна null или пуста: все медиа включены, ошибки о каналах нет', () => {
+    for (const map of [undefined, null, {}]) {
+      const t = texts(res(five, sparse), map).join(NL);
+      expect(t, `карта ${JSON.stringify(map)}: каналы не засчитаны`).not.toContain('Нет активных медиа-каналов');
+      expect(t).toContain('Данные готовы к обучению модели');
+    }
+  });
+  it('ключ true или не-булево значение оставляют колонку включённой, только false выключает', () => {
+    const t = texts(res(five, sparse), { a_spend: true, b_spend: undefined, c_spend: 1 }).join(NL);
+    expect(t).not.toContain('Нет активных медиа-каналов');
+    expect(t).toContain('Данные готовы к обучению модели');
+  });
+  it('выключены ВСЕ медиа-колонки → ошибка «Нет активных медиа-каналов» (отказ остаётся честным)', () => {
+    const allOff = Object.fromEntries(five.map((n) => [n, false]));
+    const t = texts(res(five, sparse), allOff).join(NL);
+    expect(t).toContain('Нет активных медиа-каналов');
+    expect(t).not.toContain('Данные готовы к обучению модели');
+  });
   it('validateInsights принимает карту шестым аргументом так же, как validateRolesInsights', () => {
     const viaRoles = validateRolesInsights(res(five, sparse), 'roi', 'bayesian', true, 0, { sparse_spend: false });
     const direct = validateInsights(res(five, sparse), 'roi', 'bayesian', true, 0, { sparse_spend: false });
