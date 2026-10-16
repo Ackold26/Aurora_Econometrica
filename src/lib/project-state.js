@@ -23,7 +23,7 @@ import { applyProjectRolesToColumns, restoreExcludedColumns } from './column-rol
 import { detectChannelUnitType } from './services/classifier-patterns.js';
 // s61 круг 2 (А-1, А-2): разбор имени колонки и план развязки пар – тот же, по
 // которому пары выключают физическую половину.
-import { parseChannelMetric, resolvePairSelection } from './channel-pairs.js';
+import { parseChannelMetric, resolvePairSelection, groupChannelColumns } from './channel-pairs.js';
 
 /** @type {import('svelte/store').Writable<string|null>} Active project ID */
 export const activeProjectId = writable(null);
@@ -391,6 +391,52 @@ export const chosenKpiColumn = writable(/** @type {string | null} */ (null));
 export const modelChannelEnabled = writable(/** @type {Record<string, boolean>} */ ({}));
 
 /**
+ * s63 (К2-4): причина `false` в карте включённости, которую поставила развязка пар
+ * «бюджет + физическая метрика». 'off' – половину выключила развязка по посылке
+ * «у канала есть вторая половина»; 'revived' – посылка исчезла (вторую половину
+ * исключили на «Ролях колонок»), и половина включена обратно. Признак живёт ВНЕ
+ * локальной карты панели обучения: она пересобирается по медиа-колонкам, и запись
+ * исключённой колонки пропадает раньше нажатия «Далее». Только память сеанса – на
+ * диск не пишется; сбрасывается при смене проекта, снимается ручной галочкой.
+ * @type {import('svelte/store').Writable<Record<string, 'off' | 'revived'>>}
+ */
+export const pairToggleReasons = writable(/** @type {Record<string, 'off' | 'revived'>} */ ({}));
+
+/**
+ * s63 (К2-4): запомнить, какие колонки выключила развязка. Зовётся сразу после
+ * применения развязки к карте; `before` – карта до неё. Признак 'off' получает
+ * только колонка, которую развязка ПЕРЕВЕЛА во `false`: уже выключенная раньше
+ * (пользователем или сторожем разреженности) – чужая причина, признака нет.
+ * Колонка, которую развязка включила, признак теряет.
+ * @param {Record<string, boolean>|null|undefined} before
+ */
+export function notePairDecoupling(before) {
+  const after = get(modelChannelEnabled) ?? {};
+  pairToggleReasons.update((reasons) => {
+    const next = { ...reasons };
+    for (const [name, value] of Object.entries(after)) {
+      if (value === false && before?.[name] !== false) next[name] = 'off';
+      else if (value === true && before?.[name] === false) delete next[name];
+    }
+    return next;
+  });
+}
+
+/**
+ * s63 (К2-4): ручное переключение колонки пользователем снимает признак развязки –
+ * его выбор больше не перезаписывается.
+ * @param {string} name
+ */
+export function forgetPairToggleReason(name) {
+  pairToggleReasons.update((reasons) => {
+    if (!(name in reasons)) return reasons;
+    const next = { ...reasons };
+    delete next[name];
+    return next;
+  });
+}
+
+/**
  * LOAD-1 (2026-06-07): вычислить ВКЛ/ВЫКЛ-состояние медиа-каналов для ConfigPanel init.
  * Persisted toggle (project.json `model_channel_enabled`) имеет ПРИОРИТЕТ над
  * auto-default (`zeros_pct>80` → выкл). Без приоритета ручной disabled low-zeros канал
@@ -466,10 +512,12 @@ activeProject.subscribe((p) => {
   if (!p) {
     _lastChannelEnabledProjectId = null;
     modelChannelEnabled.set({});
+    pairToggleReasons.set({});  // s63 (К2-4): признаки развязки – только своего проекта
     return;
   }
   if (p.id === _lastChannelEnabledProjectId) return;  // тот же проект (mid-session set) → не клоббить
   _lastChannelEnabledProjectId = p.id;
+  pairToggleReasons.set({});
   /** @type {Record<string, boolean>} */
   const saved = {};
   for (const [name, value] of Object.entries(p.model_channel_enabled ?? {})) {
@@ -477,6 +525,80 @@ activeProject.subscribe((p) => {
   }
   modelChannelEnabled.set(saved);
 });
+
+// s63 (К2-4): развязка выключила половину пары по посылке «у канала есть вторая
+// половина». Пользователь исключил вторую половину на «Ролях колонок» – посылка
+// исчезла: без этого канал с данными и ролью «медиа» молча выпадал из модели
+// (смещение от пропущенной переменной), а обучение проходило без ошибки.
+// Подписка синхронная – срабатывает в момент смены ролей, раньше эффектов панели
+// обучения, и панель берёт уже исправленную карту. Включается только колонка с
+// признаком 'off'; канал, который остался парой, не трогается (одна половина на
+// канал, как в 2.5.10); разреженная колонка (нулей > 80 %) остаётся выключенной –
+// это другая причина. Гейт цены единицы не меняется: включённая физическая
+// половина без цены по-прежнему держит «Модель» и обучение закрытыми.
+validateData.subscribe(($vd) => {
+  const reasons = get(pairToggleReasons);
+  const off = Object.keys(reasons).filter((name) => reasons[name] === 'off');
+  if (off.length === 0) return;
+  const media = /** @type {any[]} */ ($vd?.result?.columns ?? []).filter((c) => c?.role === 'media' && c?.name);
+  const { byChannel } = groupChannelColumns(
+    media.map((c) => String(c.name)),
+    (name) => detectChannelUnitType(name) === 'physical',
+  );
+  const map = get(modelChannelEnabled);
+  /** @type {string[]} */
+  const revive = [];
+  for (const name of off) {
+    const col = media.find((c) => c.name === name);
+    if (!col || map?.[name] !== false) continue;
+    const group = Object.values(byChannel).find((g) => g.monetary.includes(name) || g.physical.includes(name));
+    if (!group || (group.monetary.length > 0 && group.physical.length > 0)) continue;
+    if ((col.stats?.zeros_pct ?? 0) > 80) continue;
+    revive.push(name);
+  }
+  if (revive.length === 0) return;
+  pairToggleReasons.update((r) => {
+    const next = { ...r };
+    for (const name of revive) next[name] = 'revived';
+    return next;
+  });
+  modelChannelEnabled.update((m) => {
+    const next = { ...m };
+    for (const name of revive) next[name] = true;
+    return next;
+  });
+});
+
+/**
+ * s63 (К2-4): строка для подшага «Метрики каналов» – какие половины включены
+ * обратно вместо исключённых расходов и ждут цену единицы. Только колонки,
+ * которым цена действительно нужна (тот же предикат, что у гейта); цена задана,
+ * колонку выключили или режим «Эффективность» – строки нет (`null`).
+ * @param {Record<string, 'off' | 'revived'>|null|undefined} reasons
+ * @param {{
+ *   modelChannelEnabled?: Record<string, boolean>|null,
+ *   perChannelInput?: Record<string, string>|null,
+ *   unitCosts?: Record<string, number>|null,
+ *   analysisMode?: string
+ * }} snapshot
+ * @returns {string|null}
+ */
+export function revivedHalvesNote(reasons, snapshot) {
+  const names = Object.keys(reasons ?? {}).filter((name) =>
+    reasons?.[name] === 'revived'
+    && isModelColumnEnabled(snapshot?.modelChannelEnabled, name)
+    && !cppSatisfied({
+      channels: [name],
+      perChannelInput: snapshot?.perChannelInput,
+      unitCosts: snapshot?.unitCosts,
+      analysisMode: snapshot?.analysisMode,
+    }));
+  if (names.length === 0) return null;
+  const list = names.map((name) => `«${name}»`).join(', ');
+  return names.length === 1
+    ? `Включена метрика ${list} вместо исключённых расходов, укажите цену единицы.`
+    : `Включены метрики ${list} вместо исключённых расходов, укажите цену единицы.`;
+}
 
 /**
  * Derived: names of active media channels on шаге Модель (filter по
@@ -1717,6 +1839,51 @@ export function cppSatisfiedForPairPlan(byChannel, baseSelection, stores) {
     unitCosts: stores?.unitCosts,
     analysisMode: stores?.analysisMode,
   });
+}
+
+/**
+ * s63 (К2-3): каналы для сводки подшага «Метрики каналов» – колонки ПЛАНА развязки
+ * (имя колонки и её метрика), тот же план, что у кнопки «Далее ▶» и у нажатия.
+ * Раньше сводке шли базы каналов: в парном файле редактор цены писал
+ * `unitCosts.tv`, а гейт читал `unitCosts.tv_trp` – путь «TRP + цена» был тупиком.
+ * У канала из одной колонки без суффикса (`olv_views`) имя колонки и есть имя
+ * канала – поведение прежнее.
+ * @param {Record<string, {monetary: string[], physical: string[]}>} byChannel
+ * @param {Record<string, 'monetary'|'physical'>|null|undefined} baseSelection
+ * @returns {Array<{name: string, detectedType: 'monetary'|'physical'}>}
+ */
+export function pairPlanSummaryChannels(byChannel, baseSelection) {
+  const { perColumn } = resolvePairSelection(byChannel ?? {}, baseSelection ?? {});
+  return Object.entries(perColumn).map(([name, detectedType]) => ({ name, detectedType }));
+}
+
+/**
+ * s63 (К2-3): запасное чтение цены, записанной до правки под именем КАНАЛА
+ * (`unitCosts.tv`). Переносится на колонку, только если канал не совпадает по
+ * имени ни с одной колонкой, физическая колонка у него ровно одна и своей цены у
+ * неё нет. Старый ключ не удаляется. Нечего переносить – возвращается ТОТ ЖЕ
+ * объект (вызывающий эффект сравнивает по ссылке и не пишет в стор).
+ * @param {Record<string, number>|null|undefined} costs
+ * @param {Record<string, {monetary: string[], physical: string[]}>|null|undefined} byChannel
+ * @returns {Record<string, number>}
+ */
+export function adoptChannelKeyedUnitCosts(costs, byChannel) {
+  const source = costs ?? {};
+  const groups = byChannel ?? {};
+  const columnNames = new Set(Object.values(groups).flatMap((g) => [...(g?.monetary ?? []), ...(g?.physical ?? [])]));
+  /** @type {Record<string, number>|null} */
+  let next = null;
+  for (const [base, opts] of Object.entries(groups)) {
+    const legacy = source[base];
+    if (columnNames.has(base) || typeof legacy !== 'number' || legacy <= 0) continue;
+    if ((opts?.physical ?? []).length !== 1) continue;
+    const col = opts.physical[0];
+    const own = (next ?? source)[col];
+    if (typeof own === 'number' && own > 0) continue;
+    if (!next) next = { ...source };
+    next[col] = legacy;
+  }
+  return next ?? /** @type {Record<string, number>} */ (source);
 }
 
 /**

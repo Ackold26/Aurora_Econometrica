@@ -7,7 +7,7 @@
    * @component ConfigPanel
    */
   import { invoke } from '@tauri-apps/api/core';
-  import { activeProjectId, activeProject, pipelineState, importData, isComputing, computeStatus, expertMode, unitCosts, modelEngine, channelCategories, modelChannelEnabled, disabledHolidays, useHolidays, useSeasonality, lastTrainedConfig, chosenKpiColumn, kpiType, valuePerCountUnit, kpiKind, analysisMode, perChannelInput, cppSatisfied, analysisModeIsPersisted, resolveChannelEnabled, mergeLiveChannelEnabled } from '$lib/project-state.js';
+  import { activeProjectId, activeProject, pipelineState, importData, isComputing, computeStatus, expertMode, unitCosts, modelEngine, channelCategories, modelChannelEnabled, disabledHolidays, useHolidays, useSeasonality, lastTrainedConfig, chosenKpiColumn, kpiType, valuePerCountUnit, kpiKind, analysisMode, perChannelInput, cppSatisfied, analysisModeIsPersisted, resolveChannelEnabled, mergeLiveChannelEnabled, forgetPairToggleReason } from '$lib/project-state.js';
   import { get } from 'svelte/store';
   import { untrack } from 'svelte';
   import { pluralizeRu } from '$lib/utils/i18n.js';
@@ -625,7 +625,8 @@
     <div class="channels-grid">
       {#each mediaChannels as ch}
         <label class="channel-item" class:disabled={ch.stats?.zeros_pct > 80}>
-          <input type="checkbox" bind:checked={channelEnabled[ch.name]} />
+          <!-- s63 (К2-4): ручная галочка снимает признак развязки – выбор пользователя не перезаписывается. -->
+          <input type="checkbox" bind:checked={channelEnabled[ch.name]} onchange={() => forgetPairToggleReason(ch.name)} />
           <span class="channel-name">{ch.name}</span>
           {#if ch.stats?.zeros_pct > 50}
             <span class="channel-warn" title="{ch.stats.zeros_pct}% нулей">{ch.stats.zeros_pct}%∅</span>

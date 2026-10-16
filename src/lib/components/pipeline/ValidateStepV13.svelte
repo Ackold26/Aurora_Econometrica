@@ -31,6 +31,9 @@
     cppSatisfiedForPairPlan,
     // s61 круг 2 (А-3, А-4): обновления карты включённости – чистые функции.
     applyExpressPairPlan, applyPairSelectionToEnabledMap,
+    // s63 (К2-4): причина выключения половины пары; (К2-3): сводка по колонкам плана.
+    notePairDecoupling, pairToggleReasons, revivedHalvesNote,
+    pairPlanSummaryChannels, adoptChannelKeyedUnitCosts,
     // v2.1.0 (rc2 U-05): sync subStep в store для InsightsPanel routing.
     validateSubStep,
     // v2.1.0 (пилот 2026-05-17): persist KPI выбор → ConfigPanel.
@@ -448,9 +451,11 @@
       .filter((o) => (o?.physical ?? []).length > 0)
       .flatMap((o) => o?.monetary ?? []);
     if (pairedMoney.length || expressPlan.disable?.length) {
+      const beforeDecoupling = get(modelChannelEnabled);
       modelChannelEnabled.update((mapping) =>
         applyExpressPairPlan(mapping, availableMetricsByChannel, expressPlan.disable));
       persistPairToggles(); // Д-6: durable, иначе ConfigPanel перетрёт развязку
+      notePairDecoupling(beforeDecoupling); // s63 (К2-4): помнить, что выключила развязка
     }
     analysisMode.set('roi');
     const m = deriveModeWithExplanation(expressPlan.uniform);
@@ -644,10 +649,12 @@
     // автоотключённый разреженный канал и канал, снятый галочкой на «Модели», молча
     // включались бы обратно при каждом «Далее» (через обратную синхронизацию это
     // доезжает до панели обучения).
+    const beforeDecoupling = get(modelChannelEnabled);
     modelChannelEnabled.update((mapping) =>
       applyPairSelectionToEnabledMap(mapping, availableMetricsByChannel, baseSel));
     persistPairToggles(); // Д-6: без durable ConfigPanel пересоберёт карту из
                           // project.model_channel_enabled и перетёр бы развязку
+    notePairDecoupling(beforeDecoupling); // s63 (К2-4): помнить, что выключила развязка
     currentPerChannel = typed;
     perChannelInput.set(typed);
     // 3A (verified live 2026-06-03 desktop-control): Expert-путь должен соблюдать
@@ -1109,6 +1116,21 @@
     managerBaseSelection,
     { perChannelInput: $perChannelInput, unitCosts: $unitCosts, analysisMode: $analysisMode },
   ));
+  // s63 (К2-3): сводке и редактору цены – колонки того же плана (имя колонки), что
+  // судит кнопка: цена пишется под тем именем, которое читает гейт.
+  const summaryChannels = $derived(pairPlanSummaryChannels(availableMetricsByChannel, managerBaseSelection));
+  // s63 (К2-3): цена, записанная до правки под именем канала, – на его физическую колонку.
+  $effect(() => {
+    const adopted = adoptChannelKeyedUnitCosts($unitCosts, availableMetricsByChannel);
+    if (adopted !== $unitCosts) unitCosts.set(adopted);
+  });
+  // s63 (К2-4): половина пары, включённая обратно вместо исключённых расходов и ждущая цену.
+  const revivedNote = $derived(revivedHalvesNote($pairToggleReasons, {
+    modelChannelEnabled: $modelChannelEnabled,
+    perChannelInput: $perChannelInput,
+    unitCosts: $unitCosts,
+    analysisMode: $analysisMode,
+  }));
 
   /**
    * U-01/4d (пилот 2026-05-16): подтверждение метрик каналов в Manager mode.
@@ -1504,15 +1526,14 @@
          Expert mode → existing PerChannelInputSelector (per-channel control).
          Each component self-conditions via $expertMode store. -->
     <AppliedModeSummary
-      channels={channels.map((name) => ({
-        name,
-        // Д-9: выбор хранится per-колонке – показываем метрику базы из развязки.
-        detectedType: selectionByBase[name] ?? $perChannelInput?.[name] ?? detectChannelType(name),
-      }))}
+      channels={summaryChannels}
       channelSums={channelSums}
       excludedChannelNames={excludedMediaNames}
       onRestoreChannel={(name) => handleRoleChange(name, 'media')}
     />
+    {#if revivedNote}
+      <div class="expert-cpp-banner" role="status" data-testid="revived-half-note">{revivedNote}</div>
+    {/if}
     <!-- U-01/4d (пилот 2026-05-16): Manager mode — явная кнопка «Далее».
          Без Expert mode пользователь не мог активировать глобальную кнопку
          «Далее» в footer pipeline — она была заблокирована пока не пройдена
