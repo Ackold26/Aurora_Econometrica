@@ -195,13 +195,13 @@ def test_xlsx_project_not_affected(tmp_path):
 def test_new_warning_goes_before_existing_ols_warning(proj):
     """(з) Склейка: новое предупреждение – первым, прежнее OLS сохранено целиком после него."""
     base = _decompose(proj)["model_warning"]
-    assert base and base.startswith("OLS-режим"), "основа теста: у OLS прежнее предупреждение непустое"
+    assert base and base.startswith("Режим малых данных (OLS)"), "основа теста: у OLS прежнее предупреждение непустое"
     _set_dates(proj, OLD_READ)
     w = _decompose(proj)["model_warning"]
     assert w.startswith(WARNING_HEAD)
     assert w.endswith(base)
-    assert w.index("Переобучите модель") < w.index("OLS-режим")
-    assert w == f"{w[:-len(base)].rstrip()} {base}" and w.count("OLS-режим") == 1
+    assert w.index("Переобучите модель") < w.index("Режим малых данных (OLS)")
+    assert w == f"{w[:-len(base)].rstrip()} {base}" and w.count("Режим малых данных (OLS)") == 1
 
 
 def test_warning_does_not_change_numbers(proj):

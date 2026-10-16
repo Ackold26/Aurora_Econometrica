@@ -9,8 +9,9 @@
     канала»; заголовок слайда mROAS и заголовок раздела рекомендаций (веб-отчёт) не зовут
     «нарастить» этот канал; цитата «Каждый рубль … Сигнал к перераспределению…» теряет вторую
     фразу. Хвост и эти правки – ТОЛЬКО когда отчёт сам не говорит, что рекомендаций нет:
-    в веб-отчёте – модель не отказала И оптимизация сошлась; в презентации (её ОТВЕТ читает
-    один `model_refused`) – модель не отказала (аудит s60, находка 2).
+    в веб-отчёте – модель не отказала И оптимизация сошлась; в презентации – так же с s63 №1
+    (до s63 её ОТВЕТ читал один `model_refused`, и при несошедшейся оптимизации она оставалась
+    директивной – аудит s60, находка 2; расхождение закрыто).
 
 Тексты проверяются ДОСЛОВНО; сценарии строятся штатно (факты – через адаптер поверх фикстуры).
 Помощники – из `test_underperformers_unified` (`_scenario_data`, блоки HTML и PPTX).
@@ -405,7 +406,9 @@ def test_hero_part_count_kpi_real_scale_is_absent():
     # Штучный KPI (аудит s60, находка 1): сырой mROAS ≪ 1.2, но «нарастить» героя Reduce нет
     # нигде на странице веб-отчёта.
     assert "нарастить" not in b.flat.casefold()
-    assert _HTML_TITLE_HERO_CUT in b.flat
+    # s63 №2: метрика заголовка – подпись страницы (штучный KPI – CPU), не «mROAS».
+    assert _HTML_TITLE_HERO_CUT.replace("по mROAS", "по CPU") in b.flat
+    assert _HTML_TITLE_HERO_CUT not in b.flat
 
 
 # ─── (г): заголовок раздела рекомендаций (веб-отчёт) ────────────────────────
@@ -453,11 +456,10 @@ def test_hero_cut_texts_absent_when_model_refused():
 
 
 def test_hero_cut_texts_when_optimization_not_converged_follow_each_answer():
-    """Оптимизация не сошлась (аудит s60, находка 2): гейт хвоста повторяет гейт ОТВЕТА своего формата.
-    Веб-отчёт: ОТВЕТ «Оптимизация не сошлась …» – хвоста, заголовка «лучший канал» и «нарастить» нет.
-    Презентация: ОТВЕТ читает один `model_refused` и по-прежнему директивен («сократить или остановить
-    Social») – хвост в ПРОБЛЕМЕ и заголовок слайда mROAS «…, но оптимизатор рекомендует сократить»
-    есть, «Нарастить Social» нет."""
+    """Оптимизация не сошлась (аудит s60, находка 2; s63 №1): гейт хвоста повторяет гейт ОТВЕТА, а ОТВЕТ
+    презентации теперь, как у веб-отчёта, говорит «Оптимизация не сошлась …». Оба формата: хвоста, заголовка
+    «лучший канал … оптимизатор рекомендует» и «нарастить» нет; ответ презентации и веб-отчёта – один текст.
+    (До s63 презентация здесь оставалась директивной: «сократить или остановить Social», хвост, заголовок.)"""
     b = _build(spec={"Social": _ch("Reduce")}, facts_patch={"optimization_converged": False})
     # веб-отчёт
     assert b.html["ОТВЕТ"].startswith("Оптимизация не сошлась.")
@@ -468,12 +470,14 @@ def test_hero_cut_texts_when_optimization_not_converged_follow_each_answer():
     assert "нарастить" not in b.flat.casefold()
     assert _SIGNAL in b.flat
     # презентация
-    assert _HERO_CUT_PART in b.pptx["ПРОБЛЕМА"]
-    assert "сократить или остановить Social" in b.pptx["ОТВЕТ"]
-    assert b.headline("mroas") == _MROAS_HERO_CUT
-    assert _MROAS_HERO_CUT in b.deck
+    assert _HERO_PLAIN_PART in b.pptx["ПРОБЛЕМА"]
+    assert _HERO_CUT_PART not in b.pptx["ПРОБЛЕМА"]
+    assert b.pptx["ОТВЕТ"] == b.html["ОТВЕТ"]
+    assert "сократить или остановить" not in b.pptx["ОТВЕТ"]
+    assert "рекомендует сократить бюджет канала" not in b.deck
+    assert b.headline("mroas") == "Social – лучший канал по mROAS (27.03×)"
     assert "Нарастить Social" not in b.deck
-    assert _SIGNAL not in b.deck.replace("\n", " ")
+    assert _SIGNAL not in b.deck.replace("\n", " ")  # цитата «Ключевого сообщения» – гейт героя Cut/Reduce, прежний
 
 
 def test_html_title_never_says_grow_for_cut_hero_whatever_the_gate():

@@ -191,6 +191,53 @@ def строки_сертификата(cert) -> list[tuple[str, str]]:
     return строки
 
 
+def _decomp_axis_plan(values, unit):
+    """План оси значений и подписей слайда «Декомпозиция продаж» (s63 №17).
+
+    Единица по порядку величины максимума (млрд / млн / тыс.), шаг – «круглый»
+    (1, 2, 5 × 10^k), чтобы деления читались без «25000000000». Масштаб
+    делает формат ячейки (запятые после `#,##0`), сами значения в диаграмме –
+    исходные: «Изменить данные» в PowerPoint показывает их же. Чистая функция.
+
+    Возвращает dict: unit_text, axis_min/axis_max/major_unit (в исходных
+    единицах), axis_format, label_format.
+    """
+    vals = [float(v) for v in values]
+    hi = max(vals + [0.0])
+    lo = min(vals + [0.0])
+    span = max(abs(hi), abs(lo))
+    if span >= 1e9:
+        scale, commas, word = 1e9, 3, "млрд"
+    elif span >= 1e6:
+        scale, commas, word = 1e6, 2, "млн"
+    elif span >= 1e4:
+        scale, commas, word = 1e3, 1, "тыс."
+    else:
+        scale, commas, word = 1.0, 0, ""
+    s_hi, s_lo = hi / scale, lo / scale
+    raw = (s_hi - s_lo) / 5.0 or 1.0
+    mag = 10 ** math.floor(math.log10(raw))
+    step = next(m * mag for m in (1, 2, 5, 10) if m * mag >= raw - 1e-12)
+    axis_max = math.ceil(s_hi / step - 1e-9) * step
+    axis_min = math.floor(s_lo / step + 1e-9) * step
+    if axis_max <= axis_min:
+        axis_max = axis_min + step
+    axis_dec = 0 if abs(step - round(step)) < 1e-9 else 1
+    label_dec = 1 if scale > 1 else 0
+
+    def _fmt(dec):
+        return "#,##0" + ("." + "0" * dec if dec else "") + "," * commas
+
+    return {
+        "unit_text": " ".join(x for x in (word, unit) if x),
+        "axis_min": axis_min * scale,
+        "axis_max": axis_max * scale,
+        "major_unit": step * scale,
+        "axis_format": _fmt(axis_dec),
+        "label_format": _fmt(label_dec),
+    }
+
+
 class AuroraPPTXBuilder:
     """Production PPTX builder for Aurora AI Econometrica MMM reports.
 
@@ -1058,6 +1105,11 @@ class AuroraPPTXBuilder:
 
         # s47: стороны переброски — общее правило, одно на HTML и на колоду.
         from utils.optimizer_honesty import reallocation_subjects, format_realloc_mln
+        from engines.channel_action import (
+            OPT_NOT_CONVERGED_FINDING,
+            OPT_NOT_CONVERGED_FINDING_SUPPORT,
+            optimization_not_converged,
+        )
         _f3_subjects = reallocation_subjects(f)
 
         # v1.3.2 audit fix (M1): для effectiveness mode skip - shares always
@@ -1076,6 +1128,11 @@ class AuroraPPTXBuilder:
                     f"Когда у всех каналов {_under_breakeven_phrase_pptx(self.kpi)} – "
                     "оптимизация перераспределением не вернёт прибыльность"
                 )
+        elif optimization_not_converged(f):
+            # s63 №1: оптимизация не сошлась – ни суммы переброски, ни прироста
+            # «+X пп» (как ОТВЕТ веб-отчёта: рекомендаций оптимизатора нет).
+            f3 = OPT_NOT_CONVERGED_FINDING
+            s3 = OPT_NOT_CONVERGED_FINDING_SUPPORT
         elif _f3_subjects["kind"] == "rebalance":
             # L15 (math-fix v1.4 Section C): action-driven reallocation subjects
             f3 = (f"Рекомендация: перераспределить {format_realloc_mln(_f3_subjects['amount_mln'])} млн "
@@ -1891,6 +1948,32 @@ class AuroraPPTXBuilder:
         # чтобы читалось сверху вниз: База → каналы → Итого. Значения и подписи
         # не меняются.
         frame.chart.category_axis.reverse_order = True
+        # s63 №16: после разворота порядка ось значений уезжала НАВЕРХ, над «Базой»
+        # (отрисовка s62). Ось значений пересекает ось категорий на максимальной
+        # категории – при развёрнутом порядке это низ графика. `crosses` ставится
+        # на c:valAx напрямую: у CategoryAxis python-pptx такого свойства нет, а
+        # присвоение `category_axis.crosses = …` молча создало бы лишний атрибут
+        # без записи в XML.
+        _plan = _decomp_axis_plan(values, self.kpi.get("target_unit") or "")
+        try:
+            from pptx.oxml.ns import qn
+            _val_ax = frame.chart.value_axis
+            _val_ax._element.find(qn("c:crosses")).set("val", "max")
+            # s63 №17: шкала в удобной единице («5 … 25 млрд ₽»), без «25000000000».
+            _val_ax.minimum_scale = _plan["axis_min"]
+            _val_ax.maximum_scale = _plan["axis_max"]
+            _val_ax.major_unit = _plan["major_unit"]
+            _val_ax.tick_labels.number_format = _plan["axis_format"]
+            _val_ax.tick_labels.number_format_is_linked = False
+            _val_ax.has_title = True
+            _val_ax.axis_title.text_frame.text = _plan["unit_text"]
+            _ax_font = _val_ax.axis_title.text_frame.paragraphs[0].runs[0].font
+            _ax_font.size = Pt(8)
+            _ax_font.bold = False
+            _ax_font.name = self.sans
+            _ax_font.color.rgb = self.deep_80
+        except Exception:
+            pass  # Оформление опционально – график остаётся на слайде
 
         # Ряд один — легенда повторяла бы подпись оси и только отнимала место;
         # столбцы красим по роли (база / канал / итог) тем же приёмом, что
@@ -1915,9 +1998,40 @@ class AuroraPPTXBuilder:
             # распечатанной колоде не прочитать вовсе (у графика нет наведения).
             plot = chart.plots[0]
             plot.has_data_labels = True
-            plot.data_labels.number_format = '#,##0'
+            plot.data_labels.number_format = _plan["label_format"]
             plot.data_labels.number_format_is_linked = False
             plot.data_labels.font.size = Pt(8)
+            # s63 №17: подписи малых полос налезали на названия каналов
+            # («ТВ бюджет271 271 483»): по центру крошечной полосы текст шире её и
+            # выходит влево, на ось категорий. Полоса, в которую подпись не
+            # помещается (меньше 8 % самой длинной), получает подпись у основания
+            # (текст идёт вправо от оси, по пустому полю графика, тёмным цветом);
+            # длинная – по центру, цвет по яркости заливки. Положение «снаружи
+            # у конца» для составной полосы PowerPoint не допускает (файл
+            # потребовал бы восстановления), тип диаграммы закреплён спецификацией.
+            from pptx.enum.chart import XL_LABEL_POSITION
+            from pptx.oxml import parse_xml
+            _max_abs = max((abs(v) for v in values), default=0.0) or 1.0
+            _white = RGBColor(0xFF, 0xFF, 0xFF)
+            for i, point in enumerate(points):
+                big = abs(values[i]) / _max_abs >= 0.08
+                fill = point.format.fill.fore_color.rgb
+                dark = (0.299 * fill[0] + 0.587 * fill[1] + 0.114 * fill[2]) < 140
+                dl = point.data_label
+                dl.position = XL_LABEL_POSITION.CENTER if big else XL_LABEL_POSITION.INSIDE_BASE
+                dl.font.size = Pt(8)
+                dl.font.color.rgb = _white if (big and dark) else self.deep_100
+                # Подпись точки целиком заменяет подпись ряда: формат числа –
+                # в неё же, иначе PowerPoint покажет сырое число.
+                dl._dLbl.insert_element_before(
+                    parse_xml(
+                        '<c:numFmt xmlns:c="http://schemas.openxmlformats.org/drawingml/2006/chart" '
+                        f'formatCode="{_plan["label_format"]}" sourceLinked="0"/>'
+                    ),
+                    "c:spPr", "c:txPr", "c:dLblPos", "c:showLegendKey", "c:showVal",
+                    "c:showCatName", "c:showSerName", "c:showPercent", "c:showBubbleSize",
+                    "c:separator", "c:extLst",
+                )
         except Exception:
             pass  # Оформление опционально — график остаётся на слайде
 
@@ -2011,7 +2125,7 @@ class AuroraPPTXBuilder:
         if self.kpi["mode"] == "effectiveness":
             chart_subtitle_text = f"Доли каналов в продажах{_period_sfx}"
         elif self.kpi["kpi_kind"] == "count":
-            chart_subtitle_text = f"Стоимость следующей единицы (incremental cost-per-unit){_period_sfx}"
+            chart_subtitle_text = f"Стоимость следующей единицы (прирост стоимости на единицу){_period_sfx}"
         else:
             chart_subtitle_text = f"Отдача последнего вложенного рубля (mROAS){_period_sfx}"
         self._text(
@@ -3077,12 +3191,11 @@ class AuroraPPTXBuilder:
                     else _fmt_metric_pptx(hero_m, self.kpi)
                 )
                 # s60 (г): герой с Cut/Reduce – с хвостом, иначе ПРОБЛЕМА хвалит канал,
-                # который ОТВЕТ и таблица действий велят сократить. Без хвоста только
-                # при отказе модели: ОТВЕТ презентации читает один `model_refused`,
-                # при несошедшейся оптимизации он по-прежнему директивен
-                # (respect_convergence=False).
+                # который ОТВЕТ и таблица действий велят сократить. Без хвоста при
+                # отказе модели и (s63 №1) при несошедшейся оптимизации – ОТВЕТ
+                # в обоих случаях рекомендаций не даёт, как у веб-отчёта.
                 from engines.channel_action import HERO_CUT_CLAUSE, hero_cut_clause_applies
-                _hero_tail = f", {HERO_CUT_CLAUSE}" if hero_cut_clause_applies(f, hero_ch, respect_convergence=False) else ""
+                _hero_tail = f", {HERO_CUT_CLAUSE}" if hero_cut_clause_applies(f, hero_ch) else ""
                 complication_parts.append(f"По {metric_short} {hero} опережает ({metric_fmt}){_hero_tail}")
             if underperf_all:
                 # s58: число глагола – по числу отстающих («ТВ тянет», «ТВ, Радио тянут»).
@@ -3111,7 +3224,17 @@ class AuroraPPTXBuilder:
             _lift_f = f.get("expected_lift_pct")
             _realloc_potential = _scqar_subjects["kind"] != "none"
             _has_real_lift = _lift_f is not None and _lift_f >= 0.5
-            if _realloc_potential and _has_real_lift:
+            # s63 №1: несошедшаяся оптимизация – ни «требует перебалансировки», ни
+            # «насыщение каналов» (оба утверждения опираются на её результат).
+            from engines.channel_action import (
+                OPT_NOT_CONVERGED_ANSWER,
+                OPT_NOT_CONVERGED_COMPLICATION_TAIL,
+                optimization_not_converged,
+            )
+            _not_converged = optimization_not_converged(f)
+            if _not_converged:
+                _compl_tail = OPT_NOT_CONVERGED_COMPLICATION_TAIL
+            elif _realloc_potential and _has_real_lift:
                 _compl_tail = "Портфель требует перебалансировки."
             elif f.get("binding_constraints"):
                 _compl_tail = ("Однако оптимизатор упёрся в заданные границы каналов – "
@@ -3130,6 +3253,10 @@ class AuroraPPTXBuilder:
             # намеренно (тот же флаг, оба узла независимо формируют директиву).
             if f.get("model_refused"):
                 answer_body = "Модель не завершила расчёт корректно – рекомендации по переброске отключены."
+            elif _not_converged:
+                # s63 №1: текст ОТВЕТА веб-отчёта (общая константа) – без суммы,
+                # без «сократить или остановить»: рекомендаций оптимизатора нет.
+                answer_body = OPT_NOT_CONVERGED_ANSWER
             else:
                 answer_parts = []
                 # s48: ветки по _scqar_subjects["kind"] — та же значимость суммы,
@@ -3152,7 +3279,7 @@ class AuroraPPTXBuilder:
             # «как перераспределить» обещал то, чего ответ не даёт.
             _question_body = (
                 "Как перераспределить бюджет, чтобы поднять ROAS без снижения охвата знания?"
-                if (_realloc_potential and _has_real_lift)
+                if (_realloc_potential and _has_real_lift and not _not_converged)
                 else "Есть ли в текущем миксе резерв эффективности, который стоит задействовать?"
             )
             blocks = [
@@ -3231,8 +3358,15 @@ class AuroraPPTXBuilder:
                     _rec_subjects = reallocation_subjects(f)
                     cut_source = _rec_subjects["cut_source"]
                     scale_dest = _rec_subjects["scale_destination"]
+                    # s63 №1: при несошедшейся оптимизации действие 01 – текст
+                    # действия 01 веб-отчёта (общая константа), без суммы переброски;
+                    # прироста «+X пп» (действие 03) тоже нет.
+                    from engines.channel_action import OPT_NOT_CONVERGED_ACTION_01, optimization_not_converged
+                    _rec_not_converged = optimization_not_converged(f)
 
-                    if _rec_subjects["kind"] == "rebalance":
+                    if _rec_not_converged:
+                        action_01_body = f" {OPT_NOT_CONVERGED_ACTION_01}"
+                    elif _rec_subjects["kind"] == "rebalance":
                         action_01_body = (
                             f" {format_realloc_mln(realloc)} млн ₽ из {cut_source} в {scale_dest}. "
                             "Отложенный эффект (adstock) компенсирует краткосрочный спад охвата."
@@ -3280,7 +3414,7 @@ class AuroraPPTXBuilder:
                     # Пласт 2 (2026-07-11): KPI-aware lift fragment — для count/effectiveness «ROAS» не применим.
                     _lift_frag = (
                         f" {_lift_phrase_pptx(lift, self.kpi)} – проверить фактом."
-                        if (lift is not None and lift >= 0.5)
+                        if (lift is not None and lift >= 0.5 and not _rec_not_converged)
                         else " Проверить, что фактические продажи соответствуют прогнозу модели."
                     )
                     actions = [
@@ -3339,6 +3473,10 @@ class AuroraPPTXBuilder:
         # B1-fix R-09/R-13: «+0 пп» — пустое обещание; незначимый lift (<0.5)
         # подписываем честно, не нулевым числом.
         _lift_box = self.facts.get("expected_lift_pct") if self.facts else None
+        # s63 №1: несошедшаяся оптимизация – прироста для показа нет.
+        from engines.channel_action import optimization_not_converged
+        if self.facts and optimization_not_converged(self.facts):
+            _lift_box = None
         if _lift_box is not None and _lift_box >= 0.5:
             impact_num = f"+{_lift_box:.0f} пп"
             impact_size = 42

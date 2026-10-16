@@ -1465,13 +1465,13 @@ def decompose(
     if model_version == '1.0-ols':
         n_obs_ols = len(y_actual) if isinstance(y_actual, (list, np.ndarray)) else 0
         model_warning = (
-            f'OLS-режим (режим малых данных): n={n_obs_ols} наблюдений. '
+            f'Режим малых данных (OLS): n={n_obs_ols} наблюдений. '
             f'Параметры кривой насыщения Хилла (α=1.5, γ=0.5) и затухания отложенного '
             f'эффекта рекламы (0.5) фиксированы – не обучаются. '
             f'Правдоподобные диапазоны построены частотным (классическим) методом – на '
-            f'коэффициенты β и предиктивные интервалы на y. Правдоподобные диапазоны на '
+            f'коэффициенты β и интервалы прогноза на y. Правдоподобные диапазоны на '
             f'ROI/mROAS недоступны (для байесовской модели нужно n≥30). '
-            f'Соберите больше данных для премиум-модели.'
+            f'Соберите больше данных для байесовской модели.'
         )
     elif model_version == '1.1.5':
         model_warning = (
@@ -1488,6 +1488,11 @@ def decompose(
     # N7 (2.5.10): даты обучения против дат файла сейчас – ПЕРЕД прежним предупреждением.
     _dates_warning = _dates_retrain_warning(model_path, project_path, df, date_col)
     if _dates_warning:
+        # s63 №5: совет «Переобучите модель» уже в предупреждении о датах – у прежнего
+        # предупреждения (версии 1.1.5 и 1.1) его хвост опускаем, чтобы в итоге он
+        # был один; описание, чем модель ограничена, остаётся.
+        if model_warning and 'Переобучите' in model_warning:
+            model_warning = model_warning.split('Переобучите', 1)[0].rstrip()
         model_warning = f'{_dates_warning} {model_warning}' if model_warning else _dates_warning
 
     # v1.3.0: load KPI settings from project state (per ADR-016, ADR-017).

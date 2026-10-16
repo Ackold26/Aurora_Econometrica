@@ -485,6 +485,12 @@ def derive_action_headline(
             return "Модель не завершила расчёт корректно – переброска бюджета отключена"
         return "Модель не завершила расчёт корректно – рекомендации по переброске недоступны"
 
+    # s63 №1: оптимизация не сошлась – рекомендаций оптимизатора нет (так же, как
+    # у ОТВЕТА веб-отчёта). Заголовки ниже не называют сумму переброски, прирост
+    # «+X пп» и «оптимизатор рекомендует».
+    from engines.channel_action import OPT_NOT_CONVERGED_TITLE, optimization_not_converged
+    not_converged = optimization_not_converged(facts)
+
     # Honest narrative: baseline-dominated model (media < 10% of total sales).
     # Override slide-specific action headlines with diagnostic/disclosure
     # framing - recommending "grow channel X" makes no sense when total media
@@ -501,6 +507,9 @@ def derive_action_headline(
         if slide_hint == "scqar":
             return "Перед перераспределением: диагностика низкой инкрементальности медиа"
 
+    if not_converged and slide_hint == "scqar":
+        return OPT_NOT_CONVERGED_TITLE
+
     # Hero mROAS lookup
     hero_ch = next((c for c in channels if c.get("name") == hero), {}) or {}
     hero_m = float(hero_ch.get("mroas") or 0)
@@ -512,7 +521,8 @@ def derive_action_headline(
         lift_val = float(lift) if lift is not None else None
     except (TypeError, ValueError):
         lift_val = None
-    has_lift = lift_val is not None and lift_val >= 0.5
+    # s63 №1: при несошедшейся оптимизации прироста для заголовков нет.
+    has_lift = lift_val is not None and lift_val >= 0.5 and not not_converged
     lift_txt = f"+{lift_val:.0f} пп к ROAS" if has_lift else None
 
     # Post-audit: strict-majority threshold. Old `>= n//2` triggered "risk"
@@ -539,6 +549,7 @@ def derive_action_headline(
     from engines.channel_action import (
         HERO_CUT_CLAUSE,
         hero_cut_clause_applies,
+        is_underperformer,
         underperformer_names as _underperformer_names,
     )
     _action_by_name: dict = {}
@@ -573,14 +584,15 @@ def derive_action_headline(
         # s60 (г): герой с действием Cut/Reduce – не «Нарастить»/«Защитить»: таблица
         # действий и ОТВЕТ велят его сократить. Хвост – тот же, что в ПРОБЛЕМЕ;
         # «канал» после «лучший» – чтобы не зависеть от рода имени («Наружная
-        # реклама – лучший …»). Функция только для презентации: хвост гейтится
-        # по `model_refused` (при отказе модели сюда не доходим), как ОТВЕТ
-        # презентации; несошедшуюся оптимизацию не учитываем
-        # (respect_convergence=False): ОТВЕТ презентации при ней по-прежнему
-        # директивен («сократить или остановить»).
-        if hero and hero_m >= 1.2 and hero_cut_clause_applies(
-                facts, hero_ch, respect_convergence=False):
+        # реклама – лучший …»). Хвост гейтится так же, как ОТВЕТ: по `model_refused`
+        # (при отказе модели сюда не доходим) и по несошедшейся оптимизации (s63 №1:
+        # ОТВЕТ презентации при ней больше не директивен, как у веб-отчёта).
+        if hero and hero_m >= 1.2 and hero_cut_clause_applies(facts, hero_ch):
             return f"{hero} – лучший канал по mROAS ({hero_m:.2f}×), {HERO_CUT_CLAUSE}"
+        # s63 №1: оптимизация не сошлась, у героя Cut/Reduce – хвоста «оптимизатор
+        # рекомендует» нет, «нарастить» тоже не звучит: заголовок описательный.
+        if hero and hero_m >= 1.2 and not_converged and is_underperformer(hero_ch):
+            return f"{hero} – лучший канал по mROAS ({hero_m:.2f}×)"
         # s06: action = grow hero / rebalance against leader
         if hero and leader and hero != leader and hero_m >= 1.2:
             if has_lift:

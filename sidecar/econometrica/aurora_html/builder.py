@@ -14,6 +14,7 @@ from __future__ import annotations
 import base64
 import json
 import logging
+import math
 import re
 from datetime import datetime
 from pathlib import Path
@@ -279,6 +280,15 @@ class AuroraHTMLBuilder:
         drill_scale, drill_unit = _contrib_scale(
             kpi, [c.get("contribution") for c in self.channels[:10]]
         )
+        # s63 №8: mROAS канала без значения – None (в диаграмме «значение не
+        # определено»), а не 0: ноль читается как «канал не окупается», это ложь.
+        def _mroas_or_none(ch):
+            try:
+                v = float(ch.get("mroas")) if ch.get("mroas") is not None else None
+            except (TypeError, ValueError):
+                return None
+            return v if v is not None and math.isfinite(v) else None
+
         mroas_details = {}
         for c in self.channels:
             if not c.get("name"):
@@ -289,7 +299,7 @@ class AuroraHTMLBuilder:
                 "contrib_mln":  round(contrib_raw / 1e6, 2),
                 "contrib_display": _fmt_contrib(contrib_raw, drill_scale),
                 "contrib_label": "Вклад, " + drill_unit,
-                "mroas":        float(c.get("mroas") or 0),
+                "mroas":        _mroas_or_none(c),
                 "verdict":      c.get("verdict") or "Watch",
                 # s55: подпись вердикта для выдвижной панели – тем же путём, что
                 # ячейка таблицы (sections.render_action_table), иначе панель и
@@ -404,7 +414,7 @@ class AuroraHTMLBuilder:
             },
             "mroas": {
                 "names":  [c.get("name") for c in channels_sorted_m],
-                "values": [float(c.get("mroas") or 0) for c in channels_sorted_m],
+                "values": [_mroas_or_none(c) for c in channels_sorted_m],
                 "hero":   channels_sorted_m[0].get("name") if channels_sorted_m else None,
                 # Drill-down details per channel (for side-panel)
                 "details": mroas_details,

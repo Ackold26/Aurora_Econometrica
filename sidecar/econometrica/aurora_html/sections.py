@@ -388,6 +388,15 @@ def _marginal_metric_short(kpi: dict) -> str:
     return kpi["metric_short"]
 
 
+def _hero_best_metric_phrase(kpi: dict) -> str:
+    """Метрика в заголовке «{герой} – лучший канал по …» (s63 №2): подпись предельного
+    значения героя (mROAS / CPU), в режиме «доля» – «доле эффекта» (метрика по
+    паспорту «Доля» в предложном падеже стоит неверно)."""
+    if kpi.get("mode", "roi") == "effectiveness":
+        return "доле эффекта"
+    return _marginal_metric_short(kpi)
+
+
 def _table_metric_header(kpi: dict) -> tuple:
     """Returns (header_label, unit_label) для столбца главной метрики action_table.
 
@@ -749,11 +758,9 @@ def render_executive_summary(ctx: dict) -> str:
         converged = facts.get("optimization_converged", True)
         converged_at_current = bool(facts.get("converged_at_current"))
         if not converged:
-            answer = (
-                "Оптимизация не сошлась. Перед перераспределением "
-                "необходимо ослабить ограничения и перезапустить расчёт."
-            )
-            recommendation = "Прирост ROAS можно будет оценить после успешной оптимизации."
+            from engines.channel_action import OPT_NOT_CONVERGED_ANSWER, OPT_NOT_CONVERGED_RECOMMENDATION
+            answer = OPT_NOT_CONVERGED_ANSWER
+            recommendation = OPT_NOT_CONVERGED_RECOMMENDATION
         elif binding:
             answer = (
                 "Оптимизатор упёрся в заданные границы. Расширьте Мин./Макс. % "
@@ -1251,7 +1258,7 @@ def render_mroas(ctx: dict) -> str:
     elif kpi["kpi_kind"] == "count":
         cpu_unit = kpi.get("cpu_per_label") or "₽ за единицу"
         chart_title_text = f"CPU по каналам · {cpu_unit}"
-        chart_subtitle_text = "Стоимость следующей единицы (incremental cost-per-unit)"
+        chart_subtitle_text = "Стоимость следующей единицы (прирост стоимости на единицу)"
     else:
         chart_title_text = "mROAS по каналам · мультипликатор"
         chart_subtitle_text = "Отдача последнего вложенного рубля (mROAS)"
@@ -1651,7 +1658,11 @@ def render_recommendation(ctx: dict) -> str:
         from engines.channel_action import HERO_CUT_CLAUSE, hero_cut_clause_applies, is_underperformer
         _hero_ch = next((c for c in channels if c.get("name") == hero), {}) or {}
         if hero_cut_clause_applies(facts, _hero_ch):
-            title = strings["action_titles"]["s09_hero_cut"].format(hero=hero, hero_cut_clause=HERO_CUT_CLAUSE)
+            # s63 №2: метрика заголовка – та же, что на странице (штучный KPI – CPU,
+            # режим «доля» – доля эффекта), а не всегда «mROAS».
+            title = strings["action_titles"]["s09_hero_cut"].format(
+                hero=hero, metric_phrase=_hero_best_metric_phrase(kpi),
+                hero_cut_clause=HERO_CUT_CLAUSE)
         elif hero != leader and not is_underperformer(_hero_ch):
             title = strings["action_titles"]["s09_scale_hero"].format(hero=hero, leader=leader)
         else:
@@ -1670,10 +1681,8 @@ def render_recommendation(ctx: dict) -> str:
         # N3 - Action 01: derived from optimizer state, not heuristics.
         # math-fix v1.0.14.1: + converged_at_current branch (false convergence).
         if not converged:
-            action_01_text = (
-                "Оптимизация не сошлась – попробуйте ослабить ограничения по каналам "
-                "или сократить число каналов в модели и перезапустите Оптимизацию."
-            )
+            from engines.channel_action import OPT_NOT_CONVERGED_ACTION_01
+            action_01_text = OPT_NOT_CONVERGED_ACTION_01
         elif binding:
             min_pct = facts.get("optimize_min_pct")
             max_pct = facts.get("optimize_max_pct")

@@ -302,7 +302,8 @@ def bootstrap_js(
       tooltip: Object.assign(baseTooltip(pal), {{
         formatter: function(ps) {{
           var p = Array.isArray(ps) ? ps[0] : ps;
-          return '<b>' + escapeHtml(p.name) + '</b><br/>mROAS: ' + formatMroas(p.value);
+          return '<b>' + escapeHtml(p.name) + '</b><br/>mROAS: ' +
+                 ((p.data && p.data.undef) ? 'значение не определено' : formatMroas(p.value));
         }}
       }}),
       xAxis: Object.assign({{ type: 'value' }}, baseAxisStyle(pal), {{
@@ -312,6 +313,14 @@ def bootstrap_js(
       series: [{{
         type: 'bar',
         data: values.map(function(v, i) {{
+          // s63 №8: у канала нет значения mROAS – полосы нет, подпись честная.
+          if (v === null || v === undefined) {{
+            return {{
+              value: 0, undef: true,
+              itemStyle: {{ color: 'transparent' }},
+              label: {{ formatter: function() {{ return 'значение не определено'; }}, fontWeight: 400 }}
+            }};
+          }}
           return {{
             value: v,
             itemStyle: {{
@@ -332,6 +341,7 @@ def bootstrap_js(
 
   // v2.1.0 (пилот 2026-05-17): centralized mROAS formatter, KPI-aware.
   function formatMroas(v) {{
+    if (v === null || v === undefined || isNaN(v)) return 'значение не определено';
     var kind = (MODEL_CTX && MODEL_CTX.kpi_kind) || 'monetary';
     if (kind === 'count') {{
       return v.toFixed(2) + ' ед./₽';
