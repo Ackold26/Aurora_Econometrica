@@ -636,10 +636,17 @@ describe('Б8: «план уже оптимален» не печатается 
     expect(t).not.toContain('+0%');
     expect(t).not.toContain('уже оптимален');
   });
-  it('перекладка меньше 1 % бюджета → прежний текст «+0% – план уже оптимален»', () => {
+  it('перекладка меньше 1 % бюджета → «план уже оптимален» без ложного числа «+0%»', () => {
     const t = reportText(optRes({ shift: 5 * M }));
     expect(t).toContain('план уже оптимален');
     expect(t).not.toContain('+0.3%');
+    expect(t).not.toContain('+0%');
+  });
+  it('прирост 0.4 % и перекладка меньше порога → в тексте нет «+0%»', () => {
+    const t = reportText(optRes({ lift: 0.4, shift: 5 * M }));
+    expect(t).toContain('🟰 Оптимизация: план уже оптимален в заданных рамках – значимой перекладки бюджета нет.');
+    expect(t).not.toContain('+0%');
+    expect(t).not.toContain('+0.4%');
   });
   it('расчёт не сошёлся / упор в ограничения / «сошёлся в текущем плане» → признак не выполнен', () => {
     for (const extra of [{ optimization_converged: false }, { binding_constraints: ['TV'] }, { converged_at_current: true }]) {
