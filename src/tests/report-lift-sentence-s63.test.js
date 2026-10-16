@@ -7,7 +7,7 @@
  * (`insights-rules.js`) – из того же места, что панель выводов (`reportInsights`).
  */
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent } from '@testing-library/svelte';
+import { render, screen, fireEvent, cleanup } from '@testing-library/svelte';
 import { invoke } from '@tauri-apps/api/core';
 import { modelData, decomposeData, optimizeData, activeProjectId } from '$lib/project-state.js';
 import ReportStep from '$lib/components/pipeline/ReportStep.svelte';
@@ -321,5 +321,125 @@ describe('ReportStep: сводка и текст отчёта при малом 
     expect(interp).toContain('органическая база доминирует');
     expect(interp).toContain('перераспределение каналов реально улучшает медиа-отдачу');
     expect(interp).not.toContain('расчёт не сошёлся');
+  });
+  // ── А1 (аудит s63): несошедшийся расчёт не обещает прирост при любой величине прироста ──
+
+  /** Всё, что шаг показывает про оптимизацию, одним текстом: письмо, «Как интерпретировать» (с рекомендациями), FAQ. */
+  /** @param {any} opt */
+  async function allTexts(opt) {
+    optimizeData.set(opt);
+    render(ReportStep);
+    await fireEvent.click(screen.getByRole('button', { name: /Сопроводительный текст для письма/ }));
+    const cover = screen.getByText(/Главный драйвер/).closest('.cover-content')?.textContent ?? '';
+    await fireEvent.click(screen.getByRole('button', { name: /Как интерпретировать модель и результаты/ }));
+    const interp = screen.getByText(/Главный медиа-драйвер/).closest('.info-body')?.textContent ?? '';
+    await fireEvent.click(screen.getByRole('button', { name: /Часто задаваемые вопросы по этой модели/ }));
+    const faq = Array.from(document.querySelectorAll('.faq-item')).map((e) => e.textContent ?? '').join('\n');
+    return { cover, interp, faq };
+  }
+
+  it('А1: расчёт не сошёлся, прирост 0.8 / 2 / 6 / 12 % – ни в письме, ни в тексте, ни в FAQ нет обещания и «+N%» как потенциала', async () => {
+    for (const lift of [0.8, 2, 6, 12]) {
+      const { cover, interp, faq } = await allTexts(optRes({ lift, extra: { optimization_converged: false } }));
+      for (const [name, t] of [['письмо', cover], ['интерпретация', interp], ['FAQ', faq]]) {
+        expect(t, `${name} lift=${lift}`).toContain('расчёт не сошёлся');
+        expect(t, `${name} lift=${lift}`).not.toContain('обещает');
+        expect(t, `${name} lift=${lift}`).not.toContain('даст значительный');
+        expect(t, `${name} lift=${lift}`).not.toContain('даст умеренный');
+        expect(t, `${name} lift=${lift}`).not.toContain('близок к оптимальному');
+        expect(t, `${name} lift=${lift}`).not.toContain(`+${lift.toFixed(1)}%`);
+      }
+      expect(cover, `lift=${lift}`).toContain('не меняйте план по этому расчёту');
+      expect(interp, `lift=${lift}`).toContain('не меняйте план по этому расчёту');
+      expect(faq, `lift=${lift}`).toContain('Расчёт оптимизации не сошёлся – можно ли по нему менять план?');
+      expect(faq, `lift=${lift}`).not.toContain('переложить бюджет');
+      expect(interp, `lift=${lift}`).not.toContain('Провести пилот перераспределения');
+      cleanup();
+    }
+  });
+
+  it('А1: расчёт сошёлся – тексты прежние дословно на каждой ветке (письмо, интерпретация, рекомендации, FAQ)', async () => {
+    const cases = /** @type {const} */ ([
+      [0.8, 'Оптимизация: +0.8% - план близок к оптимальному.', 'Прирост +0.8% - план близок к оптимальному. Крупных неэффективностей нет.', null],
+      [2, 'Оптимизация: +2.0% - план близок к оптимальному.', 'Прирост +2.0% - план близок к оптимальному. Крупных неэффективностей нет.', null],
+      [4, 'Оптимизация: +4.0% - план близок к оптимальному.', 'Оптимизация даст умеренный прирост: +4.0% KPI. Текущий план в целом адекватный, но можно выжать ещё.', null],
+      [6, 'Оптимизация обещает +6.0% KPI при текущем бюджете.', 'Оптимизация даст умеренный прирост: +6.0% KPI. Текущий план в целом адекватный, но можно выжать ещё.', 'Оптимизация даёт +6.0% KPI - можно просто взять и переложить бюджет?'],
+      [12, 'Оптимизация обещает +12.0% KPI при текущем бюджете.', 'Оптимизация даст значительный прирост: +12.0% KPI. Это говорит что текущее распределение далеко от оптимального - есть реальная возможность увеличить продажи без дополнительного бюджета.', 'Оптимизация даёт +12.0% KPI - можно просто взять и переложить бюджет?'],
+    ]);
+    for (const [lift, coverText, interpText, faqQ] of cases) {
+      const { cover, interp, faq } = await allTexts(optRes({ lift, extra: { optimization_converged: true } }));
+      expect(cover, `lift=${lift}`).toContain(coverText);
+      expect(interp, `lift=${lift}`).toContain(interpText);
+      if (lift > 5) {
+        expect(interp, `lift=${lift}`).toContain('Провести пилот перераспределения на 20-30% бюджета по рекомендациям оптимизации.');
+        expect(faq, `lift=${lift}`).toContain(faqQ);
+        expect(faq, `lift=${lift}`).toContain('Теоретически да, но на практике - через пилот.');
+      } else {
+        expect(interp, `lift=${lift}`).not.toContain('Провести пилот перераспределения');
+      }
+      expect(cover + interp + faq, `lift=${lift}`).not.toContain('не сошёлся');
+      cleanup();
+    }
+  });
+
+  it('А1: упор в рамки при приросте 6 % – прирост посчитан в рамках, текст прежний (решение: не трогать)', async () => {
+    const { cover, interp } = await allTexts(optRes({ lift: 6, extra: { binding_constraints: true } }));
+    expect(cover).toContain('Оптимизация обещает +6.0% KPI при текущем бюджете.');
+    expect(interp).toContain('Оптимизация даст умеренный прирост: +6.0% KPI.');
+    expect(cover + interp).not.toContain('не сошёлся');
+  });
+
+  it('А1: расчёт не сошёлся, прирост 0.2 % тонет в базе (медиа +5): ветка lift ≤ 0.5 – «не сошёлся», а не «реально улучшает медиа-отдачу»', async () => {
+    const { interp } = await allTexts(optRes({ lift: 0.2, extra: { media_only_lift_pct: 5, optimization_converged: false } }));
+    expect(interp).toContain('расчёт не сошёлся');
+    expect(interp).not.toContain('реально улучшает медиа-отдачу');
+    expect(interp).not.toContain('органическая база доминирует');
+  });
+
+  it('А1: расчёт не сошёлся, прирост тонет в базе (lift 2, медиа +5): «не сошёлся», а не «реально улучшает медиа-отдачу»', async () => {
+    const { cover, interp } = await allTexts(optRes({ lift: 2, extra: { media_only_lift_pct: 5, optimization_converged: false } }));
+    expect(interp).toContain('расчёт не сошёлся');
+    expect(interp).not.toContain('реально улучшает медиа-отдачу');
+    expect(cover).toContain('расчёт не сошёлся');
+  });
+});
+
+describe('А1: панель выводов (reportInsights) при несошедшемся расчёте', () => {
+  /** @param {any} opt */
+  const optInsights = (opt) =>
+    reportInsights({
+      mod: { diagnostics: { metrics: { ratio: 12 }, mqs: { score: 80, tier_label: 'Хорошее', tier: 'good' } } },
+      dec: { baseline_pct: 60, channels: [{ name: 'TV', contribution_pct: 40, roi: 2.1 }] },
+      opt,
+    }).filter((i) => /Оптимизация:/.test(i.text));
+
+  it('не сошёлся, прирост 0.8 / 2 / 6 / 20 %: один вывод «не сошёлся» (warning), без «+N%» и без значка роста', () => {
+    for (const lift of [0.8, 2, 6, 20]) {
+      const out = optInsights(optRes({ lift, extra: { optimization_converged: false } }));
+      expect(out, `lift=${lift}`).toHaveLength(1);
+      const v = optimizeNotConvergedVerdict({ optimization_converged: false });
+      expect(out[0].text, `lift=${lift}`).toBe(`${v?.icon} ${v?.text}`);
+      expect(out[0].tip, `lift=${lift}`).toBe(v?.tip);
+      expect(out[0].severity, `lift=${lift}`).toBe('warning');
+      expect(out[0].text, `lift=${lift}`).not.toMatch(/\+\d/);
+    }
+  });
+
+  it('сошёлся – тексты прежние дословно: > 15, > 5, > 0.5', () => {
+    const t20 = optInsights(optRes({ lift: 20, extra: { optimization_converged: true } }))[0];
+    expect(t20.text).toMatch(/^🚀 Оптимизация: \+20\.0% KPI при том же бюджете/);
+    expect(t20.severity).toBe('success');
+    expect(t20.tip).toContain('высокий потенциал перекладки');
+    const t6 = optInsights(optRes({ lift: 6, extra: { optimization_converged: true } }))[0];
+    expect(t6.text).toBe('📈 Оптимизация: +6.0% – умеренный, но значимый потенциал.');
+    expect(t6.severity).toBe('success');
+    const t08 = optInsights(optRes({ lift: 0.8, extra: { optimization_converged: true } }))[0];
+    expect(t08.text).toBe('📊 Оптимизация: +0.8% – план почти оптимален.');
+    expect(t08.severity).toBe('info');
+  });
+
+  it('упор в рамки при приросте 6 % – вывод прежний', () => {
+    const t6 = optInsights(optRes({ lift: 6, extra: { binding_constraints: true } }))[0];
+    expect(t6.text).toBe('📈 Оптимизация: +6.0% – умеренный, но значимый потенциал.');
   });
 });

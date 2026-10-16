@@ -3000,7 +3000,11 @@ export function reportInsights(ctx = {}) {
 
   // ════════════════ ЭТАП 3: Оптимизация ════════════════
   if (lift != null) {
-    if (lift > 15) {
+    // s63 (А1): несошедшийся расчёт не обещает прирост – при любой величине прироста честный текст
+    const notConverged = lift > 0.5 ? optimizeNotConvergedVerdict(opt) : null;
+    if (notConverged) {
+      out.push({ severity: notConverged.severity, text: `${notConverged.icon} ${notConverged.text}`, tip: notConverged.tip });
+    } else if (lift > 15) {
       out.push({
         severity: 'success',
         text: `🚀 Оптимизация: +${lift.toFixed(1)}% KPI при том же бюджете${budget ? ` (${budget.toLocaleString('ru-RU')}₽)` : ''}.`,
