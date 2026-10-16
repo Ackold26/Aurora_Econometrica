@@ -39,13 +39,19 @@ from datetime import datetime
 
 try:
     from econometrica.engines.narrative_adapter import (
+        NO_GROWTH_CHANNEL_TAIL,
+        SCQAR_NO_RECIPIENT_CASES,
         compute_report_id,
         derive_action_headline,
+        scqar_headline_case,
     )
 except ImportError:
     from engines.narrative_adapter import (
+        NO_GROWTH_CHANNEL_TAIL,
+        SCQAR_NO_RECIPIENT_CASES,
         compute_report_id,
         derive_action_headline,
+        scqar_headline_case,
     )
 
 from pptx import Presentation
@@ -1111,6 +1117,11 @@ class AuroraPPTXBuilder:
             optimization_not_converged,
         )
         _f3_subjects = reallocation_subjects(f)
+        # s63 пакет (п.2): заголовок слайда «Рекомендация» без получателя переброски
+        # («явного канала для роста нет») – её прирост к рекомендации не относится, «+X пп»
+        # здесь не печатаем, как и в «Ожидаемом эффекте» того слайда.
+        _f3_no_recipient = scqar_headline_case(self.channels, f) in SCQAR_NO_RECIPIENT_CASES
+        _f3_no_recipient_s3 = f"{NO_GROWTH_CHANNEL_TAIL.capitalize()} – прирост не определён"
 
         # v1.3.2 audit fix (M1): для effectiveness mode skip - shares always
         # sum to 100%, «under breakeven» semantically meaningless.
@@ -1151,12 +1162,17 @@ class AuroraPPTXBuilder:
         elif _f3_subjects["kind"] == "cut_only":
             f3 = (f"Рекомендация: сократить {_f3_subjects['cut_source']} "
                   f"({format_realloc_mln(_f3_subjects['amount_mln'])} млн) – аллокация неэффективна")
-            s3 = _lift_phrase_pptx(expected_lift_pct, self.kpi) if expected_lift_pct is not None else "Ожидаемый эффект – положительный"
+            if _f3_no_recipient:
+                s3 = _f3_no_recipient_s3
+            else:
+                s3 = _lift_phrase_pptx(expected_lift_pct, self.kpi) if expected_lift_pct is not None else "Ожидаемый эффект – положительный"
         else:
             f3 = "Рекомендация: сохранить текущую аллокацию по лидеру портфеля"
             # B1-fix R-09/R-13: «+0.0 пп» — пустое обещание; при незначимом lift
             # честная формулировка вместо нулевого числа.
-            if expected_lift_pct is not None and expected_lift_pct >= 0.5:
+            if _f3_no_recipient and expected_lift_pct is not None and expected_lift_pct >= 0.5:
+                s3 = _f3_no_recipient_s3
+            elif expected_lift_pct is not None and expected_lift_pct >= 0.5:
                 s3 = _lift_phrase_pptx(expected_lift_pct, self.kpi)
             else:
                 s3 = "Перераспределение не даёт ощутимого прироста – портфель у оптимума"
@@ -3130,6 +3146,7 @@ class AuroraPPTXBuilder:
             # что печатает часть «опережает» ниже.
             from engines.channel_action import drop_named_hero
             _hero_named = hero != leader and hero_m >= 1.0
+            _underperf_all_full = underperf_all  # s63 пакет: для ОТВЕТА при незначимой переброске (ниже)
             underperf_all = drop_named_hero(underperf_all, hero, _hero_named)
             underperf_str = ", ".join(underperf) if underperf else "отстающие каналы"
             underperf_all_str = ", ".join(underperf_all)
@@ -3143,6 +3160,10 @@ class AuroraPPTXBuilder:
                 derive_action_headline(self.channels, self.facts, "scqar")
                 or f"Пересмотреть аллокацию {leader}"
             )
+            # s63 пакет (п.1, п.2): сценарий заголовка – та же функция, по которой он выбран;
+            # тело слайда (ПРОБЛЕМА, ВОПРОС, ОТВЕТ, действия, эффект) с ним согласуется.
+            _case = scqar_headline_case(self.channels, self.facts)
+            _no_recipient = _case in SCQAR_NO_RECIPIENT_CASES
 
             # v1.3.2: KPI-aware portfolio metric phrase в situation.
             if wr is not None:
@@ -3229,11 +3250,16 @@ class AuroraPPTXBuilder:
             from engines.channel_action import (
                 OPT_NOT_CONVERGED_ANSWER,
                 OPT_NOT_CONVERGED_COMPLICATION_TAIL,
+                OPT_NOT_CONVERGED_QUESTION,
                 optimization_not_converged,
             )
             _not_converged = optimization_not_converged(f)
             if _not_converged:
                 _compl_tail = OPT_NOT_CONVERGED_COMPLICATION_TAIL
+            elif _no_recipient:
+                # s63 пакет (п.2): заголовок «… – явного канала для роста нет» –
+                # не «требует перебалансировки»: получателя переброски нет.
+                _compl_tail = f"{NO_GROWTH_CHANNEL_TAIL.capitalize()} – перераспределять бюджет некуда."
             elif _realloc_potential and _has_real_lift:
                 _compl_tail = "Портфель требует перебалансировки."
             elif f.get("binding_constraints"):
@@ -3259,6 +3285,13 @@ class AuroraPPTXBuilder:
                 answer_body = OPT_NOT_CONVERGED_ANSWER
             else:
                 answer_parts = []
+                # s63 пакет (п.1): при незначимой переброске источник сокращения частью
+                # «из … в …» не назван, поэтому из списка ОТВЕТА его не вычитаем – иначе
+                # канал, который заголовок называет, в ОТВЕТЕ пропадал (Д1).
+                if _scqar_subjects["kind"] == "none" and _case in (
+                        "risk", "risk_no_recipient", "single_cut", "weak_no_shift"):
+                    underperf = _underperf_all_full
+                    underperf_str = ", ".join(underperf)
                 # s48: ветки по _scqar_subjects["kind"] — та же значимость суммы,
                 # что уже проверена reallocation_subjects выше; раньше здесь
                 # стояло отдельное сравнение `realloc >= 1` тремя литералами.
@@ -3268,7 +3301,12 @@ class AuroraPPTXBuilder:
                     answer_parts.append(f"Нарастить {scale_dest} на ~{format_realloc_mln(realloc)} млн ₽")
                 elif _scqar_subjects["kind"] == "cut_only":
                     answer_parts.append(f"Сократить {cut_source} ({format_realloc_mln(realloc)} млн ₽)")
-                if underperf:
+                if _case == "weak_no_shift":
+                    # s63 пакет (п.1): крупной переброски нет, слабые каналы названы.
+                    answer_parts.append(
+                        f"Сохранить аллокацию без переброски; сократить или остановить "
+                        f"{underperf_str} после проверки вклада")
+                elif underperf:
                     # s59: как в HTML и в таблице действий – «сократить или остановить»
                     # (в списке есть Reduce); первая часть ответа – с заглавной.
                     _stop = "сократить или остановить" if answer_parts else "Сократить или остановить"
@@ -3277,11 +3315,16 @@ class AuroraPPTXBuilder:
 
             # B1-fix R-13: вопрос согласован со сценарием — при hold-исходе
             # «как перераспределить» обещал то, чего ответ не даёт.
-            _question_body = (
-                "Как перераспределить бюджет, чтобы поднять ROAS без снижения охвата знания?"
-                if (_realloc_potential and _has_real_lift and not _not_converged)
-                else "Есть ли в текущем миксе резерв эффективности, который стоит задействовать?"
-            )
+            # s63 пакет (п.5): при несошедшейся оптимизации – общая с веб-отчётом константа;
+            # (п.2) без получателя переброски «как перераспределить» тоже не спрашиваем.
+            if _not_converged:
+                _question_body = OPT_NOT_CONVERGED_QUESTION
+            else:
+                _question_body = (
+                    "Как перераспределить бюджет, чтобы поднять ROAS без снижения охвата знания?"
+                    if (_realloc_potential and _has_real_lift and not _no_recipient)
+                    else "Есть ли в текущем миксе резерв эффективности, который стоит задействовать?"
+                )
             blocks = [
                 {"label": "СИТУАЦИЯ", "height": 0.6, "body": situation_body},
                 {"label": "ПРОБЛЕМА", "height": 0.8, "body": complication_body},
@@ -3361,11 +3404,29 @@ class AuroraPPTXBuilder:
                     # s63 №1: при несошедшейся оптимизации действие 01 – текст
                     # действия 01 веб-отчёта (общая константа), без суммы переброски;
                     # прироста «+X пп» (действие 03) тоже нет.
-                    from engines.channel_action import OPT_NOT_CONVERGED_ACTION_01, optimization_not_converged
+                    from engines.channel_action import (
+                        OPT_NOT_CONVERGED_ACTION_01,
+                        OPT_NOT_CONVERGED_ACTION_01_TITLE,
+                        optimization_not_converged,
+                    )
                     _rec_not_converged = optimization_not_converged(f)
 
+                    # s63 пакет (п.4): заголовок действия 01 при несошедшейся оптимизации –
+                    # общая с веб-отчётом константа (тело уже «Оптимизация не сошлась – …»);
+                    # (п.2) без получателя переброски – про сокращение названных каналов.
+                    if _rec_not_converged:
+                        action_01_title = OPT_NOT_CONVERGED_ACTION_01_TITLE
+                    elif _no_recipient:
+                        action_01_title = (
+                            "Сократить слабый канал." if _case == "single_cut" else "Сократить слабые каналы."
+                        )
+                    else:
+                        action_01_title = "Перераспределить бюджет."
                     if _rec_not_converged:
                         action_01_body = f" {OPT_NOT_CONVERGED_ACTION_01}"
+                    elif _no_recipient:
+                        # s63 пакет (п.2): те же каналы и суммы, что в ОТВЕТЕ этого слайда.
+                        action_01_body = f" {answer_body}"
                     elif _rec_subjects["kind"] == "rebalance":
                         action_01_body = (
                             f" {format_realloc_mln(realloc)} млн ₽ из {cut_source} в {scale_dest}. "
@@ -3414,11 +3475,11 @@ class AuroraPPTXBuilder:
                     # Пласт 2 (2026-07-11): KPI-aware lift fragment — для count/effectiveness «ROAS» не применим.
                     _lift_frag = (
                         f" {_lift_phrase_pptx(lift, self.kpi)} – проверить фактом."
-                        if (lift is not None and lift >= 0.5 and not _rec_not_converged)
+                        if (lift is not None and lift >= 0.5 and not _rec_not_converged and not _no_recipient)
                         else " Проверить, что фактические продажи соответствуют прогнозу модели."
                     )
                     actions = [
-                        ("01", "Перераспределить бюджет.", action_01_body),
+                        ("01", action_01_title, action_01_body),
                         ("02", *_action_02),
                         ("03",
                          "Сверить прогноз с фактом после следующего периода.",
@@ -3476,6 +3537,10 @@ class AuroraPPTXBuilder:
         # s63 №1: несошедшаяся оптимизация – прироста для показа нет.
         from engines.channel_action import optimization_not_converged
         if self.facts and optimization_not_converged(self.facts):
+            _lift_box = None
+        # s63 пакет (п.2): заголовок без получателя переброски («явного канала для роста
+        # нет») – прирост переброски внутри бюджета к рекомендации слайда не относится.
+        if self.facts and scqar_headline_case(self.channels, self.facts) in SCQAR_NO_RECIPIENT_CASES:
             _lift_box = None
         if _lift_box is not None and _lift_box >= 0.5:
             impact_num = f"+{_lift_box:.0f} пп"

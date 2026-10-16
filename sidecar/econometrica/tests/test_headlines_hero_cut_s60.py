@@ -481,7 +481,10 @@ def test_hero_cut_texts_when_optimization_not_converged_follow_each_answer():
     assert "лучший канал по mROAS" not in b.flat
     assert _HTML_TITLE_HERO_CUT not in b.flat
     assert "нарастить" not in b.flat.casefold()
-    assert _SIGNAL in b.flat
+    # s63 пакет (п.6): было `_SIGNAL in b.flat` – веб-отчёт печатал «Сигнал к перераспределению…» у героя
+    # с Reduce при несошедшейся оптимизации, а презентация (respect_convergence=False) – нет. Стало: гейт
+    # цитаты в веб-отчёте тот же, что в презентации, – фразы нет ни там, ни там.
+    assert _SIGNAL not in b.flat
     # презентация
     assert _HERO_PLAIN_PART in b.pptx["ПРОБЛЕМА"]
     assert _HERO_CUT_PART not in b.pptx["ПРОБЛЕМА"]

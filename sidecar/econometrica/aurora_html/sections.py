@@ -750,6 +750,11 @@ def render_executive_summary(ctx: dict) -> str:
             question = "Как перераспределить бюджет, чтобы снизить стоимость единицы (CPU), не снижая охвата знания?"
         else:
             question = scqar["question"]["template"]
+        # s63 пакет (п.5): оптимизация не сошлась – ВОПРОС тот же, что в презентации (общая
+        # константа): «как перераспределить» спорил с ОТВЕТОМ «Оптимизация не сошлась…».
+        from engines.channel_action import OPT_NOT_CONVERGED_QUESTION, optimization_not_converged
+        if optimization_not_converged(facts):
+            question = OPT_NOT_CONVERGED_QUESTION
         # N3 (Phase 0.1): consistent answer logic with f3 + Action 01.
         # math-fix v1.0.14.1 (2026-04-28): + converged_at_current state - SLSQP
         # вернул current allocation без binding (false convergence). Honest
@@ -967,6 +972,11 @@ def render_at_a_glance(ctx: dict) -> str:
         binding = bool(facts.get("binding_constraints"))
         # s47: стороны переброски — из общего правила, не из локальной эвристики.
         from utils.optimizer_honesty import reallocation_subjects, format_realloc_mln
+        from engines.channel_action import (
+            OPT_NOT_CONVERGED_FINDING,
+            OPT_NOT_CONVERGED_FINDING_SUPPORT,
+            optimization_not_converged,
+        )
         subjects = reallocation_subjects(facts)
         # v1.3.2 audit fix (M1): для effectiveness mode «all below breakeven»
         # семантически unapplicable (shares always sum to 100%, threshold
@@ -988,6 +998,11 @@ def render_at_a_glance(ctx: dict) -> str:
                     f"Когда у всех каналов {_under_breakeven_phrase(kpi)} – "
                     "оптимизация перераспределением не вернёт прибыльность"
                 )
+        elif optimization_not_converged(facts):
+            # s63 пакет (п.6): как находка 3 презентации (общие константы) – ни суммы
+            # переброски, ни прироста «+X пп»: рекомендаций оптимизатора нет.
+            f3 = OPT_NOT_CONVERGED_FINDING
+            f3_sup = OPT_NOT_CONVERGED_FINDING_SUPPORT
         elif binding:
             f3 = "Оптимизатор упёрся в заданные границы – расширьте Мин./Макс. % и перезапустите"
             f3_sup = "Текущие границы зажимают пространство решений – реальное перераспределение скрыто"
@@ -1217,7 +1232,9 @@ def render_key_message(ctx: dict) -> str:
                 # читается как «переложить в героя») опускаем, как в презентации.
                 from engines.channel_action import hero_cut_clause_applies
                 _hero_ch = next((c for c in (ctx.get("channels") or []) if c.get("name") == hero), {})
-                _signal = "" if hero_cut_clause_applies(facts, _hero_ch) else " Сигнал к перераспределению части бюджета."
+                # s63 пакет (п.6): гейт – как у той же цитаты в презентации (respect_convergence=False):
+                # при несошедшейся оптимизации фраза у героя с Cut/Reduce тоже опускается.
+                _signal = "" if hero_cut_clause_applies(facts, _hero_ch, respect_convergence=False) else " Сигнал к перераспределению части бюджета."
                 quote = f"{_hero_vs_leader_quote(hero, leader, kpi)}{_signal}"
             else:
                 quote = f"{leader} – лидер и по вкладу, и по эффективности. Бюджет стоит сохранить до признаков насыщения."  # П8-1
@@ -1790,12 +1807,23 @@ def render_recommendation(ctx: dict) -> str:
                 "перезапустить MMM с обновлёнными данными для калибровки модели."
             )
 
+        # s63 пакет (п.4): при несошедшейся оптимизации заголовок действия 01 – общая с
+        # презентацией константа; тело уже «Оптимизация не сошлась – …».
+        if not converged:
+            from engines.channel_action import OPT_NOT_CONVERGED_ACTION_01_TITLE
+            action_01_title = OPT_NOT_CONVERGED_ACTION_01_TITLE
+        else:
+            action_01_title = "Перебалансировать бюджет."
         actions = [
-            ("01", "Перебалансировать бюджет.", action_01_text),
+            ("01", action_01_title, action_01_text),
             ("02", "Контролировать насыщение.", action_02_text),
             ("03", "Сверить прогноз с фактом.", action_03_text),
         ]
         lift_val = lift if lift is not None else 0
+        # s63 пакет (п.6): оптимизация не сошлась – прироста для показа нет («Не определён»,
+        # как «Ожидаемый эффект» презентации).
+        if not converged:
+            lift_val = None
     else:
         title = "Рекомендация появится после оптимизации"
         actions = [
@@ -1824,7 +1852,12 @@ def render_recommendation(ctx: dict) -> str:
 
     # B1-fix R-09/R-13 (2026-07-03): «+0 пп» — пустое обещание; незначимый
     # lift (<0.5) подписываем честно, без нулевого числа и без анимации.
-    if lift_val >= 0.5:
+    if lift_val is None:
+        _impact_value_html = (
+            '<div class="impact-value" style="font-size:22px;">Не определён</div>'
+        )
+        _impact_card_attr = ''
+    elif lift_val >= 0.5:
         _impact_value_html = (
             f'<div class="impact-value" data-counter-end="{lift_val:.0f}">+{lift_val:.0f} пп</div>'
         )

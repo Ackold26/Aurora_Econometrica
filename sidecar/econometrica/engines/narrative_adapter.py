@@ -449,6 +449,111 @@ def compute_report_id(
     return f"aurora-mmm-{h}"
 
 
+def _cut_risk(channels: list[dict], facts: dict) -> tuple[dict, list, bool]:
+    """Порог сценария «Риск» (сколько отстающих делают портфель «в риске»).
+
+    Возвращает (действие канала по имени, имена Cut худшим первым, «Риск» ли).
+    """
+    # История. Запись a2fa0bca (25.04.2026) задумала «не меньше половины каналов,
+    # минимум два» (`>= max(2, (N + 1) // 2)`): один слабый канал из нескольких –
+    # не «риск портфеля», и для здорового портфеля «Сократить X» выдумкой быть не
+    # должно. Запись 58423aa0 (27.04.2026, L23) вычла источник сокращения из
+    # списка отстающих, а порог оставила прежним, – фактически он стал на единицу
+    # строже задуманного. s60 эту строгость сохранила (считает все Cut, включая
+    # источник, со строгим «>»). Поэтому на боевом пути, где источник сокращения
+    # назван всегда, портфель «2 Cut из 3» «Риска» не получал с 27.04.2026;
+    # прежняя фраза «раньше «Риск» (2 >= 2)» верна только для фактов, собранных
+    # вручную в тестах (источник в списке имён не вычтен).
+    # s63 (вопрос №7, решение владельца 16.10.2026): «Риск» – когда Cut-каналов
+    # СТРОГО БОЛЬШЕ ПОЛОВИНЫ портфеля: 2 из 2, 2 из 3, 3 из 4, 3 из 5, 4 из 6
+    # (1 из 2, 2 из 4, 2 из 5, 3 из 6 – нет). Нижняя граница замысла a2fa0bca
+    # «не меньше двух плохих каналов» сохранена явно (`len(loss_all) >= 2`).
+    # На четырёх и шести каналах результат тот же, что у прежнего порога
+    # `> max(2, (N + 1) // 2)`; тот не давал «Риска» портфелю из двух каналов
+    # никогда, а из трёх – только при всех трёх Cut.
+    total_ch = len(channels) or 1
+    # s60 (в): порог «Риска» – только по Cut. После s59 в список отстающих входят
+    # и Reduce (в т.ч. прибыльные насыщенные, mROAS >= 1): их большинство – это
+    # насыщение, а не убыточный портфель, и заголовок обязан остаться
+    # количественным («Перераспределить N млн руб … – +X пп»). Считаются ВСЕ Cut,
+    # включая источник сокращения: список `underperformer_names` источник не
+    # содержит, и при источнике-Reduce порог инвертировался (прибыльные Cut –
+    # «Риск», убыточные – нет). Cut не равен «убыточный»: Cut ставится и прибыльному
+    # каналу, который оптимизатор режет на 50 % и более. Нет факта – те же имена
+    # по каналам; нет и каналов – «Риска» нет.
+    from engines.channel_action import underperformer_names as _underperformer_names
+    _action_by_name: dict = {}
+    for _c in channels:  # первое вхождение имени – как hero_ch ниже и в сборщиках
+        _action_by_name.setdefault(_c.get("name"), _c.get("action") or _c.get("verdict"))
+    _under_all = (
+        (facts["underperformer_names_all"] or []) if "underperformer_names_all" in facts
+        else _underperformer_names(channels)
+    )
+    loss_all = [n for n in _under_all if _action_by_name.get(n) == "Cut"]
+    all_underperf = len(loss_all) >= 2 and 2 * len(loss_all) > total_ch
+    return _action_by_name, loss_all, all_underperf
+
+
+def _recipient_is_cut(action_by_name: dict, scale_dest: str | None, hero: str | None) -> bool:
+    """s63 (решение владельца 16.10.2026): страж «Риска». Получатель – получатель переброски,
+    а без него герой; он сам Cut (все каналы Cut либо герой срезан оптимизатором) –
+    «сфокусировать бюджет» на нём нельзя: таблица действий и ОТВЕТ велят его остановить.
+    Одна точка для слайда «Рекомендация» (s09) и слайда mROAS (s06)."""
+    return action_by_name.get(scale_dest or hero) == "Cut"
+
+
+# Хвост заголовков без получателя переброски (s06, s09) и начало ПРОБЛЕМЫ того же
+# слайда; фраза – по образцу веб-отчёта («Явного канала для роста нет»).
+NO_GROWTH_CHANNEL_TAIL = "явного канала для роста нет"
+# Сценарии `scqar_headline_case`, где заголовок s09 говорит «явного канала для роста нет»:
+# получателя переброски нет, поэтому её прирост («+X пп») к рекомендации слайда не относится.
+SCQAR_NO_RECIPIENT_CASES = ("risk_no_recipient", "single_cut")
+
+
+def scqar_headline_case(channels: list[dict], facts: dict | None) -> str | None:
+    """Какой сценарий выбрал заголовок слайда «Рекомендация» (s09) – одна точка ветвления
+    для `derive_action_headline` и для тела слайда (aurora_pptx: ПРОБЛЕМА, ВОПРОС, ОТВЕТ,
+    действия, «Ожидаемый эффект»), чтобы тело не спорило с заголовком.
+
+    None – нет каналов или фактов; "refused" / "honest" / "not_converged" – запреты выше
+    «Риска» (тело слайда ведёт их своими признаками); "risk" – «Сократить X, Y и
+    сфокусировать бюджет на Z»; "risk_no_recipient" – тот же «Риск», получатель сам Cut;
+    "single_cut" – портфель из одного канала, и он Cut; "shift" – значимая переброска;
+    "uncertain" – большинство вердиктов не определено; "weak_no_shift" – переброска
+    незначима, но Cut-каналы есть (ниже порога «Риска»); "balanced" – остальное.
+    """
+    if not channels or not facts:
+        return None
+    if bool(facts.get("model_refused")):
+        return "refused"
+    if bool(facts.get("honest_narrative")) and facts.get("media_contribution_pct") is not None:
+        return "honest"
+    from engines.channel_action import optimization_not_converged
+    if optimization_not_converged(facts):
+        return "not_converged"
+    from utils.optimizer_honesty import reallocation_subjects
+    subjects = reallocation_subjects(facts)
+    action_by_name, loss_all, all_underperf = _cut_risk(channels, facts)
+    hero = facts.get("hero_channel") or facts.get("leader_channel")
+    if all_underperf and hero:
+        if _recipient_is_cut(action_by_name, subjects["scale_destination"], hero):
+            return "risk_no_recipient"
+        return "risk"
+    total_ch = len(channels) or 1
+    if total_ch == 1 and len(loss_all) == 1:
+        return "single_cut"
+    if subjects["kind"] != "none":
+        return "shift"
+    # B1-fix R-14: «сбалансирован» при неопределённых вердиктах – не то же
+    # самое; сначала снять неопределённость, потом перераспределять.
+    _uncertain_n = sum(1 for c in channels if c.get("verdict") == "Uncertain")
+    if _uncertain_n >= max(2, (total_ch + 1) // 2):
+        return "uncertain"
+    if loss_all:
+        return "weak_no_shift"
+    return "balanced"
+
+
 def derive_action_headline(
     channels: list[dict],
     facts: dict | None,
@@ -525,49 +630,14 @@ def derive_action_headline(
     has_lift = lift_val is not None and lift_val >= 0.5 and not not_converged
     lift_txt = f"+{lift_val:.0f} пп к ROAS" if has_lift else None
 
-    # Порог сценария «Риск» (сколько отстающих делают портфель «в риске»).
-    # История. Запись a2fa0bca (25.04.2026) задумала «не меньше половины каналов,
-    # минимум два» (`>= max(2, (N + 1) // 2)`): один слабый канал из нескольких –
-    # не «риск портфеля», и для здорового портфеля «Сократить X» выдумкой быть не
-    # должно. Запись 58423aa0 (27.04.2026, L23) вычла источник сокращения из
-    # списка отстающих, а порог оставила прежним, – фактически он стал на единицу
-    # строже задуманного. s60 эту строгость сохранила (считает все Cut, включая
-    # источник, со строгим «>»). Поэтому на боевом пути, где источник сокращения
-    # назван всегда, портфель «2 Cut из 3» «Риска» не получал с 27.04.2026;
-    # прежняя фраза «раньше «Риск» (2 >= 2)» верна только для фактов, собранных
-    # вручную в тестах (источник в списке имён не вычтен).
-    # s63 (вопрос №7, решение владельца 16.10.2026): «Риск» – когда Cut-каналов
-    # СТРОГО БОЛЬШЕ ПОЛОВИНЫ портфеля: 2 из 2, 2 из 3, 3 из 4, 3 из 5, 4 из 6
-    # (1 из 2, 2 из 4, 2 из 5, 3 из 6 – нет). Нижняя граница замысла a2fa0bca
-    # «не меньше двух плохих каналов» сохранена явно (`len(loss_all) >= 2`).
-    # На четырёх и шести каналах результат тот же, что у прежнего порога
-    # `> max(2, (N + 1) // 2)`; тот не давал «Риска» портфелю из двух каналов
-    # никогда, а из трёх – только при всех трёх Cut.
-    total_ch = len(channels) or 1
-    # s60 (в): порог «Риска» – только по Cut. После s59 в список отстающих входят
-    # и Reduce (в т.ч. прибыльные насыщенные, mROAS >= 1): их большинство – это
-    # насыщение, а не убыточный портфель, и заголовок обязан остаться
-    # количественным («Перераспределить N млн руб … – +X пп»). Считаются ВСЕ Cut,
-    # включая источник сокращения: список `underperformer_names` источник не
-    # содержит, и при источнике-Reduce порог инвертировался (прибыльные Cut –
-    # «Риск», убыточные – нет). Cut не равен «убыточный»: Cut ставится и прибыльному
-    # каналу, который оптимизатор режет на 50 % и более. Нет факта – те же имена
-    # по каналам; нет и каналов – «Риска» нет.
     from engines.channel_action import (
         HERO_CUT_CLAUSE,
         hero_cut_clause_applies,
         is_underperformer,
-        underperformer_names as _underperformer_names,
     )
-    _action_by_name: dict = {}
-    for _c in channels:  # первое вхождение имени – как hero_ch ниже и в сборщиках
-        _action_by_name.setdefault(_c.get("name"), _c.get("action") or _c.get("verdict"))
-    _under_all = (
-        (facts["underperformer_names_all"] or []) if "underperformer_names_all" in facts
-        else _underperformer_names(channels)
-    )
-    loss_all = [n for n in _under_all if _action_by_name.get(n) == "Cut"]
-    all_underperf = len(loss_all) >= 2 and 2 * len(loss_all) > total_ch
+    # Порог «Риска» и действия каналов по имени – `_cut_risk` (одна точка для заголовков
+    # и для `scqar_headline_case`, по которому сборщик презентации согласует тело слайда).
+    _action_by_name, loss_all, all_underperf = _cut_risk(channels, facts)
 
     # 🔴 s47 (14.09.2026): стороны переброски здесь брались из leader/hero — той
     # же пары, что подвела сводку веб-отчёта. Заголовки слайдов спорили с текстом
@@ -624,6 +694,10 @@ def derive_action_headline(
             _sfx = " устойчив" if _stable else ""
             return f"Защитить лидерство {hero} – mROAS {hero_m:.2f}×{_sfx}"
         if all_underperf:
+            # s63 пакет (п.3): тот же страж, что у «Риска» на s09 – получатель сам Cut,
+            # «сфокусировать бюджет» звать некуда.
+            if _recipient_is_cut(_action_by_name, scale_dest, hero):
+                return f"Сократить неэффективные каналы – {NO_GROWTH_CHANNEL_TAIL}"
             return "Сократить неэффективные каналы и сфокусировать бюджет"
         return "Сбалансировать портфель по mROAS – один канал не доминирует"
 
@@ -677,7 +751,9 @@ def derive_action_headline(
 
     if slide_hint == "scqar":
         # s09 - 3 scenarios: Rebalance / Hold+control / Risk
-        if all_underperf and hero:
+        # s63 пакет: ветвление – одной функцией с телом слайда (scqar_headline_case).
+        _case = scqar_headline_case(channels, facts)
+        if _case in ("risk", "risk_no_recipient"):
             # Risk scenario - net portfolio underperformance.
             # 🔴 s47: список отстающих собирается БЕЗ cut_source — его вычёркивает
             # _derive_narrative_facts (dedup, чтобы канал не назывался дважды).
@@ -691,16 +767,16 @@ def derive_action_headline(
             # s63 (решение владельца 16.10.2026): страж. Получатель сам Cut (все каналы
             # Cut либо герой срезан оптимизатором) – «сфокусировать бюджет» на нём
             # нельзя: таблица действий и ОТВЕТ велят его остановить. Фраза – по образцу
-            # веб-отчёта («Явного канала для роста нет»).
-            if _action_by_name.get(_grow) == "Cut":
-                return f"Сократить {names} – явного канала для роста нет"
+            # веб-отчёта («Явного канала для роста нет»). Условие – `_recipient_is_cut`.
+            if _case == "risk_no_recipient":
+                return f"Сократить {names} – {NO_GROWTH_CHANNEL_TAIL}"
             return f"Сократить {names} и сфокусировать бюджет на {_grow}"
-        if total_ch == 1 and len(loss_all) == 1:
+        if _case == "single_cut":
             # s63 (решение владельца 16.10.2026): портфель из одного канала, и он Cut.
             # Порог «Риска» требует двух отстающих, но «Портфель сбалансирован» при
             # единственном канале к сокращению – неправда, а расчётного получателя нет.
-            return f"Сократить {loss_all[0]} – явного канала для роста нет"
-        if subjects["kind"] != "none":
+            return f"Сократить {loss_all[0]} – {NO_GROWTH_CHANNEL_TAIL}"
+        if _case == "shift":
             # 🔴 s47: ветки гейтились условием `hero != leader` — соотношением,
             # которое к наличию переброски отношения не имеет. При совпадении
             # лидера и героя заголовок говорил «Портфель сбалансирован», пока
@@ -720,9 +796,15 @@ def derive_action_headline(
             return f"Сократить {cut_source} ({format_realloc_mln(realloc)} млн руб){_tail}"
         # B1-fix R-14: «сбалансирован» при неопределённых вердиктах — не то же
         # самое; сначала снять неопределённость, потом перераспределять.
-        _uncertain_n = sum(1 for c in channels if c.get("verdict") == "Uncertain")
-        if _uncertain_n >= max(2, (total_ch + 1) // 2):
+        if _case == "uncertain":
             return "Снять неопределённость вердиктов перед ре-аллокацией – интервалы эффективности широки"
+        if _case == "weak_no_shift":
+            # s63 пакет (п.1, Д1): переброска незначима, но Cut-каналы есть (ниже порога
+            # «Риска») – не «Портфель сбалансирован»: таблица действий велит их остановить.
+            # Имена – Cut, худший первым, не больше двух (как у «Риска»).
+            if len(loss_all) == 1:
+                return f"Крупной переброски нет, но {loss_all[0]} – слабый канал"
+            return f"Крупной переброски нет, но {', '.join(loss_all[:2])} – слабые каналы"
         # Hold + control scenario
         return "Портфель сбалансирован – рекомендуется A/B тест перед ре-аллокацией"
 
