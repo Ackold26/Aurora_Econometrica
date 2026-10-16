@@ -190,9 +190,11 @@ def test_risk_threshold_reads_verdict_when_action_missing():
     assert h3.startswith("Перераспределить"), h3
 
 
-@pytest.mark.parametrize("n_cut, risk", [(4, True), (3, False)])
-def test_risk_boundary_four_of_five_cut_is_risk_three_is_not(n_cut, risk):
-    """Граница порога `> max(2, (N + 1) // 2)` на пяти каналах: четыре Cut – «Риск», три – нет."""
+@pytest.mark.parametrize("n_cut, risk", [(4, True), (3, True), (2, False)])
+def test_risk_boundary_on_five_channels_three_cut_is_risk_two_is_not(n_cut, risk):
+    """Граница порога на пяти каналах. Было (s60): `> max(2, (N + 1) // 2)` – четыре Cut «Риск», три
+    нет. Стало (s63, решение владельца 16.10): Cut строго больше половины (3 из 5) – «Риск»; два – нет.
+    Три Cut из пяти раньше давали «Перераспределить …», теперь «Сократить A, B и сфокусировать …»."""
     rows = [("S", "Scale", 5.0), ("A", "Cut", 0.2), ("B", "Cut", 0.5), ("C", "Cut", 0.7), ("D", "Cut", 0.9)]
     rows = [r if i <= n_cut else (r[0], "Hold", r[2]) for i, r in enumerate(rows)]
     ch = _syn(*rows)
@@ -206,14 +208,21 @@ def test_risk_boundary_four_of_five_cut_is_risk_three_is_not(n_cut, risk):
 
 def test_risk_threshold_counts_cut_source_whatever_its_action():
     """Инверсия порога (аудит s60, High-2): прежний порог считал Cut БЕЗ источника сокращения, поэтому
-    при источнике-Reduce прибыльные Cut давали «Риск», а убыточные – нет. Теперь считаются ВСЕ Cut:
-    три Cut из пяти – не «Риск» при любом источнике (прибыльные Cut, убыточные Cut, источник Reduce)."""
+    при источнике-Reduce прибыльные Cut давали «Риск», а убыточные – нет. Считаются ВСЕ Cut, и при любом
+    источнике (j: источник Reduce, три прибыльных Cut; k: источник Cut, три убыточных Cut) ответ один.
+    Было (s60): три Cut из пяти – не «Риск», оба портфеля «Перераспределить …». Стало (s63): три из
+    пяти – строгое большинство, оба «Риск»; нет инверсии – два Cut при источнике-Reduce, как раньше, нет."""
     j = _syn(("S", "Scale", 5.0), ("R", "Reduce", 0.085), ("P", "Cut", 3.0), ("B", "Cut", 2.0), ("O", "Cut", 1.8))
     k = _syn(("S", "Scale", 5.0), ("R", "Cut", 0.085), ("P", "Cut", 0.6), ("B", "Cut", 0.5), ("O", "Hold", 1.8))
-    for ch in (j, k):
+    for ch, expected in ((j, "Сократить R, O и сфокусировать бюджет на S"),
+                         (k, "Сократить R, B и сфокусировать бюджет на S")):
         assert _syn_facts(ch)["cut_source_channel"] == "R"
-        h = derive_action_headline(ch, _syn_facts(ch), "scqar") or ""
-        assert h.startswith("Перераспределить"), h
+        assert derive_action_headline(ch, _syn_facts(ch), "scqar") == expected
+    # два Cut из пяти при источнике-Reduce (прибыльные Cut P и B): ниже порога, как и без Reduce
+    two = _syn(("S", "Scale", 5.0), ("R", "Reduce", 0.085), ("P", "Cut", 3.0), ("B", "Cut", 2.0), ("O", "Hold", 1.8))
+    assert _syn_facts(two)["cut_source_channel"] == "R"
+    h = derive_action_headline(two, _syn_facts(two), "scqar") or ""
+    assert h.startswith("Перераспределить"), h
     # четыре Cut при источнике-Reduce (шесть каналов): «Риск», источник назван первым, затем Cut
     six = _syn(("S", "Scale", 5.0), ("R", "Reduce", 0.085), ("P", "Cut", 0.6), ("B", "Cut", 0.7),
                ("O", "Cut", 0.8), ("T", "Cut", 0.9))
@@ -246,15 +255,19 @@ def test_duplicate_channel_name_first_occurrence_decides_the_action():
     assert h == "Сократить A, B и сфокусировать бюджет на S", h
 
 
-def test_two_channel_portfolio_never_gets_risk():
-    """Намеренное следствие строгого «>» и пола 2: портфель из двух каналов «Риска» не получает
-    (раньше при двух каналах максимум один отстающий без источника)."""
+def test_two_channel_portfolio_all_cut_gets_risk_without_focus():
+    """Было (s60): портфель из двух каналов «Риска» не получал никогда (строгое «>» и пол 2). Стало (s63,
+    решение владельца 16.10): 2 из 2 Cut – «Риск», но получатель сам Cut, поэтому страж: вместо
+    «Сократить A, B и сфокусировать бюджет на B» – «Сократить A, B – явного канала для роста нет».
+    Три из трёх – тоже страж (раньше «… и сфокусировать бюджет на C», где C – Cut)."""
     ch = _syn(("A", "Cut", 0.2), ("B", "Cut", 0.5))
     f = _syn_facts(ch, hero_channel="A", leader_channel="A", scale_destination_channel=None)
-    assert not (derive_action_headline(ch, f, "scqar") or "").startswith("Сократить A, B")
+    assert derive_action_headline(ch, f, "scqar") == "Сократить A, B – явного канала для роста нет"
+    f_hero_b = _syn_facts(ch, hero_channel="B", leader_channel="B", scale_destination_channel=None)
+    assert derive_action_headline(ch, f_hero_b, "scqar") == "Сократить A, B – явного канала для роста нет"
     three = _syn(("A", "Cut", 0.2), ("B", "Cut", 0.5), ("C", "Cut", 0.7))
     h = derive_action_headline(three, _syn_facts(three, hero_channel="C", scale_destination_channel="C"), "scqar") or ""
-    assert h == "Сократить A, B и сфокусировать бюджет на C", h  # три из трёх – «Риск»
+    assert h == "Сократить A, B – явного канала для роста нет", h
 
 
 def test_risk_falls_back_to_channels_when_facts_have_no_names_list():

@@ -307,9 +307,11 @@ def test_watch_majority_does_not_trigger_risk_headlines():
 
 def test_scqar_headline_names_two_worst_channels_not_watch():
     """Заголовок слайда SCQAR при «все отстающие»: два худших по mROAS (Cut/Reduce), не Watch.
-    Пять каналов, все Cut: источник – худший, следом – второй по mROAS."""
+    Пять каналов, все Cut: источник – худший, следом – второй по mROAS. Было (s60): «… и сфокусировать
+    бюджет на Social». Стало (s63, страж): Social сам Cut (герой срезан оптимизатором) – фокусироваться
+    на нём заголовок не зовёт: «… – явного канала для роста нет»."""
     b = _built("all_cut")
-    expected = f"Сократить {_TRPS}, OLV и сфокусировать бюджет на Social"
+    expected = f"Сократить {_TRPS}, OLV – явного канала для роста нет"
     assert derive_action_headline(b.channels, b.facts, "scqar") == expected
     assert expected in b.scqar_slide, b.scqar_slide
 
