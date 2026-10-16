@@ -95,7 +95,8 @@ def test_A4_v1_1_5_warning(tmp_path):
     r = decompose(str(proj))
     assert is_ok(r)
     assert r.get('model_warning') is not None
-    assert 'adstock' in r['model_warning'].lower()
+    # 26e88738: текст по-русски («adstock» → «затухание отложенного эффекта»)
+    assert 'фиксированным затуханием' in r['model_warning'].lower()
 
 
 def test_A5_hierarchical_v1_3(tmp_path):
