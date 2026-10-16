@@ -30,6 +30,7 @@ import {
   _resetCache,
 } from '$lib/services/classifier-patterns.js';
 import { buildExpressPlan } from '$lib/express-validate.js';
+import { parseChannelMetric, groupChannelColumns } from '$lib/channel-pairs.js';
 
 const SNAPSHOT_PATH = path.join(
   process.cwd(),
@@ -86,6 +87,51 @@ describe('К3-1 сторож: запасной набор не беднее дв
       expect(missing, `в запасном наборе нет шаблонов движка (${kind})`).toEqual([]);
     });
   }
+
+  // s63 №13: для ДЕНЕЖНЫХ вложения мало. Лишний денежный шаблон в запасном наборе – опасная
+  // сторона: физическая колонка уходит в обучение как рубли. Поэтому запасной денежный набор
+  // обязан РАВНЯТЬСЯ белому списку движка, кроме перечисленных ниже прежних узких шаблонов
+  // (класс разделителей `_\s-`): они строго уже шаблонов движка (то же слово, класс уже),
+  // потому лишних имён не добавляют – это проверяется поведением на пробном наборе имён.
+  const LEGACY_NARROW_MONETARY = [
+    '(?:^|(?<=[_\\s\\-]))spend(?:s|ing)?(?=[_\\s\\-]|$)',
+    '(?:^|(?<=[_\\s\\-]))budget(?=[_\\s\\-]|$)',
+    '(?:^|(?<=[_\\s\\-]))cost(?:s)?(?=[_\\s\\-]|$)',
+    '(?:^|(?<=[_\\s\\-]))бюджет(?:ы|а|ов)?(?=[_\\s\\-]|$)',
+    '(?:^|(?<=[_\\s\\-]))расход(?:ы|ов|а)?(?=[_\\s\\-]|$)',
+    '(?:^|(?<=[_\\s\\-]))rub(?=[_\\s\\-]|$)',
+  ];
+  const MONETARY_PROBE_NAMES = [
+    'tv_spend', 'TV spend', 'tv-budget', 'cost_tv', 'бюджет_тв', 'Расходы ТВ', 'tv_rub', 'rub',
+    'TV (spend)', 'OLV.cost', 'tv/spend', "TV'budget", 'TV [rub]', 'TV–spend', 'Бюджет/GRP',
+    'TV (GRP)', 'tv_grp', 'ТВ/GRP', 'Контекст (клик)', 'olv_views', 'spends', 'costly', 'budgeting',
+    'tv_расходы', 'расходная', 'Прочее',
+  ];
+
+  it('№13: запасной ДЕНЕЖНЫЙ набор равен белому списку движка (лишний денежный шаблон – красный)', async () => {
+    const fallback = await loadFallback();
+    const engine = new Set(snapshot.kinds.monetary);
+    const legacy = new Set(LEGACY_NARROW_MONETARY);
+    const extra = [...new Set(fallback.kinds.monetary)].filter((p) => !engine.has(p) && !legacy.has(p));
+    expect(extra, `в запасном наборе лишние денежные шаблоны, которых нет у движка`).toEqual([]);
+  });
+
+  it('№13: прежние узкие денежные шаблоны запасного набора не шире движка (поведением)', async () => {
+    const fallback = await loadFallback();
+    const engineRx = snapshot.kinds.monetary.map((/** @type {string} */ p) => new RegExp(p, 'i'));
+    const legacyInFallback = LEGACY_NARROW_MONETARY.filter((p) => fallback.kinds.monetary.includes(p));
+    for (const p of legacyInFallback) {
+      const rx = new RegExp(p, 'i');
+      for (const name of MONETARY_PROBE_NAMES) {
+        if (rx.test(name)) {
+          expect(
+            engineRx.some((e) => e.test(name)),
+            `«${name}»: узкий шаблон ${p} денежный, а движок – нет`,
+          ).toBe(true);
+        }
+      }
+    }
+  });
 
   it('правила ярлыков единиц движка есть в EMBEDDED_FALLBACK', async () => {
     const fallback = await loadFallback();
@@ -219,5 +265,146 @@ describe('К3-1: экспресс-путь на запасном наборе н
     const p = expressPlan(['TV (spend)', 'Radio (бюджет)', 'OLV.cost']);
     expect(p.eligible).toBe(true);
     expect(Object.keys(p.uniform)).toHaveLength(3);
+  });
+});
+
+describe('s63 №12 и №14: голое «клик» и знаки `/ | [ ] – \'` на ЗАПАСНОМ наборе', () => {
+  beforeEach(async () => {
+    await loadFallback();
+  });
+
+  it.each([
+    ['клик'],
+    ['Клик'],
+    ['клики'],
+    ['кликов'],
+    ['Контекст (клик)'],
+    ['Контекст_клик'],
+    ['Контекст [клик]'],
+    ['Контекст/клик'],
+    ['ТВ/GRP'],
+    ['ТВ/ГРП'],
+    ['TV–GRP'], // U+2013
+    ['TV | GRP'],
+    ['TV [GRP]'],
+    ["TV'GRP"],
+    ['OLV/views'],
+    ['OLV [views]'],
+  ])('«%s» → physical', (name) => {
+    expect(detectChannelUnitType(name)).toBe('physical');
+  });
+
+  // каждый новый знак отдельно с каждой стороны слова: слева лежит `(?<=[...])`, справа `(?=[...])`
+  it.each(['/', '|', '[', ']', '–', "'"])('знак «%s» – разделитель слева и справа от слова', (sep) => {
+    expect(detectChannelUnitType(`TV${sep}GRP`)).toBe('physical');
+    expect(detectChannelUnitType(`GRP${sep}TV`)).toBe('physical');
+  });
+
+  it.each([
+    ['Бюджет ТВ / Москва'],
+    ['TV | spend'],
+    ['ТВ|бюджет'],
+    ['tv/spend'],
+    ['tv/rub'],
+    ['TV–spend'],
+    ["TV'spend"],
+    ['Бюджет/GRP'], // «бюджет на GRP» – деньги: денежный маркер сильнее физического
+    ['Cost/GRP'],
+    ['Spend [GRP]'],
+    ['Клик-бюджет'],
+    ['Бюджет, клик'],
+    ['Затраты на клики'],
+    ['Контекст (клик), ₽'],
+    ['ТВ [руб]'], // «руб» – не маркер ни у движка, ни здесь: деньги по умолчанию
+    ['TV/OLV'],
+  ])('«%s» → monetary', (name) => {
+    expect(detectChannelUnitType(name)).toBe('monetary');
+  });
+
+  it.each([
+    ['TV/GRPX'],
+    ['TV/grpmax'],
+    ['ТВ/ГРПэ'],
+    ['TV|reacher'],
+    ['TV/reachable'],
+    ["TV'impressionist"],
+    ['OLV [viewport]'],
+    ['Контекст/кликабельность'],
+    ['кликер'],
+  ])('слово внутри длинного слова не срабатывает: «%s» → monetary', (name) => {
+    expect(detectChannelUnitType(name)).toBe('monetary');
+  });
+
+  it('длинное тире U+2014 разделителем не стало', () => {
+    expect(detectChannelUnitType('TV—GRP')).toBe('monetary');
+  });
+
+  it('экспресс-путь: «ТВ/GRP» и «Контекст (клик)» не уходят в обучение как рубли', () => {
+    const plan = buildExpressPlan({
+      validateResult: {
+        status: 'ok',
+        columns: [
+          { name: 'date', role: 'date' },
+          { name: 'sales_rub', role: 'kpi' },
+          { name: 'tv_spend', role: 'media' },
+          { name: 'ТВ/GRP', role: 'media' },
+          { name: 'Контекст (клик)', role: 'media' },
+        ],
+      },
+      currentKPI: 'sales',
+      kpiUnavailable: false,
+      kpiKind: 'monetary',
+      isPhysicalChannel: (/** @type {string} */ name) => detectChannelUnitType(name) === 'physical',
+    });
+    expect(plan.eligible).toBe(false);
+    expect(plan.uniform['ТВ/GRP']).toBeUndefined();
+    expect(plan.uniform['Контекст (клик)']).toBeUndefined();
+  });
+});
+
+describe('s63: парность двух классификаторов – разбор пар (channel-pairs.js) и детектор шаблонов', () => {
+  // Разбор пар видит суффикс только после `_`, пробела или `-`; детектор знает больше разделителей.
+  // Допустимое расхождение: разбор пар молчит (metric: null), вердикт даёт детектор через
+  // isPhysicalName в groupChannelColumns. НЕДОПУСТИМО: противоположные вердикты.
+  const PHYSICAL_NEW = [
+    'ТВ/GRP', 'TV–GRP', 'TV [GRP]', "TV'GRP", 'ТВ|ГРП', 'TV | GRP',
+    'Контекст (клик)', 'Контекст/клик', 'Контекст_клик', 'OLV [views]', 'OLV/views',
+  ];
+  const MONETARY_NEW = [
+    'Бюджет ТВ / Москва', 'TV | spend', 'ТВ|бюджет', 'tv/spend', "TV'spend", 'TV–spend',
+    'Бюджет/GRP', 'Cost/GRP', 'Spend [GRP]', 'ТВ [руб]', 'Клик-бюджет',
+  ];
+
+  beforeEach(async () => {
+    await loadFallback();
+  });
+
+  it('физические имена: разбор пар не говорит «денежная» (метрика physical или молчание)', () => {
+    for (const name of PHYSICAL_NEW) {
+      expect(detectChannelUnitType(name), name).toBe('physical');
+      expect(parseChannelMetric(name).metric, name).not.toBe('monetary');
+    }
+  });
+
+  it('денежные имена: разбор пар не говорит «физическая» (метрика monetary или молчание)', () => {
+    for (const name of MONETARY_NEW) {
+      expect(detectChannelUnitType(name), name).toBe('monetary');
+      expect(parseChannelMetric(name).metric, name).not.toBe('physical');
+    }
+  });
+
+  // Известное расхождение ДО s63, не от новых знаков: запятая и скобки разделяют слова у детектора, но не
+  // у разбора пар (класс `[_\s-]`): «Бюджет, клик» – детектор «деньги», разбор пар «физическая».
+  // Чинится расширением трёх регулярных выражений channel-pairs.js (решение владельца), не здесь.
+  it.todo('«Бюджет, клик»: разбор пар и детектор расходятся в противоположные стороны (запятая)');
+
+  it('группировка с детектором кладёт новые физические имена в physical, денежные – в monetary', () => {
+    const isPhysical = (/** @type {string} */ n) => detectChannelUnitType(n) === 'physical';
+    const { byChannel } = groupChannelColumns([...PHYSICAL_NEW, ...MONETARY_NEW], isPhysical);
+    const physical = Object.values(byChannel).flatMap((c) => c.physical);
+    const monetary = Object.values(byChannel).flatMap((c) => c.monetary);
+    for (const name of PHYSICAL_NEW) expect(physical, name).toContain(name);
+    for (const name of MONETARY_NEW) expect(monetary, name).toContain(name);
+    for (const name of PHYSICAL_NEW) expect(monetary, name).not.toContain(name);
   });
 });
